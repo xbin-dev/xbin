@@ -229,6 +229,32 @@ async function llm(browser) {
     await A.page.unroute('**/api/xbin/llm/config', notice);
     check((await cfg()).concurrency === 8 && /the key of upstream fake was removed/.test(await admin.locator('[data-notices]').innerText()),
       'calls at once: saved; a write\'s notices are shown at the top');
+    // a provider xbind found to have no Responses API (its calls are translated to chat completions): the row says
+    // so, with when it was found, and a reset that has the provider asked again. This upstream has the API, so
+    // the detection is put into one answer here — what xbind's own answer carries is internal/llm's test
+    const found = async (route) => {
+      if (route.request().method() !== 'PUT') return route.continue();
+      const res = await route.fetch();
+      const j = await res.json();
+      j.upstreams = (j.upstreams ?? []).map((u) => (u.name === UP ? { ...u, translating: true, translatingSince: '2026-11-17T13:02:00Z' } : u));
+      return route.fulfill({ response: res, json: j });
+    };
+    await A.page.route('**/api/xbin/llm/config', found);
+    await admin.locator('form[data-concurrency] input').fill('9');
+    await admin.locator('[data-save-concurrency]').click();
+    const badge = row.locator('[data-translating=detected]');
+    await badge.waitFor({ timeout: 10000 });
+    await A.page.unroute('**/api/xbin/llm/config', found);
+    check(/^Responses: translated — detected \d{1,2}[:.]\d{2}/i.test((await badge.innerText()).trim()), `a detected chat-only provider's row says "Responses: translated — detected <time>" (${(await badge.innerText()).trim()})`);
+    await shotEl(A.page, `bx-llm-upstreams tr[data-upstream=${UP}]`, `llm-provider-translated-${THEME}`);
+    const reset = A.page.waitForRequest((r) => r.url().endsWith(`/api/xbin/llm/upstreams/${UP}`) && r.method() === 'PUT');
+    await row.locator('[data-redetect]').click();
+    const sent = (await reset).postDataJSON();
+    check(sent.responsesVia === 'auto' && Object.keys(sent).length === 1, `reset sends responsesVia: auto and nothing else (${JSON.stringify(sent)})`);
+    await until(async () => await row.locator('[data-translating]').count() === 0, 'after the reset the row no longer says translated');
+    await admin.locator('form[data-concurrency] input').fill('8');
+    await admin.locator('[data-save-concurrency]').click();
+    await until(async () => (await cfg()).concurrency === 8, 'calls at once is 8 again');
     const base = await used('dev1'); // counts from an earlier run today stay: limits are set relative to them
     const quotas = admin.locator('bx-llm-quotas');
     const setQuota = async (subject, fields, action) => {

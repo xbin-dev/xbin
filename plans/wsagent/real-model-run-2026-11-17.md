@@ -437,7 +437,7 @@ No approval, taint, scope or redaction rule was changed.
   has only Responses), and a control for `responsesVia` on `/xbin/llm`'s
   provider form (the row says "Responses: translated", with when it was
   detected and a reset; choosing `chat` or `upstream` is the API's and
-  `bx`'s). The row's badge and reset have no asserting harness pass.
+  `bx`'s; the harness's `llm` pass asserts the badge and the reset).
 - `truncation: "auto"` on a translated call is refused when the request
   is over the model's context, not applied: the connector doesn't know a
   chat upstream's context size.
