@@ -26,7 +26,14 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   section by its heading or its name and names the sections on a miss;
   `docs_search` answers a question in a sentence with the closest
   sections; a plan's result shows a brief its template wrote and says
-  what a start line's mode means.
+  what a start line's mode means; a read the tile's backend crashed on
+  comes with the log's last lines, and `tile_status` says what "idle"
+  does and doesn't tell; the session block says what can't be verified
+  with MCP tools off and that previews are unavailable once known; the
+  notebook's list marks what the conversation itself wrote;
+  `admin_propose` says it can't give one person access to a tile; a
+  filtered `workspace_map` says it is filtered; `mcp_tools` lists a
+  tool's arguments as a line.
 - **Agent template: a provider's hiccup no longer stops a conversation.**
   A model call that failed with something that may be gone a moment later
   (the provider's `5xx` or `429`, a call that got no answer) is made again
