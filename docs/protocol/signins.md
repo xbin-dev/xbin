@@ -45,8 +45,16 @@ GET    /agent/signins/people      a workspace admin. {available, why?,
 DELETE /agent/signins/people/<user>/<id>
                                    a workspace admin. revoke one →
                                    {ok, ended}
-PUT    /agent/signins/policy      a workspace admin. {enabled} → {policy,
-                                   ended}; 409 while the host's file sets it
+PUT    /agent/signins/policy      a workspace admin. {enabled?, trust?} →
+                                   {policy, ended}; 409 while the host's
+                                   file sets the one written
+POST   /agent/signins/trust       a person. {tile} → 201 {trust}: "I trust
+                                   this tile's source" — your saved sign-in
+                                   is used in your sessions there. 409 the
+                                   tile is yours alone; 403 trusting is off
+DELETE /agent/signins/trust/<id>  a person. → {ok, ended}: no longer
+                                   trusted; your sessions there on a saved
+                                   sign-in are ended
 ```
 
 **No answer of any route carries a secret, or a part of one** — not a

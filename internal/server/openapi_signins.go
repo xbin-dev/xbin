@@ -41,8 +41,14 @@ func signinsEndpoints() []ep {
 		{"DELETE", "/agent/signins/people/{user}/{id}", "Agent sessions", "Revoke one of a person's sign-ins", admin,
 			"Removes it, ends that person's sessions running on it, and leaves them a notice naming who did it. 404 no such sign-in. Audited.",
 			[]oapi{pathParam("user", "user id"), pathParam("id", "sign-in id")}, nil, "{ok, ended}"},
-		{"PUT", "/agent/signins/policy", "Agent sessions", "Set whether people may save sign-ins", admin,
-			"The workspace's switch, on by default. Off: nothing is put into a session, nothing can be saved or made default, and the running sessions that carry a saved sign-in are ended (ended: how many); what is saved stays listed and removable, and works again when the switch returns. 409 the host's file sets it (agentSignIns in XBIN_LLM_CONFIG). Audited.",
-			nil, jsonBody("the switch", oapi{"enabled": boolean()}, "enabled"), "{policy, ended}"},
+		{"PUT", "/agent/signins/policy", "Agent sessions", "Set the workspace's switches on saved sign-ins", admin,
+			"enabled: whether people may save sign-ins and have them used, on by default. Off: nothing is put into a session, nothing can be saved or made default, and the running sessions that carry a saved sign-in are ended (ended: how many); what is saved stays listed and removable, and works again when the switch returns. trust: whether people may trust a tile whose source isn't only their own (POST /agent/signins/trust) and have their sign-in used there, allowed by default; off, the sessions that ran on such a trust are ended and the card says an admin can change it. 409 the host's file sets the one written (agentSignIns, agentSignInTrust in XBIN_LLM_CONFIG). Audited.",
+			nil, jsonBody("the switches", oapi{"enabled": boolean(), "trust": boolean()}), "{policy, ended}"},
+		{"POST", "/agent/signins/trust", "Agent sessions", "Trust a tile's source", person,
+			"\"I trust this tile's source\": the caller's own answer for a tile — or a directory in one — they may open a terminal on, whose source isn't only their own (it is owned by someone else, or someone else who isn't an admin can change it). Their saved sign-in is then used in their sessions there. Kept for the tile as it stands: the tile itself (not its path), its owner and who can change it — a new person able to change it, another owner, or a tile made again at the path asks again. 201 {trust: {id, tile, name?, at, via, holds}}. 409 the tile is the caller's alone (nothing to trust) or can't be told from another at its path; 403 trusting is switched off for the workspace; 404 no such tile. Only a person's own session, app or device: never a tile's credentials, a person's agent, view-as or the root token. Audited.",
+			nil, jsonBody("the tile", oapi{"tile": str("a tile path, or a directory inside one")}, "tile"), "{trust}"},
+		{"DELETE", "/agent/signins/trust/{id}", "Agent sessions", "Stop trusting a tile's source", person,
+			"Removes the caller's answer and ends their sessions on that tile that run on a saved sign-in (ended: how many). 404 not theirs.",
+			[]oapi{pathParam("id", "trust id")}, nil, "{ok, ended}"},
 	}
 }

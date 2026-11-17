@@ -1,6 +1,8 @@
 package server
 
 import (
+	"fmt"
+	"net/http"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -112,9 +114,10 @@ func TestDelegateStartDefaultsSavedSignIn(t *testing.T) {
 	w := delegateWorld(t)
 	alice := delegateCred("d-alice")
 	w.s.Signins = signins.New(signins.Options{Dir: filepath.Join(t.TempDir(), "signins"), AllowPlaintext: true})
-	others := []string{}
+	var others []string
+	owner := ""
 	w.s.Term.Signins, w.s.Term.SigninDev = w.s.Signins, true
-	w.s.Term.SigninOthers = func(user, tile string) (string, []string, bool) { return tile, others, true }
+	w.s.Term.SigninSource = testSource(&owner, &others)
 	llm := map[string]*term.ProviderLLM{
 		"claude": {Use: "own"}, "gemini": {Use: "own"},
 		"codex": {Use: "own-first", Connector: true}, "opencode": {Use: "connector", Connector: true},
@@ -171,20 +174,82 @@ func TestDelegateStartDefaultsSavedSignIn(t *testing.T) {
 	if sess["signIn"] != "saved" || sess["signInId"] != mine[0].ID || sess["savedSignIn"] != nil {
 		t.Fatalf("the approval's preview: %v", sess)
 	}
-	// where her preference lets the agent start unasked, no saved sign-in is used: the answer doesn't promise one
-	w.policy.set(func(p *dPolicy) { p.prefs["alice"] = delegation.StartPrefs{Mode: c.Mode, API: true} })
-	if c2, _ := get().of("claude"); c2.SignIn == "saved" || c2.NeedsTicket {
-		t.Fatalf("a start that isn't approved was promised the saved sign-in: %+v", c2)
+	if sess["signInTrust"] != nil {
+		t.Fatalf("her own tile carries a trust line: %v", sess["signInTrust"])
 	}
-	w.policy.set(func(p *dPolicy) { delete(p.prefs, "alice") })
-	// a session saw no login of Claude Code's in her home, and the tile is
-	// shared: the saved sign-in is left out, the card says a sign-in is needed
+	if d, why := ticketStart(req.Preview); why != "" || d.Signin != mine[0].ID || d.TrustAsked || !d.Approved {
+		t.Fatalf("the ticket's start: %+v %q", d, why)
+	}
+	// the default is on: where her preference lets the agent start unasked
+	// on her own tile, the session gets her sign-in and the answer says so
+	w.policy.set(func(p *dPolicy) { p.prefs["alice"] = delegation.StartPrefs{Mode: c.Mode, API: true} })
+	if c2, _ := get().of("claude"); c2.SignIn != "saved" || c2.NeedsTicket {
+		t.Fatalf("an unasked start on her own tile: %+v", c2)
+	}
+	// …and never into a tile whose source isn't only hers, until she trusts it
 	w.s.Term.NoteHomeLogin("alice", "claude", false)
 	others = []string{"bob"}
+	if c2, _ := get().of("claude"); c2.SignIn != "needed" || c2.NeedsTicket {
+		t.Fatalf("an unasked start on a tile bob can change was promised her sign-in: %+v", c2)
+	}
+	w.policy.set(func(p *dPolicy) { delete(p.prefs, "alice") })
+	// a start she is asked to approve there names the sign-in AND carries
+	// the trust line; approving without ticking it records no trust, and
+	// the ticket's start is one that asked
+	d = get()
+	c, _ = d.of("claude")
+	if d.Harness != "claude" || c.SignIn != "saved" || !c.NeedsTicket {
+		t.Fatalf("a tile bob can change, a start she approves: %q %+v", d.Harness, c)
+	}
+	sid := w.s.Auth.NewSession("alice", "")
+	own := func(r *http.Request) { r.AddCookie(&http.Cookie{Name: auth.CookieName, Value: sid}) }
+	ask := func() delegation.Request {
+		return w.ask(alice, "POST", "/api/xbin/term/sessions", `{"cwd":"apps/x","kind":"agent","provider":"claude","prompt":"p"}`)
+	}
+	req = ask()
+	sess, _ = req.Preview["session"].(map[string]any)
+	line, _ := sess["signInTrust"].(map[string]any)
+	if sess["signIn"] != "saved" || sess["signInId"] != mine[0].ID || line == nil || line["ownerKind"] != "you" || line["allowed"] != true || fmt.Sprint(line["editors"]) != "[bob]" {
+		t.Fatalf("the approval's preview on a tile bob can change: %v", sess)
+	}
+	if d, _ := ticketStart(req.Preview); d == nil || !d.TrustAsked || d.Signin != mine[0].ID {
+		t.Fatalf("the ticket's start: %+v", d)
+	}
+	if rec := w.do(w.full, "POST", "/api/xbin/delegate/requests/"+req.ID+"/approve", `{"grant":"once"}`, own); rec.Code != 200 {
+		t.Fatalf("approve: %d %s", rec.Code, rec.Body.String())
+	}
+	if len(w.s.Signins.Trusted("alice")) != 0 {
+		t.Fatal("approving a start without the trust line recorded her trust")
+	}
+	// the agent can't tick it for her, nor from a notification
+	req = ask()
+	if rec := w.do(w.full, "POST", "/api/xbin/delegate/requests/"+req.ID+"/approve", `{"grant":"once","trust":true}`, alice); rec.Code == 200 || len(w.s.Signins.Trusted("alice")) != 0 {
+		t.Fatalf("her agent approved its own start with the trust line: %d", rec.Code)
+	}
+	if rec := w.do(w.full, "POST", "/api/xbin/delegate/requests/"+req.ID+"/approve", `{"grant":"once","trust":true,"via":"notification"}`, own); rec.Code != 409 || len(w.s.Signins.Trusted("alice")) != 0 {
+		t.Fatalf("the trust line from a notification: %d %s", rec.Code, rec.Body.String())
+	}
+	// ticked: her trust is on record — for that tile, as it stands — and a
+	// start there no longer asks
+	rec0 := w.do(w.full, "POST", "/api/xbin/delegate/requests/"+req.ID+"/approve", `{"grant":"once","trust":true}`, own)
+	if tr := w.s.Signins.Trusted("alice"); rec0.Code != 200 || len(tr) != 1 || tr[0].Tile != "apps/x" || tr[0].Via != "approval" || len(tr[0].Editors) != 1 {
+		t.Fatalf("approved with the trust line: %d %s — %+v", rec0.Code, rec0.Body.String(), tr)
+	}
+	if sess, _ = ask().Preview["session"].(map[string]any); sess["signIn"] != "saved" || sess["signInTrust"] != nil {
+		t.Fatalf("a start on the tile she trusts: %v", sess)
+	}
+	// a tile whose source she may not trust (the workspace's switch): the
+	// sheet names no sign-in at all
+	if _, err := w.s.Signins.SetTrustPolicy(false); err != nil {
+		t.Fatal(err)
+	}
+	if sess, _ = ask().Preview["session"].(map[string]any); sess["signIn"] == "saved" || sess["signInId"] != "" || sess["signInTrust"] != nil {
+		t.Fatalf("trusting forbidden: %v", sess)
+	}
 	d = get()
 	c, _ = d.of("claude")
 	if d.Harness != "codex" || c.SignIn != "needed" {
-		t.Fatalf("a shared tile: %q %+v", d.Harness, c)
+		t.Fatalf("trusting forbidden: %q %+v", d.Harness, c)
 	}
 	// the answer never carries the sign-in's id or anything of its secret
 	rec := w.do(w.full, "GET", "/api/xbin/delegate/start-defaults?tile=apps/x", "", alice)

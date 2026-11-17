@@ -300,11 +300,16 @@ func (s *Server) apiChangeSetApprove(w http.ResponseWriter, r *http.Request) {
 		// all name nothing, and nothing is applied (400; the set stays open).
 		Items    []int  `json:"items"`
 		Password string `json:"password"`
+		// Trust are the agent.start lines whose trust line the person ticked
+		// ("I trust this tile's source", D230): only lines among Items whose
+		// start carried one. A start applied without it runs without the
+		// person's saved sign-in.
+		Trust []int `json:"trust"`
 	}
 	if r.ContentLength != 0 {
 		r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
 		if err := DecodeJSON(r, &body); err != nil {
-			WriteError(w, http.StatusBadRequest, "need {items: [n, …], password?}", delegationDocs)
+			WriteError(w, http.StatusBadRequest, "need {items: [n, …], password?, trust?: [n, …]}", delegationDocs)
 			return
 		}
 	}
@@ -414,6 +419,11 @@ func (s *Server) apiChangeSetApprove(w http.ResponseWriter, r *http.Request) {
 		refuseDecision(w, refusal, msg)
 		return
 	}
+	for _, n := range body.Trust { // only the person's own plan, only a line they chose
+		if n >= 1 && n <= len(cs.Items) && slices.Contains(chosen, n) && cs.From == "" && cs.Items[n-1].Kind == delegation.KindAgentStart {
+			cs.Items[n-1].SigninTrust = true
+		}
+	}
 	s.applyChangeSet(r.Context(), a.p, &cs, chosen)
 	cs, err = s.Delegation.UpdateChangeSet(a.user, id, func(stored *delegation.ChangeSet) error {
 		*stored = cs
@@ -519,7 +529,7 @@ func (s *Server) applyChangeSet(ctx context.Context, approver auth.Principal, cs
 		default:
 			status, msg, out := 0, "", json.RawMessage(nil)
 			if it.Kind == delegation.KindAgentStart {
-				status, msg, out = s.planStart(ctx, agent, pv, it.Start)
+				status, msg, out = s.planStart(ctx, agent, pv, it.Start, it.SigninTrust)
 			} else {
 				status, msg, out = s.adminCallOut(ctx, approver, pv.Call)
 				if it.Kind != delegation.KindTileCreate {

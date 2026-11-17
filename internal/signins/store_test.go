@@ -46,12 +46,13 @@ func (v *fakeVault) DecryptFor(label string, blob []byte) ([]byte, error) {
 }
 
 type world struct {
-	s      *Store
-	dir    string
-	vault  *fakeVault
-	now    time.Time
-	people map[string]int64 // id → account stamp (absent: gone or disabled)
-	host   *bool
+	s         *Store
+	dir       string
+	vault     *fakeVault
+	now       time.Time
+	people    map[string]int64 // id → account stamp (absent: gone or disabled)
+	host      *bool
+	hostTrust *bool
 }
 
 func newWorld(t *testing.T) *world {
@@ -65,6 +66,12 @@ func newWorld(t *testing.T) *world {
 				return false, false
 			}
 			return true, *w.host
+		},
+		HostTrust: func() (bool, bool) {
+			if w.hostTrust == nil {
+				return false, false
+			}
+			return true, *w.hostTrust
 		},
 		Now: func() time.Time { return w.now }})
 	return w

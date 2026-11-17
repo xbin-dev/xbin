@@ -4,7 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/xbin-dev/xbin/internal/signins"
+	"github.com/xbin-dev/xbin/internal/users"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -272,11 +275,12 @@ func TestPlanStartUsesOnlyTheSignInItsLineNamed(t *testing.T) {
 	own := func(r *http.Request) { r.AddCookie(&http.Cookie{Name: auth.CookieName, Value: sid}) }
 	now := "" // the saved sign-in a start of alice's would use at this moment ("": none)
 	was := startSignIn
-	startSignIn = func(*Server, auth.Principal, string, agent.Provider, *term.ProviderLLM, bool) (string, string) {
+	var line *term.SigninTrust // the trust line a start of alice's carries at this moment (nil: none)
+	startSignIn = func(*Server, auth.Principal, string, agent.Provider, *term.ProviderLLM, bool) (string, string, *term.SigninTrust) {
 		if now == "" {
-			return "needed", ""
+			return "needed", "", nil
 		}
-		return "saved", now
+		return "saved", now, line
 	}
 	t.Cleanup(func() { startSignIn = was })
 	var opened []term.DelegateStart
@@ -339,8 +343,89 @@ func TestPlanStartUsesOnlyTheSignInItsLineNamed(t *testing.T) {
 		if done.Items[0].Result != delegation.ItemApplied || len(opened) != 1 {
 			t.Fatalf("%s: applying: %+v (%d opens)", c.name, done.Items[0], len(opened))
 		}
-		if d := opened[0]; d.Signin != c.want || !d.Approved || d.Provider != "claude" {
+		if d := opened[0]; d.Signin != c.want || !d.Approved || d.Provider != "claude" || d.TrustAsked {
 			t.Errorf("%s: the open was authorised for the sign-in %q — the line named %q", c.name, d.Signin, c.shown)
 		}
 	}
+	// a start line on a tile whose source isn't only hers carries the trust
+	// line: applied without it, the open is one that asked and nothing is
+	// recorded; with it (trust: [n]), her trust is on record before the open
+	w.s.Signins = signins.New(signins.Options{Dir: filepath.Join(t.TempDir(), "signins"), AllowPlaintext: true})
+	owner := "org:sales"
+	w.s.Term.Signins, w.s.Term.SigninDev = w.s.Signins, true
+	w.s.Term.SigninSource = testSource(&owner, nil)
+	now, line = "sg-work", &term.SigninTrust{Tile: "apps/x", OwnerKind: "org", Owner: "sales", Allowed: true}
+	for _, c := range []struct {
+		name, body string
+		trusted    int
+	}{
+		{"applied without the trust line", `{"items":[1]}`, 0},
+		{"a trust tick for a line that wasn't chosen", `{"items":[1],"trust":[2]}`, 0},
+		{"applied with the trust line ticked", `{"items":[1],"trust":[1]}`, 1},
+	} {
+		rec := w.do(w.full, "POST", "/api/xbin/delegate/plans", `{"title":"t","items":[{"kind":"agent.start","args":{"tile":"apps/x","brief":"go","harness":"claude"}}]}`, alice)
+		var cs delegation.ChangeSet
+		_ = json.Unmarshal(rec.Body.Bytes(), &cs)
+		full, ok := w.store.ChangeSet("alice", cs.ID)
+		if rec.Code != 200 || !ok {
+			t.Fatalf("%s: plan: %d %s", c.name, rec.Code, rec.Body.String())
+		}
+		var start struct {
+			SignInID    string
+			SignInTrust *term.SigninTrust
+		}
+		_ = json.Unmarshal(full.Items[0].Start, &start)
+		if start.SignInID != "sg-work" || start.SignInTrust == nil || start.SignInTrust.Owner != "sales" {
+			t.Fatalf("%s: the line as shown: %s", c.name, full.Items[0].Start)
+		}
+		opened = nil
+		done := decode[delegation.ChangeSet](t, w.do(w.full, "POST", "/api/xbin/delegate/changesets/"+cs.ID+"/approve", c.body, own))
+		if done.Items[0].Result != delegation.ItemApplied || len(opened) != 1 || !opened[0].TrustAsked || opened[0].Signin != "sg-work" {
+			t.Fatalf("%s: applying: %+v (opens %+v)", c.name, done.Items[0], opened)
+		}
+		if tr := w.s.Signins.Trusted("alice"); len(tr) != c.trusted || c.trusted == 1 && (tr[0].Via != "plan" || tr[0].Owner != "org:sales") {
+			t.Errorf("%s: her trusted tiles: %+v", c.name, tr)
+		}
+	}
+}
+
+// A start on a tile the same plan creates as the person's own names their
+// default saved sign-in (the default is on) — "names none, so gets none"
+// is gone; one the plan would make an org's, or that someone else could
+// change, names none: it has no identity to trust yet.
+func TestPlannedTileStartNamesTheDefaultSignIn(t *testing.T) {
+	w := delegateWorld(t)
+	alice := delegateCred("d-alice")
+	w.s.Signins = signins.New(signins.Options{Dir: filepath.Join(t.TempDir(), "signins"), AllowPlaintext: true})
+	w.s.Term.Signins, w.s.Term.SigninDev = w.s.Signins, true
+	w.s.Term.SigninSource = testSource(nil, nil)
+	var editors []string
+	w.s.SigninSourcePlanned = func(user, path, owner string) signins.Source {
+		return signins.Source{Tile: path, Owner: owner, OwnerKind: "you", NotOwn: owner != "user:"+user, Editors: editors}
+	}
+	sg, _, err := w.s.Signins.Save("alice", "claude", "Personal", fakeSigninToken, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prov, _ := agent.Lookup("claude")
+	p := auth.Principal{UserID: "alice", Via: "delegate", Agent: "xbin/wsagent", User: &users.User{ID: "alice", Role: users.RoleUser}}
+	if got := w.s.plannedSignIn(p, "apps/new", "user:alice", prov); got != sg.ID {
+		t.Fatalf("a tile the plan makes hers: %q, want her default %q", got, sg.ID)
+	}
+	if got := w.s.plannedSignIn(p, "apps/new", "org:sales", prov); got != "" {
+		t.Fatalf("a tile the plan makes an org's: %q", got)
+	}
+	editors = []string{"bob"}
+	if got := w.s.plannedSignIn(p, "apps/new", "user:alice", prov); got != "" {
+		t.Fatalf("a new tile bob's pattern lets him change: %q", got)
+	}
+	editors = nil
+	if _, err := w.s.Signins.SetPolicy(false); err != nil {
+		t.Fatal(err)
+	}
+	w.s.Term.SigninsOff = func() bool { return !w.s.Signins.Policy().Enabled }
+	if got := w.s.plannedSignIn(p, "apps/new", "user:alice", prov); got != "" {
+		t.Fatalf("saved sign-ins are off: %q", got)
+	}
+	_ = alice
 }

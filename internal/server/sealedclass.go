@@ -738,4 +738,6 @@ var sealedRules = map[string]SealedRule{
 	"GET /agent/signins/people":                {Class: SealedNoTile},
 	"DELETE /agent/signins/people/{user}/{id}": {Class: SealedNoTile},
 	"PUT /agent/signins/policy":                {Class: SealedNoTile},
+	"POST /agent/signins/trust":                {Class: SealedHandled, What: "no session of a person's opens there: it is no tile whose source could be trusted (404)"},
+	"DELETE /agent/signins/trust/{id}":         {Class: SealedNoTile},
 }

@@ -416,6 +416,24 @@ func (s *Server) tileExists(tile string) bool {
 type delegateStartKey struct{}
 type delegateAdminReadKey struct{}
 
+// ticketStart is the start a ticket authorises: the harness and mode the
+// person was shown (sessionPreview) — the open refuses anything else —
+// the saved sign-in the sheet named (D230: the open uses that one, or
+// none), and whether the sheet carried the trust line: ticked, the
+// person's trust is on record by now; not, the start they approved is one
+// without the sign-in.
+func ticketStart(preview map[string]any) (*term.DelegateStart, string) {
+	shown, _ := preview["session"].(map[string]any)
+	prov, _ := shown["provider"].(string)
+	mode, _ := shown["mode"].(string)
+	if prov == "" || mode == "" {
+		return nil, "the ticket says no harness and mode: ask again"
+	}
+	net, _ := shown["net"].(string)
+	signin, _ := shown["signInId"].(string)
+	return &term.DelegateStart{Approved: true, Provider: prov, Mode: mode, Net: net, Signin: signin, TrustAsked: shown["signInTrust"] != nil}, ""
+}
+
 // delegateStartOf is how the gate authorised a delegate's session start
 // (term.DelegateStart); nil for every other request.
 func delegateStartOf(r *http.Request) *term.DelegateStart {
@@ -807,17 +825,10 @@ func (s *Server) delegateApproval(w http.ResponseWriter, r *http.Request, p auth
 		}
 		row.Ticket = req.ID
 		if session {
-			// the harness and mode the person was shown (sessionPreview):
-			// the open refuses anything else
-			shown, _ := req.Preview["session"].(map[string]any)
-			prov, _ := shown["provider"].(string)
-			mode, _ := shown["mode"].(string)
-			if prov == "" || mode == "" {
-				return nil, http.StatusForbidden, "ticket", "the ticket says no harness and mode: ask again"
+			var why string
+			if start, why = ticketStart(req.Preview); why != "" {
+				return nil, http.StatusForbidden, "ticket", why
 			}
-			net, _ := shown["net"].(string)
-			signin, _ := shown["signInId"].(string) // the saved sign-in the sheet named (D230): the open uses that one, or none
-			start = &term.DelegateStart{Approved: true, Provider: prov, Mode: mode, Net: net, Signin: signin}
 		}
 		s.delegateEvent(p.UserID, "request", req.ID)
 		return start, 0, "", ""

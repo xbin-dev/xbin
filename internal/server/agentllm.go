@@ -41,6 +41,10 @@ type providerSaved struct {
 	// Why says why it would be left out.
 	Inject bool   `json:"inject"`
 	Why    string `json:"why,omitempty"`
+	// Trust: it is left out because the tile's source isn't only the
+	// caller's own and they haven't said they trust it — the question
+	// xbin's sign-in card asks (D230).
+	Trust *term.SigninTrust `json:"trust,omitempty"`
 }
 
 // withAgentLLM is rows with each one's `llm`, while the workspace's LLM
@@ -75,9 +79,9 @@ func (s *Server) providerSaved(p auth.Principal, tile string, prov agent.Provide
 	if s.Term == nil || s.Signins == nil || !s.signinsAvail().OK {
 		return nil
 	}
-	sg, why := s.Term.SigninPreview(p, tile, prov, llm != nil && llm.Forced)
+	sg, why, trust := s.Term.SigninPreview(p, tile, prov, llm != nil && llm.Forced)
 	if sg == nil {
 		return nil
 	}
-	return &providerSaved{ID: sg.ID, Name: sg.Name, Kind: sg.Kind, ExpiresAt: sg.ExpiresAt, Inject: why == "", Why: why}
+	return &providerSaved{ID: sg.ID, Name: sg.Name, Kind: sg.Kind, ExpiresAt: sg.ExpiresAt, Inject: why == "", Why: why, Trust: trust}
 }

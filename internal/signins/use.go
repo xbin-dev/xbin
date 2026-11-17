@@ -184,6 +184,9 @@ type Policy struct {
 	// Locked: the host's file sets it (Reason says so); a write is refused.
 	Locked bool   `json:"locked,omitempty"`
 	Reason string `json:"reason,omitempty"`
+	// Trust: whether people may trust a tile whose source isn't only their
+	// own (trust.go).
+	Trust TrustPolicy `json:"trust"`
 }
 
 // HostLockReason is what a held switch says — the host's other settings'
@@ -204,18 +207,22 @@ func (s *Store) Policy() Policy {
 }
 
 func (s *Store) policy() Policy {
+	f := s.policyFile()
+	p := Policy{Enabled: true, Trust: TrustPolicy{Allowed: true}}
+	if f.Enabled != nil {
+		p.Enabled = *f.Enabled
+	}
+	if f.Trust != nil {
+		p.Trust.Allowed = *f.Trust
+	}
 	if s.o.Host != nil {
 		if set, on := s.o.Host(); set {
-			return Policy{Enabled: on, Locked: true, Reason: HostLockReason}
+			p.Enabled, p.Locked, p.Reason = on, true, HostLockReason
 		}
 	}
-	p := Policy{Enabled: true}
-	if b, err := os.ReadFile(s.PolicyPath()); err == nil {
-		var f struct {
-			Enabled *bool `json:"enabled"`
-		}
-		if json.Unmarshal(b, &f) == nil && f.Enabled != nil {
-			p.Enabled = *f.Enabled
+	if s.o.HostTrust != nil {
+		if set, on := s.o.HostTrust(); set {
+			p.Trust = TrustPolicy{Allowed: on, Locked: true, Reason: HostLockReason}
 		}
 	}
 	return p
@@ -228,11 +235,9 @@ func (s *Store) SetPolicy(enabled bool) (Policy, error) {
 	if cur := s.policy(); cur.Locked {
 		return cur, refuse(409, "whether people may save coding-agent sign-ins is set by your host")
 	}
-	b, _ := json.MarshalIndent(map[string]any{"enabled": enabled}, "", "  ")
-	if err := os.MkdirAll(s.o.Dir, 0o700); err != nil {
-		return Policy{}, err
-	}
-	if err := fsutil.WriteFileAtomic(s.PolicyPath(), append(b, '\n'), 0o600); err != nil {
+	f := s.policyFile()
+	f.Enabled = &enabled
+	if err := s.writePolicy(f); err != nil {
 		return Policy{}, err
 	}
 	return s.policy(), nil

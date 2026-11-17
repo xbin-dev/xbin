@@ -8,6 +8,7 @@ DELETE /agent/history/{id}	never
 DELETE /agent/signins/guided/{flow}	never
 DELETE /agent/signins/notice	never
 DELETE /agent/signins/people/{user}/{id}	never
+DELETE /agent/signins/trust/{id}	never
 DELETE /agent/signins/{id}	never
 DELETE /backup-schedule	never
 DELETE /bindings	never
@@ -210,6 +211,7 @@ POST /account/password	never
 POST /agent/signins	never
 POST /agent/signins/guided	never
 POST /agent/signins/guided/{flow}	never
+POST /agent/signins/trust	never
 POST /app-tunnel/relay-tokens	never
 POST /app-tunnel/test	never
 POST /auth-rotate-token	never

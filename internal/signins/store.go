@@ -137,6 +137,8 @@ type file struct {
 	Data    []byte            `json:"data,omitempty"`
 	Secrets map[string]string `json:"secrets,omitempty"`
 	Notice  *Notice           `json:"notice,omitempty"`
+	// Trust: the tiles whose source the person said they trust (trust.go)
+	Trust []Trust `json:"trust,omitempty"`
 }
 
 // Options configure a Store.
@@ -156,6 +158,8 @@ type Options struct {
 	// Host answers the host's file's word on the switch (set: it is the
 	// host's). nil: not set.
 	Host func() (set, enabled bool)
+	// HostTrust is the same for the switch on trusting a tile's source.
+	HostTrust func() (set, allowed bool)
 	// Now is the clock (nil: time.Now).
 	Now func() time.Time
 }
@@ -305,7 +309,7 @@ func (s *Store) write(f file, m map[string]string) error {
 	if stamp, ok := s.person(f.User); ok {
 		f.Account = stamp
 	}
-	if len(f.Signins) == 0 && f.Notice == nil {
+	if len(f.Signins) == 0 && f.Notice == nil && len(f.Trust) == 0 {
 		err := os.Remove(s.path(f.User))
 		if os.IsNotExist(err) {
 			return nil
@@ -656,12 +660,15 @@ func (s *Store) Clear(user, why string) []Signin {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	f, err := s.read(user)
-	if err != nil || len(f.Signins) == 0 {
+	if err != nil || len(f.Signins) == 0 && len(f.Trust) == 0 {
 		return nil
 	}
 	gone := f.Signins
-	f.Signins, f.Enc, f.Data, f.Secrets = nil, 0, nil, nil
-	f.Notice = &Notice{At: s.o.Now().UnixMilli(), Text: why}
+	// (the tiles they trusted go too: whoever holds the new way in didn't say it)
+	f.Signins, f.Enc, f.Data, f.Secrets, f.Trust = nil, 0, nil, nil, nil
+	if len(gone) > 0 {
+		f.Notice = &Notice{At: s.o.Now().UnixMilli(), Text: why}
+	}
 	if err := s.write(f, nil); err != nil {
 		slog.Error("signins: sign-ins could not be cleared", "user", user, "err", err)
 		return nil

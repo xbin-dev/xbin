@@ -41,6 +41,11 @@ type hostConfig struct {
 	// coding-agent sign-ins. Set, it is the host's: admins can't change it.
 	// Absent (null): the admins' switch.
 	AgentSignIns *bool `json:"agentSignIns,omitempty"`
+	// AgentSignInTrust: whether people may trust a tile whose source isn't
+	// only their own and have their saved sign-in used there (D230, the
+	// rule of 2026-11-17). Set, it is the host's and the admins' switch is
+	// locked; absent, the admins decide (default: allowed).
+	AgentSignInTrust *bool `json:"agentSignInTrust,omitempty"`
 
 	keys   map[string]string // upstream → the key read from its keyFile
 	stamps map[string]fileStamp

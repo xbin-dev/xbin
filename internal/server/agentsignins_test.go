@@ -431,9 +431,9 @@ func TestSigninsAdminRoutes(t *testing.T) {
 func TestSigninsInProviders(t *testing.T) {
 	h, s, _ := signinsServer(t)
 	alice, bob := s.Auth.NewSession("alice", ""), s.Auth.NewSession("bob", "")
-	others := []string{}
+	var others []string
 	s.Term.Signins, s.Term.SigninDev = s.Signins, true
-	s.Term.SigninOthers = func(user, tile string) (string, []string, bool) { return tile, others, true }
+	s.Term.SigninSource = testSource(nil, &others)
 	if _, _, err := s.Signins.Save("alice", "claude", "Personal", fakeSigninToken, false); err != nil {
 		t.Fatal(err)
 	}
@@ -469,8 +469,8 @@ func TestSigninsInProviders(t *testing.T) {
 		t.Fatal("bob's row names alice's sign-in")
 	}
 	others = []string{"bob"}
-	if sv := get(alice, "?cwd=apps/x")["claude"].Saved; sv == nil || sv.Inject || !strings.Contains(sv.Why, "bob can also change apps/x") {
-		t.Fatalf("a shared tile: %+v", sv)
+	if sv := get(alice, "?cwd=apps/x")["claude"].Saved; sv == nil || sv.Inject || !strings.Contains(sv.Why, "bob can change it") || sv.Trust == nil || sv.Trust.Tile != "apps/x" || !sv.Trust.Allowed {
+		t.Fatalf("a tile bob can change: %+v", sv)
 	}
 
 	// a session that carries a saved sign-in: its person follows it, an admin doesn't
@@ -483,5 +483,190 @@ func TestSigninsInProviders(t *testing.T) {
 	private := events.Event{Type: "session", Component: "apps/x", Data: term.PrivateSessionEvent("bob", "s2")}
 	if termEventFor(admin, private) || !termEventFor(owner, private) || termEventFor(auth.Principal{Owner: true}, private) {
 		t.Fatal("a session on a saved sign-in is followed by its person alone")
+	}
+}
+
+// testSource is the broker's SigninSource over one tile for tests: owner
+// (nil or "": the asker's own) and who else can change it.
+func testSource(owner *string, editors *[]string) func(user, tile string) (signins.Source, bool) {
+	return func(user, tile string) (signins.Source, bool) {
+		if tile == "apps/none" {
+			return signins.Source{}, false // in no registered tile
+		}
+		src := signins.Source{Tile: tile, ID: "i-" + tile, Name: "Tile X", Owner: "user:" + user, OwnerKind: "you"}
+		if owner != nil && *owner != "" {
+			src.Owner = *owner
+		}
+		if editors != nil {
+			src.Editors = append([]string(nil), *editors...)
+		}
+		switch {
+		case src.Owner == "user:"+user:
+		case strings.HasPrefix(src.Owner, "user:"):
+			src.OwnerKind, src.OwnerName = "person", strings.TrimPrefix(src.Owner, "user:")
+		case strings.HasPrefix(src.Owner, "org:"):
+			src.OwnerKind, src.OwnerName = "org", strings.TrimPrefix(src.Owner, "org:")
+		default:
+			src.OwnerKind = "workspace"
+		}
+		src.NotOwn = src.Owner != "user:"+user
+		return src, true
+	}
+}
+
+// covers D230 (the rule of 2026-11-17) — "I trust this tile's source" over
+// the API: asked by the list's here, answered by the person's own session
+// alone, listed, revocable (the sessions there end), under the admins'
+// switch. A tile's frame, a terminal's token, the root token, view-as and
+// the person's agent can't answer it.
+func TestSigninsTrustRoutes(t *testing.T) {
+	h, s, _ := signinsServer(t)
+	alice, bob := s.Auth.NewSession("alice", ""), s.Auth.NewSession("bob", "")
+	owner, others := "user:bob", []string{"carol"}
+	s.Term.Signins, s.Term.SigninDev = s.Signins, true
+	s.Term.SigninSource = testSource(&owner, &others)
+	do := func(sid, method, path, body string) (int, string) {
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, withCookie(method, "/api/xbin/agent/signins"+path, body, sid))
+		return w.Code, strings.TrimSpace(w.Body.String())
+	}
+	if _, _, err := s.Signins.Save("alice", "claude", "Personal", fakeSigninToken, false); err != nil {
+		t.Fatal(err)
+	}
+	view := func(sid string) signinsView {
+		t.Helper()
+		c, b := do(sid, "GET", "?tile=apps/x", "")
+		var v signinsView
+		if c != 200 || json.Unmarshal([]byte(b), &v) != nil {
+			t.Fatalf("list: %d %s", c, b)
+		}
+		return v
+	}
+	here := func(v signinsView) *signinHere {
+		for _, hn := range v.Harnesses {
+			if hn.ID == "claude" {
+				return hn.Here
+			}
+		}
+		return nil
+	}
+	// asked: whose tile it is, who can change it, and what a session runs on without
+	v := view(alice)
+	if hr := here(v); hr == nil || hr.Inject || hr.Trust == nil || hr.Trust.OwnerKind != "person" || hr.Trust.Owner != "bob" ||
+		len(hr.Trust.Editors) != 1 || hr.Trust.Editors[0] != "carol" || !hr.Trust.Allowed || hr.Without != "none" || len(v.Trusted) != 0 || !v.Policy.Trust.Allowed {
+		t.Fatalf("before her answer: %+v (trust %+v)", hr, hr.Trust)
+	}
+	s.Term.NoteHomeLogin("alice", "claude", true)
+	if hr := here(view(alice)); hr.Without != "own" {
+		t.Fatalf("with the tile's own login in her home: without = %q", hr.Without)
+	}
+	// only her own session answers it
+	bearer := func(tok, method, path, body string) int {
+		r := httptest.NewRequest(method, "/api/xbin/agent/signins"+path, strings.NewReader(body))
+		r.Header.Set("Authorization", "Bearer "+tok)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		return w.Code
+	}
+	for name, cred := range map[string]string{
+		"a tile terminal's token":      s.Auth.MintTerminal("apps/x", "alice"),
+		"a workspace terminal's token": s.Auth.MintTerminal("", "alice"),
+		"the root token":               s.Auth.OwnerTokenValue(),
+	} {
+		if c := bearer(cred, "POST", "/trust", `{"tile":"apps/x"}`); c != 403 {
+			t.Errorf("%s trusted the tile: %d", name, c)
+		}
+	}
+	for name, p := range map[string]auth.Principal{
+		"the tile's frame (a page's message ends here)": {Component: "apps/x", Via: "frame", UserID: "alice"},
+		"her workspace agent":                           {UserID: "alice", Via: "delegate", Agent: "xbin/wsagent"},
+		"an admin viewing as her":                       {UserID: "alice", Impersonator: "bob"},
+		"the tile's backend":                            {Component: "apps/x", Via: "instance"},
+	} {
+		for _, try := range [][3]string{{"POST", "/api/xbin/agent/signins/trust", `{"tile":"apps/x"}`}, {"DELETE", "/api/xbin/agent/signins/trust/tr_x", ""}} {
+			r := httptest.NewRequest(try[0], try[1], strings.NewReader(try[2]))
+			r.SetPathValue("id", "tr_x")
+			r = r.WithContext(auth.WithPrincipal(r.Context(), p))
+			w := httptest.NewRecorder()
+			if try[0] == "POST" {
+				s.apiSigninsTrust(w, r)
+			} else {
+				s.apiSigninsUntrust(w, r)
+			}
+			if w.Code != 403 {
+				t.Errorf("%s, %s: %d %s", name, try[0], w.Code, w.Body.String())
+			}
+		}
+	}
+	if len(s.Signins.Trusted("alice")) != 0 {
+		t.Fatal("something that isn't her own session recorded her trust")
+	}
+	for body, want := range map[string]int{`{}`: 400, `{"tile":""}`: 400, `{"tile":"apps/x","extra":1}`: 400, `{"tile":"apps/none"}`: 404} {
+		if c, b := do(alice, "POST", "/trust", body); c != want {
+			t.Errorf("POST /trust %s: %d %s, want %d", body, c, b, want)
+		}
+	}
+	// her answer
+	c, b := do(alice, "POST", "/trust", `{"tile":"apps/x"}`)
+	if c != 201 || !strings.Contains(b, `"tile":"apps/x"`) || !strings.Contains(b, `"holds":true`) {
+		t.Fatalf("trust: %d %s", c, b)
+	}
+	v = view(alice)
+	if hr := here(v); !hr.Inject || hr.Trust != nil || len(v.Trusted) != 1 || !v.Trusted[0].Holds || v.Trusted[0].Via != "card" || strings.Contains(b, "ident") {
+		t.Fatalf("after her answer: %+v trusted %+v", hr, v.Trusted)
+	}
+	if bv := view(bob); len(bv.Trusted) != 0 {
+		t.Fatalf("bob's list shows hers: %+v", bv.Trusted)
+	}
+	// the basis changes: asked again, and her list says what changed
+	others = []string{"carol", "dave"}
+	v = view(alice)
+	if hr := here(v); hr.Inject || hr.Trust == nil || v.Trusted[0].Holds || v.Trusted[0].Why != "someone new can change the tile" {
+		t.Fatalf("dave can change the tile: %+v trusted %+v", hr, v.Trusted)
+	}
+	others, owner = []string{"carol"}, "org:sales"
+	if v = view(alice); v.Trusted[0].Holds || v.Trusted[0].Why != "the tile has another owner now" {
+		t.Fatalf("another owner: %+v", v.Trusted)
+	}
+	owner = "user:bob"
+	// a tile that is hers alone: nothing to trust
+	mine := "user:alice"
+	s.Term.SigninSource = testSource(&mine, nil)
+	if c, b := do(alice, "POST", "/trust", `{"tile":"apps/x"}`); c != 409 || !strings.Contains(b, "yours alone") {
+		t.Fatalf("trusting her own tile: %d %s", c, b)
+	}
+	if hr := here(view(alice)); !hr.Inject || hr.Trust != nil {
+		t.Fatalf("her own tile, by default: %+v", hr)
+	}
+	s.Term.SigninSource = testSource(&owner, &others)
+	// the admins' switch: off, nothing can be trusted and the card says who can change that
+	if c, _ := do(bob, "PUT", "/policy", `{"trust":false}`); c != 403 {
+		t.Fatalf("bob set the switch: %d", c)
+	}
+	if c, b := do(alice, "PUT", "/policy", `{"trust":false}`); c != 200 || !strings.Contains(b, `"allowed":false`) || !strings.Contains(b, `"enabled":true`) {
+		t.Fatalf("trust off: %d %s", c, b)
+	}
+	if hr := here(view(alice)); hr.Inject || hr.Trust == nil || hr.Trust.Allowed || !strings.Contains(hr.Trust.Forbidden, "a workspace admin can change it") {
+		t.Fatalf("trusting forbidden: %+v (%+v)", hr, hr.Trust)
+	}
+	if c, b := do(alice, "POST", "/trust", `{"tile":"apps/x"}`); c != 403 || !strings.Contains(b, "switched off") {
+		t.Fatalf("trusting while off: %d %s", c, b)
+	}
+	if c, _ := do(alice, "PUT", "/policy", `{"trust":true}`); c != 200 {
+		t.Fatal("trust on")
+	}
+	// revoke: hers only, once
+	id := view(alice).Trusted[0].ID
+	if c, _ := do(bob, "DELETE", "/trust/"+id, ""); c != 404 {
+		t.Fatalf("bob revoked hers: %d", c)
+	}
+	if c, b := do(alice, "DELETE", "/trust/"+id, ""); c != 200 || !strings.Contains(b, `"ended":0`) {
+		t.Fatalf("revoke: %d %s", c, b)
+	}
+	if c, _ := do(alice, "DELETE", "/trust/"+id, ""); c != 404 {
+		t.Fatalf("revoked twice: %d", c)
+	}
+	if v = view(alice); len(v.Trusted) != 0 || here(v).Inject {
+		t.Fatalf("after the revoke: %+v", v.Trusted)
 	}
 }

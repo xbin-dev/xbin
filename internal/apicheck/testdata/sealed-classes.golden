@@ -7,6 +7,7 @@ DELETE /agent/history/{id}	no-tile
 DELETE /agent/signins/guided/{flow}	no-tile
 DELETE /agent/signins/notice	no-tile
 DELETE /agent/signins/people/{user}/{id}	no-tile
+DELETE /agent/signins/trust/{id}	no-tile
 DELETE /agent/signins/{id}	no-tile
 DELETE /backup-schedule	handled
 DELETE /bindings	refused	body.provider body.providers
@@ -209,6 +210,7 @@ POST /account/password	no-tile
 POST /agent/signins	no-tile
 POST /agent/signins/guided	no-tile
 POST /agent/signins/guided/{flow}	no-tile
+POST /agent/signins/trust	handled
 POST /app-tunnel/relay-tokens	no-tile
 POST /app-tunnel/test	no-tile
 POST /auth-rotate-token	no-tile

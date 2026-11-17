@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -27,9 +28,11 @@ import (
 // (D230): the session gets the sign-in the approved line named — the open
 // uses exactly that one or refuses — and none where it named none. Never
 // the one a fresh preview resolves at Apply: the person's default may have
-// moved since, and a tile an earlier line creates is shown with no sign-in
-// at all (it didn't exist to be judged), so it starts with none.
-func (s *Server) planStart(ctx context.Context, a planAgent, pv delegation.ChangePreview, approved json.RawMessage) (int, string, json.RawMessage) {
+// moved since. A tile an earlier line creates for the person is shown with
+// their default sign-in where it will be theirs alone (plannedSignIn), and
+// judged for real by the open, once it exists. trusted: the person ticked
+// the line's trust line ("I trust this tile's source") when they applied.
+func (s *Server) planStart(ctx context.Context, a planAgent, pv delegation.ChangePreview, approved json.RawMessage, trusted bool) (int, string, json.RawMessage) {
 	if a.gone != "" || a.p.Agent == "" {
 		return http.StatusConflict, cmpOr(a.gone, "a tile agent is started for the conversation that asks for it"), nil
 	}
@@ -38,9 +41,11 @@ func (s *Server) planStart(ctx context.Context, a planAgent, pv delegation.Chang
 		return http.StatusConflict, "the start names no coding agent and mode: ask your agent to propose it again", nil
 	}
 	var named struct {
-		SignInID string `json:"signInId"` // the saved sign-in the approved line named
+		SignInID    string          `json:"signInId"`    // the saved sign-in the approved line named
+		SignInTrust json.RawMessage `json:"signInTrust"` // …and the trust line it carried
 	}
 	_ = json.Unmarshal(approved, &named)
+	trustAsked := len(named.SignInTrust) > 0 && string(named.SignInTrust) != "null"
 	if ok, wait := s.delegateRT.allowAct(a.p.UserID); !ok {
 		return http.StatusTooManyRequests, fmt.Sprintf("your agent is acting too fast: try again in %d s", int(wait/time.Second)+1), nil
 	}
@@ -60,7 +65,13 @@ func (s *Server) planStart(ctx context.Context, a planAgent, pv delegation.Chang
 	if why := still(); why != "" {
 		return http.StatusForbidden, why, nil
 	}
-	ctx = context.WithValue(auth.WithPrincipal(ctx, a.p), delegateStartKey{}, &term.DelegateStart{Approved: true, Provider: shown.Provider, Mode: shown.Mode, Net: shown.Net, Signin: named.SignInID})
+	if trustAsked && trusted { // the line's trust tick: the person's own answer, kept before the open
+		if _, _, err := s.trustTile(a.p.UserID, tile, "plan"); err != nil {
+			slog.Info("a plan's trust line could not be kept: the start runs without the sign-in", "tile", tile, "err", err)
+		}
+	}
+	ctx = context.WithValue(auth.WithPrincipal(ctx, a.p), delegateStartKey{}, &term.DelegateStart{Approved: true, Provider: shown.Provider, Mode: shown.Mode, Net: shown.Net,
+		Signin: named.SignInID, TrustAsked: trustAsked})
 	if s.PlanStarter != nil { // (tests: the open itself, authorised as above)
 		id, status, refusal := s.PlanStarter(ctx, a.p, pv.Call.Body)
 		if refusal != "" {

@@ -33,6 +33,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/agent"
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/signins"
+	"github.com/xbin-dev/xbin/internal/term"
 )
 
 const agentSigninsDocs = "/docs/protocol/signins.md"
@@ -61,6 +62,8 @@ func (s *Server) registerAgentSigninsAPI() {
 	s.RegisterAPI("GET /agent/signins/people", s.apiSigninsPeople)
 	s.RegisterAPI("DELETE /agent/signins/people/{user}/{id}", s.apiSigninsRevoke)
 	s.RegisterAPI("PUT /agent/signins/policy", s.apiSigninsPolicyPut)
+	s.RegisterAPI("POST /agent/signins/trust", s.apiSigninsTrust)
+	s.RegisterAPI("DELETE /agent/signins/trust/{id}", s.apiSigninsUntrust)
 }
 
 // signinsAvail is whether sign-ins are kept here, and why not.
@@ -140,6 +143,13 @@ type signinHarness struct {
 type signinHere struct {
 	Inject bool   `json:"inject"`
 	Why    string `json:"why,omitempty"`
+	// Trust: it would be left out only because the tile's source isn't
+	// only the caller's own — the question the card asks (signinstrust.go).
+	Trust *term.SigninTrust `json:"trust,omitempty"`
+	// Without: what a session there runs on without a saved sign-in — "own"
+	// (the tile's own login, as a session last saw it), "connector" (the
+	// workspace's model), "none" (it starts signed out).
+	Without string `json:"without,omitempty"`
 }
 
 type agentKey struct {
@@ -158,6 +168,8 @@ type signinsView struct {
 	Notice     *signins.Notice `json:"notice,omitempty"`
 	Harnesses  []signinHarness `json:"harnesses"`
 	Flows      []signins.Flow  `json:"flows"`
+	// Trusted: the tiles whose source the caller said they trust.
+	Trusted []trustRow `json:"trusted"`
 	// Admin: the caller may see who has sign-ins and set the switch.
 	Admin bool `json:"admin,omitempty"`
 }
@@ -165,7 +177,7 @@ type signinsView struct {
 func (s *Server) signinsViewFor(r *http.Request, user string) (signinsView, error) {
 	av := s.signinsAvail()
 	out := signinsView{Available: av.OK, Why: av.Why, Unisolated: av.Unisolated, Vault: s.Signins.VaultState(),
-		Policy: s.Signins.Policy(), Harnesses: []signinHarness{}, Flows: []signins.Flow{}, Admin: s.settingsAdmin(r)}
+		Policy: s.Signins.Policy(), Harnesses: []signinHarness{}, Flows: []signins.Flow{}, Trusted: s.trustedRows(user), Admin: s.settingsAdmin(r)}
 	all, notice, err := s.Signins.List(user)
 	if err != nil {
 		return out, err
@@ -187,8 +199,8 @@ func (s *Server) signinsViewFor(r *http.Request, user string) (signinsView, erro
 			}
 		}
 		if p := auth.PrincipalOf(r); tile != "" && s.Term != nil && p.CanTerminalTile(tile) {
-			why := s.Term.SigninRule(p, tile, prov)
-			h.Here = &signinHere{Inject: why == "", Why: why}
+			why, trust := s.Term.SigninRule(p, tile, prov)
+			h.Here = &signinHere{Inject: why == "", Why: why, Trust: trust, Without: s.withoutSignin(p, tile, prov)}
 		}
 		out.Harnesses = append(out.Harnesses, h)
 	}
@@ -365,8 +377,10 @@ func (s *Server) apiSigninsRevoke(w http.ResponseWriter, r *http.Request) {
 }
 
 // apiSigninsPolicyPut — PUT /agent/signins/policy {enabled}: the
-// workspace's switch. 409 while the host's file holds it. Off ends the
-// running sessions that carry a saved sign-in → {policy, ended}.
+// workspace's switch, and {trust}: whether people may trust a tile whose
+// source isn't only their own. 409 while the host's file holds the one
+// written. Off ends the running sessions that carry a saved sign-in (trust
+// off: the ones on tiles that needed it) → {policy, ended}.
 func (s *Server) apiSigninsPolicyPut(w http.ResponseWriter, r *http.Request) {
 	if !s.signinsAdmin(w, r) {
 		return
@@ -374,21 +388,34 @@ func (s *Server) apiSigninsPolicyPut(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<10)
 	var body struct {
 		Enabled *bool `json:"enabled"`
+		Trust   *bool `json:"trust"`
 	}
-	if err := DecodeJSON(r, &body); err != nil || body.Enabled == nil {
-		WriteError(w, http.StatusBadRequest, "need {enabled: bool}", agentSigninsDocs)
+	if err := DecodeJSON(r, &body); err != nil || body.Enabled == nil && body.Trust == nil {
+		WriteError(w, http.StatusBadRequest, "need {enabled?: bool, trust?: bool}", agentSigninsDocs)
 		return
 	}
 	old := s.Signins.Policy()
-	cur, err := s.Signins.SetPolicy(*body.Enabled)
-	if err != nil {
-		writeSigninsErr(w, err)
-		return
+	cur := old
+	var err error
+	if body.Enabled != nil {
+		if cur, err = s.Signins.SetPolicy(*body.Enabled); err != nil {
+			writeSigninsErr(w, err)
+			return
+		}
+	}
+	if body.Trust != nil {
+		if cur, err = s.Signins.SetTrustPolicy(*body.Trust); err != nil {
+			writeSigninsErr(w, err)
+			return
+		}
 	}
 	ended := 0
-	if !cur.Enabled && s.Term != nil { // off: the running sessions that carry a sign-in end, as when one is removed
+	// off, or trusting forbidden: the running sessions that carry a sign-in
+	// and may no longer end, as when one is removed
+	if (!cur.Enabled || !cur.Trust.Allowed) && s.Term != nil {
 		ended = s.Term.SigninSweep()
 	}
-	slog.Info("audit", "event", "signin.policy", "who", auth.PrincipalOf(r).From(), "enabled", cur.Enabled, "was", old.Enabled, "ended", ended)
+	slog.Info("audit", "event", "signin.policy", "who", auth.PrincipalOf(r).From(), "enabled", cur.Enabled, "was", old.Enabled,
+		"trust", cur.Trust.Allowed, "trustWas", old.Trust.Allowed, "ended", ended)
 	WriteJSON(w, http.StatusOK, map[string]any{"policy": cur, "ended": ended})
 }

@@ -43,6 +43,7 @@ func (st *State) setupSignins(srv *server.Server) {
 	}
 	if svc := st.LLM; svc != nil && st.Cfg.LLMConfig != "" { // the host's file: "agentSignIns"
 		o.Host = svc.HostAgentSignIns
+		o.HostTrust = svc.HostAgentSignInTrust
 	}
 	store := signins.New(o)
 	srv.Signins = store
@@ -61,10 +62,11 @@ func (st *State) setupSignins(srv *server.Server) {
 	if tm := st.Term; tm != nil { // sessions take a person's sign-in from it (term/signin.go)
 		tm.Signins = store
 		tm.SigninDev = !isolate && dev
-		// who else could change what a session on a tile runs: the other
-		// enabled people with write level or more on the tile the path lies
-		// in (broker/signinothers.go). Workspace admins aren't counted.
-		tm.SigninOthers = brk.SigninOthers
+		// where a tile's code comes from for a person: who owns it and who
+		// else can change it (broker/signinothers.go) — what decides whether
+		// their trust is asked first
+		tm.SigninSource = brk.SigninSource
+		srv.SigninSourcePlanned = brk.SigninSourcePlanned
 		tm.SigninsOff = func() bool { return !store.Policy().Enabled } // the admins' switch, or the host's file
 		// people or their access changed: a session on a saved sign-in whose
 		// tile someone else can now open a terminal on is ended
