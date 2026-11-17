@@ -241,7 +241,9 @@ async function signinChecks({ page, S, check, refresh, sentTo, armed, text, shot
       }
       await armed(['bx-agent-dock', 'bx-agent-approve', 'button[data-allow]']);
       await page.click(`${SHEET} button[data-allow]`);
-      await page.waitForFunction(() => !document.querySelector('bx-agent-dock').shadowRoot.querySelector('bx-agent-approve'));
+      // decided: the sheet closes, or moves on to the next thing that needs the person
+      await page.waitForFunction((x) => { const sh = document.querySelector('bx-agent-dock').shadowRoot.querySelector('bx-agent-approve'); return !sh || !sh.request || sh.request.id !== x; }, id);
+      if (await page.$(`${SHEET} [role="dialog"]`)) { await page.keyboard.press('Escape'); await page.waitForFunction(() => !document.querySelector('bx-agent-dock').shadowRoot.querySelector('bx-agent-approve')); }
       const sentBody = JSON.stringify(sentTo(new RegExp(`${id}/approve$`)).map((c) => c.body));
       check(sentBody === (tick ? '[{"grant":"once","trust":true}]' : '[{"grant":"once"}]'), `[${width}] ${tick ? 'ticked: the approval carries the trust' : 'unticked: the approval carries no trust'} (${sentBody})`);
       S.requests = S.requests.filter((r) => r.id !== id); await refresh();
