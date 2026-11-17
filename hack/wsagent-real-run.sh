@@ -80,6 +80,7 @@ if [[ $run_scenarios == 1 ]]; then
   XBIN_REAL_LLM_BASE=$base XBIN_REAL_LLM_MODEL=$model XBIN_REAL_LLM_KEYFILE=$keyfile XBIN_REAL_OUT=$out \
     go test -tags integration -count=1 -run '^TestWsRealModelTable$' ./test/isolated/ > /dev/null 2>&1 || true
   echo "table: $out/table.md"
+  [[ -f "$out/table.md" ]] && cat "$out/table.md"
 fi
 
 if [[ $bench -gt 0 ]]; then
