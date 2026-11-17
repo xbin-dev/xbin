@@ -11,6 +11,8 @@ package isolated
 
 import (
 	"fmt"
+	"go/parser"
+	"go/token"
 	"os"
 	"os/exec"
 	"strings"
@@ -134,19 +136,16 @@ func main() {
 
 // The list handler's answer, and the same with the overdue filter: what a
 // coding agent asked for that filter writes.
-const (
-	realInvoicesList     = `json.NewEncoder(w).Encode(map[string]any{"today": "2026-11-17", "invoices": inv})`
-	realInvoicesFiltered = `out := inv
-		if r.URL.Query().Get("overdue") == "1" { // sent, and due before today
-			out = []*invoice{}
-			for _, i := range inv {
-				if i.Status == "sent" && i.Due < "2026-11-17" {
-					out = append(out, i)
-				}
-			}
-		}
-		json.NewEncoder(w).Encode(map[string]any{"today": "2026-11-17", "invoices": out})`
-)
+const realInvoicesList = `json.NewEncoder(w).Encode(map[string]any{"today": "2026-11-17", "invoices": inv})`
+
+// realInvoicesFilteredLine is realInvoicesFiltered on one line (statements
+// ended, so it stays Go), for an edit a shell makes.
+const realInvoicesFilteredLine = `out := inv; if r.URL.Query().Get("overdue") == "1" { out = []*invoice{}; for _, i := range inv { if i.Status == "sent" && i.Due < "2026-11-17" { out = append(out, i) } } }; json.NewEncoder(w).Encode(map[string]any{"today": "2026-11-17", "invoices": out})`
+
+// sedQuote escapes s for either side of a sed s|…|…| in single quotes.
+func sedQuote(s string) string {
+	return strings.NewReplacer(`\`, `\\`, `|`, `\|`, `&`, `\&`, `[`, `\[`, `]`, `\]`, `*`, `\*`, `.`, `\.`, `'`, `'\''`).Replace(s)
+}
 
 // realFilterSteps is the scripted coding agent's work on "add an overdue
 // filter": it puts the filter in the backend, says so in API.md, waits for
@@ -154,8 +153,10 @@ const (
 // truthfully. more commands run after it (their output is the report's
 // last lines).
 func realFilterSteps(more ...string) []string {
+	// the edit as a coding agent would make it from a shell: the list handler's one line, replaced in place
+	edit := `sed -i 's|` + sedQuote(realInvoicesList) + `|` + sedQuote(strings.Join(strings.Fields(realInvoicesFilteredLine), " ")) + `|' backend/main.go`
 	steps := []string{
-		`cp .bin/with-overdue-filter.txt backend/main.go && printf '%s\n' '- GET /invoices?overdue=1 — only the overdue invoices (status sent, due before today).' >> API.md && echo "backend/main.go and API.md changed"`,
+		edit + ` && grep -c 'overdue' backend/main.go && printf '%s\n' '- GET /invoices?overdue=1 — only the overdue invoices (status sent, due before today).' >> API.md && echo "backend/main.go and API.md changed"`,
 		`for i in $(seq 1 60); do n=$(curl -s -H "Authorization: Bearer $XBIN_TOKEN" "$XBIN_URL/api/$XBIN_COMPONENT/invoices?overdue=1" | grep -o '"id"' | wc -l); [ "$n" -gt 0 ] && [ "$n" -lt 7 ] && break; sleep 2; done; ` +
 			`echo "Added an overdue filter to Invoices: GET /invoices?overdue=1 returns only the invoices that are sent and due before today ($n of 7 right now); GET /invoices is unchanged. API.md says so. Checked: the rebuilt backend answers both calls. Not checked: the page — it has no list yet, so there is nothing on it to filter."`,
 	}
@@ -274,14 +275,8 @@ func (e *realEnv) seedReal(t *testing.T) {
 		d.WriteTile(t, tile, map[string]string{"xbin.json": `{"title":"` + title + `","runtime":"go","agent":"full","expose":{"roles":{"reader":"read","writer":"read and change"}}` + more + `}` + "\n"})
 	}
 	goTile(realInvoices, "Invoices", "invoices", realInvoicesSrc, realInvoicesAPI, "")
-	// what the scripted coding agent puts in place when a brief asks for the overdue filter (realFilterSteps):
-	// the same backend with the filter in it. Not a .go file: nothing builds it where it lies.
-	withFilter := strings.Replace(realInvoicesSrc, realInvoicesList, realInvoicesFiltered, 1)
-	if withFilter == realInvoicesSrc {
+	if !strings.Contains(realInvoicesSrc, realInvoicesList) { // what the scripted coding agent's edit replaces (realFilterSteps)
 		t.Fatal("the Invoices source has no list handler to put the filter in")
-	}
-	if err := d.WriteFiles(realInvoices, map[string]string{".bin/with-overdue-filter.txt": withFilter}); err != nil {
-		t.Fatal(err)
 	}
 	goTile(realOrders, "Orders", "orders", realOrdersSrc, realOrdersAPI, "")
 	goTile(realCalendar, "Calendar", "calendar", realCalendarSrc, realCalendarAPI, `,"provides":{"calendar":{"kind":"http","service":"calendar","role":"reader"}}`)
@@ -292,4 +287,29 @@ func (e *realEnv) seedReal(t *testing.T) {
 		"index.html": "<!doctype html><html><head></head><body>Report</body></html>\n",
 		"API.md":     "# Report\n\nA weekly report page. It can show the team's events when its `calendar` slot is bound to a calendar tile.\n",
 	})
+}
+
+// The scripted coding agent's edit (realFilterSteps) really puts the
+// filter into the Invoices backend, and what it leaves is Go: checked
+// here, with no daemon and no model, so the real-model run's tile agent
+// can't be the thing that is wrong.
+func TestRealFilterStepsEdit(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(dir+"/backend", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dir+"/backend/main.go", []byte(realInvoicesSrc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	edit, _, _ := strings.Cut(realFilterSteps()[0], " && grep")
+	if out, err := execCommand(dir, "sh", "-c", edit).CombinedOutput(); err != nil {
+		t.Fatalf("%s: %v\n%s", edit, err, out)
+	}
+	got, _ := os.ReadFile(dir + "/backend/main.go")
+	if strings.Contains(string(got), realInvoicesList) || !strings.Contains(string(got), realInvoicesFilteredLine) {
+		t.Fatalf("the edit didn't replace the list handler's line:\n%s", edit)
+	}
+	if _, err := parser.ParseFile(token.NewFileSet(), "main.go", got, parser.AllErrors); err != nil {
+		t.Fatalf("the edited backend is not Go: %v", err)
+	}
 }

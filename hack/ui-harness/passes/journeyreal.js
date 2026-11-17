@@ -143,8 +143,16 @@ async function journeyReal(browser) {
     const ticks = await page.$$eval(`${DLG} .item`, (els) => els.map((e) => ({ n: e.dataset.n, on: e.querySelector('input').checked, off: e.querySelector('input').disabled, admin: !!e.querySelector('[data-admin]') })));
     const start = (await page.locator(`${DLG} .item`).allInnerTexts()).map((t) => t.replace(/\s+/g, ' ')).find((t) => /Coding agent/.test(t)) || '';
     say(`the start line: ${start.slice(0, 500)}`);
-    for (const tk of ticks) {
-      if (!tk.on && !tk.off) await J.click(`the review: tick line ${tk.n}${tk.admin ? ' (an admin\'s line: it starts unticked)' : ' (a warned line: it starts unticked)'}`, () => page.check(`${DLG} .item[data-n="${tk.n}"] input`));
+    say(`the review's ticks as it opens: ${ticks.map((x) => `${x.n}${x.on ? '+' : '-'}${x.off ? '(off)' : ''}`).join(' ')}`);
+    // every line the person wants is ticked, one click each: a line that starts unticked (an admin's, a warned one),
+    // and a line that needs one of those — it is unticked with it, and ticking it back is the person's
+    for (let round = 0; round < 8; round++) {
+      const now = await page.$$eval(`${DLG} .item`, (els) => els.map((e) => ({ n: e.dataset.n, on: e.querySelector('input').checked, off: e.querySelector('input').disabled, admin: !!e.querySelector('[data-admin]'), warned: !!e.querySelector('[data-warning], .warn, .warning') })));
+      const tk = now.find((x) => !x.on && !x.off);
+      if (!tk) break;
+      const first = ticks.find((x) => x.n === tk.n) || {};
+      const why = tk.admin ? 'an admin\'s line: it starts unticked' : tk.warned ? 'a warned line: it starts unticked' : first.off ? 'it needs a line that started unticked' : 'it starts unticked';
+      await J.click(`the review: tick line ${tk.n} (${why})`, () => page.check(`${DLG} .item[data-n="${tk.n}"] input`));
     }
     await page.screenshot({ path: path.join(J0.SHOTS, 'real-review.png') }).catch(() => {});
     await J.click(`the review: "Apply ${lines.length} changes…"`, async () => { await page.click(`${DLG} button[data-apply][aria-disabled="false"]`, { timeout: 20000 }); await page.waitForSelector(`${DLG} [role="dialog"]:is([data-view="results"], [data-view="stepup"])`, { timeout: 240000 }); });

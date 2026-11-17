@@ -173,7 +173,7 @@ func TestWsEvalMessageHeldBehindQuestion(t *testing.T) {
 	fx.idle(t, s)
 	// (the real-model run, 2026-11-17: asked to pass this on, a model questioned its person about what "refunds"
 	// means instead of sending it — the prompt now says whose words those are)
-	if sys := systemOf(f.callsFor(s.Run)[0]); !strings.Contains(sys, "send it in their words: the tile agent can ask them what it means") {
+	if sys := systemOf(f.callsFor(s.Run)[0]); !strings.Contains(sys, "send it in their words at once — no research, no question first; the tile agent asks them what it means") {
 		t.Error("the prompt doesn't say that what a person tells it to pass on is passed on")
 	}
 	got := fx.toolResult(t, s, "tile_agent_message")
