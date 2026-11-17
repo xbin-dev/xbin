@@ -536,8 +536,12 @@ func handleWsBriefDefaults(w http.ResponseWriter, r *http.Request) {
 		case "saved":
 			out["line"] = out["line"].(string) + " · your saved sign-in, once you approve the start"
 		case "needed":
-			out["line"] = out["line"].(string) + " · needs your sign-in"
-			out["needsSignIn"] = true
+			if h.SignInOffered { // they have one saved: xbin's approval offers it — nothing to set up
+				out["line"] = out["line"].(string) + " · signed out unless you tick your saved sign-in on the approval"
+			} else {
+				out["line"] = out["line"].(string) + " · needs your sign-in"
+				out["needsSignIn"] = true
+			}
 		}
 	}
 	xbin.WriteJSON(w, http.StatusOK, out)
