@@ -94,6 +94,6 @@
 	<key>XbinKeychainGroup</key>
 	<string>$(AppIdentifierPrefix)dev.xbin.shared</string>
 	<key>XbinPushRelay</key>
-	<string></string>
+	<string>https://notif-fwd.xbin.dev</string>
 </dict>
 </plist>

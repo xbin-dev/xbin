@@ -19,13 +19,13 @@
   data the developer collects, so nothing is declared below for it
   (website/privacy.html says who sees what).
 
-  Push is the exception once it ships: the app then registers its APNs
-  device token with the push relay run by the xbin project (native/spec/
-  push.md). While XbinPushRelay in Support/App-Info.plist is empty, push is
-  off and nothing reaches a relay, so nothing is declared below. When it
-  names the project's relay, declare NSPrivacyCollectedDataTypeDeviceID
-  (not linked, not tracking, App Functionality) here and in App Store
-  Connect's App Privacy — store-check.py fails until both agree.
+  Push is the exception: once the user allows notifications for a
+  workspace, the app registers its APNs device token with the push relay
+  the xbin project runs (XbinPushRelay in Support/App-Info.plist:
+  https://notif-fwd.xbin.dev; native/spec/push.md). So
+  NSPrivacyCollectedDataTypeDeviceID is declared below — not linked, not
+  tracking, App Functionality — and App Store Connect's App Privacy must
+  say the same (store-check.py checks this file against the plist).
 --><plist version="1.0">
 <dict>
 	<key>NSPrivacyTracking</key>
@@ -33,7 +33,22 @@
 	<key>NSPrivacyTrackingDomains</key>
 	<array/>
 	<key>NSPrivacyCollectedDataTypes</key>
-	<array/>
+	<array>
+		<!-- The APNs device token the push relay keeps to deliver
+		     notifications; it knows no user, name or workspace URL. -->
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeDeviceID</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+	</array>
 	<key>NSPrivacyAccessedAPITypes</key>
 	<array>
 		<!-- The app's own settings, caches and scene state (AppSettings,
