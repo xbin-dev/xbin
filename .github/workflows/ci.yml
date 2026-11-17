@@ -273,9 +273,12 @@ jobs:
   # native/ios/scripts against fake Apple tools, under bash 5 and macOS's
   # bash 3.2 (ci-local-check.sh). Three jobs, so none waits on another.
   # GitHub-hosted only — this workflow runs for pull requests.
+  # Pinned to ubuntu-24.04: the toolchain swiftly installs and its system
+  # packages (ci-linux-swift.sh) are 24.04's — on 26.04 swift-build finds no
+  # libxml2.so.2 (ubuntu-latest moved there on 2026-11-17).
   native:
     name: native swift-test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
@@ -296,7 +299,7 @@ jobs:
 
   native-stubcheck:
     name: native stubcheck
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
@@ -312,7 +315,7 @@ jobs:
 
   native-ci:
     name: native ci-local-check
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
