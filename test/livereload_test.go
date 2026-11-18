@@ -559,6 +559,28 @@ func (e *dlTape) wait(m int, match func(dlEvent) bool, timeout time.Duration) (d
 	}
 }
 
+// pastSetup waits until a new tile's first saves have published everything
+// they will, on a tape made before those saves. The watcher loop lists the
+// tile (waitTile, and the static plane serves it sooner still) before it
+// routes that batch and publishes its reload, so a cursor taken once the
+// tile is served can still have the setup's reload land after it — and a
+// pause that follows doesn't take the reload back: the batch was routed
+// live. The reload on the tape is the positive condition; the quiet period
+// after it is a bounded negative wait for a save burst the watcher split.
+func (e *dlTape) pastSetup(t *testing.T, tile string) {
+	t.Helper()
+	if _, ok := e.wait(0, isEvent("reload", tile), 30*time.Second); !ok {
+		t.Fatalf("%s's first saves published no reload: %s", tile, e.describe(0, tile))
+	}
+	for end := time.Now().Add(30 * time.Second); time.Now().Before(end); {
+		m := e.mark()
+		time.Sleep(latencyQuiet) // negative wait: nothing more of the setup's batches arrives
+		if e.count(m, func(ev dlEvent) bool { return ev.Component == tile }) == 0 {
+			return
+		}
+	}
+}
+
 // describe lists the events after the cursor that name tile, for a failure.
 func (e *dlTape) describe(m int, tile string) string {
 	var parts []string
@@ -834,10 +856,11 @@ func dlPaths(ws, tile string) (record, dir, store, view, deploy string) {
 func TestLiveReloadPauseStatic(t *testing.T) {
 	const tile = "apps/lr-static"
 	a, ws := startPlainDaemon(t)
+	tape := a.tape(t) // before the first save: the setup's own reload is on it
 	mustRT(t, ws, tile, "static", "v1", "")
 	must(t, saveIfChanged(filepath.Join(ws, tile, "style.css"), "/* v1 */\n"))
 	a.waitServed(t, tile, "static", "v1", 30*time.Second)
-	tape := a.tape(t)
+	tape.pastSetup(t, tile)
 	record, _, store, view, _ := dlPaths(ws, tile)
 
 	m := tape.mark()
