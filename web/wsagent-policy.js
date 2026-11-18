@@ -11,7 +11,10 @@
  * same key locks outright. Each person still turns each one on for their
  * own agent, in their agent's Preferences. With MCP at "listed" the card
  * holds the outside servers' list (<bx-wsagent-mcp-servers>, D240): Save
- * sends it whole, its secrets only where one was typed.
+ * sends it whole, its secrets only where one was typed. The card also
+ * holds the agent's context budget (D246: contextBudget; budgetWords) — how
+ * much of a conversation an agent sends its model again with each call,
+ * never a spend limit.
  */
 import { LitElement, html, css, nothing } from '/vendor/lit-all.min.js';
 import '/vendor/wsagent-mcp-servers.js';
@@ -44,6 +47,18 @@ export function policyWords(v) {
   };
 }
 
+/** budgetWords(view): the context budget as the card says it (D246) — pure, for the harness and the node test. */
+export function budgetWords(v) {
+  const b = (v && v.budget) || {}, n = (x) => Number(x || 0).toLocaleString('en-US');
+  const k = (x) => (x >= 1000 ? `${Math.round(x / 1024)}k` : String(x));
+  const model = b.model ? `${b.model}: ${b.window ? `${k(b.window)} window` : 'its window isn’t known'} → keeps up to ${n(b.keeps)} tokens` : '';
+  return {
+    setting: b.setting || 0, def: b.default || 1000000, min: b.min || 32000, max: b.max || 10000000,
+    model, host: b.byHost ? 'Set by your host: this is the most it allows — you can set less.' : '',
+    note: `How much of a conversation an agent sends its model again with each call. Each model keeps at most what its window allows, ${n(b.margin || 64000)} tokens below it; past that, the oldest parts are folded away. It is not a spend limit: each person’s usage and quotas are, on the LLM connector.`,
+  };
+}
+
 export class BxWsagentPolicy extends LitElement {
   static properties = { _v: { state: true }, _draft: { state: true }, _busy: { state: true }, _err: { state: true }, _saved: { state: true } };
   static styles = css`
@@ -60,6 +75,8 @@ export class BxWsagentPolicy extends LitElement {
     label.off { opacity: .55; }
     textarea { box-sizing: border-box; width: 100%; min-height: 56px; font: inherit; font-family: var(--bx-mono, "JetBrains Mono", ui-monospace, monospace);
       border: 1px solid var(--bx-border-strong, #666A7E); border-radius: var(--bx-radius, 2px); background: var(--bx-panel, #1F2028); color: var(--bx-text, #E9EAF0); padding: 4px 8px; }
+    input[data-field=budget] { box-sizing: border-box; max-width: 16em; min-height: var(--bx-control-h, 28px); font: inherit; font-family: var(--bx-mono, "JetBrains Mono", ui-monospace, monospace);
+      border: 1px solid var(--bx-border-strong, #666A7E); border-radius: var(--bx-radius, 2px); background: var(--bx-panel, #1F2028); color: var(--bx-text, #E9EAF0); padding: 0 8px; }
     .tag { display: inline-block; padding: 0 6px; margin-left: 6px; border: 1px solid var(--bx-border-strong, #666A7E); border-radius: var(--bx-radius, 2px); font: var(--bx-font-meta, 400 12px/16px "Instrument Sans", system-ui, sans-serif); color: var(--bx-muted, #A3A6B6); }
     .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
     button { box-sizing: border-box; min-height: var(--bx-control-h, 28px); font: inherit; padding: 0 12px; font-weight: 600; cursor: pointer;
@@ -83,7 +100,8 @@ export class BxWsagentPolicy extends LitElement {
     if (!r.ok) { this._err = r.body.error || `error ${r.status}`; return; }
     this._v = r.body;
     const w = r.body.web || {}, m = r.body.mcp || {};
-    this._draft = { web: w.mode || 'off', allow: (w.allow || []).join('\n'), deny: (w.deny || []).join('\n'), mcp: m.mode || 'off' };
+    this._draft = { web: w.mode || 'off', allow: (w.allow || []).join('\n'), deny: (w.deny || []).join('\n'), mcp: m.mode || 'off',
+      budget: r.body.contextBudget ? String(r.body.contextBudget) : '' };
     this._was = { ...this._draft };
   }
 
@@ -98,6 +116,10 @@ export class BxWsagentPolicy extends LitElement {
     const servers = this.renderRoot && this.renderRoot.querySelector('bx-wsagent-mcp-servers');
     const list = servers && servers.changes(); // the outside servers (D240): the whole list, when it changed
     if (list) body.mcp = { ...(body.mcp || {}), servers: list };
+    if (String(d.budget || '').trim() !== String(was.budget || '').trim()) { // the context budget (D246): empty is the default again
+      const t = String(d.budget || '').replace(/[\s,_]/g, '');
+      body.contextBudget = t ? Number(t) : null;
+    }
     return body;
   }
 
@@ -119,6 +141,17 @@ export class BxWsagentPolicy extends LitElement {
   _servers() {
     const v = this._v || {};
     return (v.policy && v.policy.mcp && v.policy.mcp.serversByHost ? v.policy.mcp.servers : v.mcp && v.mcp.servers) || [];
+  }
+
+  _budget() {
+    const b = budgetWords(this._v);
+    return html`<h3>Context budget ${this._v.locks && this._v.locks.contextBudget ? html`<span class="tag" data-host="contextBudget">Set by your host</span>` : nothing}</h3>
+      <div class="small muted">${b.note}</div>
+      <label class="small" style="flex-direction:column;gap:2px;margin-top:6px">Tokens a conversation keeps <span class="muted">(${b.min.toLocaleString('en-US')} to ${b.max.toLocaleString('en-US')}; empty: the default, ${b.def.toLocaleString('en-US')})</span>
+        <input data-field="budget" inputmode="numeric" .value=${this._draft.budget} placeholder=${String(b.setting || b.def)}
+          @input=${(e) => { this._draft = { ...this._draft, budget: e.target.value }; this._saved = false; }}></label>
+      ${b.host ? html`<div class="small muted" data-capped="budget">${b.host}</div>` : nothing}
+      ${b.model ? html`<div class="small" data-budget-model>This model — ${b.model}.</div>` : nothing}`;
   }
 
   _mode(name, value, label, note, { ceiling = '', notYet = false, locked = false } = {}) {
@@ -162,6 +195,7 @@ export class BxWsagentPolicy extends LitElement {
           @change=${() => { this._saved = false; }}></bx-wsagent-mcp-servers>` : nothing}
       </fieldset>
       <div class="small muted" data-in-force>${w.web} ${w.mcp}</div>
+      ${this._budget()}
       ${this._err ? html`<div class="banner" role="alert">${this._err}</div>` : nothing}
       <div class="row"><button data-save ?disabled=${locked || this._busy} @click=${() => this._save()}>Save</button>${this._saved ? html`<span class="small ok" role="status">Saved</span>` : nothing}</div>`;
   }

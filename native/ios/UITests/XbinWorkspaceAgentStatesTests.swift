@@ -253,7 +253,7 @@ final class XbinWorkspaceAgentStatesTests: XCTestCase {
             e.expect(danger, 10, "\(id): the danger wording leads")
             XCTAssertTrue(danger.label.contains("a mode that never asks") && danger.label.contains("stop a single edit or command"), danger.label)
             XCTAssertTrue(e.containing("acts without asking").exists, "\(id): the mode's tag")
-            XCTAssertFalse(e.containing("asks before acting").exists, "\(id): never the green tag")
+            XCTAssertFalse(e.containing("asks before it edits or runs anything").exists, "\(id): never the green tag")
             XCTAssertTrue(e.containing("It edits files and runs commands in Orders without asking you.").exists)
             XCTAssertEqual(allow.label, "Start without asking", id)
             XCTAssertEqual(deny.label, "Deny")
@@ -281,7 +281,7 @@ final class XbinWorkspaceAgentStatesTests: XCTestCase {
         // …and one xbind says asks: the green tag, Start, no warning
         e.wsInbox("inbox-request:rq_sess")
         e.expect(heading, 30, "a start in a mode that asks")
-        XCTAssertTrue(e.containing("asks before acting").exists)
+        XCTAssertTrue(e.containing("asks before it edits or runs anything").exists)
         XCTAssertFalse(danger.exists, "no danger wording for a mode that asks")
         XCTAssertEqual(allow.label, "Start")
         e.app.buttons.matching(identifier: "approval-later").firstMatch.tap()

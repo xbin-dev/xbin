@@ -103,6 +103,7 @@ GET /delegate/sessions/{id}	read
 GET /delegate/sessions/{id}/connection	read
 GET /delegate/start-defaults	read	tile:byTileQuery
 GET /delegate/state	read
+GET /delegate/tile	read	audit	tile:byTileQuery
 GET /delegate/workspace	never
 GET /deployments	refused
 GET /deployments/backups	refused
@@ -231,6 +232,7 @@ POST /code/pr/comment	never
 POST /code/pr/state	never
 POST /code/prs	never
 POST /create	never
+POST /delegate/accounts/lookup	act
 POST /delegate/approvals	never
 POST /delegate/changesets	act
 POST /delegate/changesets/{id}/approve	never

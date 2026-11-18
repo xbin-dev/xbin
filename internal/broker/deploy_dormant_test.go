@@ -18,6 +18,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -313,9 +314,13 @@ func TestDormantRegistrations(t *testing.T) {
 			t.Errorf("dev's cron.json:\n%s\nwant:\n%s", got, want)
 		}
 
-		// each deployment lists its own; main's rows are today's bytes
+		// each deployment lists its own; main's rows are today's bytes —
+		// with, since D246, when a main job runs next (additive)
 		rec := regCall(t, b.apiCronList, calMain, "GET", "/cron/jobs", "", nil)
-		if want := `{"jobs":[{"name":"tick","resource":"res:apps/calendar/ticks","schedule":"@every 1h","component":"apps/calendar","path":"/tick","role":"writer"}]}` + "\n"; rec.Body.String() != want {
+		if !regexp.MustCompile(`,"next":"[0-9T:Z-]+"`).MatchString(rec.Body.String()) {
+			t.Errorf("main's list says no next run: %s", rec.Body)
+		}
+		if want := `{"jobs":[{"name":"tick","resource":"res:apps/calendar/ticks","schedule":"@every 1h","component":"apps/calendar","path":"/tick","role":"writer"}]}` + "\n"; regexp.MustCompile(`,"next":"[0-9T:Z-]+"`).ReplaceAllString(rec.Body.String(), "") != want {
 			t.Errorf("main's list:\n%s\nwant:\n%s", rec.Body, want)
 		}
 		rec = regCall(t, b.apiCronList, calDev, "GET", "/cron/jobs", "", nil)

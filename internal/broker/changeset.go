@@ -14,6 +14,7 @@ package broker
 //	                                                     DELETE /bindings
 //	org.share      {org, tile, level}  ("" stops it)     PUT    /access
 //	limits.set     {tile, kind, value}                   POST   /limits
+//	access.set     {tile, user, level}                   PUT    /access (accessline.go, D246)
 //
 // The list is closed: there is no kind that names a route, so nothing
 // outside it — users, passwords, devices, SSO, the vault, view-as, policy
@@ -78,7 +79,7 @@ const (
 
 // ChangeKinds lists the kinds a change set may hold.
 func ChangeKinds() []string {
-	return []string{ChangeGrantAdd, ChangeGrantRevoke, ChangeBindingSet, ChangeBindingRemove, ChangeOrgShare, ChangeLimitsSet}
+	return []string{ChangeGrantAdd, ChangeGrantRevoke, ChangeBindingSet, ChangeBindingRemove, ChangeOrgShare, ChangeLimitsSet, ChangeAccessSet}
 }
 
 // strictArgs decodes a kind's arguments: unknown keys are an error, so a
@@ -147,7 +148,7 @@ func (b *Broker) preview(p auth.Principal, op delegation.ChangeOp, planned []del
 		return delegation.ChangePreview{}, errors.New("an admin change is described for the person who would apply it")
 	}
 	pv, err := b.previewChange(p, op, planned, starts)
-	if err == nil && plan && pv.Blocked == "" {
+	if err == nil && plan && pv.Blocked == "" && op.Kind != ChangeAccessSet { // (who may use a tile is not how it is wired)
 		b.readOnlyNote(&pv)
 	}
 	if err == nil {
@@ -244,6 +245,8 @@ func (b *Broker) previewChange(p auth.Principal, op delegation.ChangeOp, planned
 		pv.Admin = true
 	case ChangeTileCreate:
 		pv, err = b.previewTileCreate(p, op, planned)
+	case ChangeAccessSet:
+		pv, err = b.previewAccess(p, op, planned) // personal or an admin's by the by-hand rule (accessline.go)
 	default:
 		return delegation.ChangePreview{}, fmt.Errorf("no such kind of change (one of %s)", strings.Join(ChangeKinds(), ", "))
 	}
@@ -532,9 +535,6 @@ func (b *Broker) previewOrgShare(p auth.Principal, op delegation.ChangeOp) (dele
 	if err := notOnAgent("a share of", a.Tile); err != nil {
 		return delegation.ChangePreview{}, err
 	}
-	if power := b.powerOf(a.Tile); len(power) > 0 && a.Level != "" {
-		return delegation.ChangePreview{}, fmt.Errorf("%s holds %s: who may use a tile with that power is decided on its Access page, by an admin — never by a change set", a.Tile, strings.Join(power, ", "))
-	}
 	pv := delegation.ChangePreview{Tiles: []string{a.Tile}, Call: delegation.AdminCall{Method: http.MethodPut, Path: "/access",
 		Body: mustJSON(map[string]string{"tile": a.Tile, "kind": "org", "id": a.Org, "level": a.Level})}}
 	if a.Level == "" {
@@ -554,7 +554,18 @@ func (b *Broker) previewOrgShare(p auth.Principal, op delegation.ChangeOp) (dele
 	// in the handler's order: who manages the tile's access, then what the
 	// store would refuse (SetOrgTile: the level, the org)
 	_, tileOK := b.Reg.Component(a.Tile)
-	switch why := b.accessCheck(p, a.Tile, a.Org); {
+	why := b.accessCheck(p, a.Tile, a.Org)
+	// a share that RAISES the org's level on code that holds power is an
+	// admin's, by hand on the Access page (accessreach.go) — said only to a
+	// person who manages the tile's access; lowering or removing one is a
+	// line like any other
+	raise := users.LevelRank(a.Level) > users.LevelRank(before)
+	writes := a.Level == users.LevelWrite || a.Level == users.LevelTerminal
+	var reach accessReach
+	if why == nil && tileOK && (raise || writes) {
+		reach = b.accessReachOf(a.Tile)
+	}
+	switch {
 	case why != nil:
 		pv.Blocked, pv.Forbidden = why.msg, why.status == http.StatusForbidden
 	case a.Level != "" && a.Level != users.LevelRead && a.Level != users.LevelWrite && a.Level != users.LevelTerminal:
@@ -572,11 +583,24 @@ func (b *Broker) previewOrgShare(p auth.Principal, op delegation.ChangeOp) (dele
 		default:
 			pv.Effects = append(pv.Effects, fmt.Sprintf("the %d member(s) of %s get %s on %s", n, a.Org, a.Level, a.Tile))
 		}
-		if a.Level == users.LevelTerminal {
-			pv.Warnings = append(pv.Warnings, "terminal level lets them run code in "+a.Tile+" and change it")
+		switch a.Level {
+		case users.LevelTerminal:
+			pv.Warnings = append(pv.Warnings, "terminal level lets them run code in "+a.Tile+" and change it — and every tile inside it")
+		case users.LevelWrite:
+			pv.Warnings = append(pv.Warnings, "write level lets them change "+a.Tile+"'s code — and every tile inside it")
+		}
+		if writes && why == nil && tileOK {
+			eff, near := reach.effects(p, a.Tile)
+			pv.Effects = append(pv.Effects, eff...)
+			if near {
+				pv.Warnings = append(pv.Warnings, fmt.Sprintf(accessWarnNear, a.Tile))
+			}
 		}
 	}
 	pv.Inverse = &delegation.ChangeOp{Kind: ChangeOrgShare, Args: mustJSON(map[string]string{"org": a.Org, "tile": a.Tile, "level": before})}
+	if pv.Blocked == "" && raise && reach.holdsPower() {
+		pv.Blocked, pv.Power = b.accessPowerRefusal(p, a.Tile, reach), true
+	}
 	return pv, nil
 }
 

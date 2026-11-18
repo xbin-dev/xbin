@@ -72,15 +72,15 @@ func wsOtherTools() []coordTool {
 			})}},
 			Run: wsTool(wsTileCreateTool)},
 		{Write: true, Spec: toolSpec{Type: "function", Function: funcDef{Name: "admin_propose",
-			Description: "Propose a batch of admin changes — access between tiles, bindings, an org's share of a tile, a tile's limits — for your person to review. Only for a person who is an admin and turned on \"Let my agent propose admin changes\". " +
+			Description: "Propose a batch of admin changes — access between tiles, bindings, an org's share of a tile, a tile's limits, one person's access to a tile — for your person to review. Only for a person who is an admin and turned on \"Let my agent propose admin changes\"; for anyone else, or for changes that belong to work being set up, use plan_propose (no such setting). " +
 				"Nothing is applied: xbin writes what each change does, its before and after and its warnings, and your person approves all, some or none; xbin then applies those as them. " +
 				"This returns xbin's description at once and does not wait; the decision reaches you as a workspace update. Put related changes in one batch, each with a plain reason. " +
-				"These kinds are all there is, and none names one person: giving a single person access to a tile (\"let Dave see Orders\") is not something you can propose here or in a plan — it is the tile's owner's or an admin's own act in xbin (the tile's sharing), or an org's share when everyone in an org may have it. Say that in your first answer; don't search the docs for another way.",
+				"One person's access (\"let Dave see Orders\"): access.set — account_lookup first when your person may see accounts. You never learn anyone's access: of such a line you are told only whether it was applied. Your own person's access isn't yours to change.",
 			Parameters: obj([]string{"title", "changes"}, map[string]any{
 				"title": strProp("what the batch is for, in a few words (shown as yours)"),
 				"changes": map[string]any{"type": "array", "minItems": 1, "maxItems": 20, "items": obj([]string{"kind", "args", "why"}, map[string]any{
 					"kind": map[string]any{"type": "string", "enum": wsChangeKinds,
-						"description": "grant.add / grant.revoke {from, target, role}; binding.set {component, slot, provider}; binding.remove {component, slot}; org.share {org, tile, level}; limits.set {tile, kind, value}"},
+						"description": "grant.add / grant.revoke {from, target, role}; binding.set {component, slot, provider}; binding.remove {component, slot}; org.share {org, tile, level}; limits.set {tile, kind, value}; access.set {tile, user, level} — one person's own level on a tile (user: their account id, or the name your person gave; level none, read, write or terminal)"},
 					"args": map[string]any{"type": "object", "description": "the kind's arguments"},
 					"why":  strProp("the reason for this one change, in plain words (shown as yours)"),
 				})},
@@ -103,7 +103,7 @@ func wsOtherTools() []coordTool {
 	}
 }
 
-var wsChangeKinds = []string{"grant.add", "grant.revoke", "binding.set", "binding.remove", "org.share", "limits.set"}
+var wsChangeKinds = []string{"grant.add", "grant.revoke", "binding.set", "binding.remove", "org.share", "limits.set", "access.set"}
 
 // --- filing a request ---------------------------------------------------------------
 
@@ -462,7 +462,15 @@ func wsProposeTool(ctx context.Context, ag *Agent, s *wsSession, c coordCall) (s
 		case strings.TrimSpace(ch.Why) == "":
 			return "", fmt.Errorf("change %d has no \"why\": add the reason for this change, in plain words (the admin reads it on the review)", i+1)
 		}
-		items = append(items, xbin.Change{Kind: ch.Kind, Args: ch.Args, Why: clip(strings.TrimSpace(ch.Why), 400)})
+		args := ch.Args
+		if ch.Kind == "access.set" {
+			line, err := wsAccessArgs(ctx, ag, s, ch.Args)
+			if err != nil {
+				return "", fmt.Errorf("change %d: %w", i+1, err)
+			}
+			args = line
+		}
+		items = append(items, xbin.Change{Kind: ch.Kind, Args: args, Why: clip(strings.TrimSpace(ch.Why), 400)})
 	}
 	st, err := wsX.State(ctx)
 	if err != nil {
@@ -470,7 +478,7 @@ func wsProposeTool(ctx context.Context, ag *Agent, s *wsSession, c coordCall) (s
 	}
 	switch {
 	case !st.CanAdminChanges:
-		return "Your person isn't a workspace or org admin, so you can't propose admin changes for them. Say what would need to change and that an admin has to do it.", nil
+		return "Your person isn't a workspace or org admin, so you can't propose admin changes for them here. Propose it as a plan instead (plan_propose): the lines only an admin may apply say so on your person's review, and they can send them to the admins from there (Ask an admin).", nil
 	case !st.AdminChanges:
 		return "Your person hasn't turned on \"Let my agent propose admin changes\" (Preferences). Until they do you can't read admin state or propose a batch of admin changes: say what you would propose, and that they can turn it on if they want you to. " +
 			"A change that belongs to work you are setting up — a tile's access to another tile (grant.add), a binding — goes in a plan instead (plan_propose): a plan needs no such setting, and its admin's lines are ticked by an admin on the review.", nil

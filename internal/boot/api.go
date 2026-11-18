@@ -29,6 +29,7 @@ func (st *State) registerRuntimeAPI(srv *server.Server) {
 		net:    func(tile string) any { return brk.NetLabel(tile) }, parts: st.partitionReads()}
 	srv.RegisterAPI("GET /backends", rd.backends)
 	srv.BackendState = run.PrimaryState // and /components' backend state (D196)
+	srv.TileBackend = rd.tileBackend    // GET /delegate/tile's backend: /tile-status's row of the primary (D246)
 	// Full runtime visibility for the admin console: host + per-backend process,
 	// namespaces, and egress/network activity (plans/isolation.md).
 	srv.RegisterAPI("GET /runtime", func(w http.ResponseWriter, r *http.Request) {
@@ -379,6 +380,20 @@ func (rd runtimeReads) statusTarget(p auth.Principal, tile, named string) (strin
 		return "", noDeployment(tile, named)
 	}
 	return named, nil
+}
+
+// tileBackend is the primary's row as GET /delegate/tile says it (false:
+// no state — it never ran since xbind started).
+func (rd runtimeReads) tileBackend(tile string) (server.TileBackendRow, bool) {
+	b := rd.backendOf(tile, rd.primary(tile))
+	if b == nil {
+		return server.TileBackendRow{}, false
+	}
+	row := server.TileBackendRow{State: b.State, Error: b.Error, Restarts: b.Restarts, UptimeSec: b.UptimeSec, LastReqSec: max(b.LastReqSec, 0)}
+	if b.Retry != nil {
+		row.Retry = &server.TileStartRetry{Attempt: b.Retry.Attempt, Of: b.Retry.Of, At: b.Retry.At}
+	}
+	return row, true
 }
 
 // backendOf is the runner's row of deployment dep of tile: the primary's

@@ -381,3 +381,26 @@ func (s *Service) listModels(ctx context.Context, snap *snapshot, c Caller) (sdk
 	}
 	return list, errs
 }
+
+// RoleModelWindow is the model a role resolves to ("<upstream>/<model>";
+// "" when none does) and its context window as its upstream's list says
+// (0: unknown) — what an admin's view of the workspace agent's context
+// budget is computed for (D246; delegation.EffectiveBudget). It may ask the
+// upstream for its list (cached).
+func (s *Service) RoleModelWindow(ctx context.Context, role string) (string, int) {
+	snap := s.current()
+	if ready(snap) != nil {
+		return "", 0
+	}
+	u, m, err := snap.resolve(pseudoUpstream + "/" + role)
+	if err != nil {
+		return "", 0
+	}
+	list, _ := s.upstreamModels(ctx, u)
+	for _, x := range list {
+		if x.ID == m {
+			return publicName(u, m), x.ContextWindow() // the SDK's reading: the agent template's own (llm_providers.go)
+		}
+	}
+	return publicName(u, m), 0
+}

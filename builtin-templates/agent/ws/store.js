@@ -418,6 +418,8 @@ export function createStore({ paint = () => {}, post = () => false, frame = null
     return { ...(conn.counts || {}), summary: (S.conn && S.conn.summary) || (s && s.summary) || '' };
   }
   const isPrivate = () => !!(S.full && S.full.model && S.full.model.private);
+  /** budget(): how much of this conversation its model is sent again with each call — {tokens, window, setting} (D246), or null. */
+  const budget = () => (S.conn && S.conn.budget) || null;
 
   // ---- sessions -----------------------------------------------------------------------------------
 
@@ -552,7 +554,7 @@ export function createStore({ paint = () => {}, post = () => false, frame = null
     loadState, loadSessions, loadCards, loadConnection, loadEmpty, current, select, boot, announce,
     offline, paused, delegation, fill, send, stop, takeBack, composerNow, hint, hasUserMessage, replies, reply,
     tileName, onContext, dropContext, contextNow, review, chrome: (msg) => post(msg), startDefaults, signIn, signinsChanged, briefSave, briefStart,
-    openScope, models, scope, counts, isPrivate, sessions, openNotebook, notebook, showWhatCan,
+    openScope, models, scope, counts, isPrivate, budget, sessions, openNotebook, notebook, showWhatCan,
     banners, needs, working, wire, busy: () => { const v = session.current(); return !!(v && busy(v.run.status)); },
   };
 }

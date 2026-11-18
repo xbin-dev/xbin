@@ -172,6 +172,10 @@ type MCPInForce struct {
 type NetInForce struct {
 	Web WebInForce `json:"web"`
 	MCP MCPInForce `json:"mcp"`
+	// ContextBudget: the workspace agent's context budget in force (D246;
+	// budget.go), and whether the host's file set it
+	ContextBudget int  `json:"contextBudget"`
+	BudgetByHost  bool `json:"budgetByHost,omitempty"`
 }
 
 // HostAllows reports whether the lists in force let a fetch reach host
@@ -201,6 +205,7 @@ func (w WebInForce) HostAllows(host string) (bool, string) {
 // merge is what is in force of the admin's layer under the host's.
 func merge(admin Workspace, host HostNet) NetInForce {
 	var out NetInForce
+	out.ContextBudget, out.BudgetByHost = budgetInForce(admin, host)
 	aw, hw := WebPolicy{}, WebPolicy{}
 	if admin.Web != nil {
 		aw = *admin.Web

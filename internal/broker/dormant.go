@@ -452,6 +452,11 @@ type cronJobView struct {
 	cronJob
 	Deployment string `json:"deployment,omitempty"`
 	Dormant    bool   `json:"dormant,omitempty"`
+	// Next and LastRun / LastStatus: a main job's next run, and its last
+	// since xbind started with what its endpoint answered (D246)
+	Next       string `json:"next,omitempty"`
+	LastRun    string `json:"lastRun,omitempty"`
+	LastStatus int    `json:"lastStatus,omitempty"`
 }
 
 // cronList is GET /cron/jobs's answer for deployment dep's jobs.
@@ -461,6 +466,8 @@ func (b *Broker) cronList(r *http.Request, dep string, jobs []cronJob) map[strin
 		v := cronJobView{cronJob: j, Dormant: !b.firing(j.Component, dep)}
 		if dep != util.MainDeployment {
 			v.Deployment = dep
+		} else {
+			v.Next, v.LastRun, v.LastStatus = b.cron.runWords(j)
 		}
 		rows = append(rows, v)
 	}

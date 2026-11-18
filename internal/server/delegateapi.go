@@ -222,7 +222,7 @@ func (s *Server) delegateStateView(a delegateActor) map[string]any {
 		"pendingRequests": len(pend), "standingApprovals": len(aps), "openChangeSets": open,
 		// the web and MCP (D239): the person's own settings, and what the
 		// workspace policy lets them turn on
-		"web": st.Web, "mcp": st.MCP, "mcpReadOnly": st.MCPReadOnly, "net": s.netForPerson(a.user),
+		"web": st.Web, "mcp": st.MCP, "mcpReadOnly": st.MCPReadOnly, "net": s.netForPerson(a.user), "contextBudget": s.Delegation.NetPolicy().ContextBudget, // D246
 	}
 	// what xbin's own chrome draws its states from (agentpage.go; D232)
 	if !ws.At.IsZero() {
@@ -353,45 +353,24 @@ func (s *Server) apiDelegateWorkspacePut(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	var body struct {
-		Enabled *bool   `json:"enabled"`
-		Who     *string `json:"who"`
-		// the web and MCP policy (D239): what a person's agent may do there
-		Web *struct {
-			Mode   *string   `json:"mode"`
-			Allow  *[]string `json:"allow"`
-			Deny   *[]string `json:"deny"`
-			Search *bool     `json:"search"`
-		} `json:"web"`
-		MCP *mcpWorkspaceIn `json:"mcp"` // mode, and the outside servers (mcpextpolicy.go, D240)
+		Enabled *bool           `json:"enabled"`
+		Who     *string         `json:"who"`
+		Web     *webWorkspaceIn `json:"web"` // the web and MCP policy (D239): what a person's agent may do there
+		MCP     *mcpWorkspaceIn `json:"mcp"` // mode, and the outside servers (mcpextpolicy.go, D240)
+		// how much of a conversation an agent keeps: tokens, null the default (D246, delegatebudget.go)
+		ContextBudget json.RawMessage `json:"contextBudget"`
 	}
-	if err := DecodeJSON(r, &body); err != nil || body.Enabled == nil && body.Who == nil && body.Web == nil && body.MCP == nil {
-		WriteError(w, http.StatusBadRequest, `need {enabled?: bool, who?: "everyone" | "me" | "chosen", web?: {mode?, allow?, deny?, search?}, mcp?: {mode?, servers?}} with at least one key`, delegationDocs)
+	if err := DecodeJSON(r, &body); err != nil || body.Enabled == nil && body.Who == nil && body.Web == nil && body.MCP == nil && body.ContextBudget == nil {
+		WriteError(w, http.StatusBadRequest, `need {enabled?: bool, who?: "everyone" | "me" | "chosen", web?: {mode?, allow?, deny?, search?}, mcp?: {mode?, servers?}, contextBudget?: tokens | null} with at least one key`, delegationDocs)
 		return
 	}
 	defer s.hostAgentHold()()                        // the host's check and this write under one lock (agenthost.go)
 	if s.hostAgentWrite(w, body.Enabled, body.Who) { // the host's file sets it
 		return
 	}
-	if body.Web != nil || body.MCP != nil { // before the switch, so a refusal changes nothing
-		var np delegation.NetPatch
-		if body.Web != nil {
-			np.WebMode, np.WebAllow, np.WebDeny, np.WebSearch = body.Web.Mode, body.Web.Allow, body.Web.Deny, body.Web.Search
-		}
-		var err error
-		if body.MCP != nil {
-			np.MCPMode = body.MCP.Mode
-			if np.MCPServers, err = s.mcpServersPatch(body.MCP.Servers); err != nil {
-				netWriteError(w, err)
-				return
-			}
-		}
-		if _, err := s.Delegation.SetNet(np, p.From()); err != nil {
-			netWriteError(w, err)
+	if body.Web != nil || body.MCP != nil || body.ContextBudget != nil { // before the switch, so a refusal changes nothing
+		if !s.netWorkspacePut(w, p, body.Web, body.MCP, body.ContextBudget) {
 			return
-		}
-		s.netPolicyChanged()
-		if np.MCPServers != nil {
-			s.SweepDelegation() // approvals of a server that left the list, or moved, go now
 		}
 		if body.Enabled == nil && body.Who == nil {
 			WriteJSON(w, http.StatusOK, s.delegateWorkspaceView(p))

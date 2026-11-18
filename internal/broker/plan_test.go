@@ -93,7 +93,7 @@ func TestPlanOfAnAdmin(t *testing.T) {
 		"Create the tile apps/assistant from the template AI Agent (assistant) — yours",
 		"Bind apps/assistant's llm to xbin:llm",
 		"Bind apps/assistant's mcp to apps/dice",
-		`Start a tile agent in apps/dice — Claude Code, in its mode "default"`,
+		`Start a tile agent in apps/dice — Claude Code, in its mode "default", which asks before it edits or runs anything`,
 	} {
 		if it[i].Line != want {
 			t.Errorf("line %d: %q, want %q", i+1, it[i].Line, want)

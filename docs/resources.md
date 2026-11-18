@@ -229,7 +229,10 @@ PUT /api/xbin/cron/jobs
  "schedule":"*/5 * * * *","path":"/sweep","role":"writer"}
 ```
 
-Schedules: standard 5-field cron or `@every 30s` / `@hourly`. List:
+A job's `name` is a short label: at most 128 characters, no control or
+formatting character (a name a tile registered before this rule keeps
+working; a workspace agent's tile read shows names past 64 characters cut
+short). Schedules: standard 5-field cron or `@every 30s` / `@hourly`. List:
 `bx cron ls` or `GET /api/xbin/cron/jobs`. Delete:
 `DELETE /api/xbin/cron/jobs/<name>`. Failures are logged (xbind log +
 component log); there are no retries — make handlers idempotent and let the

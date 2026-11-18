@@ -704,6 +704,7 @@ var sealedRules = map[string]SealedRule{
 	"DELETE /delegate/sessions/{id}":         {Class: SealedNoTile},
 	"GET /delegate/sessions/{id}/connection": {Class: SealedNoTile},
 	"GET /delegate/map":                      {Class: SealedNoTile},
+	"POST /delegate/accounts/lookup":         {Class: SealedNoTile}, // accounts, not tiles
 	"POST /delegate/sessions/{id}/allows":    {Class: SealedNoTile}, // orgs
 	"POST /delegate/sessions/{id}/taint":     {Class: SealedNoTile}, // orgs
 	"POST /delegate/page/dismiss":            {Class: SealedNoTile}, // a person's own notice
@@ -715,6 +716,7 @@ var sealedRules = map[string]SealedRule{
 	// what a tile agent started on ?tile= would open with: none starts on one
 	// (auth.CanTerminalTileVia, and the delegate gate's DelegateTile)
 	"GET /delegate/start-defaults": {Class: SealedRefused, Query: []string{"tile"}, What: "it has no terminal and no agent sessions"},
+	"GET /delegate/tile":           {Class: SealedRefused, Query: []string{"tile"}, What: "a person's agent acts on tiles, never on xbin's own components"},
 	// previews (D234): a render shows tiles, never a system component's page
 	"POST /preview":                            {Class: SealedRefused, Body: []string{"tile"}, What: sealedNoPreview},
 	"GET /preview":                             {Class: SealedNoTile},

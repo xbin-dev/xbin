@@ -652,6 +652,8 @@ var partitionClasses = map[string]PartitionClass{
 	"DELETE /delegate/sessions/{id}":         PartitionNeutral,
 	"GET /delegate/sessions/{id}/connection": PartitionNeutral,
 	"GET /delegate/map":                      PartitionNeutral,
+	"GET /delegate/tile":                     PartitionNeutral,
+	"POST /delegate/accounts/lookup":         PartitionNeutral,
 	"GET /delegate/start-defaults":           PartitionNeutral,
 	"POST /delegate/sessions/{id}/allows":    PartitionNeutral,
 	"POST /delegate/sessions/{id}/taint":     PartitionNeutral,

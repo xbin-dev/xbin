@@ -75,6 +75,12 @@ func (s *Server) registerPlanAPI() {
 // line: the reason is the person's to read, on xbin's review.
 const lineBlockedForAgent = "xbin can't apply this line as proposed: your person sees why on xbin's review"
 
+// linePowerForAgent is all an agent reads of the power rule's refusal
+// (ChangeItem.Power; the broker's accessreach.go): no holder, no grant, no
+// tile beyond the line's own — those are shown in xbin's own review, to a
+// person who may see them.
+const linePowerForAgent = "this change needs an admin to make it by hand: the tile, or code tied to it, holds workspace powers"
+
 // lineHeldForAgent is all an agent is told of why a waiting line is not
 // applied though its tile declares something: that it does. What the tile
 // declared — its kind, service and role, words its coding agent wrote —
@@ -132,6 +138,14 @@ func (s *Server) setFor(a delegateActor, cs delegation.ChangeSet) delegation.Cha
 		}
 		cs.Items[i].Wait = &w
 	}
+	// a person's access: its arguments and its outcome, whoever the person
+	// is — never the tile's access list, the account or the level before
+	// (D246; changeset_access.go)
+	for i, it := range cs.Items {
+		if it.Kind == delegation.KindAccessSet {
+			cs.Items[i] = accessForAgent(it)
+		}
+	}
 	if s.optedIn(a.user) {
 		return cs
 	}
@@ -143,6 +157,9 @@ func (s *Server) setFor(a delegateActor, cs delegation.ChangeSet) delegation.Cha
 			Needs: it.Needs, Deferred: it.Deferred, Result: it.Result, Out: it.Out, Of: it.Of, Later: it.Later, Wait: it.Wait}
 		if it.Blocked != "" {
 			red.Blocked = lineBlockedForAgent
+		}
+		if it.Power {
+			red.Blocked, red.Power = linePowerForAgent, true
 		}
 		cs.Items[i] = red
 	}
@@ -404,6 +421,9 @@ func (s *Server) previewStart(a planAgent, op delegation.ChangeOp, planned []del
 		inMode, inTheMode = "in its own default mode", "in its own default mode"
 	}
 	pv.Line = fmt.Sprintf("Start a tile agent in %s — %s, %s", in.Tile, name, inMode)
+	if asks { // what the mode means, beside its name (D246; the feedback's E: "read-only" was read as the file permissions)
+		pv.Line += ", which asks before it edits or runs anything"
+	}
 	pv.Start, _ = json.Marshal(shown)
 	// what the start resolves to is part of what was shown: the network and
 	// the API access too, which a tile's org rules decide once it exists
@@ -434,7 +454,7 @@ func (s *Server) describePlan(person auth.Principal, a planAgent, ops []delegati
 			return nil, fmt.Errorf("line %d (%s): %w", n, op.Kind, err)
 		}
 		it := delegation.ChangeItem{ChangeOp: op, Line: pv.Line, Before: pv.Before, After: pv.After, BeforeText: pv.BeforeText, AfterText: pv.AfterText,
-			Effects: pv.Effects, Warnings: pv.Warnings, Blocked: pv.Blocked, Inverse: pv.Inverse, Basis: changeBasis(pv),
+			Effects: pv.Effects, Warnings: pv.Warnings, Blocked: pv.Blocked, Power: pv.Power, Inverse: pv.Inverse, Basis: changeBasis(pv),
 			Admin: pv.Admin, Needs: pv.Uses, Deferred: pv.Deferred, Start: pv.Start, UndoByHand: pv.UndoByHand, Pin: pv.Pin}
 		if pv.Waits != nil {
 			it.Wait = &delegation.ItemWait{PlanWait: *pv.Waits}
@@ -446,8 +466,9 @@ func (s *Server) describePlan(person auth.Principal, a planAgent, ops []delegati
 			}
 		}
 		// what the conversation may not see comes first: nothing is said of
-		// such a tile, the line's own refusal included
-		if why := cmpOr(s.lineAgentRefusal(a, pv.Tiles), s.createScopeRefusal(a, pv.Creates)); why != "" {
+		// such a tile, the line's own refusal included — and a person's own
+		// access is never a line of their agent's, whoever describes it
+		if why := cmpOr(s.lineAgentRefusal(a, pv.Tiles), s.createScopeRefusal(a, pv.Creates), s.accessSelfRefusal(person, a, pv, op)); why != "" {
 			it = delegation.ChangeItem{ChangeOp: op, Why: it.Why, Line: pv.Line, Blocked: why, Admin: pv.Admin, Needs: pv.Uses, Deferred: pv.Deferred}
 		}
 		waits := 0 // a line it needs that waits for an admin
@@ -627,11 +648,13 @@ func pinStart(op delegation.ChangeOp, start json.RawMessage) delegation.ChangeOp
 	return op
 }
 
-func cmpOr(a, b string) string {
-	if a != "" {
-		return a
+func cmpOr(vs ...string) string {
+	for _, v := range vs {
+		if v != "" {
+			return v
+		}
 	}
-	return b
+	return ""
 }
 
 // errorOf is a refused internal call's error text.
@@ -838,10 +861,18 @@ func (s *Server) askDecided(done delegation.ChangeSet) {
 			}
 			mine := &c.Items[it.Of-1]
 			mine.Result, mine.Error = it.Result, it.Error
+			if (it.Kind == delegation.KindAccessSet || it.Power) && (it.Result == delegation.ItemBlocked || it.Result == delegation.ItemFailed) {
+				// the admin's review resolved the name — no such account, or
+				// several — weighed the account's level against the power
+				// rule, or the store refused it: the asker learns no more of
+				// the workspace's accounts, levels or powers than of a line
+				// left out
+				mine.Result, mine.Error = delegation.ItemRejected, ""
+			}
 			if it.Result == delegation.ItemWaiting { // an admin approved it, and it waits: where it stands is theirs to read
 				mine.Error = "an admin (" + done.User + ") approved it: xbin applies it by itself once " + it.Wait.Tile + " provides " + it.Wait.Service
 			}
-			if it.Result == delegation.ItemRejected || it.Result == "" {
+			if mine.Result == delegation.ItemRejected || mine.Result == "" {
 				mine.Result, mine.Error = delegation.ItemRejected, "an admin ("+done.User+") left it out"
 			}
 		}

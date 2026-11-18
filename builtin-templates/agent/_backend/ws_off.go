@@ -46,6 +46,11 @@ func wsOffNow(ctx context.Context) wsOff {
 		return wsOff{Code: de.Refusal, Says: de.Message}
 	case err != nil:
 		return wsOff{}
+	}
+	if st.ContextBudget > 0 { // the workspace's context budget, as xbind says it now (ws_budget.go)
+		wsBudgetSet.Store(int64(st.ContextBudget))
+	}
+	switch {
 	case st.Paused:
 		return wsOff{Code: "paused"}
 	case !st.Workspace:

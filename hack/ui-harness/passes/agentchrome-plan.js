@@ -47,7 +47,7 @@ async function planChecks({ page, S, check, refresh, sentTo, armed, text, shot, 
     && /Needs line 2 — checked again once that exists/.test(await text(`${DLG} .item[data-n="3"] [data-needs]`)) && (await text(`${DLG} .item[data-n="3"] [data-admin]`)) === 'admin',
   `[${width}] the admin's line says whose rights apply it; a line says what it needs and what needs it`);
   const st = await text(`${DLG} .item[data-n="5"] [data-start]`);
-  check(/asks before acting/i.test(st) && /Coding agent\s*Codex/.test(st) && /Done when: tools\/list names it\./.test(st) && /sent exactly like this/.test(st), `[${width}] a start line: the mode, the coding agent, the brief as sent (${st.slice(0, 80)})`);
+  check(/asks before it edits or runs anything/i.test(st) && /Coding agent\s*Codex/.test(st) && /Done when: tools\/list names it\./.test(st) && /sent exactly like this/.test(st), `[${width}] a start line: the mode, the coding agent, the brief as sent (${st.slice(0, 80)})`);
   await shot(page, `agent-plan-review${tag}`, { fullPage: false });
   // a line and the lines that need it
   await page.uncheck(`${DLG} .item[data-n="1"] input`);
