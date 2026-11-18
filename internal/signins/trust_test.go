@@ -51,7 +51,7 @@ func TestSourceNeedsTrust(t *testing.T) {
 			t.Errorf("%s has the same basis", name)
 		}
 	}
-	if again := bobs("carol"); again.Basis() != base || !strings.HasPrefix(base, "tb_") {
+	if again := bobs("carol"); again.Basis() != base || !strings.HasPrefix(base, "tb2_") { // the answer's meaning is in it (TrustMeans)
 		t.Errorf("the same source, another basis: %s %s", again.Basis(), base)
 	}
 	if named := bobs("carol"); true {
