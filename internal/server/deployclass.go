@@ -493,6 +493,8 @@ var routeClasses = map[string]RouteClass{
 	"DELETE /delegate/sessions/{id}":         PrimaryOnly,
 	"GET /delegate/sessions/{id}/connection": PrimaryOnly,
 	"GET /delegate/map":                      PrimaryOnly,
+	"GET /delegate/tile":                     PrimaryOnly,
+	"POST /delegate/accounts/lookup":         PrimaryOnly,
 	"POST /delegate/web/fetch":               PrimaryOnly,
 	"POST /delegate/mcp/call":                PrimaryOnly,
 	"GET /delegate/mcp/servers":              PrimaryOnly,

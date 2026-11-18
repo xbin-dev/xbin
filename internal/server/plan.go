@@ -132,6 +132,14 @@ func (s *Server) setFor(a delegateActor, cs delegation.ChangeSet) delegation.Cha
 		}
 		cs.Items[i].Wait = &w
 	}
+	// a person's access: its arguments and its outcome, whoever the person
+	// is — never the tile's access list, the account or the level before
+	// (D246; changeset_access.go)
+	for i, it := range cs.Items {
+		if it.Kind == delegation.KindAccessSet {
+			cs.Items[i] = accessForAgent(it)
+		}
+	}
 	if s.optedIn(a.user) {
 		return cs
 	}
@@ -446,8 +454,9 @@ func (s *Server) describePlan(person auth.Principal, a planAgent, ops []delegati
 			}
 		}
 		// what the conversation may not see comes first: nothing is said of
-		// such a tile, the line's own refusal included
-		if why := cmpOr(s.lineAgentRefusal(a, pv.Tiles), s.createScopeRefusal(a, pv.Creates)); why != "" {
+		// such a tile, the line's own refusal included — and a person's own
+		// access is never a line of their agent's, whoever describes it
+		if why := cmpOr(s.lineAgentRefusal(a, pv.Tiles), s.createScopeRefusal(a, pv.Creates), s.accessSelfRefusal(person, a, pv, op)); why != "" {
 			it = delegation.ChangeItem{ChangeOp: op, Why: it.Why, Line: pv.Line, Blocked: why, Admin: pv.Admin, Needs: pv.Uses, Deferred: pv.Deferred}
 		}
 		waits := 0 // a line it needs that waits for an admin
@@ -627,11 +636,13 @@ func pinStart(op delegation.ChangeOp, start json.RawMessage) delegation.ChangeOp
 	return op
 }
 
-func cmpOr(a, b string) string {
-	if a != "" {
-		return a
+func cmpOr(vs ...string) string {
+	for _, v := range vs {
+		if v != "" {
+			return v
+		}
 	}
-	return b
+	return ""
 }
 
 // errorOf is a refused internal call's error text.

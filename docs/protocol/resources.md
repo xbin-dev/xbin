@@ -210,7 +210,11 @@ GET    /cron/jobs                        own jobs (admin: all). {jobs}
                                          (absent for main) and dormant (absent
                                          while active); ?deployment=<name>
                                          (admin) lists that deployment's,
-                                         echoed as deployment
+                                         echoed as deployment. A main job's
+                                         row also carries next (its next run,
+                                         RFC 3339) and lastRun, lastStatus
+                                         (its last run since xbind started and
+                                         the status its endpoint answered)
 PUT    /cron/jobs                        writer on the cron resource.
                                          body {name, resource, schedule, path, role?, component?¹}
                                          A tile credential schedules for its

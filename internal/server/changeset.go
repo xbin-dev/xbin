@@ -51,7 +51,9 @@ func (s *Server) registerChangeSetAPI() {
 	s.RegisterAPI("POST /delegate/changesets/{id}/approve", s.apiChangeSetApprove)
 	s.RegisterAPI("POST /delegate/changesets/{id}/reject", s.apiChangeSetReject)
 	s.RegisterAPI("POST /delegate/changesets/{id}/undo", s.apiChangeSetUndo)
-	s.registerPlanAPI() // POST /delegate/plans, …/ask (plan.go)
+	s.registerPlanAPI()         // POST /delegate/plans, …/ask (plan.go)
+	s.registerAccountLookup()   // POST /delegate/accounts/lookup (delegateaccounts.go)
+	s.registerTileStandingAPI() // GET /delegate/tile (delegatetile.go)
 }
 
 // personOf is the person a delegate acts for, as a principal of their own:
@@ -143,7 +145,8 @@ func (s *Server) apiChangeSetNew(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusBadRequest, err.Error(), delegationDocs)
 		return
 	}
-	cs, err := s.Delegation.NewChangeSet(delegation.ChangeSet{User: a.user, Agent: a.p.Agent, Title: in.Title, Items: items})
+	s.holdAccessLines(planAgent{p: a.p}, items) // a person's access is held to what the conversation may touch (changeset_access.go)
+	cs, err := s.Delegation.NewChangeSet(delegation.ChangeSet{User: a.user, Agent: a.p.Agent, Title: in.Title, Items: items, Session: a.p.AgentSession})
 	switch {
 	case errors.Is(err, delegation.ErrTooManySets):
 		WriteError(w, http.StatusConflict, err.Error(), delegationDocs)
@@ -306,6 +309,10 @@ func (s *Server) apiChangeSetApprove(w http.ResponseWriter, r *http.Request) {
 		// whose trust line they ticked with it ("I trust this tile's source").
 		Signin []int `json:"signin"`
 		Trust  []int `json:"trust"`
+		// Knows: the line kinds newer than the eight every client knows
+		// (newerKinds) that this client draws as what they are — a line of
+		// one is applied only when it is named here (D246)
+		Knows []string `json:"knows"`
 	}
 	if r.ContentLength != 0 {
 		r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
@@ -363,6 +370,13 @@ func (s *Server) apiChangeSetApprove(w http.ResponseWriter, r *http.Request) {
 			WriteError(w, http.StatusBadRequest, fmt.Sprintf("the set has no operation %d", n), delegationDocs)
 			return
 		}
+	}
+	if kinds := knowsRefusal(cs, chosen, body.Knows); len(kinds) > 0 {
+		// an older app ticks any line it doesn't block: one of a kind it
+		// can't show for what it is is never applied from it
+		WriteJSON(w, http.StatusConflict, map[string]any{"error": "this app or page is older than this xbin and doesn't know a chosen line's kind (" + strings.Join(kinds, ", ") + "): update it, or review the set on the web — nothing was applied",
+			"kinds": kinds, "docs": delegationDocs})
+		return
 	}
 	// a plan: what was chosen must be the person's to apply, with the lines
 	// it needs; only an admin's line takes the step-up (plan.go). An admin
@@ -509,6 +523,12 @@ func (s *Server) applyChangeSet(ctx context.Context, approver auth.Principal, cs
 		why := ""
 		if err == nil && cs.Plan {
 			why = cmpOr(s.lineAgentRefusal(agent, pv.Tiles), s.createScopeRefusal(agent, pv.Creates))
+		}
+		if err == nil && why == "" && it.Kind == delegation.KindAccessSet { // whatever the set: what the agent may touch, and never its person's own access (changeset_access.go)
+			if !cs.Plan {
+				why = s.lineAgentRefusal(s.agentOf(*cs, approver), pv.Tiles)
+			}
+			why = cmpOr(why, s.accessSelfRefusal(approver, s.agentOf(*cs, approver), pv, it.ChangeOp))
 		}
 		switch {
 		case err != nil:

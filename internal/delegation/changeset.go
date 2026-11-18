@@ -218,6 +218,11 @@ type ChangePreview struct {
 	// own binding waits. xbind's words for what to do instead (propose it
 	// again once the tile provides it); Blocked says the same.
 	Later string
+	// Account: the account an access.set line resolved to — set only for a
+	// person who sees accounts (D246). The server holds it to the person
+	// whose agent proposed the line: their own access is never a line of
+	// theirs, whoever describes it.
+	Account string
 	// Waits: the line can't be applied yet — the tile it binds to provides
 	// nothing of the kind until a tile agent an earlier line starts has
 	// written it. Approved, it waits (ItemWaiting) and xbind applies it by

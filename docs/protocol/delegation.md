@@ -82,9 +82,9 @@ forwards them):
 
 | Class | Routes |
 |---|---|
-| reads, at the person's level | `GET /whoami`, `/components`, `/components/<path>`, `/tile-status`, `/tile-report`, `/logs`, `/alerts`, `/screens`, `/templates`, `/agent/providers`, `/term/sessions`, `/term/sessions/<id>`, `…/events`, `…/log`, `…/diff`, `/agent/history`, `/agent/history/<id>/events`, `/code/tree`, `/code/file`, and its own `/delegate/state`, `/delegate/approvals`, `/delegate/requests/<id>`, `/delegate/changesets[/<id>]` |
+| reads, at the person's level | `GET /whoami`, `/components`, `/components/<path>`, `/tile-status`, `/tile-report`, `/logs`, `/alerts`, `/screens`, `/templates`, `/agent/providers`, `/term/sessions`, `/term/sessions/<id>`, `…/events`, `…/log`, `…/diff`, `/agent/history`, `/agent/history/<id>/events`, `/code/tree`, `/code/file`, `/delegate/tile` (§Where a tile stands), and its own `/delegate/state`, `/delegate/approvals`, `/delegate/requests/<id>`, `/delegate/changesets[/<id>]` |
 | a tile's API | `/api/<tile>/…` where the person can read the tile: `GET`/`HEAD` freely; any other method needs the person's approval — except on a tile's declared MCP endpoint, where `initialize`, `ping` and `tools/list` are reads and every other POST is refused (§MCP tiles) |
-| acts | `POST /preview` (a picture of one tile, as the person: [preview.md](/docs/protocol/preview.md) — no approval; rate-limited), `POST /term/sessions` (approval, or the person's preference), `POST /templates/new` (approval); on sessions **it opened**: `…/prompt`, `…/queue`, `DELETE …/queue[/<qid>]`, `…/cancel`, `DELETE /term/sessions/<id>`; asking: `POST`/`DELETE /delegate/requests…`, `POST`/`DELETE /delegate/changesets…`, `POST /delegate/plans`; the web: `POST /delegate/web/fetch` (§Web and MCP: the person's approval of the URL when the conversation holds data); MCP tiles: `POST /delegate/mcp/call` (approval of each tool, §MCP tiles) |
+| acts | `POST /preview` (a picture of one tile, as the person: [preview.md](/docs/protocol/preview.md) — no approval; rate-limited), `POST /term/sessions` (approval, or the person's preference), `POST /templates/new` (approval); on sessions **it opened**: `…/prompt`, `…/queue`, `DELETE …/queue[/<qid>]`, `…/cancel`, `DELETE /term/sessions/<id>`; asking: `POST`/`DELETE /delegate/requests…`, `POST`/`DELETE /delegate/changesets…`, `POST /delegate/plans`, `POST /delegate/accounts/lookup` (§A person's access); the web: `POST /delegate/web/fetch` (§Web and MCP: the person's approval of the URL when the conversation holds data); MCP tiles: `POST /delegate/mcp/call` (approval of each tool, §MCP tiles) |
 | admin reads, only for an admin who opted in | `GET /grants`, `/bindings`, `/orgs` (without SSO group rules), `/limits` — answered as the person |
 | refused | everything else: `403 {error, refusal: "not-delegated", class}`. In particular: answering a tile agent's permission request or question, a session's options and restart, terminals, deleting or disabling tiles, code writes and pull requests, the account, devices and sign-in tickets, frame tokens and path tickets, view-as, a person's consents, tile stores, the admin API, and every approval on this page |
 
@@ -257,6 +257,9 @@ GET    /delegate/map            a person, or their agent. {user, tiles:
                                  screens: [{id, name, org?, tiles}], orgs:
                                  [{id, name, level, admin, suspended}],
                                  leftOut: {hiddenByYou, blocked}}
+GET    /delegate/tile           the person's agent. ?tile= → where one
+                                 tile stands, as the reads below give
+                                 it to this agent (§Where a tile stands)
 GET    /docs/search             signed in. ?q= (≤ 200 bytes; 8 words)
                                  &limit= (≤ 20, default 8) → {q, results:
                                  [{path, title, section, heading, score,
@@ -348,6 +351,46 @@ GET    /docs/page               signed in. ?path=&section= → {path, title,
   `…/taint` before the handle carries anything: a `409 model_taint` there
   means the conversation can't go on on that model.
 - Audit rows carry `session`.
+
+### Where a tile stands
+
+`GET /delegate/tile?tile=<path>` answers, in one read, what the reads an
+agent makes of a tile give it — each part under the gate of the read it
+replaces, so it reaches nothing those don't (D246):
+
+```
+{tile, title, kind, runtime, orgs, level, agent, agentRequested?, mcp?,
+ owner?: {kind: user | org | workspace, id?, name?},
+ backend: {state, error?, restarts?, retry?: {attempt, of, at},
+           flag?: "crash-loop" | "retrying" | "failed", words},
+ wiring, slots: [{slot, kind, service?, required, multi?, bound?}],
+ uses: [{target, role, granted?, pending?}],
+ provides: [{slot, kind, service?, role?}], exposes: [{slot, kind, paths?}],
+ cron?: [{name, schedule, path, next?, lastRun?, lastStatus?, dormant?}],
+ log: {shown, lines?, why?},
+ sessions: [{id, by: person | "this agent" | "another agent", status, mode?,
+             provider?, waits?, turn?, last?}]}
+```
+
+| Part | As | Its gate |
+|---|---|---|
+| title, kind, orgs, agent level, mcp | `GET /delegate/map`'s row | the map's |
+| runtime | `GET /components/<path>` | read |
+| owner | `GET /owner`; a person's display name only to someone who sees accounts (§A person's access) or to themselves, an org's where they see the org | read |
+| backend | `GET /tile-status`'s row of the primary, in words: a crash loop is "keeps exiting: …", a start that retries (D242) "crashing on start: … — xbin starts it again by itself (attempt 2 of 3) at …" | read |
+| slots' `bound`, uses' `granted` / `pending` (`wiring: true`) | the person's own `GET /bindings` and `GET /grants` views | a workspace admin; a tile they write, or one an org they admin owns |
+| slots declared, provides, exposes | the manifest (`GET /code/file?file=xbin.json`) | read |
+| `cron` | `GET /cron/jobs` as a terminal on the tile lists its own | a workspace admin, or terminal level |
+| `log` | `GET /logs` (its last 30 lines, 4 KiB) | terminal level; else `shown: false` and why |
+| `sessions` | the person's `GET /term/sessions?compact=1` | their own sessions |
+
+The request is held as any read that names a tile: one answer for a tile
+that isn't there or that the person can't read (`403 {refusal: "tile"}`),
+`hidden` outside the conversation's scope, the orgs' rules — and the
+conversation is tainted with the tile's orgs. A system component is
+refused. It is written to the person's log (it carries a log's tail). Not
+in it: the tile's template (xbind keeps no record of it outside the
+tile's git history), anyone's access to it, other people's sessions.
 
 ## Web and MCP
 
@@ -1177,11 +1220,17 @@ POST   /delegate/changesets/<id>/approve
                                  the person whose agent proposed it, in
                                  their own session, app or device. {items?:
                                  [n, …], password?, signin?: [n, …],
-                                 trust?: [n, …]} (the agent.start lines
-                                 whose "use my sign-in" line, and trust
-                                 line, were ticked; 409 {changed} when a
-                                 trusted line's tile is no longer as
-                                 shown — nothing applied) → the set with each
+                                 trust?: [n, …], knows?: [kind, …]} (the
+                                 agent.start lines whose "use my sign-in"
+                                 line, and trust line, were ticked; 409
+                                 {changed} when a trusted line's tile is
+                                 no longer as shown — nothing applied;
+                                 knows: the line kinds newer than the
+                                 eight every client knows — access.set —
+                                 that this client shows for what they
+                                 are: a chosen line of one not named is
+                                 409 {error, kinds}, nothing applied) →
+                                 the set with each
                                  item's result. items is required and
                                  not empty: no body, null and [] apply
                                  nothing (400; the set stays proposed).
@@ -1211,6 +1260,7 @@ Kinds — a closed list; there is no kind that names a route:
 | `binding.remove` | `{component, slot, provider?, host?, zone?, listen?}` | `DELETE /bindings` |
 | `org.share` | `{org, tile, level}` (`""` stops sharing) | `PUT /access` |
 | `limits.set` | `{tile, kind, value}` — a raise | `POST /limits` |
+| `access.set` | `{tile, user, level}` — a person's own level on one tile: `user` their account id or display name, `level` `none` \| `read` \| `write` \| `terminal`, or `""` to remove their own entry (§A person's access) | `PUT /access {kind: "user"}` |
 
 What a kind can't express — refused as no change at all (`400` at the
 proposal, and again if it became true by the time the set is applied):
@@ -1223,7 +1273,10 @@ proposal, and again if it became true by the time the set is applied):
 - a binding of an `@` pseudo-slot (`@archive`) or of the workspace default
   (`*`), a binding to the host's network (`host`, or a network set that
   says host), and `provider` together with `providers`;
-- a share of a tile that itself holds `xbin`, `cap:*`, `gpu:*` or `code`.
+- a share of a tile that itself holds `xbin`, `cap:*`, `gpu:*` or `code`,
+  and a person's access above `none` to one;
+- a person's access to a tile an earlier line of the same plan creates
+  (it is set on a tile that exists: it never waits).
 
 A change set:
 
@@ -1259,6 +1312,62 @@ A change set:
   `kind`) is at most 200 bytes of letters, digits and `._~:@#/*+=,[]-`
   (`400` otherwise): they are written into xbind's line.
 
+### A person's access
+
+`access.set {tile, user, level}` applies as the tile's access dialog's own
+call — `PUT /access {tile, kind: "user", id, level}`, its handler and its
+check of who manages the tile's access (its owner, the owning org's
+admins, a workspace admin) — as the approving person, with their rights
+read again when they apply it (D246). It sets the person's own exact
+entry, which is authoritative on that tile (`none` excludes them whatever
+their orgs give; `""` removes the entry). Its line is xbind's, with the
+person's effective level before and after: `“Dave Smith” (dave): no
+access → read on apps/invoices` (the display name quoted and cleaned, the
+id beside it — the id is what xbind enforces).
+
+- **Whose account.** `user` is an account id or a display name. It is
+  resolved only for a person who already sees the workspace's accounts —
+  a workspace admin or an org admin (`GET /users`, `/users-directory`):
+  the exact id, else the one account whose display name equals it
+  (case and the space around it aside); none or several is a blocked line
+  ("name the person by their account id"). For anyone else nothing is
+  looked up: the name is used as an id, as typed, and the line says so —
+  an admin's review resolves it, or the by-hand route's own answer at
+  Apply ("no such user") does.
+- **Personal** exactly when the person is the tile's owner, about someone
+  else: the by-hand rule with no admin right. An org admin of the owning
+  org and a workspace admin apply it with an admin's right — an admin's
+  line; anyone else gets "needs an admin" and Ask an admin.
+- **Warned**, so it starts unticked: a level of `terminal`
+  (`TERMINAL: …`), a system component (`SYSTEM COMPONENT: …`) and the
+  person's own level (`YOUR OWN ACCESS: …`). One's own level — by id, or
+  by one's own display name — is **blocked** for anyone but a workspace
+  admin (not "needs an admin": it is never asked of one), and an admin's
+  line for them; a line an admin applies for someone else that turns out
+  to be that person's own (a name only the admin's review resolves) is
+  blocked there too.
+- **Held to the conversation** as a plan's lines are (§Plans: the tile
+  readable, in scope, not `"off"`, its orgs letting the agent in) — in
+  `admin_propose` sets too.
+- **What the agent reads**, whoever the person is (an admin who lets it
+  read admin state too): `n`, `kind`, `args`, `why`, the flags, `needs`,
+  `result`, and a line written from its arguments ("Set the access of
+  “Dave” on apps/invoices to read") — never xbind's line, the account,
+  the level before or after, the effects, the warnings, `basis`,
+  `inverse` or `error`; a blocked line the one fixed sentence.
+
+`POST /delegate/accounts/lookup {name}` answers the agent whether an
+account of that name exists, and nothing else, so a line can name the
+right person:
+
+- only for a person who sees accounts (above): `{name, exists: true, id,
+  displayName}`, `{name, exists: false}`, or — two or more by display
+  name — `{name, exists: true, ambiguous: true}`, never the list;
+- for anyone else `{name, unseen: true, why}`, the same for every name;
+- an act: counted in the 30 a minute, a row of the person's log (the
+  path, never the name), and 10 at once a conversation, one more every
+  6 s (`429` + `Retry-After`).
+
 ### Plans
 
 Multi-step work is **one** change set. A person's agent proposes the whole
@@ -1283,6 +1392,11 @@ POST   /delegate/plans          the person's agent only, under its agent
                                  Retry-After past that. (An xbind from
                                  before dry runs answers the field with
                                  its 400 "need {title, items: …}".)
+POST   /delegate/accounts/lookup
+                                 the person's agent, under its session.
+                                 {name} → {name, exists?, id?,
+                                 displayName?, ambiguous?, unseen?, why?}
+                                 (§A person's access)
 POST   /delegate/changesets/<id>/ask
                                  the person, in their own session.
                                  {items?: [n, …]} → their set, the lines

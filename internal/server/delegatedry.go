@@ -42,6 +42,7 @@ var delegateDryWhole = map[string]string{
 	"POST /delegate/changesets":           "a proposal: nothing is applied, and each line is judged when it is described and again when its person applies it",
 	"DELETE /delegate/changesets/{id}":    "the agent's own proposal",
 	"POST /delegate/plans":                "a proposal: nothing is applied, and each line is judged when it is described and again when its person applies it",
+	"POST /delegate/accounts/lookup":      "a lookup: it answers only what its person already sees of accounts, and nothing changes (delegateaccounts.go)",
 }
 
 // CreateChecker answers what a POST /templates/new by p would create, or

@@ -64,6 +64,26 @@ type cronRunner struct {
 	// part are the jobs of people's partitions, kept in their own files and
 	// keyed by partKey (partitionregs.go).
 	part map[string]*partJob
+	// last is each main job's last run since xbind started (jobKey): when,
+	// and the status its endpoint answered — GET /cron/jobs and
+	// GET /delegate/tile say it (D246). Kept in memory only.
+	last map[string]cronRun
+}
+
+// cronRun is one run of a job: when it fired and what its endpoint answered.
+type cronRun struct {
+	At     time.Time
+	Status int
+}
+
+// runOf is job key's next run and its last since xbind started.
+func (cr *cronRunner) runOf(key string) (next time.Time, last cronRun) {
+	cr.mu.Lock()
+	defer cr.mu.Unlock()
+	if id, ok := cr.entries[key]; ok {
+		next = cr.sched.Entry(id).Next
+	}
+	return next, cr.last[key]
 }
 
 func newCronRunner(b *Broker) *cronRunner {
@@ -71,7 +91,7 @@ func newCronRunner(b *Broker) *cronRunner {
 		b: b, sched: cron.New(),
 		entries: map[string]cron.EntryID{}, jobs: map[string]cronJob{},
 		backups: map[string]backupSchedule{}, backupEntries: map[string]cron.EntryID{},
-		dep: map[string]*depJob{}, running: map[string]bool{}, part: map[string]*partJob{},
+		dep: map[string]*depJob{}, running: map[string]bool{}, part: map[string]*partJob{}, last: map[string]cronRun{},
 	}
 	cr.load()
 	cr.loadBackups()
@@ -125,6 +145,19 @@ func (cr *cronRunner) persist() {
 
 func jobKey(j cronJob) string { return j.Component + "\x00" + j.Name }
 
+// runWords is a main job's next run and last run as a listing says them
+// (RFC 3339; "" none) with the last run's status.
+func (cr *cronRunner) runWords(j cronJob) (next, lastRun string, lastStatus int) {
+	n, l := cr.runOf(jobKey(j))
+	if !n.IsZero() {
+		next = n.UTC().Format(time.RFC3339)
+	}
+	if !l.At.IsZero() {
+		lastRun, lastStatus = l.At.Format(time.RFC3339), l.Status
+	}
+	return next, lastRun, lastStatus
+}
+
 func (cr *cronRunner) add(j cronJob) error {
 	if j.Name == "" || j.Schedule == "" || j.Component == "" || !strings.HasPrefix(j.Path, "/") {
 		return fmt.Errorf("job needs {name, schedule, path:/…}")
@@ -158,6 +191,7 @@ func (cr *cronRunner) remove(component, name string) bool {
 	cr.sched.Remove(id)
 	delete(cr.entries, key)
 	delete(cr.jobs, key)
+	delete(cr.last, key)
 	return true
 }
 
@@ -171,6 +205,7 @@ func (cr *cronRunner) forget(path string) int {
 			cr.sched.Remove(cr.entries[key])
 			delete(cr.entries, key)
 			delete(cr.jobs, key)
+			delete(cr.last, key)
 			n++
 		}
 	}
@@ -208,7 +243,13 @@ func (cr *cronRunner) fire(j cronJob) {
 		return
 	}
 	p := auth.Principal{Component: CronPrincipal, Via: "cron", Role: j.Role}
+	at := time.Now().UTC()
 	code, body := dispatch(p, j.Component, j.Path)
+	cr.mu.Lock()
+	if _, still := cr.jobs[jobKey(j)]; still {
+		cr.last[jobKey(j)] = cronRun{At: at, Status: code}
+	}
+	cr.mu.Unlock()
 	if code >= 400 {
 		slog.Warn("cron job failed", "job", j.Name, "component", j.Component,
 			"status", code, "body", firstLine(body))
