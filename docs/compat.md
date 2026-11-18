@@ -430,6 +430,30 @@ differently.
   xbind that rewrites `users.json` drops the `agents` keys, as it drops
   every key it doesn't know.
 
+## A person's home on a tile they have not trusted (D245)
+
+- **What an upgrade does to an existing workspace:** nothing on disk. No
+  home is moved, copied or rewritten; `homes/<user>` stays what it is.
+  From the upgrade on, a session on a tile whose source isn't only its
+  person's — and that they have not trusted — mounts a copy-on-write view
+  of their home: it reads the home as before, and what it writes under
+  `~` goes to `data/home-copies/<user>/<tile>/`, empty at first. A
+  security fix (the changelog entry is marked BREAKING, with
+  [changes/2026-11-18-home-on-untrusted-tiles.md](changes/2026-11-18-home-on-untrusted-tiles.md)).
+- **Who sees no change:** sessions on a person's own tiles and on tiles
+  they trusted; a workspace admin on workspace-owned tiles nobody else can
+  change — so a one-person workspace entirely — and every workspace
+  without `--isolate`.
+- **Additive API:** session rows gain `home`, `GET /agent/signins` gains
+  `home` and `homes`, one new route (`DELETE /agent/signins/homes/<id>`).
+  An older page ignores them.
+- **Narrowed, on purpose:** an admin's attach to another person's session
+  is refused when that session has the person's real home; a session whose
+  copy cannot be mounted does not start.
+- **Downgrading** an xbind: it knows nothing of `data/home-copies/`,
+  mounts the real home read-write on every tile again (the old exposure),
+  and leaves the copies untouched for the next upgrade.
+
 ## Sealed components (system components, D227)
 
 A release may ship **sealed components**: parts of xbin that run like

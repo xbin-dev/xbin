@@ -307,3 +307,109 @@ func TestHomeOnATileThatIsntOnlyYours(t *testing.T) {
 		t.Fatalf("bob's session on his own tile:\n%s", out)
 	}
 }
+
+// covers D245 in a VM sandbox: a VM terminal's jail mounts the session's
+// home the way a namespace terminal does and the shim exports the jail's
+// view, so on bob's tile alice's guest reads her home and writes to the
+// tile's copy — her real home on disk is unchanged. Skips where VMs can't
+// run.
+func TestHomeOnATileThatIsntOnlyYoursVM(t *testing.T) {
+	a := xbindtest.Require(t)
+	d := xbindtest.Start(t, a, xbindtest.Options{Auth: true})
+	var st struct{ Status xbindtest.VMStatus }
+	d.Must(t, "GET", "/api/xbin/vm", nil, 200).Decode(t, &st)
+	if !st.Status.Available {
+		t.Skipf("VM sandboxes unavailable here: %s", st.Status.Reason)
+	}
+	d.Must(t, "PUT", "/api/xbin/vm/policy", map[string]any{"terminals": true, "budgetMiB": 8192}, 200)
+	for _, tile := range []string{"apps/hers", "apps/his"} {
+		for rel, body := range map[string]string{"index.html": "<html><body>" + tile + "</body></html>", "xbin.json": `{"title":"` + tile + `"}`} {
+			p := filepath.Join(d.WS, filepath.FromSlash(tile), rel)
+			if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	d.AddUser(t, "alice", "pw-alice-7d1f02", "user", map[string]string{"apps/hers": "terminal", "apps/his": "terminal"})
+	d.AddUser(t, "bob", "pw-bob-2a9c44", "user", map[string]string{"apps/his": "terminal"})
+	alice := xbindtest.H("Authorization", "Bearer "+d.Login(t, "alice", "pw-alice-7d1f02"))
+	homeOn := func(tile string) (mode string, asks bool) {
+		var v struct {
+			Home *struct {
+				Mode  string
+				Trust *struct{ Basis string }
+			}
+		}
+		d.Call(t, "GET", "/api/xbin/agent/signins?tile="+tile, nil, alice).Decode(t, &v)
+		if v.Home == nil {
+			return "", false
+		}
+		return v.Home.Mode, v.Home.Trust != nil
+	}
+	for deadline := time.Now().Add(2 * time.Minute); ; time.Sleep(200 * time.Millisecond) {
+		d.Call(t, "POST", "/api/xbin/owner", map[string]any{"tile": "apps/hers", "to": "user:alice"})
+		d.Call(t, "POST", "/api/xbin/owner", map[string]any{"tile": "apps/his", "to": "user:bob"})
+		hers, _ := homeOn("apps/hers")
+		his, asks := homeOn("apps/his")
+		if hers == "own" && his == "copy" && asks {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the tiles never registered (her home on hers %q, on his %q)", hers, his)
+		}
+	}
+	home := filepath.Join(d.WS, "homes", "alice")
+	own := w2OpenTerm(t, d, "apps/hers", alice)
+	if out, rc := own.run(t, `printf '[user]\n\tname = alice-REAL\n' > ~/.gitconfig && echo seeded`, time.Minute); rc != 0 {
+		t.Fatalf("seeding her home: %s", out)
+	}
+	own.conn.Close()
+	d.Call(t, "DELETE", "/ws/term?session="+own.id, nil, alice)
+	for deadline := time.Now().Add(30 * time.Second); ; time.Sleep(50 * time.Millisecond) {
+		var list []struct{ ID string }
+		d.Call(t, "GET", "/api/xbin/term/sessions", nil, alice).Decode(t, &list)
+		if len(list) == 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("her session did not end")
+		}
+	}
+	before := hcTree(t, home)
+
+	vmS := w2OpenTerm(t, d, "apps/his&vm=1", alice)
+	out, _ := vmS.run(t, `uname -r; cat ~/.gitconfig; mkdir -p ~/.claude && echo '{"hooks":"curl evil"}' > ~/.claude/settings.json && echo 'echo PW''NED' >> ~/.bashrc && cat ~/.claude/settings.json && echo planted`, 3*time.Minute)
+	if !strings.Contains(out, "alice-REAL") || !strings.Contains(out, "planted") || !strings.Contains(out, "curl evil") {
+		t.Fatalf("alice's VM terminal on bob's tile:\n%s", out)
+	}
+	var list []struct {
+		ID   string
+		VM   bool
+		Home *struct{ Mode string }
+	}
+	d.Call(t, "GET", "/api/xbin/term/sessions", nil, alice).Decode(t, &list)
+	if len(list) != 1 || !list[0].VM || list[0].Home == nil || list[0].Home.Mode != "copy" {
+		t.Fatalf("the VM session's row: %+v", list)
+	}
+	vmS.conn.Close()
+	d.Call(t, "DELETE", "/ws/term?session="+vmS.id, nil, alice)
+	for deadline := time.Now().Add(60 * time.Second); ; time.Sleep(100 * time.Millisecond) {
+		d.Call(t, "GET", "/api/xbin/term/sessions", nil, alice).Decode(t, &list)
+		if len(list) == 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the VM session did not end")
+		}
+	}
+	if after := hcTree(t, home); after != before {
+		t.Fatalf("the VM terminal changed alice's real home on disk:\n--- before\n%s\n--- after\n%s", before, after)
+	}
+	ents, _ := filepath.Glob(filepath.Join(d.WS, "data", "home-copies", "alice", "*", "upper", ".claude", "settings.json"))
+	if len(ents) != 1 {
+		t.Fatalf("the planted file is not in the tile's copy: %v", ents)
+	}
+}

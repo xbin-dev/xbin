@@ -287,37 +287,77 @@ under it, and an explicit, per-file "bring this along" by the person.
 
 ## 10. Tests (each shown red without its rule)
 
-Unit (`internal/term`, `internal/signins`, `internal/sandbox`,
-`internal/server`): the rule's table (own tile, other person's, org's,
-workspace's for an admin and a non-admin, co-editor, trusted, trust void,
-trusting off, root token, delegate, terminal token with and without a
-real-home session, other credentials, view-as, no isolation, no identity);
-restart and resume keep the copy and never widen; the sweep ends real-home
-sessions and leaves copies; admin pass; the layer's path per identity;
-forget; the tile-gone sweep keeps an unregistered tile's layer; the
-account's deletion; the one-time note; routes and their classes.
+Without sandboxes (`make test`):
 
-Under isolation, real sandboxes (`internal/term`, `-tags=integration`,
-`TestHomeCopy*`; `internal/sandbox` `TestHold*`):
+- `internal/term/home_test.go` — `TestHomeRule` (the table: own tile,
+  another person's, an org's, the workspace's for an admin and a
+  non-admin, a co-editor, trusted, a void trust, trusting off, the root
+  token, a delegate, a terminal's token, other credentials, view-as, a
+  kept copy, no identity, no tile), `TestHomeRuleWithoutSandboxesOrRule`
+  (no sandboxes; no rule wired; an undecided home is never bound; a copy
+  that can't be mounted is an error), `TestHomeLayerStore` (one layer per
+  person and tile identity, one hold shared and ended with the last
+  session, the flavour stamp, the note once, the list, forget, a tile
+  made again, the sweep that keeps an unregistered tile's layer, the
+  account's deletion), `TestHomeLayerDeadHold`, `TestHomeSweep`,
+  `TestHomeAdminPass`, `TestHomeTerminalToken`, `TestHomeWords`;
+- `internal/boot/homecopy_test.go` — `TestHomeCopyRoutes` (the wiring on a
+  booted daemon, `home`/`homes` in `GET /agent/signins`, forget and who
+  may, the sweep, a trust given with saved sign-ins off, the account's
+  deletion);
+- the words: `hack/agent-signins.test.mjs`, XbinTerm's
+  `TermDirectoryTests.rowsCarryTheSessionsHome`; the docs:
+  `internal/docscheck`.
 
-1. the attack: bob's tile, alice's session there writes
-   `~/.claude/settings.json`, `~/.gitconfig`, `~/.bashrc`; her next session
-   on her own tile does not have them; her real home is byte-identical
-   (a hash of the tree before and after);
-2. reads of the real home work on the untrusted tile;
-3. the layer persists per tile; invisible from another tile and to another
-   person;
-4. trust → the real home, the layer untouched; trust void → running
-   real-home sessions end, the next session is on the layer as it was;
-5. forget → gone; the tile deleted and made again → a new layer;
-6. a delegate start; a terminal token; restart and resume keep the mode;
-7. the sole-admin workspace: no hold, no layer, the real home written;
-8. the mount fails → the session fails with the reason, the real home is
-   not mounted (a broken fuse-overlayfs; a foreign flavour stamp);
-9. fifty start/stop cycles leave no process and no mount; two sessions at
-   once on one (person, tile) see each other's writes;
-10. a VM sandbox on the copy (where VMs can run).
+Under isolation, real sandboxes, both overlay flavours (the `term` and
+`sandbox` integration suites):
 
-End to end over a real `xbind --isolate` with accounts (`test/isolated`):
-the attack through the broker's own `SigninSource`, the trust route, the
-row's `home`, forget.
+- `internal/sandbox/hold_linux_test.go` — `TestHoldClones` (one overlay,
+  two sandboxes; the lower never written), `TestHoldFailsClosed`,
+  `TestHoldCycles` (50 holds: no process, no mount);
+- `internal/term/home_linux_test.go` — `TestHomeCopyAttack` (bob's tile;
+  alice's session reads her home, the tile's code plants
+  `~/.claude/settings.json`, `~/.gitconfig`, `~/.bashrc`, a `~/.local/bin`
+  tool and an ssh config; her real home is byte-identical — a hash of the
+  tree; her own tile has none of it; the layer persists there, is
+  invisible from another tile and to another person; a restricted session
+  on the allow-list view), `TestHomeCopyTrustAndForget` (trust → the real
+  home, the layer untouched; a new editor voids it → the real-home
+  session ends, a copy session elsewhere stays, the next is on the layer
+  as it was; forget; the tile made again → a new layer; the sweep),
+  `TestHomeCopySoleAdmin` (an admin account and the root token on the
+  workspace's tile: no hold, no layer, the real home written),
+  `TestHomeCopyFailsClosed` (a broken fuse-overlayfs, a foreign flavour,
+  an upper that is a file, a tile without identity: refused with the
+  reason, the real home unchanged), `TestHomeCopyCycles` (two sessions at
+  once share one mount; 50 terminals: no hold, no process, no mount, no
+  lost write), `TestHomeCopyAgentSessions` (an agent session, a delegate's
+  start, resume and restart stay on the copy after the tile is trusted, a
+  new session has the real home), `TestHomeCopyPerf` (opt-in numbers).
+
+End to end on an `xbind --isolate` with accounts (`test/isolated`):
+`TestHomeOnATileThatIsntOnlyYours` (the attack through the broker's own
+source, the row, an admin's attach to a copy session and its refusal on a
+real-home one, trust, untrust ending the session, forget) and `…VM` (a
+Firecracker guest on the copy). In a browser: the UI harness pass
+`termHome` (`HARNESS_ISOLATE=1`).
+
+Red runs: fifteen mutations, each removing one rule, each failing the
+tests named for it (the change's report lists them).
+
+## 11. Not done, known
+
+- Reads are open (§9).
+- The hold's process and its fuse-overlayfs are xbind's children, outside
+  the session's cgroup leaf: their memory is not counted against a tile's
+  limit.
+- `HomeLogin` — the launcher's in-memory hint "this coding agent is signed
+  in on its own in your home" — is kept per home, not per (home, tile): a
+  login made on a tile's copy can read as "signed in" elsewhere until a
+  session there looks. A hint, never a decision.
+- A home that has mounts of its own beneath it shows their mount points,
+  not their contents, on a copy (an overlay does not cross mounts).
+- fuse-overlayfs in a hold keeps CAP_SYS_ADMIN of its own user namespace
+  (as the one serving every sandbox's root does); the real home is bound
+  read-only beneath it, which a compromised fuse-overlayfs could undo. The
+  kernel flavour has no such process.
