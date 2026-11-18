@@ -122,7 +122,7 @@ async function journeyAgent(browser) {
       `each line says which lines it needs and which need it; the admin's is marked (${JSON.stringify(notes)})`);
     // the start line: the coding agent, a mode xbind vouches for, the brief as it will be sent — which tells an empty tile's agent what to write
     const sr = (await page.locator(`${DLG} .item[data-n="2"]`).innerText()).replace(/\s+/g, ' ');
-    check(/ASKS BEFORE ACTING/i.test(sr) && /Coding agent Fake agent \(tests\)/.test(sr) && /sent exactly like this/.test(sr) && /Done when: this tile's xbin\.json declares "provides": \{"mcp"/.test(sr),
+    check(/ASKS BEFORE IT EDITS OR RUNS ANYTHING/i.test(sr) && /Coding agent Fake agent \(tests\)/.test(sr) && /sent exactly like this/.test(sr) && /Done when: this tile's xbin\.json declares "provides": \{"mcp"/.test(sr),
       `the start line: the coding agent, the mode, the brief "sent exactly like this" (${sr.slice(0, 160)})`);
     // the line that waits, in xbind's words
     const wl = (await page.locator(`${DLG} .item[data-n="5"]`).innerText()).replace(/\s+/g, ' ');
