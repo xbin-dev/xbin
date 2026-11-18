@@ -382,8 +382,8 @@ replaces, so it reaches nothing those don't (D246):
 | backend | `GET /tile-status`'s row of the primary, in words: a crash loop is "keeps exiting: …", a start that retries (D242) "crashing on start: … — xbin starts it again by itself (attempt 2 of 3) at …" | read |
 | slots' `bound`, uses' `granted` / `pending` (`wiring: true`) | the person's own `GET /bindings` and `GET /grants` views | a workspace admin; a tile they write, or one an org they admin owns |
 | slots declared, provides, exposes | the manifest (`GET /code/file?file=xbin.json`) | read |
-| `cron` | `GET /cron/jobs` as a terminal on the tile lists its own | a workspace admin, or terminal level |
-| `log` | `GET /logs` (its last 30 lines, 4 KiB) | terminal level; else `shown: false` and why |
+| `cron` | `GET /cron/jobs` as a terminal on the tile lists its own | a workspace admin, or terminal level (on a partitioned tile, whose terminals list their partition's: an admin) |
+| `log` | `GET /logs` (its last 30 lines, 4 KiB) | terminal level, on a tile that isn't partitioned (each partition keeps its own); else `shown: false` and why |
 | `sessions` | the person's `GET /term/sessions?compact=1` | their own sessions |
 
 The request is held as any read that names a tile: one answer for a tile

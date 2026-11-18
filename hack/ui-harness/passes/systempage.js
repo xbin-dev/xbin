@@ -152,6 +152,22 @@ async function systemPage(browser) {
         await shotEl(A.page, 'bx-system-page bx-wsagent-policy', `systempage-netpolicy-${THEME}`);
         const back = await A.ctx.request.put(`${URL}/api/xbin/delegate/workspace`, { data: { web: { mode: 'off', allow: [], deny: [] }, mcp: { mode: 'off' } } });
         check(back.status() === 200, `${P}: put back off (${back.status()})`);
+        // the context budget (D246): the default said with what the agent role's model keeps, a lower one saved, the default again
+        await pol.evaluate((el) => el.testApi().reload());
+        await until(async () => (await pol.locator('input[data-field=budget]').count()) === 1, 'the budget field');
+        const note = await pol.innerText();
+        check(note.includes('It is not a spend limit') && (await pol.locator('input[data-field=budget]').getAttribute('placeholder')) === '1000000',
+          `${P}: the context budget — 1,000,000 by default, never called a spend limit`);
+        await pol.locator('input[data-field=budget]').fill('150000');
+        const [bput] = await Promise.all([A.page.waitForRequest((r) => r.method() === 'PUT' && r.url().endsWith('/api/xbin/delegate/workspace')), pol.locator('[data-save]').click()]);
+        await until(async () => (await pol.locator('[role=status]').count()) === 1, 'saved');
+        const bws = await (await A.ctx.request.get(`${URL}/api/xbin/delegate/workspace`)).json();
+        check(JSON.parse(bput.postData()).contextBudget === 150000 && bws.contextBudget === 150000 && bws.policy?.contextBudget === 150000,
+          `${P}: Save sets the budget (${bput.postData()} → ${JSON.stringify({ contextBudget: bws.contextBudget, budget: bws.budget })})`);
+        await shotEl(A.page, 'bx-system-page bx-wsagent-policy', `systempage-budget-${THEME}`);
+        const bback = await A.ctx.request.put(`${URL}/api/xbin/delegate/workspace`, { data: { contextBudget: null } });
+        check(bback.status() === 200 && !('contextBudget' in (await bback.json())), `${P}: the budget back to the default (${bback.status()})`);
+        await pol.evaluate((el) => el.testApi().reload());
         await outsideServers(A, pol, P, check);
         // the host's file (XBIN_LLM_CONFIG's workspaceAgent key) caps the web: a ceiling the admin may narrow, said on the card
         const HOSTFILE = process.env.LLM_HOST_FILE || '';

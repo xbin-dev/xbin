@@ -79,7 +79,8 @@ func (b *Broker) TileStanding(person auth.Principal, tile string) server.TileSta
 		def := c.Manifest.Exposes[slot]
 		st.Exposes = append(st.Exposes, server.StandingExpose{Slot: slot, Kind: def.Kind, Paths: def.Paths})
 	}
-	if admin || person.CanTerminalTile(tile) {
+	// a terminal on a partitioned tile is in its person's partition, and lists that partition's jobs: not these
+	if _, part, _ := b.tilePartitioning(tile); admin || person.CanTerminalTile(tile) && !part {
 		st.Cron = b.standingJobs(tile)
 	}
 	st.Log = b.standingLog(person, tile)
@@ -214,6 +215,9 @@ func (b *Broker) standingLog(p auth.Principal, tile string) server.StandingLog {
 	}
 	if b.obs == nil {
 		return server.StandingLog{Why: "this xbind keeps no backend logs"}
+	}
+	if _, part, _ := b.tilePartitioning(tile); part { // each person's partition has a log of its own (obs/partitionlogs.go): not this one
+		return server.StandingLog{Why: "each person's partition of this tile keeps its own log: the tile's logs read your person's"}
 	}
 	text, err := b.obs.Tail(tile, standingLogBytes)
 	switch {
