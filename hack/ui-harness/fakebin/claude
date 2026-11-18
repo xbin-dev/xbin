@@ -14,7 +14,9 @@
 # to the whole URL; FAKE_CLAUDE_PLAIN=1 breaks it at the terminal's own
 # width instead, as plain text (a TUI without hyperlinks).
 # `claude setup-token` (D179; a terminal only, as Ink needs one): the same
-# URL and prompt, then harness-code#harness-state prints a one-year token
+# URL and prompt with bracketed paste on, a code taken only as a bracketed
+# paste and then Enter, a malformed one its "OAuth error: Invalid code" and
+# "Press Enter to retry"; then harness-code#harness-state prints a one-year token
 # (sk-ant-oat01-harness-…, its last four the code's first four) and exits 0,
 # $HOME untouched; any other code with a '#' is its OAuth error (exit 1).
 # Anything else: exit 2.
@@ -47,12 +49,31 @@ while [ -n "$rest" ]; do
     printf '\033]8;id=harness;%s\007\033[38;5;246m%s\033[39m\033]8;;\007\r\n' "$URL" "$row"
   fi
 done
+# setup-token is a full-screen (Ink) prompt: it turns bracketed paste on and
+# takes a code only as a paste followed by Enter — typed in one chunk with
+# its Enter, a long code is a paste that never submits (c68d6f74)
+[ "$mode" = token ] && printf '\033[?2004h'
 printf '\r\nPaste code here if prompted > '
+esc=$(printf '\033')
 while IFS= read -r code; do
   code=$(printf '%s' "$code" | tr -d '\r')
+  if [ "$mode" = token ]; then
+    case "$code" in
+      "${esc}[200~"*"${esc}[201~") code=${code#"${esc}[200~"}; code=${code%"${esc}[201~"} ;;
+      *) continue ;;
+    esac
+  fi
   case "$code" in
     *'#'*) ;;
-    *) printf 'Invalid code. Please make sure the full code was copied.\r\n' >&2; continue ;;
+    *)
+      if [ "$mode" = token ]; then
+        printf 'OAuth error: Invalid code. Please make sure the full code was copied\r\nPress Enter to retry.\r\n' >&2
+        IFS= read -r _ || exit 1
+        printf 'Retrying…\r\n\r\nPaste code here if prompted > '
+      else
+        printf 'Invalid code. Please make sure the full code was copied.\r\n' >&2
+      fi
+      continue ;;
   esac
   if [ "$code" = 'harness-code#harness-state' ]; then
     if [ "$mode" = token ]; then
