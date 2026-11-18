@@ -32,6 +32,7 @@ type wsTileView struct {
 	Alerts  []string           `json:"alerts"`
 	Backend *wsTileViewBackend `json:"backend"`
 	Wiring  bool               `json:"wiring"`
+	Unmet   bool               `json:"unmet"` // without Wiring: a required slot unbound or a use not granted
 	Slots   []struct {
 		Slot     string   `json:"slot"`
 		Kind     string   `json:"kind"`

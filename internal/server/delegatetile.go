@@ -16,10 +16,17 @@ package server
 //     runtime (GET /components/<path>); the person's level;
 //   - its backend: GET /tile-status's row of the primary, with a crash loop
 //     and a start's retries said in words;
-//   - its owner (GET /owner), wiring, jobs and log: the broker's
-//     TileStanding, each under the gate of the read it replaces — the
-//     person's own GET /bindings and GET /grants views, GET /cron/jobs as a
-//     terminal on the tile reads it, GET /logs at terminal level;
+//   - its owner, wiring, jobs and log: the broker's TileStanding, each
+//     under the gate of the read it replaces — GET /components' owner (a
+//     name only where the account lookup would give it), this agent's own
+//     GET /bindings and GET /grants (the admin-read class: an admin who
+//     opted in; without them one bit, "unmet needs"), with each bound
+//     provider the conversation can't see said as "another tile" and each
+//     one it can tainting it (standingRefs), GET /logs at terminal level.
+//     The scheduled jobs are the one part no delegate read gives (GET
+//     /cron/jobs is never delegated): they are said where the person's
+//     own terminal on the tile lists them — terminal level, the gate of
+//     GET /logs, whose lines tell of the same runs;
 //   - its coding-agent sessions: the person's GET /term/sessions?compact=1.
 //
 // TestTileStandingIsUnionOfReads holds it to that, for every agent level.
@@ -58,16 +65,21 @@ type TileStartRetry struct {
 
 // TileStandingSource is the broker's part of the read (the file comment).
 type TileStandingSource interface {
-	TileStanding(person auth.Principal, tile string) TileStanding
+	// adminRead: this agent's GET /bindings and GET /grants would answer
+	// (the admin-read class: optedIn).
+	TileStanding(person auth.Principal, tile string, adminRead bool) TileStanding
 }
 
 // TileStanding is what the broker answers of a tile for its person.
 type TileStanding struct {
 	Owner *StandingOwner `json:"owner,omitempty"`
-	// Wiring: the person's own bindings and grants views take this tile in
-	// (a tile they write, own, or whose org they admin; an admin's every
-	// tile) — Slots' Bound and Uses' Granted/Pending are said only then.
+	// Wiring: this agent's admin reads (GET /bindings, GET /grants) would
+	// answer and take this tile in (a tile the person writes, owns, or
+	// whose org they admin; an admin's every tile) — Slots' Bound and Uses'
+	// Granted/Pending are said only then. Unmet, only without them: a
+	// required slot unbound or a use not granted.
 	Wiring   bool              `json:"wiring"`
+	Unmet    bool              `json:"unmet,omitempty"`
 	Slots    []StandingSlot    `json:"slots"`
 	Uses     []StandingUse     `json:"uses"`
 	Provides []StandingProvide `json:"provides"`
@@ -210,11 +222,15 @@ func (s *Server) apiDelegateTile(w http.ResponseWriter, r *http.Request) {
 		out["backend"] = row
 	}
 	if src, ok := s.ChangeSets.(TileStandingSource); ok {
-		st := src.TileStanding(person, tile)
+		st := src.TileStanding(person, tile, s.optedIn(p.UserID))
 		if st.Owner != nil {
 			out["owner"] = st.Owner
 		}
+		s.standingRefs(p, st.Slots)
 		out["wiring"], out["slots"], out["uses"], out["provides"], out["exposes"], out["log"] = st.Wiring, st.Slots, st.Uses, st.Provides, st.Exposes, st.Log
+		if st.Unmet {
+			out["unmet"] = true
+		}
 		if st.Cron != nil {
 			out["cron"] = st.Cron
 		}
@@ -227,6 +243,29 @@ func (s *Server) apiDelegateTile(w http.ResponseWriter, r *http.Request) {
 	}
 	out["sessions"] = s.standingSessions(p, tile)
 	WriteJSON(w, http.StatusOK, out)
+}
+
+// anotherTile stands for a bound provider the conversation can't see.
+const anotherTile = "another tile"
+
+// standingRefs holds the providers the slots are bound to as a listing
+// holds its rows: a tile the conversation may see is named, and its orgs
+// taint the conversation as reading it would; any other is "another tile".
+// A builtin (internet, host, runtime, a network set, xbin:llm…) is no tile.
+func (s *Server) standingRefs(p auth.Principal, slots []StandingSlot) {
+	for i := range slots {
+		for k, ref := range slots[i].Bound {
+			prov, _, _ := strings.Cut(ref, "#")
+			if _, isTile := s.Reg.Component(prov); !isTile {
+				continue
+			}
+			// delegateHides: outside the conversation's scope, or its orgs'
+			// rules keep the agent out — else shown, and tainting
+			if s.tileHidden(p, prov) || s.delegateHides(p, prov) {
+				slots[i].Bound[k] = anotherTile
+			}
+		}
+	}
 }
 
 // levelOf is person's level on tile: read, write, terminal or "".

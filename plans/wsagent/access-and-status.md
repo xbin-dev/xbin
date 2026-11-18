@@ -302,7 +302,7 @@ deal with that, cost is fine".
 | kind `access.set` | — (a change-set kind) | by-hand path at Apply with current rights; personal = by-hand without admin rights; never waits; self / terminal / system warned, self blocked for non-admins; agent reads applied/failed only |
 | `knows` on `…/approve` | the person's own (never delegated) | an older client never applies a kind it doesn't know |
 | `POST /delegate/accounts/lookup` | `act` | answers only people who see accounts; exact match; no list; rate-limited, audited; same answer for unknown and unseen |
-| `GET /delegate/tile?tile=` | `read`, audit, `tile:byTileQuery` | ⊆ the reads it replaces, per agent level, scope, hidden, org rule; taints like a read |
+| `GET /delegate/tile?tile=` | `read`, audit, `tile:byTileQuery` | ⊆ this agent's own delegate reads, per agent level, admin opt-in, scope, hidden, org rule; taints like a read (bound providers too); cron at the terminal gate, the one part no delegate read gives |
 | `contextBudget` on `GET`/`PUT /delegate/workspace`, `policy`, `locks`, `budget` | never (admin's) | additive; host preset is a ceiling |
 | `contextBudget` on `GET /delegate/state` | read | the setting in force, nothing else |
 | `workspaceAgent.contextBudget` (host file) | — | preset and ceiling |
@@ -315,7 +315,8 @@ deal with that, cost is fine".
 |---|---|---|
 | 9, an admin: "give Dave read access to Invoices" | the real run: 45 calls (18 docs searches, 27 reads), no proposal | 2 tool calls (`account_lookup`, `plan_propose`), one proposal |
 | 9 as run, by someone who is no admin | as above | 2 calls; the line says "needs an admin", the review offers Ask an admin |
-| 4, the dashboard one grant short | never seen (the grant was a click on a panel the agent can't read) | one `tile_status` says PENDING and names the line; one `plan_propose` files it |
+| 4, the dashboard one grant short — an admin who lets their agent read admin state | never seen (the grant was a click on a panel the agent can't read) | one `tile_status` says PENDING and the tile's ask as a line; one `plan_propose` files it (2 calls) |
+| 4 — anyone else (after the review: no admin reads, no wiring) | never seen | one `tile_status` says it HAS UNMET NEEDS and that an admin can look; the agent says so, files nothing (1 call) |
 | 3, the tile that crashes | `tile_status` + `tile_logs` (2; a real model read "idle" as healthy) | one `tile_status`: BROKEN, the runner's words, the log's last lines |
 
 ## Red, without each rule (each test run with the rule taken out)
@@ -333,6 +334,59 @@ no system warning: `TestAccessLineSystemComponent`. `knows` not asked:
 shown past their reads' gates: `TestTileStandingIsUnionOfReads`. The host's
 budget ceiling off (both layers): `TestContextBudgetSetting` (delegation and
 server). The margin off: `TestWsContextBudget`.
+
+## After the review (2026-11-18)
+
+An independent review of the branch found these; each is fixed, with a
+test shown red without its rule.
+
+- **H1 — write and nested tiles.** Verified: a tile's writers change every
+  nested tile's code (`writersCover`, `canDecidePR`), and a sandboxed
+  terminal on a tile binds the session's directory read-write
+  (`term.scopedBinds`) with the D17a mask skipped for a tile inside it — so
+  nested tiles are writable from it, even ones the person can't read.
+  `write` is warned (`WRITE: …`, personal lines too); power is looked for
+  over the subtree and what it reaches through `code:`/call grants and
+  bindings (`accessreach.go`: 64 tiles, each once, past that is power; the
+  host's network; a call to a system component); the line's effects list
+  nested tiles (five, and the count), reached tiles (named where readable),
+  networks, the LLM connector, vault secrets; `org.share` takes the same
+  refusal. Red: `TestAccessLineWriteIsWarned` (warning off),
+  `TestAccessLinePowerOverSubtreeAndReach` (old `powerOf`; and the cycle
+  guard off → the bound trips), `TestAccessLineEffectsListWhatTheLevelBrings`.
+- **M1 — effective levels.** Raise, warnings and refusal follow
+  `Access.TileLevel`/`Explain` before → after; the line says where each
+  comes from (`none (excluded) → terminal through org fin`); an unresolved
+  removal is a raise (`ENTRY REMOVED`). Red: `TestAccessLineJudgesEffectiveLevels`
+  (old raise rule; and "" not a raise).
+- **M2 — the read's wiring.** Wiring only where the agent's own `GET
+  /bindings`/`GET /grants` answer (an opted-in admin), else `unmet`; bound
+  providers the conversation can't see are "another tile", ones it can
+  taint it. `TestTileStandingIsUnionOfReads` rebuilt on the agent's own
+  reads (map, `/components`, `/components/<path>`, `/code/file`,
+  `/bindings`, `/grants`, `/logs`, the lookup) × agent level × opt-in × four
+  people × two tiles. Red: wiring on the person's views; `standingRefs` off;
+  the shown row's taint off. Cron is kept at the terminal gate — no
+  delegate read gives it (`GET /cron/jobs` is never delegated); said in the
+  docs and the test, for the owner to overrule.
+- **M3 — the tile's words.** Everything the tile wrote is inside one
+  untrusted frame, a field a line; the suggested `grant.add` is built only
+  from names of xbind's grant shape and said as the tile's ask; new cron
+  names ≤ 128 characters without control/format characters (old ones keep
+  working; shown ≤ 64, escaped). Red: `TestWsTileStatusFramesTheTilesWords`
+  (frame off; `wsPlain` off; validation off), `TestCronNamesAreShortLabels`
+  (bound off; the old-name exception off).
+- **LOW.** (a) Ask an admin answers an unresolvable name as a line left
+  out — red `TestAskAnAdminTellsTheAskerNoNames`. (b) id first and apart,
+  control/bidi escaped — red `TestAccessLineNamesTheIDFirst` (both).
+  (c) ids compared as the store keys them — red
+  `TestAccessLineComparesIDsAsTheStore`. (d) power said only to the tile's
+  managers, after the 403 check — red `TestAccessLinePowerSaidOnlyToItsManagers`.
+  (e) the property's generator: disabled accounts, the root token, view-as
+  (describes nothing), partitioned tiles, an `off` tile, exact exclusions,
+  non-ASCII spellings — red with a disabled owner's line personal;
+  `TestAdminProposeHoldsAccessLines` (scope, `off`, org rule) — red with
+  `holdAccessLines` off.
 
 ## Not done
 

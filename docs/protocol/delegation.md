@@ -364,7 +364,7 @@ replaces, so it reaches nothing those don't (D246):
  backend: {state, error?, restarts?, retry?: {attempt, of, at},
            flag?: "crash-loop" | "retrying" | "failed", words},
  report?: {level, message}, alerts?: [string],
- wiring, slots: [{slot, kind, service?, required, multi?, bound?}],
+ wiring, unmet?, slots: [{slot, kind, service?, required, multi?, bound?}],
  uses: [{target, role, granted?, pending?}],
  provides: [{slot, kind, service?, role?}], exposes: [{slot, kind, paths?}],
  cron?: [{name, schedule, path, next?, lastRun?, lastStatus?, dormant?}],
@@ -378,11 +378,11 @@ replaces, so it reaches nothing those don't (D246):
 | title, kind, orgs, agent level, mcp | `GET /delegate/map`'s row | the map's |
 | runtime | `GET /components/<path>` | read |
 | report, alerts | `GET /tile-report`'s row; `GET /tile-status`'s alerts about the tile | read |
-| owner | `GET /owner`; a person's display name only to someone who sees accounts (§A person's access) or to themselves, an org's where they see the org | read |
+| owner | `GET /components`' `owner`; a person's display name only where the account lookup gives it (§A person's access) or for themselves, an org's for an org of theirs (the map's `orgs`) | read |
 | backend | `GET /tile-status`'s row of the primary, in words: a crash loop is "keeps exiting: …", a start that retries (D242) "crashing on start: … — xbin starts it again by itself (attempt 2 of 3) at …" | read |
-| slots' `bound`, uses' `granted` / `pending` (`wiring: true`) | the person's own `GET /bindings` and `GET /grants` views | a workspace admin; a tile they write, or one an org they admin owns |
+| slots' `bound`, uses' `granted` / `pending` (`wiring: true`) | this agent's own `GET /bindings` and `GET /grants` — admin reads, as they answer the person; a bound tile the conversation can't see (outside its scope, kept out by its orgs' rules) is `"another tile"`, one it can taints it with its orgs | an admin of the workspace or of an org who lets their agent read admin state (§Change sets); for an org admin, a tile they write or one their org owns. Without it, `unmet: true` alone says a required slot is unbound or a use isn't granted |
 | slots declared, provides, exposes | the manifest (`GET /code/file?file=xbin.json`) | read |
-| `cron` | `GET /cron/jobs` as a terminal on the tile lists its own | a workspace admin, or terminal level (on a partitioned tile, whose terminals list their partition's: an admin) |
+| `cron` | `GET /cron/jobs` as the person's terminal on the tile lists its own — the one part no delegate read gives (`GET /cron/jobs` is never delegated), said at `GET /logs`' gate, whose lines tell of the same runs; a name past 64 characters cut short | a workspace admin, or terminal level (on a partitioned tile, whose terminals list their partition's: an admin) |
 | `log` | `GET /logs` (its last 30 lines, 4 KiB) | terminal level, on a tile that isn't partitioned (each partition keeps its own); else `shown: false` and why |
 | `sessions` | the person's `GET /term/sessions?compact=1` | their own sessions |
 
@@ -1351,9 +1351,12 @@ admins, a workspace admin) — as the approving person, with their rights
 read again when they apply it (D246). It sets the person's own exact
 entry, which is authoritative on that tile (`none` excludes them whatever
 their orgs give; `""` removes the entry). Its line is xbind's, with the
-person's effective level before and after: `“Dave Smith” (dave): no
-access → read on apps/invoices` (the display name quoted and cleaned, the
-id beside it — the id is what xbind enforces).
+person's **effective** level before and after and where each comes from,
+as the tile's Access page explains it: `dave — “Dave Smith”: none
+(excluded) → read through org eng on apps/invoices`. The id comes first
+and apart — the id is what xbind enforces —, the display name after it,
+quoted, white space made one space, a control or bidi character shown
+escaped (`\u202e`): a name can't pass for another account's id.
 
 - **Whose account.** `user` is an account id or a display name. It is
   resolved only for a person who already sees the workspace's accounts —
@@ -1368,14 +1371,39 @@ id beside it — the id is what xbind enforces).
   else: the by-hand rule with no admin right. An org admin of the owning
   org and a workspace admin apply it with an admin's right — an admin's
   line; anyone else gets "needs an admin" and Ask an admin.
-- **Warned**, so it starts unticked: a level of `terminal`
-  (`TERMINAL: …`), a system component (`SYSTEM COMPONENT: …`) and the
-  person's own level (`YOUR OWN ACCESS: …`). One's own level — by id, or
+- **Judged on the effective level**: whether it is a raise, and what is
+  warned, follow the level before and after — removing an exclusion
+  (`""` over `none`) under an org that gives terminal is a raise to
+  terminal. For an account nothing was resolved for, removing its entry
+  counts as a raise (`ENTRY REMOVED: …`, its result unknown).
+- **Warned**, so it starts unticked — a personal line too: write or
+  terminal reached (`WRITE: …`, `TERMINAL: …` — a tile's writers change
+  its code and every nested tile's: a terminal on it binds its whole
+  directory read-write, nested tiles included), a system component
+  (`SYSTEM COMPONENT: …`) and the person's own level (`YOUR OWN ACCESS:
+  …`). A line that reaches write lists what the level brings: the tiles
+  inside it by name (five, and how many more), the tiles its code reaches
+  through grants and bindings (named where the person may read them,
+  counted otherwise), the networks its tiles are bound to, the LLM
+  connector, the tiles with vault secrets.
+- **Refused** as no change at all (`400`): a raise on a tile whose subtree
+  — or a tile it reaches through its `code:` and call grants and its
+  bindings, followed up to 64 tiles, each once — holds the admin API, a
+  host capability, a device, all source, the host's network or a call to
+  a system component; past 64 tiles counts as power. Asked only once the
+  person is known to manage the tile's access (anyone else reads the
+  403 line, the same whatever the tile holds); the holders are named to
+  a workspace admin. The same holds for `org.share`. One's own level — by id, or
   by one's own display name — is **blocked** for anyone but a workspace
   admin (not "needs an admin": it is never asked of one), and an admin's
   line for them; a line an admin applies for someone else that turns out
   to be that person's own (a name only the admin's review resolves) is
-  blocked there too.
+  blocked there too. Ids are compared as the store keys them (case and
+  the space around them aside), never by Unicode case folding.
+- **Ask an admin is no oracle**: a name the admin's review can't resolve
+  (no account, or several), or a line the store refuses, comes back to
+  the asker as a line the admin left out (`rejected`) — the same as one
+  they chose not to apply.
 - **Held to the conversation** as a plan's lines are (§Plans: the tile
   readable, in scope, not `"off"`, its orgs letting the agent in) — in
   `admin_propose` sets too.

@@ -535,9 +535,6 @@ func (b *Broker) previewOrgShare(p auth.Principal, op delegation.ChangeOp) (dele
 	if err := notOnAgent("a share of", a.Tile); err != nil {
 		return delegation.ChangePreview{}, err
 	}
-	if power := b.powerOf(a.Tile); len(power) > 0 && a.Level != "" {
-		return delegation.ChangePreview{}, fmt.Errorf("%s holds %s: who may use a tile with that power is decided on its Access page, by an admin — never by a change set", a.Tile, strings.Join(power, ", "))
-	}
 	pv := delegation.ChangePreview{Tiles: []string{a.Tile}, Call: delegation.AdminCall{Method: http.MethodPut, Path: "/access",
 		Body: mustJSON(map[string]string{"tile": a.Tile, "kind": "org", "id": a.Org, "level": a.Level})}}
 	if a.Level == "" {
@@ -557,7 +554,15 @@ func (b *Broker) previewOrgShare(p auth.Principal, op delegation.ChangeOp) (dele
 	// in the handler's order: who manages the tile's access, then what the
 	// store would refuse (SetOrgTile: the level, the org)
 	_, tileOK := b.Reg.Component(a.Tile)
-	switch why := b.accessCheck(p, a.Tile, a.Org); {
+	why := b.accessCheck(p, a.Tile, a.Org)
+	// a share of a tile whose subtree, or what it reaches, holds power is an
+	// admin's on the Access page (accessreach.go) — said only to a person
+	// who manages the tile's access
+	reach := b.accessReachOf(a.Tile)
+	if why == nil && tileOK && a.Level != "" && reach.holdsPower() {
+		return delegation.ChangePreview{}, b.accessPowerRefusal(p, a.Tile, reach)
+	}
+	switch {
 	case why != nil:
 		pv.Blocked, pv.Forbidden = why.msg, why.status == http.StatusForbidden
 	case a.Level != "" && a.Level != users.LevelRead && a.Level != users.LevelWrite && a.Level != users.LevelTerminal:
@@ -575,8 +580,14 @@ func (b *Broker) previewOrgShare(p auth.Principal, op delegation.ChangeOp) (dele
 		default:
 			pv.Effects = append(pv.Effects, fmt.Sprintf("the %d member(s) of %s get %s on %s", n, a.Org, a.Level, a.Tile))
 		}
-		if a.Level == users.LevelTerminal {
-			pv.Warnings = append(pv.Warnings, "terminal level lets them run code in "+a.Tile+" and change it")
+		switch a.Level {
+		case users.LevelTerminal:
+			pv.Warnings = append(pv.Warnings, "terminal level lets them run code in "+a.Tile+" and change it — and every tile inside it")
+		case users.LevelWrite:
+			pv.Warnings = append(pv.Warnings, "write level lets them change "+a.Tile+"'s code — and every tile inside it")
+		}
+		if a.Level == users.LevelWrite || a.Level == users.LevelTerminal {
+			pv.Effects = append(pv.Effects, reach.effects(p, a.Tile)...)
 		}
 	}
 	pv.Inverse = &delegation.ChangeOp{Kind: ChangeOrgShare, Args: mustJSON(map[string]string{"org": a.Org, "tile": a.Tile, "level": before})}

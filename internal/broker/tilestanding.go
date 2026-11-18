@@ -5,13 +5,17 @@ package broker
 // person may see of one tile's owner, wiring, scheduled jobs and log, each
 // under the gate of the read it replaces —
 //
-//   - the owner: GET /owner (any reader); a person's display name only to
-//     someone who sees accounts (AccountsVisible) or to themselves, an
-//     org's name where they see the org (AgentOrgVisible);
-//   - the slots' bindings and the uses' grants: the person's own GET
-//     /bindings and GET /grants views — a workspace admin's every row; for
-//     anyone else the tiles they write, or whose owning org they admin
-//     (apiBindingsList's scope, orgFilterGrants' rows);
+//   - the owner: GET /components' owner field; a person's display name
+//     only where the account lookup would give it (AccountsVisible) or for
+//     themselves, an org's name for an org of theirs (the map's orgs);
+//   - the slots' bindings and the uses' grants: only where this agent's
+//     own GET /bindings and GET /grants answer (adminRead: an admin of the
+//     workspace or of an org who lets their agent read admin state — the
+//     admin-read class), and then as those answer the person — a workspace
+//     admin's every row; for an org admin the tiles they write, or whose
+//     owning org they admin (apiBindingsList's scope, orgFilterGrants'
+//     rows). Without them one bit is said: the tile has unmet needs (a
+//     required slot unbound, a use not granted) — an admin can look;
 //   - the scheduled jobs: GET /cron/jobs as a terminal on the tile reads its
 //     own (an admin, or terminal level there);
 //   - the log: GET /logs' rule (canReadLogs): terminal level.
@@ -36,8 +40,9 @@ const (
 	standingLogLines = 30
 )
 
-// TileStanding answers what person may see of tile (the file comment).
-func (b *Broker) TileStanding(person auth.Principal, tile string) server.TileStanding {
+// TileStanding answers what person's agent may see of tile (the file
+// comment); adminRead: its admin reads would answer.
+func (b *Broker) TileStanding(person auth.Principal, tile string, adminRead bool) server.TileStanding {
 	st := server.TileStanding{Slots: []server.StandingSlot{}, Uses: []server.StandingUse{}, Provides: []server.StandingProvide{}, Exposes: []server.StandingExpose{}}
 	c, ok := b.Reg.Component(tile)
 	if !ok || c.Sealed {
@@ -45,8 +50,11 @@ func (b *Broker) TileStanding(person auth.Principal, tile string) server.TileSta
 	}
 	st.Owner = b.standingOwner(person, tile)
 	admin := b.IsAdmin(person)
-	st.Wiring = admin || b.wiringVisible(person, tile)
+	st.Wiring = adminRead && (admin || b.wiringVisible(person, tile))
 	bound := b.Reg.Workspace().Bindings[tile]
+	if !st.Wiring {
+		st.Unmet = b.unmetNeeds(c, bound)
+	}
 	for _, slot := range sortedKeys(c.Manifest.Interfaces) {
 		def := c.Manifest.Interfaces[slot]
 		ss := server.StandingSlot{Slot: slot, Kind: def.Kind, Service: def.Service, Required: def.Required, Multi: def.Multi}
@@ -97,6 +105,24 @@ func (b *Broker) TileStanding(person auth.Principal, tile string) server.TileSta
 	return st
 }
 
+// unmetNeeds reports a required slot of c left unbound or a use of its
+// manifest not granted — the one bit said of its wiring to an agent that
+// doesn't read it.
+func (b *Broker) unmetNeeds(c *registry.Component, bound map[string]registry.Binding) bool {
+	for slot, def := range c.Manifest.Interfaces {
+		if def.Required && len(bound[slot]) == 0 {
+			return true
+		}
+	}
+	grants := b.Reg.Workspace().Grants
+	for _, u := range c.Manifest.Uses {
+		if !slices.ContainsFunc(grants, func(g registry.Grant) bool { return g.From == c.Path && g.Target == u.Target && g.Role == u.Role }) {
+			return true
+		}
+	}
+	return false
+}
+
 func sortedKeys[V any](m map[string]V) []string {
 	out := make([]string, 0, len(m))
 	for k := range m {
@@ -127,7 +153,7 @@ func (b *Broker) standingOwner(person auth.Principal, tile string) *server.Stand
 		return o
 	}
 	o := &server.StandingOwner{Kind: kind, ID: id}
-	if b.AgentOrgVisible(person, id) {
+	if _, member := b.membershipsOf(person)[id]; member { // the map's orgs name the person's own (AgentPersonOrgs)
 		if org, ok := b.Users.Org(id); ok {
 			o.Name = org.Name
 		}
@@ -201,7 +227,7 @@ func (b *Broker) standingJobs(tile string) []server.StandingJob {
 	b.cron.mu.Unlock()
 	sort.Slice(jobs, func(i, k int) bool { return jobs[i].Name < jobs[k].Name })
 	for _, j := range jobs {
-		row := server.StandingJob{Name: j.Name, Schedule: j.Schedule, Path: j.Path, Dormant: !b.firing(j.Component, util.MainDeployment)}
+		row := server.StandingJob{Name: cronNameWords(j.Name), Schedule: j.Schedule, Path: j.Path, Dormant: !b.firing(j.Component, util.MainDeployment)}
 		row.Next, row.LastRun, row.LastStatus = b.cron.runWords(j)
 		out = append(out, row)
 	}

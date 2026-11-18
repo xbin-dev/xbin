@@ -6023,3 +6023,25 @@ here: cut from the old end, never reword.
     the size the provider reported and the next call; below a 160 000-token
     window today's 60 % stays. Unknown window: 32 000, as before. It is not
     a spend limit: metering and quotas are.
+  - **After the review (same day): a level is judged on what it reaches,
+    and the read on what the agent itself reads.** A tile's writers change
+    its code and every nested tile's (writersCover; a terminal on it binds
+    its whole directory read-write, nested tiles included; its writers
+    decide its PRs), and that code runs with whatever those tiles reach —
+    so write is warned like terminal, personal lines too, and power is
+    looked for over the tile's subtree and what its tiles reach through
+    `code:`/call grants and bindings (64 tiles, each once; past that is
+    power), the host's network and a call to a system component included;
+    `org.share` takes the same rule. Raise and warnings follow the
+    EFFECTIVE level before → after (`Access.TileLevel`/`Explain`, the
+    Access page's own), so removing an exclusion under an org's terminal
+    is a raise; an unresolved account's removal counts as one. Power is
+    said only after the person is known to manage the tile's access; the
+    line names the id first and apart; Ask an admin answers an
+    unresolvable name as a line left out. The tile read's wiring is the
+    agent's own admin reads (an opted-in admin), otherwise one bit —
+    "unmet needs, an admin can look"; a bound tile the conversation can't
+    see is "another tile", one it can taints it. Cron stays at the terminal
+    gate: the one part no delegate read gives — said, not hidden. What a
+    tile wrote reaches the model framed as data, one field a line; a new
+    job name is a short label.

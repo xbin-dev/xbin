@@ -2,6 +2,7 @@ package broker
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -14,7 +15,7 @@ import (
 // accessSecrets are what an agent may never read of an access.set line: the
 // level before or after, the account it resolved, its effects and warnings,
 // the hash of what the person saw, the undo.
-var accessSecrets = []string{`"before"`, `"beforeText"`, `"after"`, `"afterText"`, `"effects"`, `"warnings"`, `"inverse"`, `"basis"`, "no access →", "read →", "(carol)", `"error"`}
+var accessSecrets = []string{`"before"`, `"beforeText"`, `"after"`, `"afterText"`, `"effects"`, `"warnings"`, `"inverse"`, `"basis"`, "no access", "read by", "read through", "carol — ", `"error"`}
 
 func accessLeaks(body string) (out []string) {
 	for _, s := range accessSecrets {
@@ -62,7 +63,7 @@ func TestAccessLineRedactedForAgent(t *testing.T) {
 					t.Errorf("the agent reads %s: %d %v", path, code, accessLeaks(body))
 				}
 			}
-			if code, body := w.do("GET", "/delegate/changesets/"+cs.ID, "", bob); code != 200 || !strings.Contains(body, "“Carol Fin” (carol): read → write on apps/x") || !strings.Contains(body, `"basis"`) {
+			if code, body := w.do("GET", "/delegate/changesets/"+cs.ID, "", bob); code != 200 || !strings.Contains(body, "carol — “Carol Fin”: read ") || !strings.Contains(body, `"basis"`) {
 				t.Errorf("bob's own review is short of the line: %d %s", code, body)
 			}
 			done := w.approve(t, cs.ID, `{"items":[1],"password":"password1","knows":["access.set"]}`, bob)
@@ -84,7 +85,7 @@ func TestApproveRefusesAKindTheClientDoesNotKnow(t *testing.T) {
 	w := accessWorld(t)
 	_, alice := w.session("alice")
 	cs := w.plan(t, "alice", `[{"kind":"access.set","args":{"tile":"apps/x","user":"carol","level":"write"}}]`)
-	if got := flags(cs); got != "[]" {
+	if got := flags(cs); got != "W[]" { // personal, and write is warned (H1)
 		t.Fatalf("alice's own tile, someone else's access: a personal line, got %s", got)
 	}
 	code, body := w.do("POST", "/delegate/changesets/"+cs.ID+"/approve", `{"items":[1]}`, alice)
@@ -144,7 +145,7 @@ func TestAccessLineAppliesWithTheRightsHeldAtApply(t *testing.T) {
 	w := accessWorld(t)
 	_, erin := w.session("erin")
 	cs := w.plan(t, "erin", `[{"kind":"access.set","args":{"tile":"apps/pg","user":"carol","level":"write"}}]`)
-	if got := flags(cs); got != "A[]" {
+	if got := flags(cs); got != "AW[]" { // write: warned (it starts unticked)
 		t.Fatalf("an org admin's line on the org's tile: %s", got)
 	}
 	org, _ := w.b.Users.Org("fin")
@@ -265,5 +266,93 @@ func TestAccountLookupRoute(t *testing.T) {
 	}
 	if n == 0 {
 		t.Error("lookups aren't in the person's log")
+	}
+}
+
+// covers D246 (review LOW a) — Ask an admin is no account oracle: a name
+// the admin's review can't resolve (no such account, or several) comes
+// back to the asker exactly as a line the admin left out does.
+func TestAskAnAdminTellsTheAskerNoNames(t *testing.T) {
+	w := accessWorld(t)
+	for _, u := range []users.User{{ID: "sam1", Name: "Sam Two", Role: users.RoleUser}, {ID: "sam2", Name: "Sam Two", Role: users.RoleUser}} {
+		if _, err := w.b.Users.Upsert(u, "password1"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_, alice := w.session("alice")
+	cs := w.plan(t, "alice", `[{"kind":"access.set","args":{"tile":"apps/pu","user":"carol","level":"read"}},{"kind":"access.set","args":{"tile":"apps/pu","user":"erin","level":"read"}},
+		{"kind":"access.set","args":{"tile":"apps/pu","user":"zed","level":"read"}},{"kind":"access.set","args":{"tile":"apps/pu","user":"Sam Two","level":"read"}}]`)
+	if got := flags(cs); got != "AN[] AN[] AN[] AN[]" {
+		t.Fatalf("alice's lines on the workspace's tile: %s", got)
+	}
+	if code, body := w.do("POST", "/delegate/changesets/"+cs.ID+"/ask", "", alice); code != 200 {
+		t.Fatalf("ask: %d %s", code, body)
+	}
+	var asked delegation.ChangeSet
+	sets, _ := w.store.ChangeSets("bob")
+	for _, o := range sets {
+		if o.From == "alice" {
+			asked = o
+		}
+	}
+	if len(asked.Items) != 4 || asked.Items[2].Blocked == "" || asked.Items[3].Blocked == "" {
+		t.Fatalf("bob's copy: %+v", asked.Items)
+	}
+	_, bob := w.session("bob")
+	w.approve(t, asked.ID, `{"items":[1],"knows":["access.set"]}`, bob)
+	mine := w.set(t, "alice", cs.ID)
+	if mine.Items[0].Result != delegation.ItemApplied {
+		t.Fatalf("the line bob applied: %+v", mine.Items[0])
+	}
+	left := mine.Items[1]
+	for _, it := range mine.Items[2:] {
+		if it.Result != left.Result || it.Error != left.Error || it.Blocked != left.Blocked {
+			t.Errorf("a name bob's review couldn't resolve reads otherwise than a line he left out: %q %q / %q %q", it.Result, it.Error, left.Result, left.Error)
+		}
+	}
+	// and as her agent reads it
+	code, body := w.do("GET", "/delegate/changesets/"+cs.ID, "", agentOf("alice"))
+	if code != 200 || strings.Contains(body, `"blocked"`) {
+		t.Errorf("her agent reads: %d %s", code, body)
+	}
+}
+
+// covers D246 (review LOW e) — an access line an agent proposes outside a
+// plan (admin_propose: POST /delegate/changesets) is held to what its
+// conversation may touch, as a plan's line is (holdAccessLines): a tile
+// outside the conversation's scope, one at agent level "off", one its
+// org's rules keep the agent from — each blocked; a tile it may touch is a
+// line.
+func TestAdminProposeHoldsAccessLines(t *testing.T) {
+	w := accessWorld(t)
+	_, bob := w.session("bob")
+	if code, body := w.do("PUT", "/delegate/state", `{"adminChanges":true}`, bob); code != 200 {
+		t.Fatalf("opt in: %d %s", code, body)
+	}
+	w.write(map[string]string{"apps/off/xbin.json": `{"runtime":"go","agent":"off"}`, "apps/off/backend/main.go": "package main\n"})
+	w.rescan()
+	propose := func(cred func(*http.Request), tile string) delegation.ChangeItem {
+		t.Helper()
+		code, body := w.do("POST", "/delegate/changesets", `{"title":"t","items":[{"kind":"access.set","args":{"tile":"`+tile+`","user":"carol","level":"read"}}]}`, cred)
+		var cs delegation.ChangeSet
+		if json.Unmarshal([]byte(body), &cs); code != 200 {
+			t.Fatalf("propose on %s: %d %s", tile, code, body)
+		}
+		return w.set(t, "bob", cs.ID).Items[0]
+	}
+	scoped := w.scoped(t, "bob", "apps/x")
+	if it := propose(scoped, "apps/x"); it.Blocked != "" {
+		t.Errorf("a tile in the conversation's scope: %q", it.Blocked)
+	}
+	if it := propose(scoped, "apps/pu"); !strings.Contains(it.Blocked, "outside what bob let this conversation see") {
+		t.Errorf("a tile outside the conversation's scope: %q", it.Blocked)
+	}
+	if it := propose(agentOf("bob"), "apps/off"); !strings.Contains(it.Blocked, `agent level is "off"`) {
+		t.Errorf("a tile at agent level off: %q", it.Blocked)
+	}
+	deny := delegation.OpenPolicy{Deny: map[string]error{"apps/pg": errors.New("fin keeps agents out")}}
+	w.srv.AgentPolicy, w.b.AgentPolicy = deny, deny
+	if it := propose(agentOf("bob"), "apps/pg"); !strings.Contains(it.Blocked, "fin keeps agents out") {
+		t.Errorf("a tile its org's rules keep the agent from: %q", it.Blocked)
 	}
 }

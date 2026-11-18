@@ -93,33 +93,75 @@ func stripped(p auth.Principal) auth.Principal {
 
 // covers D246 — an access.set line is personal exactly where the by-hand
 // rule needs no admin right: over a random corpus of people (owner, member,
-// org admin, workspace admin), tiles (a person's, an org's, the
-// workspace's) and targets, a line is personal ⇔ PUT /access by that person
-// with every admin right taken away passes the handler's gate; and an
-// admin's line ⇔ it passes with their full rights and not without them.
+// org admin, workspace admin, a disabled account, the root token — and an
+// admin viewing as someone, who describes nothing), tiles (a person's, an org's, the workspace's,
+// partitioned ones — apps/pg, apps/pu —, one at agent level "off", one a
+// disabled account owns), exact `none` exclusions in place, and targets
+// (ids, display names, a disabled account, spellings the store keys apart:
+// non-ASCII), a line is personal ⇔ PUT /access by that person with every
+// admin right taken away passes the handler's gate; and an admin's line ⇔
+// it passes with their full rights and not without them.
 func TestAccessLinePersonalIsByHand(t *testing.T) {
 	w := accessWorld(t)
-	people := []string{"alice", "bob", "carol", "erin"}
-	tiles := []string{"apps/x", "apps/pg", "apps/pu", "users/alice/mcp"}
-	targets := []string{"alice", "bob", "carol", "erin", "zed", "Erin Ops", "Carol Fin"}
+	for _, u := range []users.User{{ID: "dana", Name: "Dana Off", Role: users.RoleUser, Disabled: true}, {ID: "sam", Name: "Sam", Role: users.RoleUser}} {
+		if _, err := w.b.Users.Upsert(u, "password1"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	w.write(map[string]string{"apps/off/xbin.json": `{"runtime":"go","agent":"off"}`, "apps/off/backend/main.go": "package main\n",
+		"apps/d/xbin.json": `{"runtime":"go"}`, "apps/d/backend/main.go": "package main\n"})
+	w.rescan()
+	for tile, owner := range map[string]string{"apps/off": "user:alice", "apps/d": "user:dana"} {
+		if err := w.b.Users.SetOwner(tile, owner); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, e := range [][3]string{{"erin", "users/alice/mcp", "none"}, {"carol", "apps/off", "none"}, {"sam", "apps/pu", "none"}} {
+		if err := w.b.Users.SetUserTile(e[0], e[1], e[2]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	people := []string{"alice", "bob", "carol", "erin", "sam", "dana", "bob-as-alice", "root"}
+	tiles := []string{"apps/x", "apps/pg", "apps/pu", "users/alice/mcp", "apps/off", "apps/d"}
+	targets := []string{"alice", "bob", "carol", "erin", "zed", "Erin Ops", "Carol Fin", "dana", "Dana Off", "ſam", "ＢＯＢ", "SAM"}
 	levels := []string{"none", "read", "write", "terminal", ""}
+	principal := func(who string) (p, plain auth.Principal) {
+		switch who {
+		case "root":
+			return auth.Principal{Owner: true, Via: "token"}, auth.Principal{Via: "token"}
+		case "bob-as-alice":
+			p = personP(t, w.partWS, "alice")
+			p.Impersonator = "bob"
+			return p, stripped(p)
+		}
+		p = personP(t, w.partWS, who)
+		return p, stripped(p)
+	}
 	rng := rand.New(rand.NewSource(246))
 	seen := map[string]int{}
-	for range 600 {
+	for range 1200 {
 		who, tile, target, level := people[rng.Intn(len(people))], tiles[rng.Intn(len(tiles))], targets[rng.Intn(len(targets))], levels[rng.Intn(len(levels))]
-		p := personP(t, w.partWS, who)
+		p, plain := principal(who)
 		pv, err := w.b.PreviewPlanned(p, accessOp(tile, target, level), nil)
+		seen["who:"+who]++
+		if p.ViewAs() { // someone viewing as another person describes no change of theirs
+			if err == nil {
+				t.Errorf("a view-as session described %s → %s on %s: %+v", target, level, tile, pv)
+			}
+			continue
+		}
 		if err != nil {
 			t.Fatalf("%s %s %s %s: %v", who, tile, target, level, err)
 		}
 		var call struct{ ID string }
 		_ = json.Unmarshal(pv.Call.Body, &call)
-		self := strings.EqualFold(call.ID, who) || strings.EqualFold(target, p.User.Name)
-		plainGate := w.byHand(t, stripped(p), tile, call.ID, level) != http.StatusForbidden
+		self := p.UserID != "" && (users.NormalizeID(call.ID) == users.NormalizeID(p.UserID) || nameKey(target) == nameKey(p.User.Name))
+		plainGate := w.byHand(t, plain, tile, call.ID, level) != http.StatusForbidden
 		fullGate := w.byHand(t, p, tile, call.ID, level) != http.StatusForbidden
 		personal := !pv.Admin && pv.Blocked == ""
+		disabled := p.User != nil && p.User.Disabled
 		switch {
-		case self && who != "bob":
+		case self && !p.IsAdmin():
 			if pv.Blocked == "" || pv.Admin {
 				t.Errorf("%s's own access on %s through their agent: blocked %q admin %v — a person who is no workspace admin never changes their own level through it", who, tile, pv.Blocked, pv.Admin)
 			}
@@ -130,8 +172,8 @@ func TestAccessLinePersonalIsByHand(t *testing.T) {
 			}
 			seen["self-admin"]++
 		case personal:
-			if !plainGate {
-				t.Errorf("%s: %s → %s on %s is personal, and the by-hand route refuses it without admin rights", who, target, level, tile)
+			if !plainGate || disabled {
+				t.Errorf("%s: %s → %s on %s is personal, and the by-hand route refuses it without admin rights (or the account is disabled)", who, target, level, tile)
 			}
 			seen["personal"]++
 		case pv.Forbidden:
@@ -140,18 +182,25 @@ func TestAccessLinePersonalIsByHand(t *testing.T) {
 			}
 			seen["forbidden"]++
 		case pv.Admin && pv.Blocked == "":
-			if plainGate || !fullGate {
+			// (a disabled account's session never reaches the handler — the auth layer refuses it —
+			// so its own hands are no right: its line is never personal)
+			if plainGate && !disabled || !fullGate {
 				t.Errorf("%s: %s on %s is an admin's line, and by hand: plain %v full %v", who, target, tile, plainGate, fullGate)
 			}
 			seen["admin"]++
 		}
-		if !pv.Forbidden && !(self && who != "bob") && plainGate && !personal && pv.Blocked == "" {
+		if !pv.Forbidden && !(self && !p.IsAdmin()) && plainGate && !disabled && !personal && pv.Blocked == "" {
 			t.Errorf("%s: %s → %s on %s passes the by-hand gate with no admin right and is called an admin's", who, target, level, tile)
 		}
 	}
 	for _, k := range []string{"personal", "admin", "forbidden", "self-blocked", "self-admin"} {
 		if seen[k] == 0 {
 			t.Errorf("the corpus has no %s line: the property is checked on nothing (%v)", k, seen)
+		}
+	}
+	for _, who := range people {
+		if seen["who:"+who] == 0 {
+			t.Errorf("the corpus has no line by %s (%v)", who, seen)
 		}
 	}
 }
@@ -176,7 +225,7 @@ func TestAccessLineWords(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(pv.Line, "“Carol Fin” (carol): no access → terminal on apps/pu") || !pv.Admin || !hasWarning(pv, "TERMINAL") || pv.Account != "carol" {
+	if !strings.HasPrefix(pv.Line, "carol — “Carol Fin”: no access → terminal by their own entry on apps/pu") || !pv.Admin || !hasWarning(pv, "TERMINAL") || pv.Account != "carol" {
 		t.Errorf("an admin's line: %q admin %v warnings %v account %q", pv.Line, pv.Admin, pv.Warnings, pv.Account)
 	}
 	if pv.Inverse == nil || !strings.Contains(string(pv.Inverse.Args), `"level":""`) {
@@ -267,7 +316,7 @@ func TestAccessLineSystemComponent(t *testing.T) {
 		t.Fatalf("a system component's line: %v %+v", err, pv)
 	}
 	// it holds a capability: nobody is given it by a change set (as an org's share)
-	if _, err := b.PreviewChange(bob, accessOp("xbin/fix", "dave", "read")); err == nil || !strings.Contains(err.Error(), "holds cap:open-links") {
+	if _, err := b.PreviewChange(bob, accessOp("xbin/fix", "dave", "read")); err == nil || !strings.Contains(err.Error(), "holds power") || !strings.Contains(err.Error(), "cap:open-links (xbin/fix)") {
 		t.Errorf("read on a system component that holds a capability: %v", err)
 	}
 	if got := sealedEntryOK("xbin/fix", "write"); !strings.Contains(got, "read or none") {

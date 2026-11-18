@@ -852,10 +852,16 @@ func (s *Server) askDecided(done delegation.ChangeSet) {
 			}
 			mine := &c.Items[it.Of-1]
 			mine.Result, mine.Error = it.Result, it.Error
+			if it.Kind == delegation.KindAccessSet && (it.Result == delegation.ItemBlocked || it.Result == delegation.ItemFailed) {
+				// the admin's review resolved the name — no such account, or
+				// several — or the store refused it: the asker learns no more
+				// of the workspace's accounts than of a line left out
+				mine.Result, mine.Error = delegation.ItemRejected, ""
+			}
 			if it.Result == delegation.ItemWaiting { // an admin approved it, and it waits: where it stands is theirs to read
 				mine.Error = "an admin (" + done.User + ") approved it: xbin applies it by itself once " + it.Wait.Tile + " provides " + it.Wait.Service
 			}
-			if it.Result == delegation.ItemRejected || it.Result == "" {
+			if mine.Result == delegation.ItemRejected || mine.Result == "" {
 				mine.Result, mine.Error = delegation.ItemRejected, "an admin ("+done.User+") left it out"
 			}
 		}

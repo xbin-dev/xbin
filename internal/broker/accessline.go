@@ -17,18 +17,27 @@ package broker
 //     right. Every other way to change a tile's access by hand is an
 //     admin's right (a workspace admin, the owning org's admins), so the
 //     line is an admin's (TestAccessLinePersonalIsByHand);
-//   - WARNED, so it starts unticked: a raise to terminal, a system
-//     component, the person's own level. One's own level is BLOCKED for
-//     anyone but a workspace admin, and an admin's line for them;
+//   - judged on the person's EFFECTIVE level before and after — their own
+//     entry, their orgs, the workspace defaults, as the Access page explains
+//     it (Access.TileLevel, Access.Explain): removing an exclusion can raise
+//     it. For an account nothing was resolved for, removing its entry counts
+//     as a raise;
+//   - WARNED, so it starts unticked: write or terminal reached — a tile's
+//     writers change its code and every nested tile's, which runs with all
+//     those tiles reach (accessreach.go) — a removal whose result xbin can't
+//     show, a system component, the person's own level. One's own level is
+//     BLOCKED for anyone but a workspace admin, and an admin's line for them;
 //   - the account is resolved only for a person who already sees the
 //     workspace's accounts (AccountsVisible): exact id, else exact display
 //     name. For anyone else the name is used as an id, as typed, and
 //     nothing is said of whether it is one before the by-hand route says
 //     so at Apply;
-//   - refused as no change at all: the workspace agent itself, a tile with
-//     xbin/cap:/gpu:/code power at any level above none, a tile an earlier
-//     line of the plan creates (a person's access is set on a tile that
-//     exists: it never waits).
+//   - refused as no change at all: the workspace agent itself, a raise on a
+//     tile whose subtree — or a tile it reaches through grants and bindings
+//     — holds power (accessreach.go), asked only of a person who manages the
+//     tile's access (anyone else reads the 403 line), a tile an earlier line
+//     of the plan creates (a person's access is set on a tile that exists:
+//     it never waits).
 
 import (
 	"errors"
@@ -48,7 +57,9 @@ const ChangeAccessSet = delegation.KindAccessSet
 
 // The warnings an access line may carry: each starts it unticked.
 const (
-	accessWarnTerminal = "TERMINAL: %s can run code in %s and change it — and with it everything the tile can reach"
+	accessWarnTerminal = "TERMINAL: %s can run code in %s and change it — and every tile inside it — and with it everything those tiles can reach"
+	accessWarnWrite    = "WRITE: %s can change %s's code — and every tile inside it; that code runs with everything those tiles can reach"
+	accessWarnUnknown  = "ENTRY REMOVED: what %s has on %s afterwards is what their orgs and the workspace defaults give — xbin can't show it here, and it may be more than now (up to terminal)"
 	accessWarnSystem   = "SYSTEM COMPONENT: %s is part of xbin itself; access to it changes what %s can do in xbin"
 	accessWarnSelf     = "YOUR OWN ACCESS: this changes what you yourself can do on %s"
 	accessSelfBlocked  = "your own access is changed by a workspace admin on xbin's own pages (or asked for from the tile's Request access) — never through your agent"
@@ -85,7 +96,7 @@ func (b *Broker) ResolveAccount(viewer auth.Principal, name string) delegation.A
 	}
 	var hits []users.User
 	for _, u := range b.Users.List() {
-		if strings.EqualFold(strings.TrimSpace(u.Name), name) {
+		if nameKey(u.Name) == nameKey(name) {
 			hits = append(hits, u)
 		}
 	}
@@ -122,12 +133,47 @@ func accessLevelOK(l string) bool {
 	return false
 }
 
-// effectiveWords is a person's effective level on a tile in a line's words.
-func effectiveWords(level string) string {
-	if level == "" {
+// levelWords is a person's effective level on a tile and where it comes
+// from, as the access matrix explains it (Access.TileLevel and
+// Access.Explain — the by-hand Access page's words): "none (excluded)",
+// "terminal through org eng", "no access".
+func levelWords(level string, ex []users.Contribution) string {
+	if len(ex) > 0 && ex[0].Source == "exact" && ex[0].Level == users.LevelNone {
+		return "none (excluded)"
+	}
+	if level == "" || len(ex) == 0 {
 		return "no access"
 	}
-	return level
+	src, capped := ex[0].Source, ""
+	for _, c := range []struct{ suffix, words string }{{" (no-terminal)", ", capped: their account opens no terminals"}, {" (system component)", ", capped on a system component"}} {
+		if s, ok := strings.CutSuffix(src, c.suffix); ok {
+			src, capped = s, c.words+capped
+		}
+	}
+	kind, rest, _ := strings.Cut(src, ":")
+	org, pat, _ := strings.Cut(rest, ":")
+	var from string
+	switch kind {
+	case "admin":
+		from = "as a workspace admin"
+	case "owner":
+		from = "as the tile's owner"
+	case "org-admin":
+		from = "as an admin of org " + org
+	case "exact":
+		from = "by their own entry"
+	case "org-member":
+		from = "through org " + org
+	case "org-share":
+		from = "through org " + org + "'s share of " + pat
+	case "direct":
+		from = "through their entry for " + rest
+	case "default":
+		from = "through the workspace default for " + rest
+	default:
+		from = "through " + src
+	}
+	return level + " " + from + capped
 }
 
 // previewAccess describes access.set (the file comment).
@@ -155,10 +201,6 @@ func (b *Broker) previewAccess(p auth.Principal, op delegation.ChangeOp, planned
 	if err := notOnAgent("access to", a.Tile); err != nil {
 		return delegation.ChangePreview{}, err
 	}
-	raise := a.Level != "" && a.Level != users.LevelNone
-	if power := b.powerOf(a.Tile); len(power) > 0 && raise {
-		return delegation.ChangePreview{}, fmt.Errorf("%s holds %s: who may use a tile with that power is decided on its Access page, by an admin — never by a change set", a.Tile, strings.Join(power, ", "))
-	}
 	typed := strings.TrimSpace(a.User)
 	m := b.ResolveAccount(p, typed) // nothing is looked up for a person who sees no accounts
 	id := typed
@@ -167,18 +209,19 @@ func (b *Broker) previewAccess(p auth.Principal, op delegation.ChangeOp, planned
 	}
 	pv := delegation.ChangePreview{Account: m.ID, Tiles: []string{a.Tile}, Line: delegation.AccessArgsLine(op.Args), Admin: true,
 		Call: delegation.AdminCall{Method: http.MethodPut, Path: "/access", Body: mustJSON(map[string]string{"tile": a.Tile, "kind": "user", "id": id, "level": a.Level})}}
-	// one's own level, by one's id or one's own display name — which says
-	// nothing of anyone else's account: a person's own agent never changes
-	// it, unless they are a workspace admin (a warned admin's line, below)
-	self := p.UserID != "" && (strings.EqualFold(id, p.UserID) || p.User != nil && strings.TrimSpace(p.User.Name) != "" && strings.EqualFold(strings.TrimSpace(p.User.Name), typed))
+	// one's own level, by one's id (as the store keys ids) or one's own
+	// display name — which says nothing of anyone else's account: a person's
+	// own agent never changes it, unless they are a workspace admin (a
+	// warned admin's line, below)
+	self := p.UserID != "" && (users.NormalizeID(id) == users.NormalizeID(p.UserID) || p.User != nil && nameKey(p.User.Name) != "" && nameKey(p.User.Name) == nameKey(typed))
 	adminP := p.IsAdmin()
 	if self && !adminP {
 		pv.Admin, pv.Blocked = false, accessSelfBlocked // never personal, never asked of an admin
 		return pv, nil
 	}
 	// who manages the tile's access comes next: a person who may not change
-	// it reads the line from its arguments, and nothing of the tile's access
-	// or of the account (the handler's 403)
+	// it reads the line from its arguments, and nothing of the tile's access,
+	// its power or the account (the handler's 403)
 	if why := b.accessCheck(p, a.Tile, id); why != nil {
 		pv.Blocked, pv.Forbidden = why.msg, why.status == http.StatusForbidden
 		return pv, nil
@@ -187,16 +230,36 @@ func (b *Broker) previewAccess(p auth.Principal, op delegation.ChangeOp, planned
 		pv.Blocked = "no such tile: " + a.Tile // a share of nothing: the handler would take it, a change set doesn't
 		return pv, nil
 	}
+	// before and after, as the Access page says them: the person's
+	// EFFECTIVE level — their own entry, their orgs, the workspace defaults
+	// — before the line and with its entry in place. An account nothing was
+	// resolved for has neither: removing its entry may give it anything its
+	// orgs give, so that counts as a raise
+	before, after, beforeText, afterText := "", "", "", ""
+	known := false
+	if m.State == "one" {
+		if acc, ok := b.Users.Access(m.ID); ok {
+			known = true
+			next := acc.WithEntry(a.Tile, a.Level)
+			before, after = acc.TileLevel(a.Tile), next.TileLevel(a.Tile)
+			beforeText, afterText = levelWords(before, acc.Explain(a.Tile)), levelWords(after, next.Explain(a.Tile))
+		}
+	}
+	raise := a.Level != users.LevelNone
+	if known {
+		raise = users.LevelRank(after) > users.LevelRank(before)
+	}
+	reach := b.accessReachOf(a.Tile)
+	if raise && reach.holdsPower() {
+		return delegation.ChangePreview{}, b.accessPowerRefusal(p, a.Tile, reach)
+	}
 	// personal: the tile's user-owner, about someone else — what the by-hand
 	// rule lets them do with no admin right
 	pv.Admin = self || b.approverSelf(p, a.Tile) == ""
 	who := delegation.QuoteName(typed) + " (an account id, as typed — xbin checks it when this is applied)"
 	switch m.State {
 	case "one":
-		who = m.ID
-		if n := strings.TrimSpace(m.Name); n != "" && !strings.EqualFold(n, m.ID) {
-			who = delegation.QuoteName(n) + " (" + m.ID + ")"
-		}
+		who = delegation.AccountWords(m.ID, m.Name)
 	case "none":
 		pv.Blocked = "no account is named " + delegation.QuoteName(typed) + ": name the person by their account id"
 	case "several":
@@ -205,26 +268,19 @@ func (b *Broker) previewAccess(p auth.Principal, op delegation.ChangeOp, planned
 	if err := sealedEntryOK(a.Tile, a.Level); err != "" && pv.Blocked == "" {
 		pv.Blocked = err
 	}
-	afterEntry := delegation.AccessLevelWords(a.Level)
-	switch m.State {
-	case "one":
-		acc, _ := b.Users.Access(m.ID)
-		before, after := acc.TileLevel(a.Tile), acc.WithEntry(a.Tile, a.Level).TileLevel(a.Tile)
+	if known {
 		pv.Before, pv.After = mustJSON(map[string]string{"level": before}), mustJSON(map[string]string{"level": after, "entry": a.Level})
-		pv.BeforeText, pv.AfterText = effectiveWords(before), effectiveWords(after)
-		if a.Level == users.LevelNone {
-			pv.AfterText = "no access (excluded)"
-		}
-		pv.Line = fmt.Sprintf("%s: %s → %s on %s", who, pv.BeforeText, pv.AfterText, a.Tile)
+		pv.BeforeText, pv.AfterText = beforeText, afterText
+		pv.Line = fmt.Sprintf("%s: %s → %s on %s", who, beforeText, afterText, a.Tile)
 		if u, ok := b.Users.Get(m.ID); ok {
 			if u.IsAdmin() {
 				pv.Effects = append(pv.Effects, m.ID+" is a workspace admin: they reach every tile whatever this entry says")
 			}
 			pv.Inverse = &delegation.ChangeOp{Kind: ChangeAccessSet, Args: mustJSON(delegation.AccessArgs{Tile: a.Tile, User: m.ID, Level: u.Tiles[a.Tile]})}
 		}
-	default: // nothing resolved: nothing of the account is read for this line
+	} else { // nothing resolved: nothing of the account is read for this line
 		pv.After = mustJSON(map[string]string{"entry": a.Level})
-		pv.AfterText = afterEntry + " (their own entry on this tile)"
+		pv.AfterText = delegation.AccessLevelWords(a.Level) + " (their own entry on this tile)"
 		if a.Level == "" {
 			pv.AfterText = "their own entry removed"
 		}
@@ -242,8 +298,27 @@ func (b *Broker) previewAccess(p auth.Principal, op delegation.ChangeOp, planned
 	if whoShort == "" {
 		whoShort = delegation.QuoteName(typed)
 	}
-	if a.Level == users.LevelTerminal {
+	// what the level brings, and its warnings, from the level AFTER: a
+	// write or terminal reached by the line — raised to, or set as their own
+	// entry — starts the line unticked; an unresolved entry's removal may
+	// reach either
+	reaches := func(l string) bool {
+		if !known {
+			return a.Level == l || a.Level == "" && l == users.LevelTerminal
+		}
+		return users.LevelRank(after) >= users.LevelRank(l) && (raise || before == after && users.LevelRank(a.Level) >= users.LevelRank(l))
+	}
+	switch {
+	case reaches(users.LevelTerminal):
 		pv.Warnings = append(pv.Warnings, fmt.Sprintf(accessWarnTerminal, whoShort, a.Tile))
+	case reaches(users.LevelWrite):
+		pv.Warnings = append(pv.Warnings, fmt.Sprintf(accessWarnWrite, whoShort, a.Tile))
+	}
+	if !known && a.Level == "" {
+		pv.Warnings = append(pv.Warnings, fmt.Sprintf(accessWarnUnknown, whoShort, a.Tile))
+	}
+	if reaches(users.LevelWrite) {
+		pv.Effects = append(pv.Effects, reach.effects(p, a.Tile)...)
 	}
 	if util.SealedPath(a.Tile) {
 		pv.Warnings = append(pv.Warnings, fmt.Sprintf(accessWarnSystem, a.Tile, whoShort))
@@ -253,6 +328,10 @@ func (b *Broker) previewAccess(p auth.Principal, op delegation.ChangeOp, planned
 	}
 	return pv, nil
 }
+
+// nameKey is a display name as names are compared: case and the space
+// around it aside, as ids are (users.NormalizeID).
+func nameKey(s string) string { return strings.ToLower(strings.TrimSpace(s)) }
 
 // sealedEntryOK is the users store's rule for an entry on a system
 // component, as a line's refusal ("" it holds): read or none there.

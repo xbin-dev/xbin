@@ -22,6 +22,7 @@ import (
 
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/delegation"
+	"github.com/xbin-dev/xbin/internal/users"
 )
 
 // newerKinds are the line kinds a client must say it knows (approve's
@@ -54,7 +55,7 @@ func (s *Server) accessSelfRefusal(person auth.Principal, a planAgent, pv delega
 	if op.Kind != delegation.KindAccessSet || pv.Account == "" || proposer == "" || proposer == person.UserID {
 		return ""
 	}
-	if !strings.EqualFold(pv.Account, proposer) || s.userIsAdmin(proposer) {
+	if users.NormalizeID(pv.Account) != users.NormalizeID(proposer) || s.userIsAdmin(proposer) {
 		return ""
 	}
 	return accessSelfOther

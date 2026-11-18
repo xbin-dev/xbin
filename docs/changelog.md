@@ -19,10 +19,18 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   approving person with their rights read again; personal on a tile you
   own, an admin's line elsewhere (Ask an admin); terminal, a system
   component and your own access are warned and start unticked, and your
-  own access is blocked unless you are a workspace admin. xbind writes the
-  line with the display name beside the account id and the level before
-  and after; the agent reads only its arguments and whether it was
-  applied. `POST /delegate/accounts/lookup {name}` tells the agent whether
+  own access is blocked unless you are a workspace admin. Write is warned
+  like terminal (a tile's writers change every tile inside it), and a
+  line that reaches write lists the nested tiles, what its code reaches,
+  its networks, the LLM connector and its vault secrets; whether it is a
+  raise follows the person's effective level (removing an exclusion can
+  raise it); a raise on a tile whose subtree or reach holds power over the
+  workspace or the host is refused (`org.share` too). xbind writes the
+  line with the account id first and the display name after it
+  (`dave — “Dave Rossi”`), the effective level before and after and where
+  it comes from; the agent reads only its arguments and whether it was
+  applied, and a name an admin's review can't resolve comes back as a
+  line left out. `POST /delegate/accounts/lookup {name}` tells the agent whether
   an account of that exact id or display name exists — only for a person
   who already sees accounts (an admin). `POST
   /delegate/changesets/{id}/approve` takes `knows: ["access.set"]`: a
@@ -34,13 +42,18 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   start's retries said plainly), its report and xbin's flags, its slots
   and what each is bound to, its uses granted or pending, provides and
   exposes, its scheduled jobs, its log's end and its coding-agent
-  sessions — each part as far as the read it replaces gives it (the
-  person's own bindings and grants views, logs and jobs at terminal
-  level). The agent's `tile_status` is this read; `tile_agent_status` is
+  sessions — each part as far as the agent's own reads give it: what each
+  slot is bound to and each use's grant only for an admin who lets their
+  agent read admin state (`GET /bindings`, `GET /grants`), otherwise
+  `unmet: true` alone when something it needs is missing; a bound tile
+  the conversation can't see is `"another tile"`; logs and jobs at
+  terminal level. The agent's `tile_status` is this read; `tile_agent_status` is
   folded into `tile_agent_result` (D246;
   [protocol/delegation.md §Where a tile stands](/docs/protocol/delegation.md)).
 - resources: `GET /cron/jobs`'s main rows carry `next`, and `lastRun` /
-  `lastStatus` since xbind started (additive).
+  `lastStatus` since xbind started (additive). A new job's `name` is at
+  most 128 characters with no control or formatting character (`400`); a
+  name registered before keeps working.
 - workspace agent: **a context budget**, 1 000 000 tokens by default — how
   much of a conversation an agent keeps sending its model:
   `PUT /delegate/workspace {contextBudget}` (32 000 to 10 000 000, `null`

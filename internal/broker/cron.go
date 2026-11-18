@@ -14,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/robfig/cron/v3"
 
@@ -144,6 +146,55 @@ func (cr *cronRunner) persist() {
 }
 
 func jobKey(j cronJob) string { return j.Component + "\x00" + j.Name }
+
+// A job's name is a short label: at most cronNameMax characters, no control
+// or format character (D246 — a listing shows it, an agent reads it). A
+// name a tile registered before the rule keeps working (cronRunner.known),
+// and a listing that shows one says it short (cronNameShown).
+const (
+	cronNameMax   = 128
+	cronNameShown = 64
+)
+
+func cronNameRefusal(name string) string {
+	if utf8.RuneCountInString(name) > cronNameMax {
+		return fmt.Sprintf("a job's name is at most %d characters", cronNameMax)
+	}
+	for _, r := range name {
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) {
+			return "a job's name holds no control or formatting character"
+		}
+	}
+	return ""
+}
+
+// cronNameWords is a job's name as a listing for a person's agent says it:
+// a control or format character escaped, at most cronNameShown characters.
+func cronNameWords(name string) string {
+	var b strings.Builder
+	n := 0
+	for _, r := range name {
+		if n == cronNameShown {
+			b.WriteString("…")
+			break
+		}
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) {
+			fmt.Fprintf(&b, "\\u%04x", r)
+		} else {
+			b.WriteRune(r)
+		}
+		n++
+	}
+	return b.String()
+}
+
+// known reports a main job of component's by that name.
+func (cr *cronRunner) known(component, name string) bool {
+	cr.mu.Lock()
+	defer cr.mu.Unlock()
+	_, ok := cr.jobs[component+"\x00"+name]
+	return ok
+}
 
 // runWords is a main job's next run and last run as a listing says them
 // (RFC 3339; "" none) with the last run's status.
@@ -335,6 +386,10 @@ func (b *Broker) apiCronPut(w http.ResponseWriter, r *http.Request) {
 	}
 	if !b.componentNamed(j.Component) { // its deliveries go to /api/<component>/…: one spelling, a real path
 		server.WriteError(w, http.StatusBadRequest, fmt.Sprintf("%q is not a component's path", j.Component), "/docs/resources.md")
+		return
+	}
+	if why := cronNameRefusal(j.Name); why != "" && !b.cron.known(j.Component, j.Name) { // a name it registered before keeps working
+		server.WriteError(w, http.StatusBadRequest, why, "/docs/resources.md")
 		return
 	}
 	if b.partitionParamRefused(w, r, j.Component) || b.globalAddressRegRefused(w, j.Component, j.Path, "cron") {

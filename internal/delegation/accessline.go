@@ -9,6 +9,7 @@ package delegation
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -36,19 +37,23 @@ type AccessArgs struct {
 
 // QuoteName is a name a person or an agent wrote — an account's display
 // name, a name as typed — as xbind may put it in a sentence: control and
-// format characters (bidi overrides, zero-width ones) dropped, white space
-// one space, quotes made plain, at most 60 characters, between “ and ”.
-// It can't close its quotes early or make the sentence read otherwise.
+// format characters (bidi overrides, zero-width ones) shown escaped, as
+// \u202e, white space one space, quotes made plain, at most 60 characters,
+// between “ and ”. It can't close its quotes early, reorder what follows or
+// hide that it holds such a character.
 func QuoteName(s string) string {
 	var b strings.Builder
 	space, n := false, 0
 	for _, r := range strings.TrimSpace(s) {
+		esc := ""
 		switch {
-		case r == utf8.RuneError, unicode.IsControl(r) && !unicode.IsSpace(r), unicode.Is(unicode.Cf, r):
-			continue
+		case r == utf8.RuneError:
+			esc = "\\ufffd"
 		case unicode.IsSpace(r):
 			space = true
 			continue
+		case unicode.IsControl(r), unicode.Is(unicode.Cf, r), unicode.In(r, unicode.Bidi_Control, unicode.Join_Control):
+			esc = fmt.Sprintf("\\u%04x", r)
 		case strings.ContainsRune("\"“”„‟«»", r):
 			r = '\''
 		}
@@ -61,10 +66,24 @@ func QuoteName(s string) string {
 			n++
 		}
 		space = false
-		b.WriteRune(r)
+		if esc != "" {
+			b.WriteString(esc)
+		} else {
+			b.WriteRune(r)
+		}
 		n++
 	}
 	return "“" + b.String() + "”"
+}
+
+// AccountWords is an account as an access line names it: the id first and
+// apart, the display name after it, quoted — "mallory — “Dave Rossi
+// (dave)”" — so a name can't pass for another account's id.
+func AccountWords(id, name string) string {
+	if n := strings.TrimSpace(name); n != "" && !strings.EqualFold(n, id) {
+		return id + " — " + QuoteName(n)
+	}
+	return id
 }
 
 // AccessLevelWords is a level as an access.set line says it.

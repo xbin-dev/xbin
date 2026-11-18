@@ -16431,7 +16431,7 @@
        "user": "dave",
        "level": "read"
       },
-      "line": "“Dave Rossi” (dave): no access → read on apps/invoices",
+      "line": "dave — “Dave Rossi”: no access → read by their own entry on apps/invoices",
       "before": {
        "level": ""
       },
@@ -16440,7 +16440,7 @@
        "entry": "read"
       },
       "beforeText": "no access",
-      "afterText": "read"
+      "afterText": "read by their own entry"
      },
      {
       "n": 2,
@@ -16450,12 +16450,12 @@
        "user": "dave",
        "level": "terminal"
       },
-      "line": "“Dave Rossi” (dave): read → terminal on apps/orders",
+      "line": "dave — “Dave Rossi”: read through org sales → terminal by their own entry on apps/orders",
       "admin": true,
-      "beforeText": "read",
-      "afterText": "terminal",
+      "beforeText": "read through org sales",
+      "afterText": "terminal by their own entry",
       "warnings": [
-       "TERMINAL: dave can run code in apps/orders and change it — and with it everything the tile can reach"
+       "TERMINAL: dave can run code in apps/orders and change it — and every tile inside it — and with it everything those tiles can reach"
       ]
      },
      {
@@ -16488,7 +16488,7 @@
       "text": ""
      },
      "before": "no access",
-     "after": "read",
+     "after": "read by their own entry",
      "neededBy": [],
      "start": null
     },
@@ -16501,8 +16501,8 @@
       "tone": "",
       "text": ""
      },
-     "before": "read",
-     "after": "terminal",
+     "before": "read through org sales",
+     "after": "terminal by their own entry",
      "neededBy": [],
      "start": null
     },
@@ -16621,7 +16621,7 @@
          "user": "dave",
          "level": "read"
         },
-        "line": "“Dave Rossi” (dave): no access → read on apps/invoices",
+        "line": "dave — “Dave Rossi”: no access → read by their own entry on apps/invoices",
         "before": {
          "level": ""
         },
@@ -16630,7 +16630,7 @@
          "entry": "read"
         },
         "beforeText": "no access",
-        "afterText": "read",
+        "afterText": "read by their own entry",
         "result": "applied"
        },
        {
@@ -16641,12 +16641,12 @@
          "user": "dave",
          "level": "terminal"
         },
-        "line": "“Dave Rossi” (dave): read → terminal on apps/orders",
+        "line": "dave — “Dave Rossi”: read through org sales → terminal by their own entry on apps/orders",
         "admin": true,
-        "beforeText": "read",
-        "afterText": "terminal",
+        "beforeText": "read through org sales",
+        "afterText": "terminal by their own entry",
         "warnings": [
-         "TERMINAL: dave can run code in apps/orders and change it — and with it everything the tile can reach"
+         "TERMINAL: dave can run code in apps/orders and change it — and every tile inside it — and with it everything those tiles can reach"
         ],
         "result": "rejected"
        },
@@ -16689,7 +16689,7 @@
          "user": "dave",
          "level": "read"
         },
-        "line": "“Dave Rossi” (dave): no access → read on apps/invoices",
+        "line": "dave — “Dave Rossi”: no access → read by their own entry on apps/invoices",
         "before": {
          "level": ""
         },
@@ -16698,7 +16698,7 @@
          "entry": "read"
         },
         "beforeText": "no access",
-        "afterText": "read",
+        "afterText": "read by their own entry",
         "result": "applied"
        },
        {
@@ -16709,12 +16709,12 @@
          "user": "dave",
          "level": "terminal"
         },
-        "line": "“Dave Rossi” (dave): read → terminal on apps/orders",
+        "line": "dave — “Dave Rossi”: read through org sales → terminal by their own entry on apps/orders",
         "admin": true,
-        "beforeText": "read",
-        "afterText": "terminal",
+        "beforeText": "read through org sales",
+        "afterText": "terminal by their own entry",
         "warnings": [
-         "TERMINAL: dave can run code in apps/orders and change it — and with it everything the tile can reach"
+         "TERMINAL: dave can run code in apps/orders and change it — and every tile inside it — and with it everything those tiles can reach"
         ],
         "result": "applied"
        },
@@ -16758,7 +16758,7 @@
          "user": "dave",
          "level": "read"
         },
-        "line": "“Dave Rossi” (dave): no access → read on apps/invoices",
+        "line": "dave — “Dave Rossi”: no access → read by their own entry on apps/invoices",
         "before": {
          "level": ""
         },
@@ -16767,7 +16767,7 @@
          "entry": "read"
         },
         "beforeText": "no access",
-        "afterText": "read",
+        "afterText": "read by their own entry",
         "result": "failed"
        },
        {
@@ -16778,12 +16778,12 @@
          "user": "dave",
          "level": "terminal"
         },
-        "line": "“Dave Rossi” (dave): read → terminal on apps/orders",
+        "line": "dave — “Dave Rossi”: read through org sales → terminal by their own entry on apps/orders",
         "admin": true,
-        "beforeText": "read",
-        "afterText": "terminal",
+        "beforeText": "read through org sales",
+        "afterText": "terminal by their own entry",
         "warnings": [
-         "TERMINAL: dave can run code in apps/orders and change it — and with it everything the tile can reach"
+         "TERMINAL: dave can run code in apps/orders and change it — and every tile inside it — and with it everything those tiles can reach"
         ],
         "result": "skipped"
        },
@@ -16827,7 +16827,7 @@
          "user": "dave",
          "level": "read"
         },
-        "line": "“Dave Rossi” (dave): no access → read on apps/invoices",
+        "line": "dave — “Dave Rossi”: no access → read by their own entry on apps/invoices",
         "before": {
          "level": ""
         },
@@ -16836,7 +16836,7 @@
          "entry": "read"
         },
         "beforeText": "no access",
-        "afterText": "read",
+        "afterText": "read by their own entry",
         "result": "rejected"
        },
        {
@@ -16847,12 +16847,12 @@
          "user": "dave",
          "level": "terminal"
         },
-        "line": "“Dave Rossi” (dave): read → terminal on apps/orders",
+        "line": "dave — “Dave Rossi”: read through org sales → terminal by their own entry on apps/orders",
         "admin": true,
-        "beforeText": "read",
-        "afterText": "terminal",
+        "beforeText": "read through org sales",
+        "afterText": "terminal by their own entry",
         "warnings": [
-         "TERMINAL: dave can run code in apps/orders and change it — and with it everything the tile can reach"
+         "TERMINAL: dave can run code in apps/orders and change it — and every tile inside it — and with it everything those tiles can reach"
         ],
         "result": "rejected"
        },
