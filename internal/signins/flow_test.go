@@ -21,8 +21,10 @@ const flowURL = "https://claude.com/cai/oauth/authorize?code=true&client_id=test
 
 // scriptedClaude is a scripted `claude setup-token` (Claude Code 2.1.280's
 // shape, sdk/acp/testdata/signin): on a terminal only, the page as Ink
-// draws it (an OSC 8 link), the prompt, then a code per line — one without
-// '#' is "Invalid code" (asked again); good-XXXX#… prints a fake one-year
+// draws it (an OSC 8 link), bracketed paste on, the prompt, then a code per
+// pasted line (a line that is no bracketed paste never submits, as in Ink)
+// — one without '#' is its "OAuth error: Invalid code" and "Press Enter to
+// retry", then the prompt again after an Enter; good-XXXX#… prints a fake one-year
 // token ending in XXXX; newformat… prints a credential in a format the scan
 // doesn't know; anything else is its OAuth error. It refuses to run with a
 // HOME that isn't empty, with anything but PATH, HOME, TERM and LANG in its
@@ -39,10 +41,20 @@ extra=$(env | cut -d= -f1 | grep -v -x -e PATH -e HOME -e TERM -e LANG -e PWD -e
 [ ! -e "@MARKER@" ] || { printf 'OAuth error: the workspace is visible from the sign-in\n'; exit 1; }
 printf '\033[2G\033[1mThis\033[7Gwill\033[12Gguide\033[18Gyou\033[22Gthrough\033[30Glong-lived\033[41G(1-year)\033[50Gauth\033[55Gtoken\033[61Gsetup\033[22m\r\n'
 printf "\033]8;id=t;%s\007\033[38;5;246m%s\033[39m\033]8;;\007\r\n" "$URL" "$URL"
-printf '\r\n\033[2GPaste\033[8Gcode\033[13Ghere\033[18Gif\033[21Gprompted\033[30G>\r\n'
+prompt() { printf '\r\n\033[2GPaste\033[8Gcode\033[13Ghere\033[18Gif\033[21Gprompted\033[30G>\r\n'; }
+printf '\033[?2004h'
+prompt
+esc=$(printf '\033')
 while IFS= read -r c; do
   c=$(printf '%s' "$c" | tr -d '\r')
-  case "$c" in *'#'*) ;; *) printf 'Invalid code. Please make sure the full code was copied.\r\n'; continue ;; esac
+  # Ink: a chunk that is no bracketed paste is typing, and a code typed in
+  # one chunk with its Enter never submits — the prompt just waits
+  case "$c" in "${esc}[200~"*"${esc}[201~") c=${c#"${esc}[200~"}; c=${c%"${esc}[201~"} ;; *) continue ;; esac
+  case "$c" in *'#'*) ;; *)
+    printf 'OAuth error: Invalid code. Please make sure the full code was copied\r\nPress \033[1mEnter\033[22m to retry.\r\n'
+    IFS= read -r _ || exit 1
+    printf 'Retrying…\r\n'; prompt; continue ;;
+  esac
   case "$c" in
   good-*) s=${c%%#*}; s=${s#good-}
     printf '\033[32m✓\033[39m Long-lived authentication token created successfully!\r\n\r\nYour OAuth token (valid for 1 year):\r\n\r\n'

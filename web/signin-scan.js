@@ -116,9 +116,11 @@ export function scanSignin(spec, text) {
   if (!st.url) st.url = textURL(spec, lines);
   for (const l of lines) {
     if (spec.code && l.includes(spec.code)) st.code = true;
-    if (spec.invalid) st.invalid += l.split(spec.invalid).length - 1;
+    const bad = spec.invalid ? l.split(spec.invalid).length - 1 : 0;
+    st.invalid += bad;
     if (spec.done && l.includes(spec.done)) st.done = true;
-    if (spec.fail && !st.failed) { const at = l.indexOf(spec.fail); if (at >= 0) st.failed = l.slice(at).trim(); }
+    // a line that says a code was malformed is not the line that gave up
+    if (spec.fail && !st.failed && !bad) { const at = l.indexOf(spec.fail); if (at >= 0) st.failed = l.slice(at).trim(); }
     if (l.trim()) st.last = l.trim();
   }
   return st;
