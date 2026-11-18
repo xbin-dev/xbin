@@ -68,6 +68,7 @@ func TestSigninDocsSayTheLimits(t *testing.T) {
 		"a restore from a backup":                  "**restored from a backup**",
 		"the fallback's limit":                     "**only root in the session can use the home**",
 		"the trust button is a deliberate click":   "not Enter, not a script",
+		"the real home changes under an open copy": "**Your real home can change while a session on a tile's copy is open**",
 		"nothing but the person answers":           "nothing but you answers it",
 		"the migration":                            "get the question instead",
 		"the owner accepted the risk":              "accepted the risk",
