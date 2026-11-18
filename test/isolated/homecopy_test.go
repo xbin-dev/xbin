@@ -8,8 +8,10 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -412,4 +414,177 @@ func TestHomeOnATileThatIsntOnlyYoursVM(t *testing.T) {
 	if len(ents) != 1 {
 		t.Fatalf("the planted file is not in the tile's copy: %v", ents)
 	}
+}
+
+// covers the review of D245, end to end on an `xbind --isolate`.
+//
+// A one-person install first (the root token, no accounts): `bx agent run`
+// typed in a shell on the workspace's tile — a session opened with that
+// terminal's token — has the root token's REAL home (the coding agent's
+// own files land in homes/owner), no copy is made, and xbind keeps no
+// record of who could change tiles.
+//
+// Then a shared workspace: on bob's tile a workspace admin's session — and
+// the root token's — is on the tile's copy and CONFINED like a member's.
+// The tile's code tries the two ways an admin's sandbox would have had
+// around the copy: bind the workspace again without its masks, remount it
+// read-write and write the real home; remount the read-only workspace
+// read-write and edit the admin's own tile. Both fail; the real home and
+// the own tile are byte-identical on disk; the row says "confined".
+func TestHomeCopyConfinesAdminsAndBxAgentInAShell(t *testing.T) {
+	a := xbindtest.Require(t)
+	dir, err := os.MkdirTemp("", "xbindtest-homecopy-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { xbindtest.RemoveTree(dir) }) // after the daemon's own cleanup
+	ws := filepath.Join(dir, "ws")
+	const own, his = "apps/ws", "apps/his" // the workspace's tile; bob's (once he exists)
+	acp := filepath.Join(ws, own, ".bin", "fakeacp")
+	d := xbindtest.Start(t, a, xbindtest.Options{Auth: true, WS: ws, Env: []string{"XBIN_AGENT_FAKE=" + acp + " --persist"}})
+	for _, tile := range []string{own, his} {
+		d.WriteTile(t, tile, map[string]string{"xbin.json": `{"title":"` + tile + `"}`, "index.html": "<!doctype html><title>" + tile + "</title>"})
+	}
+	build := exec.Command("go", "build", "-o", acp, "./hack/fakeacp")
+	build.Dir, build.Env = a.Repo, append(os.Environ(), "CGO_ENABLED=0")
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("building hack/fakeacp: %v\n%s", err, out)
+	}
+	d.WaitComponent(t, own)
+	d.WaitComponent(t, his)
+	root := xbindtest.H("Authorization", "Bearer "+d.Token())
+
+	type row struct {
+		ID, Cwd, Kind string
+		Home          *struct {
+			Mode     string
+			Confined bool
+		}
+	}
+	rows := func(cred xbindtest.Header) []row {
+		t.Helper()
+		var list []row
+		d.Call(t, "GET", "/api/xbin/term/sessions", nil, cred).Decode(t, &list)
+		return list
+	}
+	end := func(id string, cred xbindtest.Header) {
+		t.Helper()
+		d.Call(t, "DELETE", "/ws/term?session="+id, nil, cred)
+		for deadline := time.Now().Add(30 * time.Second); ; time.Sleep(50 * time.Millisecond) {
+			there := false
+			for _, r := range rows(cred) {
+				there = there || r.ID == id
+			}
+			if !there {
+				return
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("session %s did not end", id)
+			}
+		}
+	}
+
+	// ---- a one-person install: bx agent in the root token's shell ----
+	shell := w2OpenTerm(t, d, own, root)
+	out, rc := shell.run(t, `timeout 120 bx agent run --provider fake --tile `+own+` "say hello" 2>&1 | tail -n 20`, 3*time.Minute)
+	if rc != 0 || !strings.Contains(out, "session ") {
+		t.Fatalf("bx agent run in the root token's shell (rc %d):\n%s", rc, out)
+	}
+	var agentRow *row
+	for _, r := range rows(root) {
+		if r.Kind == "agent" {
+			agentRow = &r
+		}
+	}
+	if agentRow == nil || agentRow.Home == nil || agentRow.Home.Mode != "own" || agentRow.Home.Confined {
+		t.Fatalf("the session bx agent opened in the root token's shell: %+v (%s)", agentRow, out)
+	}
+	ownerHome := filepath.Join(d.WS, "homes", "owner")
+	if ents, _ := os.ReadDir(filepath.Join(ownerHome, ".fakeacp", "sessions")); len(ents) == 0 {
+		t.Fatalf("the coding agent's own files are not in the root token's real home:\n%s", hcTree(t, ownerHome))
+	}
+	for _, p := range []string{filepath.Join(d.WS, "data", "home-copies"), filepath.Join(d.WS, "data", "signins", "tiles.json")} {
+		if _, err := os.Stat(p); !os.IsNotExist(err) {
+			t.Errorf("a one-person install has %s: %v", p, err)
+		}
+	}
+	end(agentRow.ID, root)
+	shell.conn.Close()
+	end(shell.id, root)
+
+	// ---- a shared workspace: bob's tile, an admin, the root token ----
+	d.AddUser(t, "bob", "pw-bob-2a9c44", "user", map[string]string{his: "terminal"})
+	d.AddUser(t, "carol", "pw-carol-5c2e81", "admin", nil)
+	carol := xbindtest.H("Authorization", "Bearer "+d.Login(t, "carol", "pw-carol-5c2e81"))
+	d.Must(t, "POST", "/api/xbin/owner", map[string]any{"tile": his, "to": "user:bob"}, 200)
+	if err := os.WriteFile(filepath.Join(d.WS, own, "main.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		who  string
+		key  string
+		cred xbindtest.Header
+	}{{"an admin", "carol", carol}, {"the root token", "owner", root}} {
+		home := filepath.Join(d.WS, "homes", c.key)
+		// their real home, seeded on their own tile — where their sandbox is an admin's
+		mine := w2OpenTerm(t, d, own, c.cred)
+		if out, rc := mine.run(t, `echo 'export REAL_RC=1' >> ~/.bashrc && echo seeded; grep CapEff /proc/self/status`, time.Minute); rc != 0 || !hcSysAdmin(t, out) {
+			t.Fatalf("%s on the workspace's tile (rc %d): not an admin's sandbox, or no home:\n%s", c.who, rc, out)
+		}
+		for _, r := range rows(c.cred) {
+			if r.ID == mine.id && (r.Home == nil || r.Home.Mode != "own" || r.Home.Confined) {
+				t.Fatalf("%s's row on the workspace's tile: %+v", c.who, r.Home)
+			}
+		}
+		mine.conn.Close()
+		end(mine.id, c.cred)
+		before, ownBefore := hcTree(t, home), hcTree(t, filepath.Join(d.WS, own))
+
+		s := w2OpenTerm(t, d, his, c.cred)
+		out, _ := s.run(t, `mkdir -p /mnt/x; mount --bind `+d.WS+` /mnt/x 2>&1; mount -o remount,rw,bind /mnt/x 2>&1; `+
+			`(echo 'echo PW''NED-VIA-MOUNT' >> /mnt/x/homes/`+c.key+`/.bashrc) 2>&1; `+
+			`mount -o remount,rw,bind `+d.WS+` 2>&1; (echo planted > `+d.WS+`/`+own+`/planted-by-tile) 2>&1; `+
+			`unshare -Urm true 2>&1; grep CapEff /proc/self/status; cat ~/.bashrc | tail -n 2; echo y > ~/in-copy && echo HOME-''WRITE-OK`, time.Minute)
+		if hcSysAdmin(t, out) {
+			t.Errorf("%s's session on bob's tile can mount (CAP_SYS_ADMIN):\n%s", c.who, out)
+		}
+		if !strings.Contains(out, "REAL_RC") || !strings.Contains(out, "HOME-WRITE-OK") {
+			t.Errorf("%s's session on bob's tile does not read the real home and write its copy:\n%s", c.who, out)
+		}
+		confined := false
+		for _, r := range rows(c.cred) {
+			confined = confined || (r.ID == s.id && r.Home != nil && r.Home.Mode == "copy" && r.Home.Confined)
+		}
+		if !confined {
+			t.Errorf("%s's row on bob's tile does not say copy, confined: %+v", c.who, rows(c.cred))
+		}
+		s.mu.Lock()
+		said := string(s.out)
+		s.mu.Unlock()
+		if !strings.Contains(said, "confined like a member's") {
+			t.Errorf("%s was not told the session is confined:\n%s", c.who, said)
+		}
+		s.conn.Close()
+		end(s.id, c.cred)
+		if after := hcTree(t, home); after != before {
+			t.Fatalf("%s's REAL home was written from a session on bob's tile:\n--- before\n%s\n--- after\n%s\n--- the session\n%s", c.who, before, after, out)
+		}
+		if after := hcTree(t, filepath.Join(d.WS, own)); after != ownBefore {
+			t.Fatalf("%s's own tile was written from a session on bob's tile:\n--- before\n%s\n--- after\n%s\n--- the session\n%s", c.who, ownBefore, after, out)
+		}
+	}
+}
+
+// hcSysAdmin reports whether the CapEff line in out has CAP_SYS_ADMIN (bit 21): the capability to mount.
+func hcSysAdmin(t *testing.T, out string) bool {
+	t.Helper()
+	_, hex, ok := strings.Cut(out, "CapEff:")
+	if !ok || len(strings.Fields(hex)) == 0 {
+		t.Fatalf("no CapEff in:\n%s", out)
+	}
+	caps, err := strconv.ParseUint(strings.Fields(hex)[0], 16, 64)
+	if err != nil {
+		t.Fatalf("CapEff: %v in:\n%s", err, out)
+	}
+	return caps&(1<<21) != 0
 }
