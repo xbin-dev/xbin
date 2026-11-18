@@ -98,6 +98,7 @@ type agentState struct {
 	perms     *agent.Permissions
 	provider  agent.Provider
 	ready     chan struct{} // closed once the driver's Start returned
+	never     chan struct{} // closed when the session ended before its driver started: the pump ends it
 	done      chan struct{} // closed once the pump ended (the session is over)
 	gone      chan struct{} // closed after the teardown: history saved, layer released, row removed
 	mu        sync.Mutex
@@ -387,8 +388,13 @@ func (m *Manager) AgentToken(tok string) bool {
 	return false
 }
 
-// onAgentConfig sees each agent session's driver config (tests).
-var onAgentConfig func(agent.Config)
+// onAgentConfig sees each agent session's driver config (tests);
+// onAgentStart is told a session's driver is about to start — the moment
+// its first frame, with any saved sign-in, goes into the sandbox.
+var (
+	onAgentConfig func(agent.Config)
+	onAgentStart  func(id string)
+)
 
 // createAgent is create() for the agent kind: pipes instead of a PTY, the
 // driver started in the background (the session reports `starting` until
@@ -533,6 +539,7 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 	if onAgentConfig != nil {
 		onAgentConfig(cfg)
 	}
+	st.never = make(chan struct{}) // closed when the session ends before its driver ever starts (below)
 	go s.agentPump(m, func() {
 		unlist()
 		st.mu.Lock()
@@ -548,7 +555,23 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 		}
 		m.dropLeaf(leaf)
 	})
+	slog.Info("agent session created", "id", s.ID, "cwd", filepath.ToSlash(rel), "provider", prov.ID, "mode", mode, "net", o.net, "restricted", o.restricted)
+	// judged BEFORE the driver starts: a sweep that ran while the sandbox
+	// came up never saw this session (home.go registered), and the driver's
+	// first frame carries the saved sign-in into the sandbox — it is not
+	// sent to a session whose trust stopped holding in between
+	if m.registered(s) {
+		st.mu.Lock()
+		st.startErr = errors.New("the session was ended as it started: what it was allowed changed while its sandbox came up")
+		st.mu.Unlock()
+		close(st.ready)
+		close(st.never) // the pump tears the session down: no driver will close its events
+		return s, nil
+	}
 	go func() {
+		if onAgentStart != nil {
+			onAgentStart(s.ID)
+		}
 		err := drv.Start(context.Background(), cfg)
 		if err == nil {
 			err = s.llmHeld(m) // only the connector may serve it: it is on it, or it ends (llmhook.go)
@@ -560,8 +583,6 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 		st.mu.Unlock()
 		close(st.ready)
 	}()
-	slog.Info("agent session created", "id", s.ID, "cwd", filepath.ToSlash(rel), "provider", prov.ID, "mode", mode, "net", o.net, "restricted", o.restricted)
-	m.registered(s) // a sweep that ran while it was being opened never saw it (home.go)
 	return s, nil
 }
 
@@ -613,6 +634,9 @@ func (s *Session) agentPump(m *Manager, onExit func()) {
 	}
 	for {
 		select {
+		case <-st.never: // ended before its driver started (createAgent): nothing was sent into the sandbox
+			flush()
+			goto ended
 		case e, ok := <-st.drv.Events():
 			if !ok {
 				flush()

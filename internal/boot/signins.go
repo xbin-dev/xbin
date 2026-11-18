@@ -69,12 +69,24 @@ func (st *State) setupSignins(srv *server.Server) {
 		// where a tile's code comes from for a person: who owns it and who
 		// else can change it (broker/signinothers.go) — what decides whether
 		// their trust is asked first
-		tm.SigninSource = brk.SigninSource
+		// (the root token keeps trust answers of its own, under the key of
+		// its home — signins/roottoken.go, the seam: the source is wrapped
+		// here, once, for the rule, the sweeps and the routes)
+		source := signins.RootTokenSource(brk.SigninSource)
+		tm.SigninSource = source
 		// …and what tells a tile from one made later at its path: the copy
 		// of a person's home on a tile they have not trusted is kept per tile
 		// identity (term/home.go, D245). The same source and the same trust
 		// decide which home a session mounts: wired whenever sessions exist
 		tm.TileIdentity = brk.TileIdentity
+		tm.TilePathOf = func(ident string) string { // a copy follows its tile when it is moved (term/homecopy.go)
+			for _, c := range st.Reg.Components() {
+				if !c.Sealed && ident != "" && brk.TileIdentity(c.Path) == ident {
+					return c.Path
+				}
+			}
+			return ""
+		}
 		// who could change each tile's code BEFORE (signins/past.go): once
 		// someone else could, the tile asks for each person's trust even
 		// after it is "only theirs" again — what they left stays in it. Kept
@@ -97,7 +109,7 @@ func (st *State) setupSignins(srv *server.Server) {
 		// (The judgement at every start voids as well: the backstop.)
 		revalidate := func() {
 			brk.ObserveTileParties() // before anything is judged: who can change each tile now
-			if n := store.Revalidate(brk.SigninSource); n > 0 {
+			if n := store.Revalidate(source); n > 0 {
 				slog.Info("saved sign-ins: trusted tiles changed and ask again", "voided", n)
 			}
 			tm.SigninSweep()
@@ -124,12 +136,16 @@ func (st *State) setupSignins(srv *server.Server) {
 			seenMu.Unlock()
 			if !same {
 				revalidate()
-				// the copies of people's homes kept for a tile that is gone —
-				// its directory no longer there, or another one now — go
-				// (term/homecopy.go); an unregistered tile's stay
-				if n := tm.SweepHomeCopies(); n > 0 {
-					slog.Info("home copies: removed the layers of tiles that are gone", "removed", n)
-				}
+				// the copies of people's homes follow their tiles (a tile
+				// moved or renamed keeps its people's copies); nothing is
+				// removed, whatever happened to a tile (term/homecopy.go).
+				// Off this loop — the watcher's, and boot's: it reads every
+				// copy's record
+				go func() {
+					if seen, gone := tm.FollowHomeCopies(); gone > 0 {
+						slog.Info("home copies: kept for tiles that are gone, until their people forget them", "copies", seen, "gone", gone)
+					}
+				}()
 			}
 		}
 		st.signinTiles() // the tiles as xbind finds them at its start
@@ -166,8 +182,8 @@ func (st *State) setupSignins(srv *server.Server) {
 		}
 		if deleted {
 			store.PersonGone(id)
-			if st.Term != nil { // what tiles wrote to the copies of their home goes with the account (D245)
-				st.Term.ForgetHomeCopies(term.HomeKey(auth.Principal{UserID: id}), "Your account was deleted, so this session was ended.")
+			if st.Term != nil { // the copies of their home are KEPT (xbind removes no home on its own): listed to admins, theirs to forget
+				st.Term.EndHomeCopySessions(term.HomeKey(auth.Principal{UserID: id}), "Your account was deleted, so this session was ended.")
 			}
 		}
 	}

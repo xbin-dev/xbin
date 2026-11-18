@@ -1302,3 +1302,79 @@ func TestSigninDelegateStartsAndTrust(t *testing.T) {
 		t.Error("a planned tile where the connector alone serves was offered the sign-in")
 	}
 }
+
+// A sweep that runs while an agent session's sandbox comes up never sees
+// the session. It is judged when it is listed — and BEFORE its driver
+// starts: the driver's first frame carries the saved sign-in into the
+// sandbox, and a session whose trust stopped holding in between must not
+// be sent it (it was once started, then killed a moment later).
+func TestSigninNotSentToASessionJudgedGone(t *testing.T) {
+	r, f, _ := signinRig(t, "--require-login")
+	f.put("alice", "fake", "Personal", "CLAUDE_CODE_OAUTH_TOKEN", signins.KindSetupToken, fakeSavedToken)
+	signIn(t, r.root, "alice")
+	alice := termAdmin("alice")
+	f.set(func() { f.owner = "user:bob" })
+	src, _ := r.m.SigninSource("alice", "apps/x")
+	f.trust(t, "alice", src)
+
+	var started []string
+	var mu sync.Mutex
+	onAgentStart = func(id string) { mu.Lock(); started = append(started, id); mu.Unlock() }
+	t.Cleanup(func() { onAgentStart = nil })
+	// the baseline: nothing happens while it starts — its driver starts, on her sign-in
+	calm := r.openLLM(t, alice, AgentOpen{})
+	if row, _ := r.m.Info(calm.ID); row.Signin == nil || row.Signin.Source != SigninSaved {
+		t.Fatalf("the baseline session: %+v", row.Signin)
+	}
+	mu.Lock()
+	base := len(started)
+	mu.Unlock()
+	if base != 1 {
+		t.Fatalf("the baseline session's driver started %d times", base)
+	}
+	r.endSession(t, calm.ID)
+
+	// a start held just before it is listed; meanwhile she takes her trust back
+	held, goOn := make(chan struct{}), make(chan struct{})
+	r.m.beforeRegister = func() { close(held); <-goOn }
+	type opened struct {
+		info SessionInfo
+		err  error
+	}
+	got := make(chan opened, 1)
+	go func() {
+		info, _, err := r.m.OpenAgentWith(alice, AgentOpen{Cwd: "apps/x", Provider: "fake"})
+		got <- opened{info, err}
+	}()
+	select {
+	case <-held:
+	case <-time.After(30 * time.Second):
+		t.Fatal("the start never reached its registration")
+	}
+	r.m.beforeRegister = nil
+	for _, tr := range f.real.Trusted("alice") {
+		if _, err := f.real.Untrust("alice", tr.ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n := r.m.EndSigninSessionsOn("alice", "apps/x", "untrusted"); n != 0 {
+		t.Fatalf("the sweep ended %d sessions: none is listed yet", n)
+	}
+	close(goOn)
+	o := <-got
+	if o.err != nil {
+		t.Fatalf("the open: %v", o.err)
+	}
+	if _, st, err := r.m.agentOf(o.info.ID); err == nil {
+		select {
+		case <-st.gone:
+		case <-time.After(10 * time.Second):
+			t.Fatalf("the session that registered after the untrust was not ended")
+		}
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(started) != base {
+		t.Fatalf("the driver of a session judged gone was started — its first frame carries the saved sign-in (%v)", started)
+	}
+}

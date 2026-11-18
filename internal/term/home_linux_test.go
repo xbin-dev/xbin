@@ -72,8 +72,9 @@ func newHomeLive(t *testing.T) *homeLive {
 	m.Isolate, m.Rootfs = true, rootfs
 	store := signins.New(signins.Options{Dir: filepath.Join(root, "data", "signins"), AllowPlaintext: true})
 	m.Signins = &fakeSignins{real: store}
-	m.SigninSource = tiles.source
+	m.SigninSource = signins.RootTokenSource(tiles.source) // as boot wires it
 	m.TileIdentity = tiles.identity
+	m.TilePathOf = tiles.pathOf
 	// the overlay a new copy is mounted with: the kernel's (then
 	// fuse-overlayfs) — or the one a run of these tests names, to drive the
 	// fallback where the kernel's works (XBIN_TEST_HOME_OVERLAY=fuse)
@@ -583,11 +584,10 @@ func TestHomeCopyTrustAndForget(t *testing.T) {
 	if !strings.Contains(remade, "No such file") {
 		t.Fatalf("a tile made again got the old tile's layer:\n%s", remade)
 	}
-	// the old tile's layer is an orphan now: never mounted again, kept —
-	// its path is there, so nothing says the tile was deleted (a restored
-	// workspace looks the same) — listed as not used, and hers to forget
-	if n := h.m.SweepHomeCopies(); n != 0 {
-		t.Fatalf("the sweep removed %d layers of a tile whose path is there", n)
+	// the old tile's layer is never mounted again, and KEPT: xbind removes
+	// no copy on its own — listed as "its tile is gone", hers to forget
+	if _, gone := h.m.FollowHomeCopies(); gone != 1 {
+		t.Fatalf("after the tile was made again: %d copies listed as gone", gone)
 	}
 	rows := h.m.HomeCopies("alice")
 	var orphan string
@@ -602,13 +602,33 @@ func TestHomeCopyTrustAndForget(t *testing.T) {
 	if _, _, err := h.m.ForgetHomeCopy("alice", orphan, "x"); err != nil {
 		t.Fatalf("forgetting the orphan: %v", err)
 	}
-	// the tile is deleted: its layer goes with it
-	h.tiles.drop("apps/bob")
-	if n := h.m.SweepHomeCopies(); n != 1 {
-		t.Fatalf("the sweep after the tile was deleted removed %d", n)
+	// the tile is MOVED (renamed): its people's copies go with it — what
+	// she wrote on it is there at the new path, in the same layer
+	h.once(t, "alice", "apps/bob", `echo KEPT-ACROSS-''THE-MOVE > ~/kept`)
+	h.tiles.move("apps/bob", "apps/renamed")
+	h.m.FollowHomeCopies()
+	if out := h.once(t, "alice", "apps/renamed", `cat ~/kept 2>&1`); !strings.Contains(out, "KEPT-ACROSS-THE-MOVE") {
+		t.Fatalf("a renamed tile lost its person's copy:\n%s", out)
 	}
-	if rows := h.m.HomeCopies("alice"); len(rows) != 1 || rows[0].Tile != "apps/other" {
-		t.Fatalf("alice's copies after the tile was deleted: %+v", rows)
+	for _, r := range h.m.HomeCopies("alice") {
+		if r.Gone || r.Tile == "apps/bob" {
+			t.Fatalf("after the rename: %+v", r)
+		}
+	}
+	// the tile is deleted: its layer is kept, and listed as gone
+	h.tiles.drop("apps/renamed")
+	h.idle(t, "alice")
+	if _, gone := h.m.FollowHomeCopies(); gone != 1 {
+		t.Fatalf("after the tile was deleted: %d gone", gone)
+	}
+	rows = h.m.HomeCopies("alice")
+	if len(rows) != 2 {
+		t.Fatalf("alice's copies after the tile was deleted — nothing may be removed: %+v", rows)
+	}
+	for _, r := range rows {
+		if (r.Tile == "apps/renamed") != r.Gone {
+			t.Fatalf("alice's copies after the tile was deleted: %+v", rows)
+		}
 	}
 }
 
@@ -1214,6 +1234,27 @@ func TestHomeCopyAdminIsConfined(t *testing.T) {
 	}
 	lt.exit(h.m)
 	h.idle(t, "carol")
+	// …and so has the ROOT TOKEN, by an answer of its own (the seam,
+	// signins/roottoken.go): someone who lives on the token is not locked
+	// out of the real home on a person's tile
+	src, _ := h.m.SigninSource(signins.RootTokenUser, "apps/bob")
+	if _, err := h.store.TrustTile(signins.RootTokenUser, src, "card", src.Basis()); err != nil {
+		t.Fatal(err)
+	}
+	home := HomeDir(h.root, ownerHomeKey)
+	rt := h.mustOpen(t, "token", "apps/bob")
+	out, _ := rt.run(`echo ROOT-''WROTE > ~/root-wrote; echo CAPS=$(grep CapEff /proc/self/status)`)
+	if !sysAdmin(out) {
+		t.Errorf("the root token's session on a tile it trusted is still confined:\n%s", out)
+	}
+	if rows := h.m.ListFor(ownerHomeKey, "", nil); len(rows) != 1 || rows[0].Home.Mode != HomeOwn || rows[0].Home.Confined {
+		t.Errorf("the root token's row on a tile it trusted: %+v", rows)
+	}
+	rt.exit(h.m)
+	h.idle(t, ownerHomeKey)
+	if b, err := os.ReadFile(filepath.Join(home, "root-wrote")); err != nil || !strings.Contains(string(b), "ROOT-WROTE") {
+		t.Fatalf("the root token's session on a tile it trusted did not write its real home: %q %v", b, err)
+	}
 }
 
 // M1 and L1: bx agent in a shell — a session opened with a terminal's

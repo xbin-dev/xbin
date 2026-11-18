@@ -196,6 +196,13 @@ type SigninTrust struct {
 	// for trust though it is only theirs now.
 	Past      []string `json:"past,omitempty"`
 	PastUntil int64    `json:"pastUntil,omitempty"`
+	// PastAdmins: the ones among Past who were workspace admins (they could
+	// change every tile). PastMore: and others the record had no room for.
+	// Through: an editor who can change the tile through a tile it lies in
+	// → that tile.
+	PastAdmins []string          `json:"pastAdmins,omitempty"`
+	PastMore   bool              `json:"pastMore,omitempty"`
+	Through    map[string]string `json:"through,omitempty"`
 	// Means: what the answer grants (signins.TrustMeans) — 2: the sign-in
 	// is used here, and this tile's code can change the person's home.
 	Means int `json:"means"`
@@ -209,9 +216,12 @@ type SigninTrust struct {
 func trustNeed(src signins.Source, pol signins.TrustPolicy) *SigninTrust {
 	t := &SigninTrust{Tile: src.Tile, Name: src.Name, Basis: src.Basis(), OwnerKind: src.OwnerKind, Owner: src.OwnerID, OwnerName: src.OwnerName,
 		Admin: src.OwnerKind == "workspace" && src.Admin, Allowed: pol.Allowed,
-		Past: src.Past, PastUntil: src.PastUntil, Means: signins.TrustMeans}
+		Past: src.Past, PastUntil: src.PastUntil, PastAdmins: src.PastAdmins, PastMore: src.PastMore, Means: signins.TrustMeans}
 	if signins.CoEditorsNeedTrust {
 		t.Editors = src.Editors
+		if len(src.Through) > 0 {
+			t.Through = src.Through
+		}
 		if len(src.Names) > 0 {
 			t.Names = src.Names
 		}
@@ -248,8 +258,15 @@ func sourceWords(src signins.Source) string {
 	if signins.CoEditorsNeedTrust && len(src.Editors) > 0 {
 		parts = append(parts, othersWords(src.Editors)+" can change it")
 	}
-	if len(src.Past) > 0 { // nobody else now, but before (signins/past.go)
-		parts = append(parts, othersWords(src.Past)+" could change it until "+time.UnixMilli(src.PastUntil).UTC().Format("2006-01-02"))
+	if len(src.Past) > 0 || src.PastMore { // before, if not now (signins/past.go)
+		who := othersWords(src.Past)
+		switch {
+		case len(src.Past) == 0:
+			who = "others"
+		case src.PastMore:
+			who += " and others"
+		}
+		parts = append(parts, who+" could change it until "+time.UnixMilli(src.PastUntil).UTC().Format("2006-01-02"))
 	}
 	return strings.Join(parts, ", and ")
 }

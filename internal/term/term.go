@@ -217,6 +217,10 @@ type Manager struct {
 	// one made later at its path, for the copies of people's homes
 	// (homecopy.go). nil ⇒ no layer is ever swept.
 	TileIdentity func(tile string) string
+	// TilePathOf answers the registered tile that has the identity ident
+	// now ("" none): a copy of a home follows its tile when it is moved
+	// (homecopy.go copyTile).
+	TilePathOf func(ident string) string
 
 	LLMHook // the workspace's LLM connector for sessions: LLM, Credentials, LLMDoor (llmhook.go, D226)
 	// SigninLife is how long a guided sign-in's shell (?purpose=signin,

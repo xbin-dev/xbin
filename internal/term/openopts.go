@@ -58,6 +58,7 @@ func (m *Manager) setHome(p auth.Principal, o *openOpts, pl homePlan) {
 			}
 			o.netHost, o.netRules, o.label = resolveNet(o.net, o.netGrant)
 			o.netNote = "host networking isn't offered to a session that is confined like a member's — trust this tile for an admin's — running as " + o.label
+			o.home.netInstead = o.label // said in the session's first lines and its home dialog too
 		}
 		o.scopes = slices.DeleteFunc(slices.Clone(o.scopes), func(s Scope) bool { return s.ID == NetHost })
 	}

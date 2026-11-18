@@ -12,7 +12,14 @@ package term
 //	    overlay          the flavour that wrote it — xbind's stamp
 //
 // <id> hashes the tile's identity (its directory's own), so a tile made
-// again at the same path has another, empty layer. data/ is mounted in no
+// again at the same path has another, empty layer — and a tile that is
+// moved or renamed keeps its layer (meta.json's path follows it).
+//
+// XBIND NEVER DELETES A LAYER ON ITS OWN (the owner's rule for homes: "must
+// not remove old ones"): not when its tile is deleted, moved or made again,
+// not when its person's account is deleted. Only "forget" does — the
+// person's own click, or an admin's for an account that no longer exists.
+// A layer whose tile is gone is kept and listed as such. data/ is mounted in no
 // sandbox and masked in every terminal: the layer is seen through its
 // overlay only, by that person's sessions on that tile.
 //
@@ -65,6 +72,7 @@ type homeCopies struct {
 	// names the one flavour a new layer is mounted with ("" = the kernel's,
 	// then fuse-overlayfs)
 	prefer string
+	follow sync.Mutex // FollowHomeCopies, one at a time
 	start  func(sandbox.HoldSpec) (overlayHold, error)
 	usage  func(dir string) (int64, error)
 }
@@ -136,10 +144,10 @@ type HomeCopyInfo struct {
 	Bytes int64 `json:"bytes"`
 	// Sessions: how many live sessions are on it.
 	Sessions int `json:"sessions"`
-	// Gone: the tile it was made for is not there any more — deleted (the
-	// copy goes at the next sweep), or another directory stands at its path
-	// (the tile was made again, or the workspace restored): an orphan, not
-	// used, kept until its person forgets it.
+	// Gone: the tile it was made for is not there any more — deleted, or
+	// another directory stands at its path (the tile was made again, the
+	// workspace restored) and no registered tile has its identity: not
+	// used, kept until its person forgets it. xbind never removes it.
 	Gone bool `json:"gone,omitempty"`
 }
 
@@ -219,6 +227,12 @@ func prepareCopy(dir, lower string, src signins.Source) (stamp string, err error
 	}
 	if fresh {
 		return st.Overlay, writeCopyMeta(dir, copyMeta{Tile: src.Tile, Name: src.Name, Ident: src.ID, Created: time.Now().UnixMilli()})
+	}
+	// the layer is the tile's by identity: where the tile is now is where
+	// its meta says (it was moved or renamed since)
+	if meta, err := readCopyMeta(dir); err == nil && meta.Ident == src.ID && (meta.Tile != src.Tile || meta.Name != src.Name) {
+		meta.Tile, meta.Name = src.Tile, src.Name
+		_ = writeCopyMeta(dir, meta)
 	}
 	return st.Overlay, nil
 }
@@ -426,23 +440,68 @@ func (m *Manager) HomeCopies(homeKey string) []HomeCopyInfo {
 	ents, _ := os.ReadDir(m.homeCopiesRoot(homeKey))
 	for _, e := range ents {
 		dir := filepath.Join(m.homeCopiesRoot(homeKey), e.Name())
-		meta, err := readCopyMeta(dir)
-		if err != nil || !e.IsDir() {
+		if !e.IsDir() {
 			continue
 		}
-		hc := HomeCopyInfo{ID: e.Name(), Tile: meta.Tile, Name: meta.Name, Created: meta.Created, Bytes: m.copies.size(dir), Sessions: m.copies.live(dir)}
-		// not that tile any more: deleted, or another directory at its path
-		// (made again; a restored workspace). An identity that can't be read
-		// just now says nothing
-		hc.Gone = tileAbsent(m.Root, meta.Tile)
-		if id := ""; m.TileIdentity != nil && !hc.Gone {
-			id = m.TileIdentity(meta.Tile)
-			hc.Gone = id != "" && id != meta.Ident
+		meta, gone, err := m.copyTile(dir)
+		if err != nil {
+			continue
 		}
-		out = append(out, hc)
+		out = append(out, HomeCopyInfo{ID: e.Name(), Tile: meta.Tile, Name: meta.Name, Created: meta.Created, Bytes: m.copies.size(dir), Sessions: m.copies.live(dir), Gone: gone})
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Created > out[j].Created })
 	return out
+}
+
+// HomeCopyKeys lists the home keys that have layers (an admin's list of
+// what is kept from accounts that no longer exist: the server knows which
+// keys are accounts).
+func (m *Manager) HomeCopyKeys() []string {
+	var out []string
+	ents, _ := os.ReadDir(filepath.Join(m.Root, "data", homeCopiesDir))
+	for _, e := range ents {
+		if sub, _ := os.ReadDir(filepath.Join(m.Root, "data", homeCopiesDir, e.Name())); e.IsDir() && len(sub) > 0 {
+			out = append(out, e.Name())
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// copyTile reads the layer at dir and says where its tile is NOW. A layer
+// is its tile's by identity: when the identity is no longer at the
+// recorded path but a registered tile has it (the tile was moved or
+// renamed), the recorded path follows it. gone: no registered tile has
+// the identity, and the recorded path is absent or holds another
+// directory — an identity that can't be read just now says nothing.
+// Nothing here removes anything.
+func (m *Manager) copyTile(dir string) (meta copyMeta, gone bool, err error) {
+	meta, err = readCopyMeta(dir)
+	if err != nil || m.TileIdentity == nil {
+		return meta, false, err
+	}
+	at := ""
+	absent := tileAbsent(m.Root, meta.Tile)
+	if !absent {
+		at = m.TileIdentity(meta.Tile)
+	}
+	if at == meta.Ident || (!absent && at == "") {
+		return meta, false, nil // there, or not known
+	}
+	if m.TilePathOf != nil {
+		if now := m.TilePathOf(meta.Ident); now != "" && now != meta.Tile {
+			unlock := m.copies.lock(dir)
+			defer unlock()
+			if cur, err := readCopyMeta(dir); err == nil && cur.Ident == meta.Ident {
+				cur.Tile = now
+				if err := writeCopyMeta(dir, cur); err == nil {
+					slog.Info("home copies: a copy follows its tile", "from", meta.Tile, "to", now)
+				}
+				return cur, false, nil
+			}
+		}
+	}
+	return meta, true, nil
 }
 
 // HomeCopyOn reports homeKey's layer for the tile src names: its id, and
@@ -539,52 +598,43 @@ func (c *homeCopies) forgetting(dir string) bool {
 	return c.removing[dir]
 }
 
-// ForgetHomeCopies removes every layer of homeKey's (the account was
-// deleted), ending the sessions on them.
-func (m *Manager) ForgetHomeCopies(homeKey, why string) {
+// EndHomeCopySessions ends the sessions on homeKey's layers (the account
+// was deleted) and answers how many. The layers STAY: what a deleted
+// account's sessions wrote is kept, listed to the workspace's admins, and
+// removed only by their "forget" (ForgetHomeCopy with that key).
+func (m *Manager) EndHomeCopySessions(homeKey, why string) int {
+	n := 0
 	root := m.homeCopiesRoot(homeKey)
 	ents, _ := os.ReadDir(root)
 	for _, e := range ents {
-		if _, _, err := m.ForgetHomeCopy(homeKey, e.Name(), why); err != nil && !errors.Is(err, ErrNoHomeCopy) {
-			slog.Warn("home copies: a deleted account's layer stays", "home", homeKey, "layer", e.Name(), "err", err)
-		}
+		n += m.endCopySessions(filepath.Join(root, e.Name()), why)
 	}
-	_ = os.Remove(root) // empty now, or it stays with what could not be removed
+	return n
 }
 
-// SweepHomeCopies removes the layers whose tile was DELETED: its path is
-// positively not there any more (tileAbsent). Called at boot and after
-// every rescan. It answers how many it removed.
-//
-// Nothing else removes a layer without its person's click. A tile whose
-// directory is there with another identity — made again at the path, or
-// the whole workspace restored from a backup or moved to another disk,
-// which gives every directory a new one — keeps its old layers as
-// orphans: never mounted again (the tile's layer is keyed by its identity
-// now), listed for their person as "not used", and forgotten by them. An
-// identity that can't be read just now (too many open files, a permission)
-// is not a reason either: a transient error once would have removed every
-// copy. A tile that is merely unregistered keeps its layers too.
-func (m *Manager) SweepHomeCopies() int {
+// FollowHomeCopies holds every layer to where its tile is now: a tile
+// that was moved or renamed takes its people's copies with it (copyTile).
+// Called at boot and after a rescan that changed the tiles — off the watch
+// loop: it reads every layer's meta.json. It REMOVES NOTHING: a layer
+// whose tile is gone stays, for its person to see ("its tile is gone") and
+// forget. It answers how many layers it looked at and how many are gone.
+func (m *Manager) FollowHomeCopies() (seen, gone int) {
+	m.copies.follow.Lock() // one at a time: a later rescan waits for an earlier one's look
+	defer m.copies.follow.Unlock()
 	root := filepath.Join(m.Root, "data", homeCopiesDir)
 	homes, _ := os.ReadDir(root)
-	n := 0
 	for _, h := range homes {
 		ents, _ := os.ReadDir(filepath.Join(root, h.Name()))
 		for _, e := range ents {
-			meta, err := readCopyMeta(filepath.Join(root, h.Name(), e.Name()))
-			if err != nil || meta.Tile == "" || !tileAbsent(m.Root, meta.Tile) {
-				continue
+			if _, g, err := m.copyTile(filepath.Join(root, h.Name(), e.Name())); err == nil {
+				seen++
+				if g {
+					gone++
+				}
 			}
-			if _, _, err := m.ForgetHomeCopy(h.Name(), e.Name(), meta.Tile+" was deleted, so this session — on its copy of your home — was ended."); err != nil {
-				slog.Warn("home copies: a deleted tile's layer stays", "home", h.Name(), "tile", meta.Tile, "err", err)
-				continue
-			}
-			n++
 		}
-		_ = os.Remove(filepath.Join(root, h.Name())) // when empty
 	}
-	return n
+	return seen, gone
 }
 
 // tileAbsent reports that the workspace-relative path tile is positively

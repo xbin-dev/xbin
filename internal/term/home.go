@@ -67,6 +67,10 @@ type SessionHome struct {
 	// the tile's copy, is confined like a member's until they trust the
 	// tile (homePlan.confines).
 	Confined bool `json:"confined,omitempty"`
+	// NetInstead: the session was asked onto the host's network, which a
+	// confined session is not given: the scope it runs on instead (its
+	// label). Trusting the tile restores it for new sessions.
+	NetInstead string `json:"netInstead,omitempty"`
 	// Trust: the question whose answer gives new sessions on this tile the
 	// real home (the sign-in's own; POST /agent/signins/trust). Absent
 	// when nothing the person can answer would change it.
@@ -87,9 +91,12 @@ type homePlan struct {
 	// without a tile identity): the open fails with this, and never falls
 	// back to the real home
 	refuse string
-	user   string         // whose home (the account id; "" the root token's)
-	src    signins.Source // the tile, as the rule saw it: a copy's layer is keyed by its identity
-	trust  *SigninTrust
+	user   string // whose trust answers judge it: the account id, or signins.RootTokenUser (homeUser)
+	// netInstead: asked onto the host's network, the confined session runs
+	// on this scope instead (setHome)
+	netInstead string
+	src        signins.Source // the tile, as the rule saw it: a copy's layer is keyed by its identity
+	trust      *SigninTrust
 	// admin: the person is a workspace admin (or the root token): on a copy
 	// their session is confined like a member's all the same (confines)
 	admin bool
@@ -121,7 +128,7 @@ func (pl homePlan) view(m *Manager, agentRow bool) *SessionHome {
 	if pl.mode == "" {
 		return nil
 	}
-	v := &SessionHome{Mode: pl.mode, Why: pl.why, Kept: pl.kept, Unsandboxed: !m.Isolate, Confined: pl.confines() && pl.admin, Docs: HomeDocs}
+	v := &SessionHome{Mode: pl.mode, Why: pl.why, Kept: pl.kept, Unsandboxed: !m.Isolate, Confined: pl.confines() && pl.admin, NetInstead: pl.netInstead, Docs: HomeDocs}
 	if pl.refuse != "" {
 		v.Why = pl.refuse // a session would not start: why
 	}
@@ -148,6 +155,26 @@ func HomeWords(mode string) string {
 // rootHome reports the root token's own sessions — the token itself, and
 // a shell's token minted for it (bx agent in the root token's terminal):
 // the workspace's own admin, with no account. Its home is homes/owner.
+// homeUser is whose trust answers judge a session's home: the account's,
+// or — THE ROOT TOKEN'S SEAM (signins/roottoken.go) — the root token's own,
+// kept under signins.RootTokenUser, for the token and for a terminal token
+// of one of its shells.
+func homeUser(p auth.Principal) string {
+	if rootHome(p) {
+		return signins.RootTokenUser
+	}
+	return p.UserID
+}
+
+// RootTokenAsks reports the root token itself — a browser or CLI session
+// on it, not a tile's credentials, a session's token, view-as or an agent:
+// the one caller besides a person whose own click answers "I trust this
+// tile's source" (signins/roottoken.go: the seam; the server's routes ask
+// this too).
+func RootTokenAsks(p auth.Principal) bool {
+	return p.Owner && p.UserID == "" && p.Component == "" && p.Agent == "" && !p.ReadOnly() && p.Via != "terminal" && p.Via != "instance" && p.Via != "frame" && p.Via != "cron"
+}
+
 func rootHome(p auth.Principal) bool {
 	return p.UserID == "" && (p.Owner || (p.Component != "" && p.Via == "terminal"))
 }
@@ -157,7 +184,7 @@ func rootHome(p auth.Principal) bool {
 // and was not before, "<tile> wasn't always only yours — bob could change
 // it until 2026-11-18".
 func sourcePhrase(src signins.Source) string {
-	if !src.NotOwn && !(signins.CoEditorsNeedTrust && len(src.Editors) > 0) && len(src.Past) > 0 {
+	if !src.NotOwn && !(signins.CoEditorsNeedTrust && len(src.Editors) > 0) && (len(src.Past) > 0 || src.PastMore) {
 		return src.Tile + " wasn't always only yours — " + sourceWords(src)
 	}
 	return src.Tile + " isn't only yours — " + sourceWords(src)
@@ -169,7 +196,7 @@ func sourcePhrase(src signins.Source) string {
 func (m *Manager) homePlanFor(p auth.Principal, tile string, keep bool) homePlan {
 	// the generation first: a sweep that starts after this line judges the
 	// session again when it registers (registered)
-	pl := homePlan{mode: HomeOwn, user: p.UserID, admin: p.IsAdmin() || rootHome(p), gen: m.judged.Load()}
+	pl := homePlan{mode: HomeOwn, user: homeUser(p), admin: p.IsAdmin() || rootHome(p), gen: m.judged.Load()}
 	if !m.Isolate {
 		pl.why = "this workspace runs without sandboxes: every session is a process of xbind's own user with your real home, and nothing protects it from a tile's code"
 		return pl
@@ -182,15 +209,12 @@ func (m *Manager) homePlanFor(p auth.Principal, tile string, keep bool) homePlan
 	}
 	pl.guarded = true
 	m.signinTrustOff() // (trusting seen forbidden for the first time: the sessions on a trust end)
-	src, ok := m.SigninSource(p.UserID, tile)
+	// (for the root token the source is the workspace's own admin's, with
+	// no account: signins.RootTokenSource, wired at boot)
+	src, ok := m.SigninSource(pl.user, tile)
 	if !ok {
 		pl.mode, pl.refuse = HomeCopy, tile+" is in no registered tile, so xbind can't tell whose code would run with your home"
 		return pl
-	}
-	if rootHome(p) {
-		// the root token: the workspace's own admin, with no account — a
-		// workspace-owned tile is its own, anyone else's is not
-		src.Admin, src.NotOwn = true, src.Owner != ""
 	}
 	pl.src = src
 	copyOf := func(why string) homePlan {
@@ -221,16 +245,14 @@ func (m *Manager) homePlanFor(p auth.Principal, tile string, keep bool) homePlan
 		pl.kept = true
 		return copyOf("this session started on this tile's copy of your home and stays on it — a new session is judged anew")
 	}
-	if !src.NeedsTrust() || (m.Signins != nil && m.Signins.Trusts(p.UserID, src)) {
+	if !src.NeedsTrust() || (m.Signins != nil && m.Signins.Trusts(pl.user, src)) {
 		return pl // only theirs, and always was — or they said they trust its source
 	}
 	why := sourcePhrase(src) + " — and you haven't said you trust its source"
 	switch {
 	case m.Signins == nil:
-	case !signinPerson(p) || p.Agent != "":
-		if rootHome(p) {
-			why += " (the root token keeps no trust answers: sign in as a person to trust a tile)"
-		}
+	case !(signinPerson(p) || RootTokenAsks(p)) || p.Agent != "":
+		// (a session's token, a tile's credentials, a workspace agent: nothing they could answer)
 	default:
 		pol := m.Signins.Policy().Trust
 		pl.trust = trustNeed(src, pol)
@@ -312,7 +334,7 @@ func (m *Manager) homeNote(o openOpts) (lines []string, ok bool) {
 		"Why: " + o.home.why + ". Code in a tile that isn't only yours could otherwise leave a file in your home that runs later on your own tiles.",
 	}
 	if o.home.admin {
-		lines = append(lines, "Until you trust this tile, this session is confined like a member's: it sees the workspace read-only through the tiles you may read, and cannot mount, or open new namespaces.")
+		lines = append(lines, "Until you trust this tile, this session is confined like a member's: it sees the workspace read-only through the tiles you may read, cannot mount or open new namespaces, and is not given the host's network (asked for, it runs on the tile owner's network, or offline). Trusting the tile gives new sessions here an admin's sandbox again.")
 	}
 	switch {
 	case o.home.trust != nil && o.home.trust.Allowed:
@@ -411,9 +433,6 @@ func (m *Manager) homeJudge(s *Session) bool {
 	case !ok:
 		why = s.Cwd + " is no longer a registered tile, so this session — which had your real home — was ended."
 	default:
-		if user == "" { // the root token's (homePlanFor)
-			src.Admin, src.NotOwn = true, src.Owner != ""
-		}
 		if !src.NeedsTrust() || (m.Signins != nil && m.Signins.Trusts(user, src)) {
 			return false
 		}
@@ -433,19 +452,21 @@ func (m *Manager) homeJudge(s *Session) bool {
 // would have judged it, for its home and for the sign-in it carries. And a
 // session on a copy that is being forgotten (ForgetHomeCopy) ends: the
 // copy goes once its sessions have.
-func (m *Manager) registered(s *Session) {
+//
+// It reports whether the session was ended. An agent session is told
+// BEFORE its driver starts (createAgent): the frame that carries a saved
+// sign-in into the sandbox is not sent to a session this ends.
+func (m *Manager) registered(s *Session) (ended bool) {
 	if s.home.dir != "" && m.copies.forgetting(s.home.dir) {
 		if s.claimEnd() {
 			m.endForHome(s, "What this tile wrote to its copy of your home was being forgotten while this session started, so it was ended. Start it again.")
 		}
-		return
+		return true
 	}
 	if s.home.plan.gen == m.judged.Load() {
-		return
+		return false
 	}
-	if !m.homeJudge(s) {
-		m.signinJudgeLive(s) // signin.go: the sign-in it carries, by the rule as it stands
-	}
+	return m.homeJudge(s) || m.signinJudgeLive(s) // signin.go: the sign-in it carries, by the rule as it stands
 }
 
 // historyHome is what a session's history entry records of its home: the
