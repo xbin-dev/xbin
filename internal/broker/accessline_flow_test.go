@@ -136,6 +136,32 @@ func TestAccessLineAppliesAsTheApproverNow(t *testing.T) {
 	}
 }
 
+// covers D246 — an admin's line is applied with the admin's rights as
+// they are when they apply it: erin, fin's admin, proposes carol's access
+// to fin's tile and is no admin of fin any more when she applies it — the
+// by-hand route's own gate refuses it, nothing is written.
+func TestAccessLineAppliesWithTheRightsHeldAtApply(t *testing.T) {
+	w := accessWorld(t)
+	_, erin := w.session("erin")
+	cs := w.plan(t, "erin", `[{"kind":"access.set","args":{"tile":"apps/pg","user":"carol","level":"write"}}]`)
+	if got := flags(cs); got != "A[]" {
+		t.Fatalf("an org admin's line on the org's tile: %s", got)
+	}
+	org, _ := w.b.Users.Org("fin")
+	o := *org
+	o.Members = []users.Member{{ID: "carol", Level: users.LevelRead}, {ID: "erin", Level: users.LevelRead}} // erin is no admin of fin now
+	if _, err := w.b.Users.UpsertOrg(o); err != nil {
+		t.Fatal(err)
+	}
+	done := w.approve(t, cs.ID, `{"items":[1],"knows":["access.set"],"password":"password1"}`, erin)
+	if results(done) != "failed" {
+		t.Fatalf("applied with a right erin no longer holds: %s %+v", results(done), done.Items[0])
+	}
+	if u, _ := w.b.Users.Get("carol"); u.Tiles["apps/pg"] != "" {
+		t.Fatalf("carol's entry on apps/pg: %q", u.Tiles["apps/pg"])
+	}
+}
+
 // covers D246 — a person's own level is never a line of their agent's
 // unless they are a workspace admin: by id or by their own display name it
 // is blocked (never "needs an admin"), and a name only an admin's review
