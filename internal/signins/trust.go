@@ -79,13 +79,21 @@ type Source struct {
 	// file behind, so the tile asks for trust until the person answers.
 	Past      []string
 	PastUntil int64
+	// PastAdmins: the ones among Past who were workspace admins and are
+	// not any more (they could change every tile). PastMore: and others
+	// the record had no room for — it still needs trust.
+	PastAdmins []string
+	PastMore   bool
+	// Through: for an editor who can change the tile because they can
+	// write a tile it lies in, that tile ("can change it through apps/crm").
+	Through map[string]string
 }
 
 // NeedsTrust reports a tile whose source is not only the person's own —
 // or was not always: the sign-in goes in, and the person's real home is
 // mounted, only once they trust it.
 func (s Source) NeedsTrust() bool {
-	return s.NotOwn || (CoEditorsNeedTrust && len(s.Editors) > 0) || len(s.Past) > 0
+	return s.NotOwn || (CoEditorsNeedTrust && len(s.Editors) > 0) || len(s.Past) > 0 || s.PastMore
 }
 
 // TrustMeans is what a trust answer grants, as the card that asked said
@@ -94,6 +102,14 @@ func (s Source) NeedsTrust() bool {
 // session there mounts their real home. An answer given for less is void
 // (VoidMeans): the person is asked again, with the words as they are now.
 const TrustMeans = 2
+
+// TrustShown is what a client says it SHOWED the person with the question,
+// sent back with their answer: the two things a trust means. The basis
+// says what the tile is; this says what was asked of the person — a page
+// loaded before D245 fetches today's basis and still shows the old words
+// ("use my sign-in here"), and its answer, which carries no TrustShown, is
+// refused like one for a tile that changed.
+const TrustShown = "signin+home"
 
 // Basis is what a trust answer is given for, as one token: the tile itself
 // (its identity and its path), its owner, whether it is someone else's,
@@ -117,6 +133,9 @@ func (s Source) Basis() string {
 	}
 	for _, p := range s.Past {
 		fmt.Fprintf(h, "p%d:%s\n", len(p), p)
+	}
+	if s.PastMore {
+		fmt.Fprint(h, "p+\n")
 	}
 	return fmt.Sprintf("tb%d_", TrustMeans) + hex.EncodeToString(h.Sum(nil)[:16])
 }
@@ -143,6 +162,8 @@ type Trust struct {
 	// card named as having been able to change the tile before.
 	Means int      `json:"means,omitempty"`
 	Past  []string `json:"past,omitempty"`
+	// PastMore: the card said "and others" (the tile's record was full).
+	PastMore bool `json:"pastMore,omitempty"`
 	// Via: "card" (the tile's sign-in card), "approval" (the trust line of
 	// a start the person approved), "plan" (a plan's start line).
 	Via string `json:"via,omitempty"`
@@ -162,6 +183,7 @@ const (
 	VoidMoved  = "the tile was moved"
 	VoidOwner  = "the tile has another owner now"
 	VoidEditor = "someone new could change the tile"
+	VoidPast   = "someone who could change the tile before was not part of what you trusted"
 	VoidMeans  = "trusting a tile means more now — your sign-in is used there, and its code can change your home — so xbin asks again"
 )
 
@@ -180,6 +202,18 @@ func (t Trust) against(src Source) (why string, still []string) {
 		return VoidMoved, nil
 	case t.Owner != src.Owner || t.NotOwn != src.NotOwn:
 		return VoidOwner, nil
+	}
+	// everyone who could change it before is someone the answer covers:
+	// named on its card as such, or as an editor then (judge moves those
+	// who left into Past), or its owner. A former admin recorded after the
+	// answer was given is not — the tile asks again, once
+	for _, p := range src.Past {
+		if !slices.Contains(t.Past, p) && !slices.Contains(t.Editors, p) && t.Owner != "user:"+p && t.Owner != p {
+			return VoidPast, nil
+		}
+	}
+	if src.PastMore && !t.PastMore {
+		return VoidPast, nil
 	}
 	if !CoEditorsNeedTrust {
 		return "", t.Editors
@@ -226,7 +260,7 @@ func (s *Store) TrustTile(user string, src Source, via, basis string) (Trust, er
 	case basis != src.Basis():
 		return Trust{}, ErrTrustChanged
 	}
-	if _, ok := s.person(user); !ok {
+	if _, ok := s.person(user); !ok && user != RootTokenUser { // (the root token keeps trust answers, never a sign-in: roottoken.go)
 		return Trust{}, ErrNotFound
 	}
 	f, err := s.read(user)
@@ -237,7 +271,7 @@ func (s *Store) TrustTile(user string, src Source, via, basis string) (Trust, er
 	_, _ = rand.Read(id[:])
 	t := Trust{ID: "tr_" + hex.EncodeToString(id[:]), Tile: src.Tile, Name: src.Name, Ident: src.ID, Owner: src.Owner, NotOwn: src.NotOwn,
 		Editors: append([]string(nil), src.Editors...), At: s.o.Now().UnixMilli(), Via: via,
-		Means: TrustMeans, Past: append([]string(nil), src.Past...)}
+		Means: TrustMeans, Past: append([]string(nil), src.Past...), PastMore: src.PastMore}
 	// one answer per tile: the one for this tile, or for whatever stood at
 	// its path before, is replaced
 	f.Trust = slices.DeleteFunc(f.Trust, func(x Trust) bool { return x.Ident == t.Ident || x.Tile == t.Tile })
@@ -298,6 +332,11 @@ func (s *Store) judge(t *Trust, src Source, found bool) bool {
 		return true
 	}
 	if len(still) != len(t.Editors) {
+		for _, e := range t.Editors { // who left was trusted while they could: covered as someone who could before
+			if !slices.Contains(still, e) && !slices.Contains(t.Past, e) {
+				t.Past = append(t.Past, e)
+			}
+		}
 		t.Editors = append([]string(nil), still...)
 		return true
 	}

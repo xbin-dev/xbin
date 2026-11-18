@@ -3,6 +3,7 @@ package signins
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -29,7 +30,7 @@ func TestPastRemembersWhoCouldChangeATile(t *testing.T) {
 			t.Fatalf("%s: %d tiles recorded", when, p.Recorded())
 		}
 	}
-	others := func(ident, user string) []string { got, _ := p.Others(ident, user); return got }
+	others := func(ident, user string) []string { return p.Others(ident, user).Parties }
 
 	// a one-person workspace: the workspace's own tiles, nobody with write
 	// but admins — nothing is ever recorded
@@ -59,7 +60,8 @@ func TestPastRemembersWhoCouldChangeATile(t *testing.T) {
 	then := now
 	now = now.Add(48 * time.Hour)
 	p.Observe("i-hers", "apps/hers", "user:alice", nil)
-	got, until := p.Others("i-hers", "alice")
+	was := p.Others("i-hers", "alice")
+	got, until := was.Parties, was.Until
 	if !reflect.DeepEqual(got, []string{"mallory"}) || until != now.UnixMilli() {
 		t.Fatalf("after mallory lost write: %v until %d (then %d)", got, until, then.UnixMilli())
 	}
@@ -79,7 +81,7 @@ func TestPastRemembersWhoCouldChangeATile(t *testing.T) {
 	}
 	now = now.Add(time.Hour)
 	p.Observe("i-hers", "apps/hers", "user:alice", nil)
-	if _, until := p.Others("i-hers", "alice"); until != now.UnixMilli() {
+	if until := p.Others("i-hers", "alice").Until; until != now.UnixMilli() {
 		t.Fatalf("until after she left again: %d", until)
 	}
 
@@ -204,5 +206,176 @@ func TestTrustCoversThePastAndWhatItMeans(t *testing.T) {
 	// answered again, with the words as they are now: it holds
 	if _, err := w.s.TrustTile("alice", src, "card", src.Basis()); err != nil || !w.s.Trusts("alice", src) {
 		t.Fatalf("answered again: %v", err)
+	}
+}
+
+// The review's gaps in the record (D245): a former workspace admin, a tile
+// whose identity changed, a full record, a workspace with one account.
+func TestPastAdminsIdentityAndTheCap(t *testing.T) {
+	now := time.UnixMilli(1_800_000_000_000)
+	path := filepath.Join(t.TempDir(), "signins", "tiles.json")
+	p := NewPast(path, func() time.Time { return now })
+
+	// a workspace with one account that could ever change anything: an
+	// admin's own tiles have no party (the broker passes no owner for an
+	// admin's), whatever they own or hand on — nothing is written
+	p.ObserveAdmins([]string{"root"})
+	p.Observe("i-a", "apps/a", "", nil) // root's own tile…
+	p.Observe("i-a", "apps/a", "", nil) // …handed to the workspace
+	p.ObserveAdmins([]string{"root"})
+	if _, err := os.Stat(path); !os.IsNotExist(err) || p.Recorded() != 0 {
+		t.Fatalf("a one-account workspace recorded something: %v (%d)", err, p.Recorded())
+	}
+
+	// a second admin, then demoted: they could change EVERY tile — noted
+	// once, workspace-wide, and named on every tile's question
+	p.ObserveAdmins([]string{"root", "zed"})
+	if p.Recorded() != 0 {
+		t.Fatal("an admin being an admin was recorded")
+	}
+	now = now.Add(time.Hour)
+	p.ObserveAdmins([]string{"root"})
+	was := p.Others("i-a", "alice")
+	if !reflect.DeepEqual(was.Parties, []string{"zed"}) || !reflect.DeepEqual(was.Admins, []string{"zed"}) || was.Until != now.UnixMilli() {
+		t.Fatalf("after zed stopped being an admin, for alice on any tile: %+v", was)
+	}
+	if got := p.Others("i-never-seen", "bob"); !reflect.DeepEqual(got.Admins, []string{"zed"}) {
+		t.Fatalf("…on a tile with no record of its own: %+v", got)
+	}
+	if got := p.Others("i-a", "zed"); len(got.Parties) != 0 {
+		t.Fatalf("zed's own view names zed: %+v", got)
+	}
+	// it survives a restart; an admin again is in the trust base again
+	p = NewPast(path, func() time.Time { return now })
+	p.ObserveAdmins([]string{"root"})
+	if got := p.Others("i-a", "alice"); !reflect.DeepEqual(got.Admins, []string{"zed"}) {
+		t.Fatalf("after a restart: %+v", got)
+	}
+	p.ObserveAdmins([]string{"root", "zed"})
+	if got := p.Others("i-a", "alice"); len(got.Parties) != 0 {
+		t.Fatalf("zed is an admin again and still named: %+v", got)
+	}
+	p.ObserveAdmins([]string{"root"})
+
+	// a tile's IDENTITY changes (a restore, another disk, made again): the
+	// record of the tile at that path is this tile's — never "only yours" again
+	p.Observe("i-crm", "apps/crm", "user:alice", []string{"mallory"})
+	now = now.Add(time.Hour)
+	p.Observe("i-crm", "apps/crm", "user:alice", nil) // mallory lost write
+	if got := p.Others("i-crm", "alice").Parties; !reflect.DeepEqual(got, []string{"mallory", "zed"}) {
+		t.Fatalf("before the identity changed: %v", got)
+	}
+	p.Observe("i-crm-RESTORED", "apps/crm", "user:alice", nil)
+	if got := p.Others("i-crm-RESTORED", "alice").Parties; !reflect.DeepEqual(got, []string{"mallory", "zed"}) {
+		t.Fatalf("the restored tile forgot who could change it: %v", got)
+	}
+	if got := p.Others("i-crm", "alice").Parties; !reflect.DeepEqual(got, []string{"mallory", "zed"}) {
+		t.Fatalf("the old identity's record was pruned: %v", got)
+	}
+	// …someone who COULD when the old record was last written is carried as past
+	p.Observe("i-wiki", "apps/wiki", "user:alice", []string{"eve"})
+	p.Observe("i-wiki-2", "apps/wiki", "user:alice", nil)
+	if got := p.Others("i-wiki-2", "alice").Parties; !reflect.DeepEqual(got, []string{"eve", "zed"}) {
+		t.Fatalf("eve, who could change the tile that stood there: %v", got)
+	}
+
+	// the cap: a record that is full says "and others" — it still asks
+	var many []string
+	for i := 0; i < MaxPastParties+5; i++ {
+		many = append(many, fmt.Sprintf("u%03d", i))
+	}
+	p.Observe("i-big", "apps/big", "", many)
+	p.Observe("i-big", "apps/big", "", nil)
+	big := p.Others("i-big", "alice")
+	if !big.More || len(big.Parties) != MaxPastParties+1 { // (and zed)
+		t.Fatalf("a full record: more %v, %d parties", big.More, len(big.Parties))
+	}
+	src := Source{Tile: "apps/big", ID: "i-big", Owner: "user:alice", OwnerKind: "you", PastMore: true}
+	if !src.NeedsTrust() || src.Basis() == (Source{Tile: "apps/big", ID: "i-big", Owner: "user:alice", OwnerKind: "you"}).Basis() {
+		t.Fatal("\"and others\" neither asks nor is part of the basis")
+	}
+}
+
+// An answer covers who could change the tile before as its card named
+// them. Someone who left after it was given stays covered (they were
+// trusted while they could); a former admin recorded after it is not: the
+// tile asks again, once.
+func TestTrustCoversWhoItNamed(t *testing.T) {
+	w := newWorld(t)
+	src := bobs("carol")
+	if _, err := w.s.TrustTile("alice", src, "card", src.Basis()); err != nil {
+		t.Fatal(err)
+	}
+	// carol loses write: she is past now — and covered (the card named her)
+	left := bobs()
+	left.Past, left.PastUntil = []string{"carol"}, w.now.UnixMilli()
+	if !w.s.Trusts("alice", bobs()) || !w.s.Trusts("alice", left) || !w.s.Trusts("alice", left) {
+		t.Fatal("someone the answer named, who left since, voided it")
+	}
+	// zed stops being a workspace admin: every tile names him — this answer never did
+	zed := left
+	zed.Past, zed.PastAdmins = []string{"carol", "zed"}, []string{"zed"}
+	if w.s.Trusts("alice", zed) {
+		t.Fatal("an answer given before zed stopped being an admin covers him")
+	}
+	for _, tr := range w.s.Trusted("alice") {
+		if tr.Tile == src.Tile && tr.VoidWhy != VoidPast {
+			t.Fatalf("the answer: %+v", tr)
+		}
+	}
+	// asked again, for the card that names him: it holds
+	if _, err := w.s.TrustTile("alice", zed, "card", zed.Basis()); err != nil || !w.s.Trusts("alice", zed) {
+		t.Fatalf("answered again: %v", err)
+	}
+	// a record that got full since: "and others" was not on the card
+	more := zed
+	more.PastMore = true
+	if w.s.Trusts("alice", more) {
+		t.Fatal("\"and others\" is covered by an answer that never said it")
+	}
+}
+
+// The root token keeps trust answers of its own (the seam): under the key
+// of its home, for the source as the workspace's own admin sees it.
+func TestRootTokenTrust(t *testing.T) {
+	w := newWorld(t)
+	inner := func(user, tile string) (Source, bool) {
+		if user != "" {
+			t.Errorf("the inner source was asked for %q", user)
+		}
+		switch tile {
+		case "apps/ws":
+			return Source{Tile: tile, ID: "i-ws", OwnerKind: "workspace", NotOwn: true}, true // (as for nobody: not an admin)
+		case "apps/crm":
+			return bobs(), true
+		}
+		return Source{}, false
+	}
+	source := RootTokenSource(inner)
+	ws, _ := source(RootTokenUser, "apps/ws")
+	if ws.NeedsTrust() || !ws.Admin {
+		t.Fatalf("the workspace's tile, for the root token: %+v", ws)
+	}
+	crm, ok := source(RootTokenUser, "apps/crm")
+	if !ok || !crm.NeedsTrust() || w.s.Trusts(RootTokenUser, crm) {
+		t.Fatalf("bob's tile, for the root token: %+v", crm)
+	}
+	if _, err := w.s.TrustTile(RootTokenUser, crm, "card", crm.Basis()); err != nil {
+		t.Fatalf("the root token's answer: %v", err)
+	}
+	if !w.s.Trusts(RootTokenUser, crm) || len(w.s.Trusted(RootTokenUser)) != 1 || w.s.Trusts("alice", crm) {
+		t.Fatal("the root token's answer does not hold, or is someone else's too")
+	}
+	// held to the tile as it stands, like a person's: mallory gains write
+	if n := w.s.Revalidate(func(user, tile string) (Source, bool) {
+		src, ok := source(user, tile)
+		src.Editors = []string{"mallory"}
+		return src, ok
+	}); n != 1 || w.s.Trusts(RootTokenUser, crm) {
+		t.Fatalf("revalidated %d of the root token's answers", n)
+	}
+	// it never has a saved sign-in
+	if _, _, err := w.s.Save(RootTokenUser, "claude", "Work", "sk-ant-oat01-"+strings.Repeat("x", 40), false); err == nil {
+		t.Fatal("a sign-in was saved for the root token")
 	}
 }
