@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -280,6 +281,9 @@ func runHold(s *Spec) error {
 		if err != nil || n == 0 {
 			os.Exit(0) // xbind closed its end, or is gone: nothing to hold for
 		}
+		if fuse == nil {
+			holdRefresh(mfd, s.Debug) // a new session sees the lower layer as it is now
+		}
 		tfd, err := unix.OpenTree(mfd, "", unix.AT_EMPTY_PATH|unix.OPEN_TREE_CLONE|unix.OPEN_TREE_CLOEXEC)
 		if err != nil {
 			say("err open_tree: " + err.Error())
@@ -388,13 +392,34 @@ func holdMount(s *Spec) (int, *exec.Cmd, error) {
 // ones a user namespace may write: opaque directories need them), waiting
 // out a predecessor that still holds the upper (mountOverlay's reason).
 func holdKernel(mp, opt string) error {
-	const flags = unix.MS_NOSUID | unix.MS_NODEV | unix.MS_NOATIME
+	const flags = holdKernelFlags
 	err := unix.Mount("overlay", mp, "overlay", flags, opt+",userxattr")
 	for i := 0; errors.Is(err, unix.EBUSY) && i < 40; i++ {
 		time.Sleep(50 * time.Millisecond)
 		err = unix.Mount("overlay", mp, "overlay", flags, opt+",userxattr")
 	}
 	return must(err, "mount the overlay (kernel overlayfs with user xattrs needs Linux 5.11)")
+}
+
+// holdKernelFlags are the kernel overlay's mount flags (a remount names them again).
+const holdKernelFlags = unix.MS_NOSUID | unix.MS_NODEV | unix.MS_NOATIME
+
+// holdRefresh makes the kernel's overlay forget the names it has looked
+// up and nothing holds. The lower layer changes under a hold by design —
+// it is the person's real home, which their sessions elsewhere write —
+// and the overlay keeps what it saw for as long as it is mounted: a file
+// since removed from the real home stays there, one since made stays
+// "not there", one replaced by a rename keeps its old content. A
+// reconfigure of the superblock that changes nothing drops every unused
+// name (reconfigure_super → shrink_dcache_sb), so the session that is
+// about to get a clone — and the open ones, for whatever they don't hold
+// open — look the lower layer up again. Best effort: where the kernel
+// refuses, the clone is served as before. (fuse-overlayfs keeps its own
+// table of names; nothing reaches it from here.)
+func holdRefresh(mfd int, debug bool) {
+	if err := unix.Mount("", "/proc/self/fd/"+strconv.Itoa(mfd), "", unix.MS_REMOUNT|holdKernelFlags, ""); err != nil {
+		dbg(debug, "hold: the overlay's names were not refreshed: %v", err)
+	}
 }
 
 // holdFuse mounts a FUSE filesystem at mp without allow_other and starts
