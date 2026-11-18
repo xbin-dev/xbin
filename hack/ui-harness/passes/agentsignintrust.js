@@ -139,7 +139,7 @@ async function agentSigninTrust(browser) {
   const forbidden = (await get(`?tile=${encodeURIComponent(TILE)}`)).harnesses.find((h) => h.id === 'fake').here;
   check(off.ok() && forbidden.inject === false && forbidden.trust.allowed === false && /a workspace admin can change it/.test(forbidden.trust.forbidden),
     `trusting switched off: nothing is used there, and the answer says who can change that (${JSON.stringify(forbidden.trust)})`);
-  const refused = await ctx.request.post(`${API}/trust`, { data: { tile: TILE, basis: forbidden.trust.basis } });
+  const refused = await ctx.request.post(`${API}/trust`, { data: { tile: TILE, basis: forbidden.trust.basis, shown: 'signin+home' } });
   check(refused.status() === 403, `…and nothing can be trusted (${refused.status()})`);
   await ctx.request.put(`${API}/policy`, { data: { trust: true } });
   await fr(page, TILE, (f) => { while (f.tabs.length) f.closeTab(0); });

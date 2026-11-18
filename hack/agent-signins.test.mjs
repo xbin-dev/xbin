@@ -184,7 +184,7 @@ test('"I trust this tile\'s source": the card\'s words — whose tile, who can c
   const api = signinsApi(async (url, init) => { sent.push([init.method, url, init.body || '']); return { ok: true, json: async () => ({}) }; });
   const refusing = signinsApi(async () => ({ ok: false, status: 409, json: async () => ({ error: 'look again', changed: true, trust: { basis: 'tb_new' } }) }));
   return Promise.all([api.trust('apps/crm', 'tb_1'), api.untrust('tr_1/x'), api.setTrustPolicy(false), refusing.trust('apps/crm', 'tb_old').catch((e) => e)]).then(([, , , err]) => {
-    assert.deepEqual(sent, [['POST', '/api/xbin/agent/signins/trust', '{"tile":"apps/crm","basis":"tb_1"}'], ['DELETE', '/api/xbin/agent/signins/trust/tr_1%2Fx', ''], ['PUT', '/api/xbin/agent/signins/policy', '{"trust":false}']]);
+    assert.deepEqual(sent, [['POST', '/api/xbin/agent/signins/trust', '{"tile":"apps/crm","basis":"tb_1","shown":"signin+home"}'], ['DELETE', '/api/xbin/agent/signins/trust/tr_1%2Fx', ''], ['PUT', '/api/xbin/agent/signins/policy', '{"trust":false}']]);
     assert.ok(err instanceof SigninsError && err.status === 409 && err.data.changed === true && err.data.trust.basis === 'tb_new');
   });
 });
@@ -270,6 +270,15 @@ test('which home a session mounts (D245): the words for "yours" and for this til
   const past = { tile: 'apps/mine', ownerKind: 'you', owner: 'alice', past: ['mallory', 'org:sales'], pastUntil: Date.UTC(2026, 10, 17, 12), names: { mallory: 'Mal' }, means: 2, basis: 'tb2_x', allowed: true };
   assert.equal(trustWords(past).whose, "This tile is yours. mallory (Mal) and org:sales could change this tile's code until 2026-11-17; trusting it means you trust what is in it.");
   assert.match(homeWords({ mode: 'copy', why: "apps/mine wasn't always only yours — mallory could change it until 2026-11-17", trust: past }).about.join(' '), /mallory \(Mal\) and org:sales could change this tile's code until 2026-11-17/);
+  // someone who can change it through a tile it lies in is said so; a former admin; a full record: "and others"
+  assert.equal(trustWords({ ownerKind: 'you', editors: ['bob'], through: { bob: 'apps/crm' }, allowed: true }).whose, 'This tile is yours. bob (through apps/crm) can change it.');
+  assert.equal(trustWords({ ownerKind: 'you', past: ['zed'], pastAdmins: ['zed'], pastUntil: Date.UTC(2026, 10, 17), allowed: true }).whose,
+    "This tile is yours. zed (was a workspace admin) could change this tile's code until 2026-11-17; trusting it means you trust what is in it.");
+  assert.match(trustWords({ ownerKind: 'you', past: ['p'], pastMore: true, pastUntil: 1, allowed: true }).whose, /p and others could change this tile's code/);
+  assert.match(trustWords({ ownerKind: 'you', pastMore: true, pastUntil: 1, allowed: true }).whose, /others could change this tile's code/);
+  // a confined session that asked for the host's network says what it has instead, and that trusting restores it
+  const net = homeWords({ mode: 'copy', why: 'x', confined: true, netInstead: 'offline', trust });
+  assert.match(net.about.join(' '), /isn't given the host's network\. Trusting the tile gives new sessions here an admin's sandbox again\. This session asked for the host's network and runs on "offline" instead/);
   const crowd = trustWords({ ownerKind: 'you', editors: ['a', 'b', 'c', 'd'], past: ['p', 'q', 'r', 's', 't'], pastUntil: 1, allowed: true });
   assert.equal(crowd.more, 3); // one editor and two who could before are not shown: "show all" first
   assert.equal(crowd.showAll, 'Show all 9');
@@ -285,7 +294,7 @@ test('which home a session mounts (D245): the words for "yours" and for this til
   assert.match(kept.confirm, /Your real home is not touched/);
   assert.equal(homeCopyWords({ tile: 'apps/crm', bytes: 1, sessions: 2 }).state, 'in use by 2 sessions');
   assert.match(homeCopyWords({ tile: 'apps/crm', bytes: 1, sessions: 2 }).confirm, /Your 2 sessions on it will be ended/);
-  assert.match(homeCopyWords({ tile: 'apps/gone', gone: true }).state, /its tile was deleted or made again — this copy is not used any more/);
+  assert.match(homeCopyWords({ tile: 'apps/gone', gone: true }).state, /its tile is gone — kept until you forget it/); // xbind removes no copy on its own
 });
 
 test('forgetting a copy is one call: DELETE /agent/signins/homes/<id>', async () => {

@@ -52,9 +52,12 @@ export function signinsApi(fetchFn = (...a) => fetch(...a)) {
     revoke: (user, sid) => c('DELETE', `/people/${id(user)}/${id(sid)}`),
     setPolicy: (enabled) => c('PUT', '/policy', { enabled }),
     setTrustPolicy: (trust) => c('PUT', '/policy', { trust }),
-    trust: (tile, basis) => c('POST', '/trust', { tile, basis }), // basis: the question's own (here.trust.basis) — a tile that changed since is 409 {changed, trust}
+    // basis: the question's own (here.trust.basis) — a tile that changed since is 409 {changed, trust}; shown: what this page's
+    // card and dialog say trusting means (TRUST_SHOWN) — a page from before it meant the home too sends none, and is told to reload
+    trust: (tile, basis) => c('POST', '/trust', { tile, basis, shown: TRUST_SHOWN }),
     untrust: (tid) => c('DELETE', `/trust/${id(tid)}`),
     forgetHome: (hid) => c('DELETE', `/homes/${id(hid)}`), // "forget what this tile wrote to my home" (D245) → {ok, tile, ended}
+    forgetKept: (user, hid) => c('DELETE', `/homes/${id(hid)}?of=${encodeURIComponent(user)}`), // admins: a copy kept from a deleted account
   };
 }
 
@@ -173,11 +176,18 @@ export function trustWords(trust, harness = 'coding agent', without = '', all = 
   const everyone = (t.editors || []).map((id) => beside(id, (t.names || {})[id]));
   const shown = all ? everyone : everyone.slice(0, 3);
   const eds = namesWords(shown, everyone.length - shown.length);
-  const who = eds ? `${eds} can ${t.ownerKind === 'you' || t.admin ? '' : 'also '}change it.` : '';
-  const before = (t.past || []).map((id) => beside(id, (t.names || {})[id]));
+  // someone who can change it because they can write a tile it lies in is said so: "bob (through apps/crm)"
+  const via = t.through || {};
+  const everyoneVia = (t.editors || []).map((id) => `${beside(id, (t.names || {})[id])}${via[id] ? ` (through ${via[id]})` : ''}`);
+  const edsVia = namesWords(all ? everyoneVia : everyoneVia.slice(0, 3), everyone.length - shown.length);
+  const who = eds ? `${edsVia} can ${t.ownerKind === 'you' || t.admin ? '' : 'also '}change it.` : '';
+  // who could before and can't now — a former workspace admin among them could change every tile; "and others": the record was full
+  const wasAdmin = new Set(t.pastAdmins || []);
+  const before = (t.past || []).map((id) => `${beside(id, (t.names || {})[id])}${wasAdmin.has(id) ? ' (was a workspace admin)' : ''}`);
   const beforeShown = all ? before : before.slice(0, 3);
   const until = t.pastUntil ? ` until ${new Date(t.pastUntil).toISOString().slice(0, 10)}` : ' before';
-  const was = before.length ? `${namesWords(beforeShown, before.length - beforeShown.length)} could change this tile's code${until}; trusting it means you trust what is in it.` : '';
+  const beforeNames = [namesWords(beforeShown, before.length - beforeShown.length), t.pastMore ? 'others' : ''].filter(Boolean).join(' and ');
+  const was = before.length || t.pastMore ? `${beforeNames} could change this tile's code${until}; trusting it means you trust what is in it.` : '';
   return {
     title: `Use your ${harness} sign-in on this tile?`,
     whose: [whose, who, was].filter(Boolean).join(' '),
@@ -195,7 +205,10 @@ export function trustWords(trust, harness = 'coding agent', without = '', all = 
 }
 
 /** CONFINED: what an admin is told about a session on a tile's copy of their home (D245): it is a member's. */
-export const CONFINED = "This session is confined like a member's until you trust this tile: it sees the workspace read-only through the tiles you may read, and can't mount or open new namespaces.";
+export const CONFINED = "This session is confined like a member's until you trust this tile: it sees the workspace read-only through the tiles you may read, can't mount or open new namespaces, and isn't given the host's network. Trusting the tile gives new sessions here an admin's sandbox again.";
+
+/** TRUST_SHOWN: what this page's trust card and home dialog say trusting means — sent with the answer (signins.TrustShown). */
+export const TRUST_SHOWN = 'signin+home';
 
 /** HOME_DOCS: where the home rule is explained (D245). */
 export const HOME_DOCS = '/docs/agent-signins.md#your-home-on-a-tile-that-isnt-only-yours';
@@ -247,7 +260,7 @@ export function homeWords(home) {
   ];
   if (whose) about.push(whose);
   // an admin's (the root token's) session on the copy: it has a member's sandbox, not an admin's
-  if (h.confined) about.push(CONFINED);
+  if (h.confined) about.push(CONFINED + (h.netInstead ? ` This session asked for the host's network and runs on "${h.netInstead}" instead.` : ''));
   if (t && t.allowed) {
     about.push("Trusting this tile's source means two things: xbin uses your saved coding-agent sign-in here, and this tile's code can change your home. New sessions on this tile then have your real home; this one stays on the copy. Nothing this tile wrote to its copy is copied into your home.");
   } else if (t) {
@@ -266,15 +279,15 @@ export function homeWords(home) {
 /**
  * homeCopyWords(copy): one row of the list of copies (GET /agent/signins →
  * homes: {id, tile, name?, created, bytes, sessions, gone?, unused}).
- * `gone`: the tile it was kept for is not there any more — deleted (xbind
- * removes the copy at its next sweep) or made again at its path, as after
- * a restore from a backup (kept until the person forgets it: xbind never
- * deletes on a doubt).
+ * `gone`: the tile it was kept for is not there any more — deleted, or
+ * made again at its path (as after a restore from a backup). xbind never
+ * removes a copy on its own: it is kept until the person forgets it. A
+ * tile that is moved or renamed keeps its copy.
  */
 export function homeCopyWords(copy) {
   const c = copy || {};
   const size = fmtBytes(c.bytes);
-  const state = c.gone ? 'its tile was deleted or made again — this copy is not used any more'
+  const state = c.gone ? 'its tile is gone — kept until you forget it'
     : c.unused ? 'kept, not used while you trust this tile'
       : c.sessions > 0 ? `in use by ${c.sessions} session${c.sessions === 1 ? '' : 's'}` : 'used by your sessions on this tile';
   return {

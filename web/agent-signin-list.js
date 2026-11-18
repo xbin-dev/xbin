@@ -186,6 +186,26 @@ function trustedSection(el, d, now) {
 // copy, and never reached their real home. A copy of a tile they trust now
 // is kept, not used; nothing of a copy is ever merged into the real home —
 // there is no "copy it over" here, only forget.
+// keptSection: for admins — the copies of homes kept from accounts that no
+// longer exist. xbind removes no copy on its own; an admin forgets them.
+function keptSection(el, d, now) {
+  const rows = d.kept || [];
+  if (!d.admin || !rows.length) return nothing;
+  return html`<section class="homes kept">
+    <div class="row"><h4>Kept from deleted accounts</h4></div>
+    <p class="lead">What tiles wrote to the copies of a home, kept after its account was deleted. xbin removes none of it on its own.</p>
+    <div class="items">${rows.map((c) => { const key = `kept:${c.user}:${c.id}`; return html`<div class="item" data-kept-copy=${c.id} data-kept-user=${c.user}>
+      <div class="what"><span class="name"><code>${c.user}</code> on <code>${c.tile}</code></span>
+        <div class="meta"><span>since ${dayWords(c.created, now)}</span>${fmtBytes(c.bytes) ? html`<span>${fmtBytes(c.bytes)}</span>` : nothing}<span class="muted" data-state>${c.gone ? 'its tile is gone' : 'kept from a deleted account'}</span></div></div>
+      ${el._m.forgetting === key
+        ? html`<span class="confirm" data-confirm><span class="warn">Delete what ${c.tile} wrote to ${c.user}'s copy${fmtBytes(c.bytes) ? ` (${fmtBytes(c.bytes)})` : ''}? It can't be brought back.</span>
+            <button class="forget-kept yes" ?disabled=${!!el._m.busy} @click=${() => { set(el, { forgetting: '' }); act(el, key, () => el.api.forgetKept(c.user, c.id)); }}>Forget it</button>
+            <button class="link" @click=${() => set(el, { forgetting: '' })}>Keep it</button></span>`
+        : html`<button class="forget-kept" ?disabled=${!!el._m.busy} @click=${() => set(el, { forgetting: key })}>Forget</button>`}
+    </div>`; })}</div>
+  </section>`;
+}
+
 function homesSection(el, d, now) {
   const rows = d.homes || [];
   if (!rows.length) return nothing;
@@ -268,6 +288,7 @@ export function manageView(el, onClose) {
     ${d.available ? hs.map((h) => harnessSection(el, h, now, canChange)) : nothing}
     ${d.available ? trustedSection(el, d, now) : nothing}
     ${homesSection(el, d, now)}
+    ${keptSection(el, d, now)}
     ${d.available ? usesSection(el, now) : nothing}
     ${d.admin ? adminSection(el, d, now) : nothing}
   </div>`;

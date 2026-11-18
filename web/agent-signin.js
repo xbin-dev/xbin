@@ -490,7 +490,8 @@ export class BxAgentSignin extends LitElement {
     } catch (err) {
       // 409 {changed}: the tile is no longer what the card showed — the question as it stands now is drawn (its basis is
       // another, so the button waits again: agent-armed.js) and nothing was trusted
-      this._trusting = err.status === 409 && err.data && err.data.changed ? 'This tile changed while you were deciding — who owns it or who can change it. Look again.' : err.message || String(err);
+      this._trusting = err.status === 409 && err.data && err.data.reload ? err.message // (a page older than xbind: it says to reload)
+        : err.status === 409 && err.data && err.data.changed ? 'This tile changed while you were deciding — who owns it or who can change it. Look again.' : err.message || String(err);
       this._trustAll = false;
       await this.reload();
     }

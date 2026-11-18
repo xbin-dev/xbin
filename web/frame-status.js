@@ -82,7 +82,8 @@ export async function aboutHome(f) {
   let view;
   try { view = await api.list(f.src); } catch (err) { await f._ask({ title: 'Your home on this tile', error: err.message || String(err), buttons: [{ label: 'Close', value: null }] }); return; }
   const home = view.home || {};
-  const w = homeWords(home);
+  const cur = f._sessions[f._active]; // what THIS session has instead of the host's network, when it asked for it
+  const w = homeWords(home.mode === 'copy' && cur && cur.home && cur.home.netInstead ? { ...home, netInstead: cur.home.netInstead } : home);
   if (home.mode !== 'copy') { // trusted since this session started: say what that means for it
     await f._ask({ title: 'Your home on this tile', message: `${w.trusted || 'New sessions on this tile have your real home.'} This session started on this tile's copy of your home and stays on it.`,
       buttons: [{ label: 'Close', value: null }, ...(home.copy ? [{ label: w.forget || 'Forget what this tile wrote to my home', value: 'forget', danger: true }] : [])] }).then((r) => r?.button === 'forget' && forgetHome(f, api, home.copy));
@@ -100,7 +101,7 @@ export async function aboutHome(f) {
     await api.trust(f.src, home.trust.basis); // for the question as it was shown: its basis
     await f._ask({ title: 'Your home on this tile', message: w.trusted, buttons: [{ label: 'OK', value: 'ok', primary: true }] });
   } catch (err) {
-    await f._ask({ title: 'Your home on this tile', error: err.status === 409 && err.data && err.data.changed
+    await f._ask({ title: 'Your home on this tile', error: err.status === 409 && err.data && err.data.changed && !err.data.reload
       ? 'This tile changed while you were deciding — who owns it or who can change it. Look again.' : (err.message || String(err)), buttons: [{ label: 'Close', value: null }] });
   }
 }

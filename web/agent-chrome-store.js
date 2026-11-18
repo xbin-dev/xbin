@@ -176,7 +176,7 @@ class AgentStore {
   async apply(id, items, password = '', ticks = {}) { // ticks {signin, trust}: the start lines whose own sign-in lines the person ticked (D230)
     const signin = ticks.signin || [], trust = ticks.trust || [];
     const r = await call(`/delegate/changesets/${encodeURIComponent(id)}/approve`, { method: 'POST',
-      body: { items, ...(password ? { password } : {}), ...(signin.length ? { signin } : {}), ...(trust.length ? { trust } : {}) } });
+      body: { items, ...(password ? { password } : {}), ...(signin.length ? { signin } : {}), ...(trust.length ? { trust, shown: 'signin+home' } : {}) } }); // shown: what the trust line said (agent-chrome-words.js TRUST_SHOWN)
     this.readState(); this.readChangesets();
     if (r.ok) return { ok: true, set: r.data };
     if (r.status === 403 && r.data && r.data.stepUp) return { ok: false, stepUp: r.data.stepUp, error: password ? say(r, 'That password was not accepted') : '' };
