@@ -284,7 +284,17 @@ async function limitsCaps(browser) {
     await settle(A.page);
     // lim-mine's ask, approved in the table
     await tbl.locator(`tr.row[data-tile="${TMINE}"][data-kind=diskGiB] [data-approve]`).click();
-    l = await until(async () => { const x = await disk(TMINE); return x?.approved ? x : null; }, 'the table\'s approval');
+    // a refusal is said as xbind's reason, not a timeout: the approval has to fit the
+    // filesystem the harness workspace is on (HARNESS_DIR), and a full /tmp refuses it
+    let whyNot = '';
+    l = await until(async () => {
+      const x = await disk(TMINE);
+      if (x?.approved) return x;
+      whyNot = (await tbl.locator('.err[role=alert]').first().textContent({ timeout: 200 }).catch(() => '') || '').trim();
+      return null;
+    }, 'the table\'s approval').catch((e) => {
+      throw new Error(whyNot ? `the table's Approve of ${ASK} GiB was refused: ${whyNot} (free up the filesystem HARNESS_DIR is on)` : e.message);
+    });
     check(l.effective === ASK && l.approved.source === 'manifest-ask', `the table's Approve: lim-mine at ${ASK} GiB (${JSON.stringify(l.approved)})`);
     // set… a typed value on lim-a
     const ra = tbl.locator(`tr.row[data-tile="${T}"][data-kind=diskGiB]`);
