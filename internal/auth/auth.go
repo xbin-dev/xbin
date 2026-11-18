@@ -20,8 +20,6 @@ package auth
 
 import (
 	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/hex"
 	"log/slog"
 	"net/http"
 	"os"
@@ -111,22 +109,7 @@ type Principal struct {
 	// delivery's registration, or the broker's answer for the tile's own
 	// credentials (addressedPartition). "" for everyone else.
 	Partition util.Partition
-	// TermRef, on a terminal token's principal (Via "terminal"), names the
-	// token without being it: TerminalRef(token), a hash. The terminal
-	// manager tells by it WHICH session's token a request carries — a
-	// session opened with a shell's token gets no more than that shell has
-	// (term/home.go, D245). "" for everyone else.
-	TermRef string
-}
-
-// TerminalRef is the reference a terminal token's principal carries
-// (Principal.TermRef): a hash of the token, never the token.
-func TerminalRef(token string) string {
-	if token == "" {
-		return ""
-	}
-	h := sha256.Sum256([]byte("xbin terminal token ref\x00" + token))
-	return hex.EncodeToString(h[:16])
+	TermRef   string // a terminal token's principal: which token (termref.go)
 }
 
 // ReadOnly reports an impersonation principal: an admin looking through a
