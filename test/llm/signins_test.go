@@ -256,16 +256,16 @@ func TestSavedSignInInSandbox(t *testing.T) {
 		}
 		return n
 	}
-	if r := call(admin, "POST", "/api/xbin/agent/signins/trust", map[string]any{"tile": tile, "basis": question(admin)}); r.Status == 201 && trusted() != 0 {
+	if r := call(admin, "POST", "/api/xbin/agent/signins/trust", map[string]any{"tile": tile, "basis": question(admin), "shown": "signin+home"}); r.Status == 201 && trusted() != 0 {
 		t.Fatal("an admin's answer became alice's trust")
 	}
 	if r := call(alice, "POST", "/api/xbin/agent/signins/trust", map[string]any{"tile": tile}); r.Status != 400 {
 		t.Fatalf("an answer with no basis: %d %s", r.Status, r)
 	}
-	if r := call(alice, "POST", "/api/xbin/agent/signins/trust", map[string]any{"tile": tile, "basis": "tb_0000"}); r.Status != 409 || trusted() != 0 {
+	if r := call(alice, "POST", "/api/xbin/agent/signins/trust", map[string]any{"tile": tile, "basis": "tb_0000", "shown": "signin+home"}); r.Status != 409 || trusted() != 0 {
 		t.Fatalf("an answer to another question than the tile's: %d %s", r.Status, r)
 	}
-	must(201, alice, "POST", "/api/xbin/agent/signins/trust", map[string]any{"tile": tile, "basis": question(alice)})
+	must(201, alice, "POST", "/api/xbin/agent/signins/trust", map[string]any{"tile": tile, "basis": question(alice), "shown": "signin+home"})
 	onTrust := open(nil)
 	if r := rowOf(onTrust); r == nil || r.Source != "saved" {
 		t.Fatalf("after she trusted the tile: %+v", r)

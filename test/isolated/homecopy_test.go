@@ -244,7 +244,7 @@ func TestHomeOnATileThatIsntOnlyYours(t *testing.T) {
 		t.Fatalf("her copies before trusting: %+v here %+v", v.Homes, v.Home.Copy)
 	}
 	copyID := v.Homes[0].ID
-	if r := d.Call(t, "POST", "/api/xbin/agent/signins/trust", map[string]string{"tile": "apps/his", "basis": v.Home.Trust.Basis}, alice); r.Status != 201 {
+	if r := d.Call(t, "POST", "/api/xbin/agent/signins/trust", map[string]string{"tile": "apps/his", "basis": v.Home.Trust.Basis, "shown": "signin+home"}, alice); r.Status != 201 {
 		t.Fatalf("trusting bob's tile: %d %s", r.Status, r)
 	}
 	v = view("apps/his")
@@ -573,6 +573,89 @@ func TestHomeCopyConfinesAdminsAndBxAgentInAShell(t *testing.T) {
 			t.Fatalf("%s's own tile was written from a session on bob's tile:\n--- before\n%s\n--- after\n%s\n--- the session\n%s", c.who, ownBefore, after, out)
 		}
 	}
+}
+
+// covers the root token's own trust answers (D245's review: someone who
+// lives on the root token must not lose the real home with no way back),
+// end to end on an `xbind --isolate`: on bob's tile the token's session is
+// on the copy, confined, and its row carries the question; the token
+// answers it through the same route a person uses (the basis and what was
+// shown with it); a new session there has the token's real home and an
+// admin's sandbox; taking the answer back ends that session.
+func TestHomeRootTokenTrusts(t *testing.T) {
+	a := xbindtest.Require(t)
+	d := xbindtest.Start(t, a, xbindtest.Options{Auth: true})
+	const his = "apps/his"
+	d.WriteTile(t, his, map[string]string{"xbin.json": `{"title":"His"}`, "index.html": "<!doctype html><title>his</title>"})
+	d.WaitComponent(t, his)
+	d.AddUser(t, "bob", "pw-bob-2a9c44", "user", map[string]string{his: "terminal"})
+	d.Must(t, "POST", "/api/xbin/owner", map[string]any{"tile": his, "to": "user:bob"}, 200)
+	root := xbindtest.H("Authorization", "Bearer "+d.Token())
+	type view struct {
+		Home *struct {
+			Mode     string
+			Confined bool
+			Trust    *struct {
+				Basis   string
+				Allowed bool
+			}
+		}
+		Trusted []struct {
+			ID, Tile string
+			Holds    bool
+		}
+	}
+	get := func() view {
+		t.Helper()
+		var v view
+		d.Must(t, "GET", "/api/xbin/agent/signins?tile="+his, nil, 200, root).Decode(t, &v)
+		return v
+	}
+	v := get()
+	if v.Home == nil || v.Home.Mode != "copy" || !v.Home.Confined || v.Home.Trust == nil || !v.Home.Trust.Allowed || v.Home.Trust.Basis == "" {
+		t.Fatalf("the root token's home on bob's tile, and its question: %+v", v.Home)
+	}
+	onCopy := w2OpenTerm(t, d, his, root)
+	if out, _ := onCopy.run(t, `grep CapEff /proc/self/status`, time.Minute); hcSysAdmin(t, out) {
+		t.Fatalf("the root token's session on a tile it has not trusted can mount:\n%s", out)
+	}
+	// an answer that doesn't say what it showed is an old page's: refused
+	if r := d.Call(t, "POST", "/api/xbin/agent/signins/trust", map[string]string{"tile": his, "basis": v.Home.Trust.Basis}, root); r.Status != 409 || !strings.Contains(r.String(), "Reload this page") {
+		t.Fatalf("an answer without what was shown: %d %s", r.Status, r)
+	}
+	d.Must(t, "POST", "/api/xbin/agent/signins/trust", map[string]string{"tile": his, "basis": v.Home.Trust.Basis, "shown": "signin+home"}, 201, root)
+	if v = get(); v.Home.Mode != "own" || len(v.Trusted) != 1 || !v.Trusted[0].Holds {
+		t.Fatalf("after the root token's answer: home %+v trusted %+v", v.Home, v.Trusted)
+	}
+	real := w2OpenTerm(t, d, his, root)
+	out, _ := real.run(t, `echo ROOT-''WROTE > ~/root-wrote; grep CapEff /proc/self/status`, time.Minute)
+	if !hcSysAdmin(t, out) {
+		t.Fatalf("the root token's session on a tile it trusted is still confined:\n%s", out)
+	}
+	if b, err := os.ReadFile(filepath.Join(d.WS, "homes", "owner", "root-wrote")); err != nil || !strings.Contains(string(b), "ROOT-WROTE") {
+		t.Fatalf("the root token's real home was not written: %q %v", b, err)
+	}
+	// taken back: the real-home session ends; the one on the copy stays
+	var un struct {
+		OK    bool
+		Ended int
+	}
+	d.Must(t, "DELETE", "/api/xbin/agent/signins/trust/"+v.Trusted[0].ID, nil, 200, root).Decode(t, &un)
+	if !un.OK || un.Ended != 1 {
+		t.Fatalf("taking the root token's answer back: %+v", un)
+	}
+	xbindtest.Eventually(t, 30*time.Second, "the root token's real-home session ended", func() (bool, string) {
+		var list []struct{ ID string }
+		d.Call(t, "GET", "/api/xbin/term/sessions", nil, root).Decode(t, &list)
+		for _, s := range list {
+			if s.ID == real.id {
+				return false, "still listed"
+			}
+		}
+		return len(list) == 1 && list[0].ID == onCopy.id, fmt.Sprintf("%+v", list)
+	})
+	onCopy.conn.Close()
+	d.Call(t, "DELETE", "/ws/term?session="+onCopy.id, nil, root)
 }
 
 // hcSysAdmin reports whether the CapEff line in out has CAP_SYS_ADMIN (bit 21): the capability to mount.
