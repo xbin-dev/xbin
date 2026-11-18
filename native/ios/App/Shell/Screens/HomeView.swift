@@ -428,7 +428,7 @@ struct TileMenu: View {
                         pick(.sessions(tile: tile.path, show: .session(s.id)))
                     } label: {
                         Text(verbatim: s.title)
-                        Text(verbatim: s.statusText)
+                        Text(verbatim: s.statusLine)
                         Image(systemName: s.kind == .shell ? "apple.terminal" : s.needsYou ? "exclamationmark.bubble" : XbinGlyphs.symbol("agent"))
                     }
                 }

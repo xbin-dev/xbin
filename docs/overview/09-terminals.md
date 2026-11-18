@@ -78,7 +78,8 @@ component *installable*: importing from a git URL is just a clone.
 
 `$HOME` is `<workspace>/homes/<user>` — **one home per signed-in human** (the
 root token gets `homes/owner`; `internal/term/homes.go`), read-write in every
-terminal including component ones. Within a user it is *shared*: agent-CLI
+terminal on a tile that is yours or that you trust, component ones included
+(on any other tile: a copy, below). Within a user it is *shared*: agent-CLI
 config (`~/.claude`, credentials), shell history, and dotfiles live there once
 and follow you into every terminal you open, on every tile — a home per human,
 not per tile. It is seeded with skeleton dotfiles on first use (lazy — user
@@ -88,6 +89,23 @@ configs never mix. A legacy shared `home/` is migrated once to `homes/<user>`
 at startup (picking the sole user/admin, else `owner`; refusing to guess if
 both forms hold real data), and `homes/` is force-added to `.gitignore` because
 it holds credentials.
+
+**Read-write on your own tiles — a copy elsewhere (D245).** On a tile whose
+source isn't only yours (someone else owns it, or someone else who isn't an
+admin can change it) and that you have not trusted, the bind at
+`homes/<you>/` is not your home but a copy-on-write view of it: the
+session reads your real home, and what it writes under `~` goes to a layer
+kept for you on that tile and never reaches the real home. So a hook or a
+build script in a tile someone else controls can't plant a
+`~/.claude/settings.json`, a `~/.gitconfig` or a `~/.bashrc` that runs
+later on your own tiles. One function decides it for every session that
+mounts a home — terminals, agent sessions, their restarts and resumes, a
+workspace agent's starts, VM sandboxes — on the tile the session is on,
+at its start; the row says `home: yours` or `home: this tile's copy
+(changes stay on this tile)`. Trusting the tile gives new sessions there
+your real home; a session with someone's real home can't be attached to
+by an admin. Reads are not restricted. Details and the person's side:
+[agent-signins.md](../agent-signins.md#your-home-on-a-tile-that-isnt-only-yours).
 
 This is **hygiene, not a security boundary**: all terminals share one unix
 user, so a determined shell could reach another home at the filesystem layer

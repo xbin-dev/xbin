@@ -160,6 +160,7 @@ export function tabsFrom(server, local) {
       vm: s.vm ?? !!was?.vm,
       name: s.name || '', scopes: s.scopes ?? was?.scopes ?? null, label: s.label || '',
       ...(s.origin ? { origin: s.origin } : {}), // "agent": the person's workspace agent started it (D229)
+      ...((s.home ?? was?.home) ? { home: s.home ?? was.home } : {}), // which home it mounts: theirs, or this tile's copy (D245)
       baseOutdated: !!was?.baseOutdated,
       ...(was?.run ? { run: was.run } : {}),
     });

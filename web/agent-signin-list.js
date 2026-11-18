@@ -8,7 +8,7 @@
  */
 import { html, css, nothing } from '/vendor/lit-all.min.js';
 import '/vendor/bx-icons.js';
-import { whyNot, kindWords, dayWords, expiryWords, nextStep } from '/vendor/agent-signins.js';
+import { whyNot, kindWords, dayWords, expiryWords, nextStep, homeCopyWords, fmtBytes, HOME_DOCS } from '/vendor/agent-signins.js';
 
 /** manageInit(): the list's own state. */
 export const manageInit = () => ({ busy: '', err: '', renaming: '', removing: '', adding: '', uses: null, people: null, peopleErr: '' });
@@ -170,13 +170,37 @@ function trustedSection(el, d, now) {
   const rows = d.trusted || [];
   return html`<section class="trusted">
     <div class="row"><h4>Tiles you trust</h4></div>
-    <p class="lead">Your sign-in is used on your own tiles that nobody else can change. On any other tile xbin asks first whether you trust its source — once per tile, and again when someone new can change it or it has another owner.</p>
+    <p class="lead">Your sign-in is used on your own tiles that nobody else can change, and your sessions there have your real home. On any other tile xbin asks first whether you trust its source — once per tile, and again when someone new can change it or it has another owner. Trusting a tile means two things: your sign-in is used there, and that tile's code can change your home.</p>
     ${!rows.length ? html`<p class="lead">You have trusted no tile.</p>` : html`<div class="items">${rows.map((t) => html`<div class="item" data-trust=${t.id} data-holds=${t.holds ? 'true' : 'false'}>
       <div class="what"><span class="name">${t.name && t.name !== t.tile ? html`${t.name} ` : nothing}<code>${t.tile}</code></span>
         <div class="meta"><span>trusted ${dayWords(t.at, now)}</span>${t.holds ? nothing : html`<span class="warn">xbin will ask again: ${t.why}</span>`}</div></div>
-      <button class="untrust" ?disabled=${!!el._m.busy} title="your sessions on this tile that run on a saved sign-in are ended"
+      <button class="untrust" ?disabled=${!!el._m.busy} title="your sessions on this tile that run on a saved sign-in, or have your real home, are ended"
         @click=${() => act(el, t.id, () => el.api.untrust(t.id))}>Stop trusting</button>
     </div>`)}</div>`}
+  </section>`;
+}
+
+// "What tiles wrote to your home": the copies kept of the person's home
+// (D245), one per tile whose source they had not trusted when a session of
+// theirs ran there — what that tile's code wrote under ~ stayed in its
+// copy, and never reached their real home. A copy of a tile they trust now
+// is kept, not used; nothing of a copy is ever merged into the real home —
+// there is no "copy it over" here, only forget.
+function homesSection(el, d, now) {
+  const rows = d.homes || [];
+  if (!rows.length) return nothing;
+  return html`<section class="homes">
+    <div class="row"><h4>What tiles wrote to your home</h4></div>
+    <p class="lead">On a tile that isn't only yours and that you haven't trusted, your sessions read your home and write to a copy kept for that tile — your real home is not changed. Trusting a tile copies nothing from its copy into your home. <a href=${HOME_DOCS} target="_blank" rel="noopener">How this works</a></p>
+    <div class="items">${rows.map((c) => { const w = homeCopyWords(c); return html`<div class="item" data-home-copy=${c.id} data-unused=${c.unused ? 'true' : 'false'}>
+      <div class="what"><span class="name">${c.name && c.name !== c.tile ? html`${c.name} ` : nothing}<code>${c.tile}</code></span>
+        <div class="meta"><span>since ${dayWords(c.created, now)}</span>${fmtBytes(c.bytes) ? html`<span>${fmtBytes(c.bytes)}</span>` : nothing}<span class=${c.unused || c.gone ? 'muted' : ''} data-state>${w.state}</span></div></div>
+      ${el._m.forgetting === c.id
+        ? html`<span class="confirm" data-confirm><span class="warn">${w.confirm}</span>
+            <button class="forget-home yes" ?disabled=${!!el._m.busy} @click=${() => { set(el, { forgetting: '' }); act(el, c.id, () => el.api.forgetHome(c.id)); }}>Forget it</button>
+            <button class="link" @click=${() => set(el, { forgetting: '' })}>Keep it</button></span>`
+        : html`<button class="forget-home" ?disabled=${!!el._m.busy} @click=${() => set(el, { forgetting: c.id })}>${w.forget}</button>`}
+    </div>`; })}</div>
   </section>`;
 }
 
@@ -243,6 +267,7 @@ export function manageView(el, onClose) {
     ${m.err ? html`<div class="banner bad" role="alert"><span>${m.err}</span><button @click=${() => set(el, { err: '' })}>OK</button></div>` : nothing}
     ${d.available ? hs.map((h) => harnessSection(el, h, now, canChange)) : nothing}
     ${d.available ? trustedSection(el, d, now) : nothing}
+    ${homesSection(el, d, now)}
     ${d.available ? usesSection(el, now) : nothing}
     ${d.admin ? adminSection(el, d, now) : nothing}
   </div>`;

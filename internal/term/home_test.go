@@ -337,7 +337,7 @@ func fakeHolds(m *Manager) *[]*fakeHold {
 // The layers: one per person and tile identity, one hold shared by the
 // sessions on it and ended with the last, a new layer for a tile made
 // again, the note said once, forget, the sweeps.
-func TestHomeCopyStore(t *testing.T) {
+func TestHomeLayerStore(t *testing.T) {
 	m, tiles, _ := homeRig(t)
 	holds := fakeHolds(m)
 	tiles.set("apps/bob", func(x *homeTile) { x.owner = "user:bob" })
@@ -502,7 +502,7 @@ func mustSource(t *testing.T, tiles *homeTiles, user, tile string) signins.Sourc
 }
 
 // A hold that dies by itself is not reused: the next session starts another.
-func TestHomeCopyDeadHold(t *testing.T) {
+func TestHomeLayerDeadHold(t *testing.T) {
 	m, tiles, _ := homeRig(t)
 	holds := fakeHolds(m)
 	tiles.set("apps/bob", func(x *homeTile) { x.owner = "user:bob" })

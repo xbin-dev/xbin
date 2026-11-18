@@ -156,11 +156,13 @@ So xbind decides, itself, at every start:
 **The card.** In the tile's Agent tab: whose tile it is and who can
 change it — by **account id**, the display name beside it (a display name
 is its bearer's to set; the id is what xbind checks) — two sentences —
-"Code in this tile runs with your sign-in while your coding agent works.
-People who can change this tile could read it and use your Claude Code
-account." — and two choices of equal weight: **Trust this tile — use my
-sign-in**, or **Start without my sign-in** (it says what the agent then
-runs on). Neither is pre-selected; "Trust this tile" answers only your own
+"Trusting means your Claude Code sign-in is used here and this tile's code
+can change your home. People who can change this tile could read it and
+use your Claude Code account." — trusting is those two things, and
+nothing a tile wrote to its copy of your home is ever copied into your
+home ([below](#your-home-on-a-tile-that-isnt-only-yours)) — and two
+choices of equal weight: **Trust this tile — use my sign-in**, or **Start
+without my sign-in** (it says what the agent then runs on). Neither is pre-selected; "Trust this tile" answers only your own
 click, a moment after it appears, never Enter. With more than three people
 able to change the tile the card lists three and offers **Show all**: you
 see every one of them before the button can be used. A page can open the
@@ -279,13 +281,100 @@ once.
 | **Your workspace agent's model** | never by default: a session it starts has your sign-in only where you ticked "Use my … sign-in for this session" on that start's approval — and then **it can**: it prompts that session and reads its results. Masking (next row) lowers the chance; it does not prevent a session that is asked to from handing the credential over in a form xbind doesn't recognise. |
 | What xbind keeps of a session (events to pages, history, your agent's `tile_agent_result`, logs, backups of them) | masked, **not guaranteed**: xbind replaces the credential with `[saved sign-in]` on the joined text of each stream — as it is, with anything between its characters (spaces, newlines), as base64, hex or `%XX` — and masks anything shaped like a harness credential (`sk-…`, `AIza…`). That catches a tool that printed its environment. It cannot catch every encoding, and it is not a boundary: treat a session that holds your sign-in as able to disclose it. |
 | **The coding agent's own files in your home** | **not masked**: Claude Code and Codex keep their own transcripts (`~/.claude/projects/`, `~/.codex/sessions/`) — xbind needs them there to resume a conversation — and your home is the same on every tile. If a tool printed the credential, it is in those files, where a session of yours on *another* tile (one you haven't trusted, which got no sign-in) could read it. If that happened: remove the sign-in here, revoke it at its vendor, and delete that transcript. |
-| **Your home, shared by all your tiles — OPEN** | **code in a tile you have NOT trusted can still reach a sign-in used elsewhere.** Your one `$HOME` is mounted read-write into every session of yours, on every tile. A session on an untrusted tile gets no sign-in — but code there (a hook someone left) can write `~/.claude/settings.json` hooks, `~/.gitconfig` (an alias, `core.hooksPath`, a credential helper) or `~/.bashrc`, and those run later, in a session of yours on your own or a trusted tile that *does* carry the sign-in. Trusting a tile and the default therefore protect against code that runs in the session they are decided for — not against code that waits in your home. This is known and not closed in this version (it needs a home per tile). Until then: treat running a coding agent or a terminal on a tile you don't trust as letting its editors write to your home; look at `~/.claude/settings.json`, `~/.gitconfig` and your shell profile after working on such a tile. |
+| **Your home, shared by all your tiles** | **closed for writes, open for reads.** On a tile that isn't only yours and that you haven't trusted, your sessions get a *copy* of your home: they read everything in it, and what they write under `~` stays on that tile ([your home on a tile that isn't only yours](#your-home-on-a-tile-that-isnt-only-yours)). So code there can no longer leave a `~/.claude/settings.json` hook, a `~/.gitconfig` setting or a `~/.bashrc` line that runs later on your own tiles, beside your sign-in. It can still **read** your home: a `claude auth login` kept in `$HOME`, an SSH key, a `~/.netrc`, the transcripts of the row above are readable there as they always were — which is why a saved sign-in (never in your home, never in a session on an untrusted tile) is the safer way to sign a coding agent in. |
 | A workspace admin | not through xbind: no route reads it, they can't drive your session, and a reset of your account removes the sign-ins. An admin can change a tile's programs or code before you start a session there. |
 | Whoever runs the machine | yes (xbind's memory; the files, in the plaintext vault mode) |
 
 Every use is logged for you (`GET /agent/signins/uses`: when, which
 sign-in, which tile and session, whether you or your agent started it) and
 in xbind's audit log — never the secret.
+
+## Your home on a tile that isn't only yours
+
+You have one home directory for all your tiles (`~`: your git identity,
+SSH keys, dotfiles, your coding agents' settings and logins). Every
+terminal and coding-agent session you run mounts it.
+
+**On a tile that isn't only yours — and that you haven't trusted — your
+sessions get this tile's copy of your home.** The rule is the trust rule
+above, the same answer: the tile is owned by someone else (another person,
+an org, the workspace unless you administer it), or someone else who isn't
+an admin can change its code, and you have not said "I trust this tile's
+source".
+
+- **Reads are unchanged.** The session sees everything in your real home,
+  as it is now: `git` knows who you are, your SSH keys work, your tools
+  find their settings.
+- **Writes stay on this tile.** Whatever the session writes under `~` — a
+  dotfile, a tool's cache, a shell history, a `claude auth login` — goes
+  to a copy kept for you on that tile, and is there again the next time
+  you work on that tile. It never reaches your real home, your other
+  tiles, another person, or the tile's own backend.
+- The session says which it has: its window's status bar and its row show
+  **home: yours** or **home: this tile's copy (changes stay on this
+  tile)**, and the first session on a tile's copy says so in its first
+  lines.
+
+Why: code in a tile runs in your sessions there — a project hook, a build
+script, a Makefile. With your real home writable it could leave a file
+that runs *later*, on your own tile, where your saved sign-in is:
+`~/.claude/settings.json` hooks, `~/.gitconfig` (`core.fsmonitor`,
+`core.hooksPath`, an alias), `~/.bashrc`, `~/.npmrc`, `~/.local/bin`,
+`~/.ssh/config`.
+
+**Trusting the tile** (the home line in the status bar asks; the sign-in
+card does too) means two things: your saved sign-in is used there, and
+that tile's code can change your home. New sessions on the tile then have
+your real home. Nothing the tile wrote to its copy is merged into your
+home — there is no "copy it over", because that would be exactly the
+attack — and the copy is kept, unused, until you forget it. Sessions
+already open stay on the copy (a restart keeps it: your coding agent's
+own session files are in it); start a new one for your real home. If your
+trust stops holding — you take it back, someone new can change the tile,
+it gets another owner, an admin switches trusting off — the sessions that
+had your real home there are ended, and the next one is on the copy as you
+left it.
+
+**Forget what this tile wrote to my home** (the same dialog, and the list
+under *Coding-agent sign-ins*, which shows each copy and its size) deletes
+a copy and ends your sessions on it. A copy also goes when its tile is
+deleted, or your account is. Your real home is never touched by any of
+this.
+
+What to know:
+
+- **It is about writes.** Code on an untrusted tile can still *read* your
+  home. Don't keep a secret there that such code must not see; a saved
+  sign-in is never in your home.
+- A file your session changes is copied to the tile's copy first, whole
+  (a large database in `~`, once per tile). A program that had it open
+  before the change keeps reading the old one.
+- File locks and sockets in `~` are shared by your sessions on the same
+  tile, not with your sessions elsewhere.
+- Where xbind has no fuse-overlayfs and uses the kernel's overlay, a
+  directory that exists in your real home can't be renamed in place on a
+  copy (`mv` copies it instead; a tool that renames it itself fails).
+- A session someone else could type into never has your real home: an
+  admin can't attach to, or drive, your session when it has your own home
+  (they can end it). A session opened by a tile's own token (`bx agent`
+  in a terminal) has your real home only when the terminal it runs in
+  does.
+- The root token has its own home (`homes/owner`) and keeps no trust
+  answers: on a tile owned by a person or an org it always works on a
+  copy.
+- If the copy can't be mounted (no fuse-overlayfs where the copy was made
+  with it, a kernel without overlay mounts in user namespaces), the
+  session **fails** and says why. Your real home is never opened in its
+  place.
+- **Without sandboxes** (`xbind` without `--isolate`, the development
+  mode) there is nothing to mount: every session is a process of xbind's
+  own user with your real home, and nothing here protects it. The row
+  says `home: yours` with a note that the workspace has no sandboxes.
+
+Admins: copies live in `data/home-copies/<person>/<tile>/` (in a backup of
+`data/`), are mounted in no sandbox but through their overlay, and are
+removed by xbind when a tile or an account is deleted. Homes have no
+quota in xbind; the list shows each copy's size.
 
 ## Where you meet it
 

@@ -870,3 +870,92 @@ func TestHomeCopyAgentSessions(t *testing.T) {
 		t.Fatal("on her own tile the agent's session files are not in her real home")
 	}
 }
+
+// TestHomeCopyPerf measures a session's start over a large home — the
+// person's own (a bind, as before D245) against a tile's copy (the first
+// session starts the layer's hold; a second one only asks it for a clone)
+// — and prints the numbers. Not a pass/fail test: run it by hand with
+// XBIN_HOME_PERF=<files>:<MiB> (the brief's 50000:1024).
+func TestHomeCopyPerf(t *testing.T) {
+	spec := os.Getenv("XBIN_HOME_PERF")
+	if spec == "" {
+		t.Skip("set XBIN_HOME_PERF=<files>:<MiB> to measure")
+	}
+	var files, mib int
+	if _, err := fmt.Sscanf(spec, "%d:%d", &files, &mib); err != nil || files <= 0 || mib <= 0 {
+		t.Fatalf("XBIN_HOME_PERF=%q: want <files>:<MiB>", spec)
+	}
+	h := newHomeLive(t)
+	home := h.seedHome(t, "alice")
+	// files spread over 500 directories; their sizes add up to mib
+	each := make([]byte, mib<<20/files)
+	for i := range each {
+		each[i] = byte(i)
+	}
+	began := time.Now()
+	for i := 0; i < files; i++ {
+		dir := filepath.Join(home, "data", fmt.Sprintf("d%03d", i%500))
+		if i < 500 {
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("f%05d", i)), each, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Logf("home: %d files, %d MiB (made in %v); overlay: %s", files, mib, time.Since(began).Round(time.Millisecond), map[bool]string{true: "fuse-overlayfs", false: "kernel"}[sandbox.FuseOverlayfs() != ""])
+	// a start: from the socket's dial to the shell's first answer
+	start := func(tile string) (time.Duration, *liveTerm) {
+		t0 := time.Now()
+		lt := h.mustOpen(t, "alice", tile)
+		if _, ended := lt.run("true"); ended {
+			t.Fatalf("the session on %s ended", tile)
+		}
+		return time.Since(t0), lt
+	}
+	median := func(tile string, n int) time.Duration {
+		var ds []time.Duration
+		for i := 0; i < n; i++ {
+			d, lt := start(tile)
+			lt.exit(h.m)
+			h.idle(t, "alice")
+			ds = append(ds, d)
+		}
+		sort.Slice(ds, func(i, j int) bool { return ds[i] < ds[j] })
+		return ds[len(ds)/2]
+	}
+	const n = 7
+	own := median("apps/alice", n)
+	cold := median("apps/bob", n) // each starts and ends the layer's hold
+	_, keep := start("apps/bob")  // …and with a session already on the layer
+	var warm []time.Duration
+	for i := 0; i < n; i++ {
+		d, lt := start("apps/bob")
+		lt.exit(h.m)
+		warm = append(warm, d)
+	}
+	sort.Slice(warm, func(i, j int) bool { return warm[i] < warm[j] })
+	t.Logf("session start, median of %d: real home (before, and on own tiles) %v; tile's copy, first session on it %v; tile's copy, a session already there %v",
+		n, own.Round(time.Millisecond), cold.Round(time.Millisecond), warm[n/2].Round(time.Millisecond))
+	// walking the whole home, and writing one of its files (a copy-up)
+	walk := func(lt *liveTerm) time.Duration {
+		t0 := time.Now()
+		if _, ended := lt.run("find ~ -type f | wc -l"); ended {
+			t.Fatal("the session ended during the walk")
+		}
+		return time.Since(t0)
+	}
+	w1, w2 := walk(keep), walk(keep)
+	t0 := time.Now()
+	keep.run("echo x >> ~/data/d000/f00000")
+	up := time.Since(t0)
+	keep.exit(h.m)
+	h.idle(t, "alice")
+	_, ownT := start("apps/alice")
+	o1, o2 := walk(ownT), walk(ownT)
+	ownT.exit(h.m)
+	h.idle(t, "alice")
+	t.Logf("find ~ -type f (%d files): real home %v then %v; tile's copy %v then %v; first write to a %d KiB file of the home on the copy %v",
+		files, o1.Round(time.Millisecond), o2.Round(time.Millisecond), w1.Round(time.Millisecond), w2.Round(time.Millisecond), len(each)>>10, up.Round(time.Millisecond))
+}

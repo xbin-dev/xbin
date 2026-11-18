@@ -101,6 +101,9 @@ func (pl homePlan) view(m *Manager, agentRow bool) *SessionHome {
 		return nil
 	}
 	v := &SessionHome{Mode: pl.mode, Why: pl.why, Kept: pl.kept, Unsandboxed: !m.Isolate, Docs: HomeDocs}
+	if pl.refuse != "" {
+		v.Why = pl.refuse // a session would not start: why
+	}
 	if agentRow {
 		// a session the person's workspace agent started is read by it: the
 		// mode, and nothing of who owns the tile or who can change it
@@ -261,7 +264,7 @@ func (m *Manager) homeNote(o openOpts) (lines []string, ok bool) {
 	}
 	switch {
 	case o.home.trust != nil && o.home.trust.Allowed:
-		lines = append(lines, "To have your real home here, as before: trust this tile's source — the home line in the window's status bar asks. New sessions then use your real home. More: "+HomeDocs)
+		lines = append(lines, "To have your real home here, as before: trust this tile's source — on the web, the home line in this tile's window (its status bar) asks, once. New sessions then use your real home. More: "+HomeDocs)
 	default:
 		lines = append(lines, "More: "+HomeDocs)
 	}

@@ -24,6 +24,7 @@ import { html, css, nothing, live } from 'lit';
 import '/vendor/bx-icons.js';
 import { rememberVM } from '/vendor/frame-launcher.js';
 import { barDeploy, titleChip, targetSelect, targetChoices } from '/vendor/frame-deploy.js';
+import { homeWords, signinsApi } from '/vendor/agent-signins.js';
 
 const SHEET = typeof matchMedia === 'function' ? matchMedia('(max-width: 820px)') : { matches: false };
 
@@ -46,11 +47,66 @@ export function statusBar(f) {
     ${cur ? html`<span class="who" title=${cur.ended ? 'this session has ended' : 'the session in view: these settings are its'}>
         <bx-icon name=${cur.kind === 'agent' ? 'agent' : 'terminal'}></bx-icon><span class="lbl">${sessionLabel(cur)}</span>${cur.ended ? html`<span class="ended">ended</span>` : nothing}</span>`
       : html`<span class="who none">no session</span>`}
+    ${live ? homeChip(f, cur) : nothing}
     ${f._narrow
       ? html`${titleChip(f)}<span class="grow"></span>${live ? html`<button class="fold" title="this session's network, tile API, VM and GPU"
           aria-label="session settings" @click=${(e) => openFolded(f, e)}><bx-icon name="settings"></bx-icon><span class="lbl">${summary(f, cur)}</span><bx-icon name="chevron-down"></bx-icon></button>` : nothing}${layerButtons(f, true)}`
       : html`${live ? pickers(f, cur) : nothing}<span class="grow"></span>${layerButtons(f, false)}`}
   </div>`;
+}
+
+// The session's home (D245): "home: yours", a link to what that means — or
+// "home: this tile's copy" on a tile whose source the person has not
+// trusted: their real home is read there, and what the session writes
+// under ~ stays on this tile. The chip opens the explanation, with the one
+// click that trusts the tile (new sessions then have the real home) and
+// "forget what this tile wrote to my home". Fixed when the session started.
+function homeChip(f, cur) {
+  if (!cur.home) return nothing;
+  const w = homeWords(cur.home);
+  if (cur.home.mode !== 'copy') {
+    return html`<a class=${'home' + (w.tone ? ' ' + w.tone : '')} data-home="own" href=${w.docs} target="_blank" rel="noopener" title=${w.title}><bx-icon name="home"></bx-icon><span class="lbl">${w.text}</span></a>`;
+  }
+  return html`<button class="home copy" data-home="copy" title=${w.title + ' Click for more.'} aria-label=${w.long}
+      @click=${() => aboutHome(f)}><bx-icon name="home"></bx-icon><span class="lbl">${f._narrow ? 'home: copy' : w.text}</span></button>`;
+}
+
+// aboutHome(f): the copy explained, as it stands now for this tile (GET
+// /agent/signins?tile=): why, whose tile it is and who can change it, what
+// trusting means — and the two acts, each the person's own click in xbin's
+// dialog. Trusting merges nothing: there is no "copy it over".
+export async function aboutHome(f) {
+  const api = signinsApi();
+  let view;
+  try { view = await api.list(f.src); } catch (err) { await f._ask({ title: 'Your home on this tile', error: err.message || String(err), buttons: [{ label: 'Close', value: null }] }); return; }
+  const home = view.home || {};
+  const w = homeWords(home);
+  if (home.mode !== 'copy') { // trusted since this session started: say what that means for it
+    await f._ask({ title: 'Your home on this tile', message: `${w.trusted || 'New sessions on this tile have your real home.'} This session started on this tile's copy of your home and stays on it.`,
+      buttons: [{ label: 'Close', value: null }, ...(home.copy ? [{ label: w.forget || 'Forget what this tile wrote to my home', value: 'forget', danger: true }] : [])] }).then((r) => r?.button === 'forget' && forgetHome(f, api, home.copy));
+    return;
+  }
+  const r = await f._ask({ title: w.long, message: [...w.about, `More: ${w.docs}`].join('\n\n'), buttons: [
+    { label: 'Close', value: null },
+    ...(home.copy ? [{ label: w.forget, value: 'forget', danger: true }] : []),
+    ...(w.trust ? [{ label: w.trust, value: 'trust' }] : []),
+  ] });
+  if (r?.button === 'forget') return forgetHome(f, api, home.copy);
+  if (r?.button !== 'trust') return;
+  try {
+    await api.trust(f.src, home.trust.basis); // for the question as it was shown: its basis
+    await f._ask({ title: 'Your home on this tile', message: w.trusted, buttons: [{ label: 'OK', value: 'ok', primary: true }] });
+  } catch (err) {
+    await f._ask({ title: 'Your home on this tile', error: err.status === 409 && err.data && err.data.changed
+      ? 'This tile changed while you were deciding — who owns it or who can change it. Look again.' : (err.message || String(err)), buttons: [{ label: 'Close', value: null }] });
+  }
+}
+
+async function forgetHome(f, api, copy) {
+  if (!copy) return;
+  const size = copy.bytes >= 0 ? ` (${Math.max(1, Math.round(copy.bytes / 1024))} KB)` : '';
+  if (!(await f._confirm('Forget what this tile wrote to your home?', `What ${copy.tile} wrote to its copy of your home${size} is deleted, and your sessions on it are ended. Your real home is not touched.`, 'Forget'))) return;
+  try { await api.forgetHome(copy.id); } catch (err) { await f._ask({ title: 'Your home on this tile', error: err.message || String(err), buttons: [{ label: 'Close', value: null }] }); }
 }
 
 // The pickers mark their choice on the OPTIONS (live .selected): a select's
@@ -188,6 +244,14 @@ export const statusCss = css`
   .status button.lr, .status button.dentry { color: var(--bx-text, #E9EAF0); }
   .status button.lr.compact { max-width: 12ch; overflow: hidden; text-overflow: ellipsis; }
   .status button:focus-visible { outline-offset: calc(-1 * var(--bx-focus-width, 3px)); box-shadow: none; }
+  /* the session's home (D245): a quiet link when it is the person's own, a marked chip when it is this tile's copy */
+  .status a.home {
+    display: inline-flex; align-items: center; gap: 4px; flex: none; height: 24px; padding: 0 6px;
+    color: var(--bx-muted, #A3A6B6); text-decoration: none; border-radius: var(--bx-radius, 2px);
+  }
+  .status a.home:hover { color: var(--bx-text, #E9EAF0); background: var(--bx-control-hover, #33353F); }
+  .status a.home.warn, .status button.home.copy { color: var(--bx-warn, #F2994A); }
+  .status button.home.copy { border: 1px solid var(--bx-border, #33353F); }
   select.scope {
     flex: 0 1 auto; box-sizing: border-box; height: 22px; padding: 0 4px; cursor: pointer; min-width: 9ch;
     color: var(--bx-text, #E9EAF0); background: var(--bx-panel, #1F2028);

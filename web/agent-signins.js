@@ -54,6 +54,7 @@ export function signinsApi(fetchFn = (...a) => fetch(...a)) {
     setTrustPolicy: (trust) => c('PUT', '/policy', { trust }),
     trust: (tile, basis) => c('POST', '/trust', { tile, basis }), // basis: the question's own (here.trust.basis) — a tile that changed since is 409 {changed, trust}
     untrust: (tid) => c('DELETE', `/trust/${id(tid)}`),
+    forgetHome: (hid) => c('DELETE', `/homes/${id(hid)}`), // "forget what this tile wrote to my home" (D245) → {ok, tile, ended}
   };
 }
 
@@ -152,7 +153,9 @@ export function namesWords(names = [], more = 0) {
  *            "N more" — everyone with `all` (the person must be able to
  *            see everyone they trust: more > 0 means "show all" first)
  *   more     how many are not shown
- *   risk     what trusting means, in two sentences
+ *   risk     what trusting means, in two sentences — two things: the
+ *            sign-in is used here, and the tile's code can change the
+ *            person's home (D245)
  *   trust, without   the two choices — of equal weight
  *   then     what the agent runs on without the sign-in ('own' |
  *            'connector' | anything else: signed out)
@@ -174,7 +177,7 @@ export function trustWords(trust, harness = 'coding agent', without = '', all = 
     whose: [whose, who].filter(Boolean).join(' '),
     more: everyone.length - shown.length,
     showAll: `Show all ${everyone.length}`,
-    risk: `Code in this tile runs with your sign-in while your coding agent works. People who can change this tile could read it and use your ${harness} account.`,
+    risk: `Trusting means your ${harness} sign-in is used here and this tile's code can change your home. People who can change this tile could read it and use your ${harness} account.`,
     trust: 'Trust this tile — use my sign-in',
     without: 'Start without my sign-in',
     then: without === 'own' ? "Without it, the agent uses this tile's own login." : without === 'connector' ? "Without it, the agent runs on the workspace's model."
@@ -182,6 +185,88 @@ export function trustWords(trust, harness = 'coding agent', without = '', all = 
     line: "I trust this tile's source",
     unticked: 'Tick both, or the session starts without your sign-in.',
     forbidden: t.allowed === false ? `${t.forbidden || "Trusting a tile's source is switched off for this workspace"}.` : '',
+  };
+}
+
+/** HOME_DOCS: where the home rule is explained (D245). */
+export const HOME_DOCS = '/docs/agent-signins.md#your-home-on-a-tile-that-isnt-only-yours';
+
+/** fmtBytes(n): "12 KB", "3.4 MB" — '' for an unknown size. */
+export function fmtBytes(n) {
+  if (!(n >= 0)) return '';
+  if (n < 1024) return `${n} B`;
+  const u = ['KB', 'MB', 'GB', 'TB'];
+  let v = n / 1024, i = 0;
+  while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
+  return `${v >= 10 || Number.isInteger(v) ? Math.round(v) : v.toFixed(1)} ${u[i]}`;
+}
+
+/**
+ * homeWords(home): the words for which home a session mounts (D245) — a
+ * session row's `home`, or GET /agent/signins?tile='s ({mode: own | copy,
+ * why?, kept?, unsandboxed?, trust?, docs, copy?}). On a tile whose source
+ * isn't only the person's and that they have not trusted, their sessions
+ * read their real home and write to a copy kept for that tile.
+ *
+ *   text     "home: yours" | "home: this tile's copy"
+ *   long     …with "(changes stay on this tile)"
+ *   title    the tooltip: why, in a sentence or two
+ *   tone     '' | 'warn' (the copy; a workspace without sandboxes)
+ *   docs     the link to the explanation
+ *   about    the dialog's paragraphs, for the copy: what it is, why, what
+ *            trusting means (two things), and that nothing is copied over
+ *   trust    the button that trusts the tile ('' when the person can't)
+ *   forget   "Forget what this tile wrote to my home"
+ *   trusted  what to say once they trusted it
+ */
+export function homeWords(home) {
+  const h = home || {};
+  const docs = h.docs || HOME_DOCS;
+  if (h.mode !== 'copy') {
+    return {
+      text: 'home: yours', long: 'home: yours', tone: h.unsandboxed ? 'warn' : '', docs,
+      title: h.unsandboxed ? 'This workspace runs without sandboxes: every session uses your real home, and nothing protects it from a tile\'s code.'
+        : 'This session has your real home: what you write under ~ is in your home on every tile.',
+      about: [], trust: '', forget: '', trusted: '',
+    };
+  }
+  const t = h.trust;
+  const whose = t ? trustWords(t, '', '', true).whose : '';
+  const about = [
+    'Your home on this tile is a copy: this session reads everything in your real home, and what it writes under ~ stays on this tile. Your real home is not changed.',
+    `Why: ${h.kept ? 'this session started on this tile\'s copy of your home and stays on it — a new session is judged anew' : (h.why || 'this tile isn\'t only yours, and you haven\'t said you trust its source')}. Code in a tile that isn't only yours could otherwise leave a file in your home — a shell profile, a git setting, a coding agent's hook — that runs later on your own tiles.`,
+  ];
+  if (whose) about.push(whose);
+  if (t && t.allowed) {
+    about.push("Trusting this tile's source means two things: xbin uses your saved coding-agent sign-in here, and this tile's code can change your home. New sessions on this tile then have your real home; this one stays on the copy. Nothing this tile wrote to its copy is copied into your home.");
+  } else if (t) {
+    about.push(`${t.forbidden || "Trusting a tile's source is switched off for this workspace"}.`);
+  }
+  return {
+    text: "home: this tile's copy", long: "home: this tile's copy (changes stay on this tile)", tone: 'warn', docs,
+    title: `What you write under ~ here stays on this tile; your real home is read, not changed. ${h.why ? `${h.why}.` : ''}`.trim(),
+    about,
+    trust: t && t.allowed ? "I trust this tile's source" : '',
+    forget: 'Forget what this tile wrote to my home',
+    trusted: 'Trusted. New sessions on this tile have your real home; the ones already open stay on the copy until you start them again.',
+  };
+}
+
+/**
+ * homeCopyWords(copy): one row of the list of copies (GET /agent/signins →
+ * homes: {id, tile, name?, created, bytes, sessions, gone?, unused}).
+ */
+export function homeCopyWords(copy) {
+  const c = copy || {};
+  const size = fmtBytes(c.bytes);
+  const state = c.gone ? 'its tile is gone — removed at the next sweep'
+    : c.unused ? 'kept, not used while you trust this tile'
+      : c.sessions > 0 ? `in use by ${c.sessions} session${c.sessions === 1 ? '' : 's'}` : 'used by your sessions on this tile';
+  return {
+    what: `What ${c.tile || 'this tile'} wrote to its copy of your home${size ? ` — ${size}` : ''}`,
+    state,
+    forget: 'Forget what this tile wrote to my home',
+    confirm: `Delete what ${c.tile || 'this tile'} wrote to its copy of your home${size ? ` (${size})` : ''}? Your real home is not touched.${c.sessions > 0 ? ` Your ${c.sessions} session${c.sessions === 1 ? '' : 's'} on it will be ended.` : ''}`,
   };
 }
 

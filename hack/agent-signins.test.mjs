@@ -2,7 +2,7 @@
 // calls and words (D230). node --test hack/agent-signins.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { signinsApi, SigninsError, harnessOf, whyNot, kindWords, dayWords, expiryWords, signinChip, savedHint, startSignInWords, nextStep, trustWords, namesWords, offerWords } from '../web/agent-signins.js';
+import { signinsApi, SigninsError, harnessOf, whyNot, kindWords, dayWords, expiryWords, signinChip, savedHint, startSignInWords, nextStep, trustWords, namesWords, offerWords, homeWords, homeCopyWords, fmtBytes, HOME_DOCS } from '../web/agent-signins.js';
 
 const DAY = 86400000;
 
@@ -139,7 +139,7 @@ test('"I trust this tile\'s source": the card\'s words — whose tile, who can c
   const w = trustWords({ tile: 'apps/crm', ownerKind: 'person', owner: 'bob', editors: ['carol', 'dave'], allowed: true }, 'Claude Code', 'own');
   assert.equal(w.title, 'Use your Claude Code sign-in on this tile?');
   assert.equal(w.whose, 'This tile belongs to bob. carol and dave can also change it.');
-  assert.equal(w.risk, 'Code in this tile runs with your sign-in while your coding agent works. People who can change this tile could read it and use your Claude Code account.');
+  assert.equal(w.risk, "Trusting means your Claude Code sign-in is used here and this tile's code can change your home. People who can change this tile could read it and use your Claude Code account.");
   assert.equal(w.trust, 'Trust this tile — use my sign-in');
   assert.equal(w.without, 'Start without my sign-in');
   assert.equal(w.then, "Without it, the agent uses this tile's own login.");
@@ -221,4 +221,63 @@ test('ArmedButtons: armed a moment after it appears — and again whenever what 
   await wait(ARM_MS / 2 + 60);
   assert.equal(armed.armed(el), true);
   assert.equal(attrs['aria-disabled'], 'false');
+});
+
+test('which home a session mounts (D245): the words for "yours" and for this tile\'s copy, what trusting means, forget — and nothing that copies a copy over', () => {
+  const own = homeWords({ mode: 'own', docs: HOME_DOCS });
+  assert.equal(own.text, 'home: yours');
+  assert.equal(own.long, 'home: yours');
+  assert.equal(own.tone, '');
+  assert.equal(own.docs, '/docs/agent-signins.md#your-home-on-a-tile-that-isnt-only-yours');
+  assert.equal(own.trust, '');
+  // a workspace without sandboxes protects nothing, and says so
+  const bare = homeWords({ mode: 'own', unsandboxed: true });
+  assert.equal(bare.tone, 'warn');
+  assert.match(bare.title, /without sandboxes/);
+  assert.match(bare.title, /nothing protects/);
+
+  const trust = { tile: 'apps/crm', basis: 'tb_1', ownerKind: 'person', owner: 'bob', editors: ['carol', 'dave', 'erin', 'frank'], allowed: true };
+  const copy = homeWords({ mode: 'copy', why: "apps/crm isn't only yours — it belongs to bob — and you haven't said you trust its source", trust });
+  assert.equal(copy.text, "home: this tile's copy");
+  assert.equal(copy.long, "home: this tile's copy (changes stay on this tile)");
+  assert.equal(copy.tone, 'warn');
+  assert.equal(copy.trust, "I trust this tile's source");
+  assert.equal(copy.forget, 'Forget what this tile wrote to my home');
+  const all = copy.about.join(' ');
+  assert.match(all, /reads everything in your real home/);
+  assert.match(all, /Your real home is not changed/);
+  assert.match(all, /it belongs to bob/);
+  // everyone who can change the tile is named before it can be trusted — never "and 2 more"
+  assert.match(all, /carol, dave, erin and frank can also change it/);
+  // what trusting means: two things — and nothing is merged
+  assert.match(all, /means two things: xbin uses your saved coding-agent sign-in here, and this tile's code can change your home/);
+  assert.match(all, /Nothing this tile wrote to its copy is copied into your home/);
+  for (const w of [copy.trust, copy.forget, ...copy.about]) assert.doesNotMatch(w, /copy (it|them) over|merge|bring .* along/i);
+  // trusting switched off: no button, and who can change that
+  const off = homeWords({ mode: 'copy', why: 'x', trust: { ...trust, allowed: false, forbidden: "Trusting a tile's source is switched off for this workspace — a workspace admin can change it" } });
+  assert.equal(off.trust, '');
+  assert.match(off.about.join(' '), /a workspace admin can change it/);
+  // nobody to ask (the root token, a session the workspace agent started): no button either
+  assert.equal(homeWords({ mode: 'copy', why: 'x' }).trust, '');
+  // a session that started on the copy and stays on it
+  assert.match(homeWords({ mode: 'copy', kept: true, trust }).about.join(' '), /started on this tile's copy of your home and stays on it/);
+
+  assert.equal(fmtBytes(-1), '');
+  assert.equal(fmtBytes(512), '512 B');
+  assert.equal(fmtBytes(123456), '121 KB');
+  assert.equal(fmtBytes(5 * 1024 * 1024), '5 MB');
+  const kept = homeCopyWords({ id: 'hc_1', tile: 'apps/crm', bytes: 123456, sessions: 0, unused: true });
+  assert.equal(kept.state, 'kept, not used while you trust this tile');
+  assert.equal(kept.forget, 'Forget what this tile wrote to my home');
+  assert.match(kept.confirm, /Your real home is not touched/);
+  assert.equal(homeCopyWords({ tile: 'apps/crm', bytes: 1, sessions: 2 }).state, 'in use by 2 sessions');
+  assert.match(homeCopyWords({ tile: 'apps/crm', bytes: 1, sessions: 2 }).confirm, /Your 2 sessions on it will be ended/);
+  assert.match(homeCopyWords({ tile: 'apps/gone', gone: true }).state, /its tile is gone/);
+});
+
+test('forgetting a copy is one call: DELETE /agent/signins/homes/<id>', async () => {
+  const calls = [];
+  const api = signinsApi(async (url, init) => { calls.push([init.method, url]); return new Response(JSON.stringify({ ok: true, tile: 'apps/crm', ended: 1 }), { status: 200, headers: { 'content-type': 'application/json' } }); });
+  assert.deepEqual(await api.forgetHome('hc_a/b'), { ok: true, tile: 'apps/crm', ended: 1 });
+  assert.deepEqual(calls, [['DELETE', '/api/xbin/agent/signins/homes/hc_a%2Fb']]);
 });

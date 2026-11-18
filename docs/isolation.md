@@ -414,14 +414,28 @@ workspace-wide git is a host-shell job — the root terminal is disabled.) This 
 ## `$HOME` — per user, shared across that user's terminals
 
 `$HOME` is `<workspace>/homes/<user>` — one home per signed-in user (the root
-token gets `homes/owner`) — and it is **read-write in every terminal**,
-including component terminals, where it's the one writable thing outside the
-component itself. Within a user it is shared: your agent-CLI config, auth/login
+token gets `homes/owner`) — and it is **read-write in every terminal on a
+tile that is yours or that you trust** (on any other tile it is a copy:
+below), including component terminals, where it's the one writable thing
+outside the component itself. Within a user it is shared: your agent-CLI config, auth/login
 state, and dotfiles live there once and follow you into every terminal you
 open, and they **survive xbind upgrades** (workspace data, not part of any
 rootfs). Other users get their own homes — configs don't mix. (Hygiene, not a
 security boundary — the filesystem user is the same; the API credential,
 though, is per-session and tile-scoped, see docs/overview/09-terminals.md.)
+
+**On a tile that isn't only yours and that you haven't trusted, `$HOME` is
+this tile's copy of your home** (D245): the session reads your real home
+and writes to a copy-on-write layer kept for you on that tile
+(`data/home-copies/<user>/<tile>/`, mounted in no sandbox but through its
+overlay), so the tile's code can't leave a file in your home that runs
+later on your own tiles. The overlay is mounted once per person and tile
+in a namespace of its own and attached to each session's sandbox
+(fuse-overlayfs where xbind has one, else the kernel's overlayfs); nothing
+is mounted on the host, and a copy that can't be mounted fails the session
+rather than opening the real home. The session's row and status bar say
+`home: yours` or `home: this tile's copy`. The rule, trusting a tile and
+forgetting a copy: [agent-signins.md](agent-signins.md#your-home-on-a-tile-that-isnt-only-yours).
 
 ## The dev layer — persistent, per-component, resettable
 

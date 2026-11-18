@@ -303,9 +303,10 @@ session runs on instead).
 **The card** (`<bx-agent-signin view="trust">`, the tile window's Agent
 tab, before a first start and whenever a session ran without): whose tile
 it is and who can change it (xbind's names, at most three and "N more");
-"Code in this tile runs with your sign-in while your coding agent works.
-People who can change this tile could read it and use your ‹harness›
-account."; two buttons of the same size and look — "Trust this tile — use
+"Trusting means your ‹harness› sign-in is used here and this tile's code
+can change your home. People who can change this tile could read it and
+use your ‹harness› account." (two things since D245: the sign-in, and the
+home — `home-on-untrusted-tiles.md`); two buttons of the same size and look — "Trust this tile — use
 my sign-in" (armed: 600 ms after it shows, the person's own click, nothing
 over it, never Enter) and "Start without my sign-in" — and what the agent
 runs on without. Neither is focused or pre-selected. Declining is
@@ -498,7 +499,7 @@ sandbox runtime, the template) and needs its own review; the store's
 | Admin routes | — | refused | — | refused | — | — | — |
 | Spawn frame → adapter | **by default: nobody** — it goes in unasked only on a tile the person owns (or, for a workspace admin, a workspace-owned one) that no non-admin else can change. **After "I trust this tile's source": the people the card listed, by account id** — the tile's owner and every editor at that moment: a file any of them leaves in the tile runs in the session — residual 8. Someone new, another owner, a move: the trust is void for good, the session is ended, trust is asked again | **yes** — residual 1: on the person's own tile only code they (or an admin) put there; on a trusted tile the listed people's too | **yes**: it can run a command that prints it — residual 2 | **never by default; yes for a session whose start the person approved with "Use my sign-in for this session" ticked** — it directs that session — residual 7 | masked in the session log | history is masked | — |
 | The trust answer | given by the person only (person-only route; a ticked line of their own approval), for the basis they were shown (409 on another); never an admin, an owner, the agent, a page message | refused: tile credentials can't call the route | — | refused (`dNever`); a tick can't be sent by the agent or from a notification | audited (`signin.trust`, `signin.untrust`, `signin.trust.void`): tile, owner, counts | metadata in the person's file | an older xbind ignores it (it uses the stricter rule of v0.3.80). The admins' ban on trusting is in `policy.trust.json`, which an older xbind never rewrites: a downgrade and return keeps it |
-| The person's `$HOME`, one for all their tiles — **OPEN** | **yes, indirectly**: someone who can change a tile the person has NOT trusted, where the person runs a coding agent or a terminal | **yes**: code in that tile runs in a session that carries no sign-in but mounts the person's home read-write — residual 10 | — | — | — | — | — |
+| The person's `$HOME`, one for all their tiles — **closed for writes, open for reads** (D245, `home-on-untrusted-tiles.md`) | **writes: no** — on a tile the person has NOT trusted their sessions mount a copy-on-write view of the home: what is written there stays in a layer per (person, tile identity) under `data/home-copies/`, never the real home; an admin has no pass into a session that has someone's real home. **reads: yes**, as always — residual 10 | **writes: no; reads: yes**: code in that tile runs in a session that carries no sign-in and reads the person's home (a login kept there, an SSH key, the transcripts of the row below) | — | — | — | the layers are in a backup of `data/` (they hold what untrusted code wrote; nothing reads them but their overlay) | an older xbind ignores the layers and mounts the real home read-write again |
 | Codex's `auth.json` | no: private `CODEX_HOME` in the session's `/tmp` | yes, as above | yes, as above | no | — | not in `$HOME`, so not in a backup of homes | — |
 | Session events, history | the person only (admins and view-as barred, live and in history) | — | — | masked on the joined stream (value with separators, base64, hex, %XX; credential shapes) — lowers accidental exposure, **not a guarantee** — residual 7 | masked, the same way | masked, the same way | reads masked history |
 | The harness's own transcripts in `$HOME` (`~/.claude/projects`, `~/.codex/sessions`) | no | **a session of the person's on another tile — one they haven't trusted — can read them** — residual 9 | yes | through a session it steers | — | **unmasked**, in a backup of homes | — |
@@ -576,19 +577,30 @@ Residual risks, stated:
    did, remove the sign-in, revoke it at the vendor and delete that
    transcript. Narrowing `$HOME` per tile (`plans/workspace-agent.md` §4)
    is the real fix.
-10. **OPEN — the person's one `$HOME` is mounted read-write into every
-    session, so an untrusted tile can reach a sign-in used elsewhere.**
-    A session on a tile the person has not trusted carries no sign-in.
-    But code in that tile (a hook a co-editor left) runs with the
-    person's home writable, and can plant `~/.claude/settings.json`
-    hooks, `~/.gitconfig` (an alias, `core.hooksPath`, a credential
-    helper) or `~/.bashrc` that run LATER, in a session of the person's
-    on their own or a trusted tile — one that does carry the sign-in.
-    The default and the trust prompt therefore bound code that runs in
-    the session they are decided for, not code that waits in the home.
-    Not changed in this round (the owner is being asked; the fix is a
-    home per tile, `plans/workspace-agent.md` §4). The builder docs say
-    it under "Who can read it" with what a person can do meanwhile.
+10. **The person's one `$HOME`: closed for writes on untrusted tiles
+    (D245), open for reads.** Until D245 the home was mounted read-write
+    into every session, so code in a tile the person had not trusted — a
+    hook a co-editor left — could plant `~/.claude/settings.json` hooks,
+    `~/.gitconfig` (an alias, `core.hooksPath`, a credential helper) or
+    `~/.bashrc` that ran LATER, in a session of the person's on their own
+    or a trusted tile, one that does carry the sign-in: the default and
+    the trust prompt bounded code that runs in the session they are
+    decided for, not code that waits in the home. Now a session on a tile
+    whose source needs the person's trust and has not got it mounts a
+    copy-on-write view of the home (`home-on-untrusted-tiles.md`): reads
+    come from the real home, writes go to a layer per (person, tile
+    identity) that never reaches it; trusting merges nothing; a trust
+    that stops holding ends the sessions that had the real home there; a
+    copy that cannot be mounted fails the session. **What remains: such
+    code still READS the home** — a `claude auth login` kept there, SSH
+    keys, `~/.netrc`, the harness transcripts of residual 9 — as it
+    always could. The saved sign-in is the answer for the coding agents'
+    credentials (it is never in the home, and never in a session on an
+    untrusted tile); hiding credential directories from reads on
+    untrusted tiles is designed, not built (the plan's §9). Without
+    sandboxes (`--isolate` off) nothing of this applies: sessions are
+    processes of xbind's own user. The builder docs say it under "Your
+    home on a tile that isn't only yours".
 
 ## 10. Routes, fields, settings
 

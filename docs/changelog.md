@@ -10,6 +10,35 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-11-18
+
+- terminals, coding agents: **BREAKING — on a tile that isn't only yours
+  and that you haven't trusted, your home is this tile's copy.** A
+  security fix for every release so far: every session mounted its
+  person's one home read-write, so code in a tile someone else controls
+  could leave `~/.claude/settings.json` hooks, a `~/.gitconfig` setting or
+  a `~/.bashrc` line that ran later on the person's own tile, beside their
+  saved sign-in. Now a session there reads your real home as before and
+  what it writes under `~` stays on that tile (kept per person and tile
+  under `data/home-copies/`, never merged back). "I trust this tile's
+  source" now means two things — your sign-in is used there, and that
+  tile's code can change your home — and gives new sessions on the tile
+  your real home; a trust that stops holding ends the sessions that had
+  it. Session rows carry `home: {mode: own | copy, why?, kept?, trust?,
+  docs}`; the window's status bar says `home: yours` or `home: this tile's
+  copy (changes stay on this tile)`; `GET /agent/signins` gains `home`
+  (with `?tile=`) and `homes`, and `DELETE /agent/signins/homes/<id>` is
+  "forget what this tile wrote to my home". A workspace admin can no
+  longer attach to, or drive, another person's session that has that
+  person's real home. A copy that can't be mounted fails the session —
+  the real home is never opened in its place. Your own tiles, trusted
+  tiles, a one-person workspace and a workspace without sandboxes see no
+  change; code on an untrusted tile can still *read* your home. What
+  changes for you and how to get the old behaviour on a tile:
+  [changes/2026-11-18-home-on-untrusted-tiles.md](changes/2026-11-18-home-on-untrusted-tiles.md);
+  the rule: [agent-signins.md](agent-signins.md#your-home-on-a-tile-that-isnt-only-yours)
+  (D245).
+
 ## 2026-11-17
 
 - coding agents: **a saved sign-in is used by default in your own
