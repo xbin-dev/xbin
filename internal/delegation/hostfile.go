@@ -20,10 +20,13 @@ package delegation
 type HostNet struct {
 	Web *WebPolicy
 	MCP *MCPPolicy
+	// ContextBudget: the host's preset and ceiling for the workspace
+	// agent's context budget (tokens; 0 unset — budget.go, D246)
+	ContextBudget int
 }
 
 // Set reports whether the host's file sets any of it.
-func (h HostNet) Set() bool { return h.Web != nil || h.MCP != nil }
+func (h HostNet) Set() bool { return h.Web != nil || h.MCP != nil || h.ContextBudget > 0 }
 
 // NetSettings are the web and MCP settings an admin writes, by their names
 // in PUT /delegate/workspace.
@@ -57,6 +60,9 @@ func (h HostNet) Locks() map[string]HostLock {
 	}
 	if h.MCP != nil && h.MCP.Servers != nil { // a list of the host's is the list: locked outright (D240)
 		out["mcp.servers"] = HostLock{Locked: true, Reason: HostLockReason}
+	}
+	if l, ok := budgetLock(h); ok { // a preset and a ceiling (D246)
+		out["contextBudget"] = l
 	}
 	return out
 }

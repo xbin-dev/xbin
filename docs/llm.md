@@ -766,8 +766,11 @@ bring its own models and hold quotas the workspace's admins can't lift.
   taken back when it changes or goes, and nothing else. Its `web` and
   `mcp` members are the workspace agents' web and MCP policy (D239): a mode
   there is a preset and a ceiling an admin may narrow, not a lock;
-  without `enabled` the switch stays the admins'. `lockAll` doesn't touch
-  the key.
+  without `enabled` the switch stays the admins'. `contextBudget` (D246)
+  is the same kind of preset and ceiling for how much of a conversation a
+  workspace agent keeps (tokens, 32 000 to 10 000 000; the default
+  1 000 000) — which is not a spend limit: this file's `quotas` and the
+  admins' are. `lockAll` doesn't touch the key.
 - **`agentSignIns`** (D230) is its sibling: `true` or `false` sets — and
   locks — whether people may save coding-agent sign-ins
   ([agent-signins.md](/docs/agent-signins.md)). Absent, the switch is the

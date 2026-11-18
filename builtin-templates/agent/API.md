@@ -5908,7 +5908,7 @@ orgs, reason, offer: {newSession: {model}}}`.
 | `POST /ws/sessions` | `{main: true}`, or `{name?, scope?, model?, from?}` (`from`: copy that session's scope and model; no name: named from its first request) → `{session}` |
 | `PATCH /ws/sessions/{id}` | `{name?, archived?, scope? ({orgs, tiles} or null: everything allowed), model?}` → `{session}`; `409` for Main's archive, a model change while it works, and `model_taint` (with `held: true` and the held fields when the session is held and the call needed its handle) |
 | `DELETE /ws/sessions/{id}` | not Main. Closes the handle and withdraws its pending requests; tile agents it started keep running, as their person's |
-| `GET /ws/sessions/{id}/connection?whatIf=<model>` | `{connection: {counts, orgs: [{id, name, kind, state, reason?, tiles, connected}]}, summary, model, handle}`; with `whatIf` also `whatIf: {model, connects, disconnects, counts, summary, allowed, taintedOrgs}` and, when not allowed, `offer: {newSession: {model}}`. Totals and org-level reasons only: the page reads the tiles' names from xbind itself (`GET /api/xbin/agents/connection?session=<handle>`) |
+| `GET /ws/sessions/{id}/connection?whatIf=<model>` | `{connection: {counts, orgs: [{id, name, kind, state, reason?, tiles, connected}]}, summary, model, handle, budget?}`; `budget` `{tokens, window, setting}`: how much of the conversation its model is sent again with each call — the workspace's context budget (`contextBudget` of xbind's `GET /delegate/state`) under the model's window (D246; absent from an xbind before it), which the scope panel says under the model; with `whatIf` also `whatIf: {model, connects, disconnects, counts, summary, allowed, taintedOrgs}` and, when not allowed, `offer: {newSession: {model}}`. Totals and org-level reasons only: the page reads the tiles' names from xbind itself (`GET /api/xbin/agents/connection?session=<handle>`) |
 | `GET /ws/sessions/{id}/cards` | `{requests: [{id, kind: call\|session\|template\|changeset\|web\|mcp, ref, callId?, tile, title, method, path, brief, state, outcome, createdMs, decidedMs, expiresMs?, grant?, grantUntilMs?, by?, via?, resultStatus?, result?}], agents: [{id, session, tile, harness, mode, asks, brief?, request?, callId?, status, waits, waiting, last, turn, held, startedMs, updatedMs}], briefs: [{id, callId?, tile, goal, doneWhen, leaveAlone, checkBy, state, edited}], plan: [{text, kind: reads\|asks, state}], refusals: [{id, callId, tool, kind, reason, tile, createdMs}], ask?}` — the fields are described under "In fields" below. `ref` is xbind's request id: what its approval chrome is opened with. `session` is xbind's session id: what `open({session})` takes. A run event for the session says the cards changed |
 | `PUT /ws/sessions/{id}/briefs/{bid}` | `{goal?, doneWhen?, leaveAlone?, checkBy?, harness?}`: the person's edit, and their pick of a coding agent among what the tile allows (409 otherwise; `""`: xbind's default again). A request already filed for the old brief is withdrawn and filed again |
 | `GET /ws/sessions/{id}/briefs/{bid}/start-defaults` | what the brief's start would run on, from xbind: `{defaults, picked, harness, harnessName, line}` ("Claude Code · asks before acting") |
@@ -5922,16 +5922,23 @@ orgs, reason, offer: {newSession: {model}}}`.
 | `POST /delegate/notify` | xbind's notice path (`xbin.ReadHolderNotice`: partition mail's principal): `{partition, events: [{kind, id}]}`, never trusted — any notice asks for a reconcile that reads the state again through xbind. Coalescing and idempotent; everything open is also re-read at start-up and by a timer while anything is open |
 
 **Tools** (the profile's; each changing one takes `dry_run`):
-`workspace_map`, `tile_status`, `tile_logs`, `docs_search`, `docs_read`,
+`workspace_map`, `tile_status` (one read of where a tile stands: xbind's
+`GET /delegate/tile`, D246 — on an xbind before it, the map and the
+status read as before), `tile_logs`, `docs_search`, `docs_read`,
 `tile_api_doc`; `tile_call`; `tile_agent_brief`, `tile_agent_start`,
-`tile_agent_message`, `tile_agent_status`, `tile_agent_result`,
-`tile_agent_cancel`, `tile_agents`; `research`; `tile_create`;
+`tile_agent_message`, `tile_agent_result` (where a tile agent stands now
+and what its last turn left; `tile_agent_status`, folded into it, is no
+longer offered and still answers a conversation whose history calls it,
+for one release), `tile_agent_cancel`, `tile_agents`; `research`; `tile_create`;
 `plan_propose`; `admin_propose`, `admin_changes` (the change sets and
 plans this conversation proposed, never another session's); `preview`;
 `plan`; `notebook_search`,
 `notebook_read`, `notebook_write`, `notebook_edit`, `notebook_archive`;
 `web_read` (offered while the session's reach has the web); `mcp_tools`,
-`mcp_call` (while it has MCP) —
+`mcp_call` (while it has MCP); `account_lookup` (whether an account of a
+name exists, for an `access.set` line: xbind's `POST
+/delegate/accounts/lookup`, which answers only a person who sees the
+workspace's accounts) —
 with the core `ask_user` (here it takes `choices`, a `kind` and a `tile`),
 notes and `recall`.
 
@@ -5943,7 +5950,9 @@ notes and `recall`.
 with a brief's fields (`{tile, goal, done_when, …}` or `{tile, template:
 "mcp-tool", tool}`; the brief is composed here and is the line's own
 argument, shown by xbin "exactly as sent"), `binding.set`, and
-`admin_propose`'s kinds. The request's card is a change set's
+`admin_propose`'s kinds — `access.set {tile, user, level}` among them, one
+person's own level on a tile (the tile as the map names it; of such a line
+the agent reads its own arguments and the result, never anyone's access). The request's card is a change set's
 (`cards.requests[]`, kind `changeset`, titled "a plan of N change(s): …").
 When xbind says it was decided, each applied `agent.start` line's session
 (`out.session`) becomes a tile agent of this conversation (`cards.agents[]`,

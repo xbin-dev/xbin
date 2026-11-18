@@ -218,6 +218,16 @@ type ChangePreview struct {
 	// own binding waits. xbind's words for what to do instead (propose it
 	// again once the tile provides it); Blocked says the same.
 	Later string
+	// Power: Blocked is the power rule's refusal (the broker's
+	// accessreach.go) — the tile, or code tied to it, holds power over the
+	// workspace or the host: an admin makes this change by hand. The agent
+	// reads one fixed sentence of it, never the holders.
+	Power bool
+	// Account: the account an access.set line resolved to — set only for a
+	// person who sees accounts (D246). The server holds it to the person
+	// whose agent proposed the line: their own access is never a line of
+	// theirs, whoever describes it.
+	Account string
 	// Waits: the line can't be applied yet — the tile it binds to provides
 	// nothing of the kind until a tile agent an earlier line starts has
 	// written it. Approved, it waits (ItemWaiting) and xbind applies it by
@@ -261,6 +271,8 @@ type ChangeItem struct {
 	// Blocked: why this operation can't be applied at all (the handler's
 	// refusal at the dry run). A blocked item is never applied.
 	Blocked string `json:"blocked,omitempty"`
+	// Power: Blocked is the power rule's refusal (ChangePreview.Power).
+	Power bool `json:"power,omitempty"`
 	// Basis is a hash of Before: at apply, an item whose state no longer
 	// matches is stale and not applied.
 	Basis string `json:"basis,omitempty"`

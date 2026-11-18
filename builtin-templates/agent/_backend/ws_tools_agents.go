@@ -52,7 +52,7 @@ func wsAgentTools() []coordTool {
 		{Write: true, Spec: toolSpec{Type: "function", Function: funcDef{Name: "tile_agent_start",
 			Description: "Start a tile agent from a brief (or continue one that stopped, with resume). Your person is asked, unless their preference lets tile agents start without asking (then Start on the brief's card is their go-ahead): xbin shows them the brief exactly as it will be sent, and the coding agent and mode it will run in. This tool answers \"pending\" at once; the session, or their refusal, reaches you as a workspace update. " +
 				"What they approve is what xbin sends the session first: they may have edited the brief. You choose neither the coding agent nor its mode: those are your person's preferences and the tile's rules. " +
-				"Once started the session is theirs to see and to answer; you are told when it ends a turn, fails, or asks them a question (not for a permission it asks them: tile_agent_status says when it waits).",
+				"Once started the session is theirs to see and to answer; you are told when it ends a turn, fails, or asks them a question (not for a permission it asks them: tile_agent_result says when it waits).",
 			Parameters: obj(nil, map[string]any{
 				"brief":   coordIntProp("the brief's number (from tile_agent_brief)"),
 				"resume":  strProp("instead of a brief: the number of a tile agent that stopped or failed (#3), to continue it where it was"),
@@ -68,13 +68,15 @@ func wsAgentTools() []coordTool {
 				"dry_run": wsDryProp(),
 			})}},
 			Run: wsTool(wsMessageTool)},
+		// tile_agent_status: folded into tile_agent_result (D246) — not offered any more (wsSpecs), and still
+		// answered, for one release, for a conversation whose history calls it
 		{Spec: toolSpec{Type: "function", Function: funcDef{Name: "tile_agent_status",
-			Description: "Where one tile agent stands now: starting, working, waiting for your person (with what it asks), ended its turn, failed or stopped — and its last line. A read. You are told of changes anyway; use this when you need the state at this moment.",
+			Description: "The old name of tile_agent_result, kept for conversations that call it: it answers exactly what tile_agent_result answers.",
 			Parameters:  obj([]string{"agent"}, map[string]any{"agent": agent})}},
-			Run: wsTool(wsAgentStatusTool)},
+			Run: wsTool(wsAgentResultTool)},
 		{Spec: toolSpec{Type: "function", Function: funcDef{Name: "tile_agent_result",
-			Description: "What a tile agent's last turn left: its final answer, the files it changed as a count of lines (never the code), and the commands it ran to check with how each ended. A read. " +
-				"This is the agent's own report — check it against done-when before you tell your person the work is done, and say what you checked and what you didn't.",
+			Description: "Where a tile agent stands and what it left, in one read: its state now — starting, working, waiting for your person (and on what), ended its turn, failed or stopped — its last line and whether messages of yours are held behind your person's answer; and once a turn ended, its final answer, the files it changed as a count of lines (never the code), and the commands it ran to check with how each ended. A read. " +
+				"You are told of changes anyway; use it when you need the state now, and before you tell your person the work is done — the report is the agent's own: check it against done-when, and say what you checked and what you didn't.",
 			Parameters: obj([]string{"agent"}, map[string]any{"agent": agent})}},
 			Run: wsTool(wsAgentResultTool)},
 		{Write: true, Spec: toolSpec{Type: "function", Function: funcDef{Name: "tile_agent_cancel",
@@ -410,16 +412,14 @@ func wsMessageTool(ctx context.Context, ag *Agent, s *wsSession, c coordCall) (s
 	return fmt.Sprintf("Delivered to tile agent #%d: it starts a turn on it. You are told when it ends.", row.ID), nil
 }
 
-func wsAgentStatusTool(ctx context.Context, ag *Agent, s *wsSession, c coordCall) (string, error) {
-	row, err := ag.wsLiveAgent(ctx, s, fmt.Sprint(orAny(c.Args["agent"], "")))
-	if err != nil {
-		return "", err
-	}
+// wsAgentNow is where a tile agent stands now, with the messages of this
+// conversation held behind its person's answer.
+func wsAgentNow(ag *Agent, row *wsAgentRow) string {
 	out := wsStatusWords(row)
 	if _, held := ag.db.wsHeld(row.ID); len(held) > 0 {
 		out += fmt.Sprintf(" %d of your messages are held behind your person's answer.", len(held))
 	}
-	return out, nil
+	return out
 }
 
 func wsAgentResultTool(ctx context.Context, ag *Agent, s *wsSession, c coordCall) (string, error) {
@@ -428,14 +428,14 @@ func wsAgentResultTool(ctx context.Context, ag *Agent, s *wsSession, c coordCall
 		return "", err
 	}
 	if row.Status == "starting" || (row.Status == "running" && !row.Waits) {
-		return wsStatusWords(row) + " It has no result yet: you are told when its turn ends.", nil
+		return wsAgentNow(ag, row) + " It has no result yet: you are told when its turn ends.", nil
 	}
 	var rep wsAgentReport
 	if err := ag.wsWith(ctx, s, func(sid string) (err error) { rep, err = wsX.AgentReport(ctx, sid, row.Session); return }); err != nil {
 		return "", err
 	}
 	var b strings.Builder
-	b.WriteString(wsStatusWords(row) + "\n")
+	b.WriteString(wsAgentNow(ag, row) + "\n")
 	if row.Status == "stopped" {
 		b.WriteString("An xbin restart cut it off before it finished. What follows is what it had written by then; tile_agent_start with resume continues it.\n")
 	} else if !row.live() && rep.Status == "running" {

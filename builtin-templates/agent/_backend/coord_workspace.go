@@ -52,6 +52,7 @@ func init() {
 			"plan", "notebook_search", "notebook_read", "notebook_write", "notebook_edit", "notebook_archive",
 			"web_read",              // the web, through xbind (ws_tools_web.go; D239)
 			"mcp_tools", "mcp_call", // MCP tiles, through xbind (ws_tools_mcp.go)
+			"account_lookup", // whether an account of a name exists, for an access.set line (ws_tools_access.go; D246)
 		},
 		Limits: coordBounds{Research: wsResearchMax, ResearchTimeout: wsResearchTimeout, Wakes: wsWakeBurst},
 		Is: func(d *DB, run *Run) bool {
@@ -72,6 +73,7 @@ func init() {
 	coordWorkspace.mustRegister(wsTalkTools()...)
 	coordWorkspace.mustRegister(wsNetTools()...)
 	coordWorkspace.mustRegister(wsMCPTools()...)
+	coordWorkspace.mustRegister(wsAccessTools()...)
 }
 
 // wsResolve is the coordinator's boundary, on every tool call: the
@@ -219,6 +221,9 @@ func wsSpecs(cfg Config, run *Run, specs []toolSpec) []toolSpec {
 	}
 	out := make([]toolSpec, 0, len(specs))
 	for _, s := range specs {
+		if wsRetired[s.Function.Name] {
+			continue // still answered for a conversation whose history calls it; not offered (D246)
+		}
 		if s.Function.Name == "ask_user" {
 			s = wsAskSpec()
 		}
@@ -226,6 +231,11 @@ func wsSpecs(cfg Config, run *Run, specs []toolSpec) []toolSpec {
 	}
 	return out
 }
+
+// wsRetired are tools folded into others: registered, so a call a stored
+// conversation makes is answered, and no longer offered. tile_agent_status
+// (into tile_agent_result, D246) — dropped in the release after.
+var wsRetired = map[string]bool{"tile_agent_status": true}
 
 func wsAskSpec() toolSpec {
 	return toolSpec{Type: "function", Function: funcDef{Name: "ask_user",

@@ -116,6 +116,25 @@ func TestHostAgentWebAndMCP(t *testing.T) {
 	}
 }
 
+// covers D246 — the workspaceAgent key's contextBudget: a preset and a
+// ceiling, alone or beside the switch, in range or refused.
+func TestHostAgentContextBudget(t *testing.T) {
+	var h HostAgent
+	if err := json.Unmarshal([]byte(`{"contextBudget": 500000}`), &h); err != nil || h.Set || h.ContextBudget != 500000 {
+		t.Errorf("the budget alone: %+v %v", h, err)
+	}
+	h = HostAgent{}
+	if err := json.Unmarshal([]byte(`{"enabled": true, "contextBudget": 32000}`), &h); err != nil || !h.Set || h.ContextBudget != 32000 {
+		t.Errorf("with the switch: %+v %v", h, err)
+	}
+	for _, in := range []string{`{"contextBudget": 100}`, `{"contextBudget": 20000000}`, `{"contextBudget": "1M"}`, `{"context_budget": 500000}`} {
+		var h HostAgent
+		if err := json.Unmarshal([]byte(in), &h); err == nil {
+			t.Errorf("%s: want an error, got %+v", in, h)
+		}
+	}
+}
+
 // The host's agentSignIns key (D230): a bool that sets and locks whether
 // people may save coding-agent sign-ins; absent, the admins' switch.
 func TestHostAgentSignIns(t *testing.T) {

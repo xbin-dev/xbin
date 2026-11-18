@@ -66,6 +66,15 @@ func (o *Plane) apiStatusList(w http.ResponseWriter, r *http.Request) {
 	server.WriteJSON(w, http.StatusOK, map[string]any{"statuses": out})
 }
 
+// Report is the status tile reports about itself, as GET /tile-report lists
+// it (the caller judges who may read it): false when it reports none.
+func (o *Plane) Report(tile string) (level, message string, ok bool) {
+	o.statusMu.Lock()
+	defer o.statusMu.Unlock()
+	rec, ok := o.statuses[tile]
+	return rec.Level, rec.Message, ok
+}
+
 // POST /tile-report  {level, message?, transient?, component?} — a component
 // reports its own status; the owner may target another via ?component= or
 // body.component. level "ok" with an empty message CLEARS it (an "ok" WITH a

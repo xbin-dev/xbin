@@ -172,6 +172,14 @@ type Server struct {
 	// (D196: idle, building, starting, healthy, failed; "" when never run).
 	// nil (tests): no row carries one.
 	BackendState func(tile string) string
+	// TileBackend answers the runner's row of a tile's primary backend for
+	// GET /delegate/tile (D246) — false while none runs. nil (tests): the
+	// read says nothing of a backend.
+	TileBackend func(tile string) (TileBackendRow, bool)
+	// AgentModelWindow answers the model the workspace agent's role resolves
+	// to and its context window (0 unknown) — for the admin's view of the
+	// context budget (D246, delegatebudget.go). nil: not said.
+	AgentModelWindow func(ctx context.Context) (model string, window int)
 
 	// Pol is what the broker decides for the server (see Policy): admin
 	// status, tile owners, bus visibility, interface meta, sandbox tokens,

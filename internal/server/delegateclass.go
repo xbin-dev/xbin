@@ -316,10 +316,16 @@ var delegateClasses = map[string]delegateRow{
 	// outside MCP servers an admin listed (D240, mcpext.go): the ones this
 	// person's agent may use, and a server's tools read by xbind — free,
 	// nothing of the conversation sent; a call is the route above
-	"GET /delegate/mcp/servers":        dRead(),
-	"POST /delegate/mcp/tools":         dAct().judged(dryMCPTools),
-	"POST /delegate/changesets":        dAct(),
-	"POST /delegate/plans":             dAct(), // a plan: a change set that may create tiles and start tile agents (plan.go)
+	"GET /delegate/mcp/servers": dRead(),
+	"POST /delegate/mcp/tools":  dAct().judged(dryMCPTools),
+	"POST /delegate/changesets": dAct(),
+	"POST /delegate/plans":      dAct(), // a plan: a change set that may create tiles and start tile agents (plan.go)
+	// whether an account of a name exists, for a person who sees accounts
+	// already (D246, delegateaccounts.go): an act, so it is counted and logged
+	"POST /delegate/accounts/lookup": dAct(),
+	// where one tile stands: the reads the agent makes of it, each under its
+	// own gate, in one answer (D246, delegatetile.go) — a log's tail in it
+	"GET /delegate/tile":               dRead().on(byTileQuery).logged(),
 	"GET /delegate/changesets":         dRead(),
 	"GET /delegate/changesets/{id}":    dRead(),
 	"DELETE /delegate/changesets/{id}": dAct(),

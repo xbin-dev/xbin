@@ -44,7 +44,7 @@ test('a tile agent start: the mode leads, and one that never asks is the danger 
   const s = (session) => ({ id: 's1', kind: 'session', method: 'POST', target: '/api/xbin/term/sessions', body: JSON.stringify({ prompt: 'Fix the export' }), state: 'pending',
     preview: { session: { tile: 'apps/invoices', providerName: 'Claude Code', model: 'sonnet', mode: 'default', asks: true, net: 'none', ...session } } });
   const asks = W.sessionRows(s({}));
-  assert.deepEqual([asks.mode.tag, asks.mode.tone, asks.danger], ['asks before acting', 'ok', '']);
+  assert.deepEqual([asks.mode.tag, asks.mode.tone, asks.danger], ['asks before it edits or runs anything', 'ok', '']);
   assert.equal(asks.agent, "Claude Code · model sonnet, through the workspace's connector");
   assert.equal(asks.network, 'Its model only. No internet.');
   // what it signs in with, by xbind's word (D230): a saved sign-in named; none at all said, with the harness to sign in to

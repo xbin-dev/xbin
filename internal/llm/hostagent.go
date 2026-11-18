@@ -35,6 +35,9 @@ import (
 //	                                              file names is THE list (locked); each secret
 //	                                              read from its file (relative to this one,
 //	                                              watched like a key file) or env variable
+//	"workspaceAgent": {"contextBudget": 500000}   how much of a conversation an agent
+//	                                              keeps (tokens): a preset and a ceiling
+//	                                              an admin may lower (D246)
 
 // HostAgent is what the host's file says about workspace agents.
 type HostAgent struct {
@@ -45,6 +48,9 @@ type HostAgent struct {
 	// nil: unset) — validated as an admin's would be
 	Web *delegation.WebPolicy
 	MCP *delegation.MCPPolicy
+	// ContextBudget: the host's preset and ceiling for the agent's context
+	// budget (tokens; 0 unset — delegation/budget.go, D246)
+	ContextBudget int
 }
 
 // Who values the host's file may name.
@@ -70,11 +76,18 @@ func (h *HostAgent) UnmarshalJSON(b []byte) error {
 		Who     *string               `json:"who"`
 		Web     *delegation.WebPolicy `json:"web"`
 		MCP     *delegation.MCPPolicy `json:"mcp"`
+		Budget  *int                  `json:"contextBudget"`
 	}
 	dec := json.NewDecoder(bytes.NewReader(b))
 	dec.DisallowUnknownFields() // a misspelled setting is an error, never a rule silently not applied
 	if err := dec.Decode(&o); err != nil {
-		return fmt.Errorf(`workspaceAgent: want false, true or {"enabled": bool, "who"?: "admins" | "everyone", "web"?: {"mode", "allow", "deny"}, "mcp"?: {"mode", "servers"?}}: %w`, err)
+		return fmt.Errorf(`workspaceAgent: want false, true or {"enabled": bool, "who"?: "admins" | "everyone", "web"?: {"mode", "allow", "deny"}, "mcp"?: {"mode", "servers"?}, "contextBudget"?: tokens}: %w`, err)
+	}
+	if o.Budget != nil {
+		if *o.Budget < delegation.MinContextBudget || *o.Budget > delegation.MaxContextBudget {
+			return fmt.Errorf("workspaceAgent: contextBudget is %d to %d tokens, not %d", delegation.MinContextBudget, delegation.MaxContextBudget, *o.Budget)
+		}
+		h.ContextBudget = *o.Budget
 	}
 	if o.Web != nil {
 		w, err := o.Web.Normalized()
@@ -98,10 +111,10 @@ func (h *HostAgent) UnmarshalJSON(b []byte) error {
 		h.MCP = &m
 	}
 	if o.Enabled == nil {
-		if o.Who != nil || (o.Web == nil && o.MCP == nil) {
+		if o.Who != nil || (o.Web == nil && o.MCP == nil && o.Budget == nil) {
 			return errors.New(`workspaceAgent: enabled is required ({"enabled": true, "who": "admins"})`)
 		}
-		return nil // the web and MCP policy alone: the switch stays the admins'
+		return nil // the web and MCP policy, the budget, alone: the switch stays the admins'
 	}
 	h.Set, h.Enabled = true, *o.Enabled
 	if o.Who == nil {

@@ -1004,6 +1004,21 @@ func (s *Store) Access(id string) (*Access, bool) {
 	return a, true
 }
 
+// WithEntry returns a copy of the snapshot in which the person's own exact
+// entry for path is level ("" removes it) — a change set's access.set line
+// asks what their level would be afterwards (D246). Only the one entry is
+// overlaid; the store is not touched.
+func (a *Access) WithEntry(path, level string) *Access {
+	if a == nil || a.user == nil {
+		return a
+	}
+	u := *a.user
+	u.Tiles = withEntry(a.user.Tiles, path, level)
+	c := *a
+	c.user = &u
+	return &c
+}
+
 // WithOwner returns a copy of the snapshot in which path is owned by ref —
 // the D39 transfer preview's "what would MY level be afterwards?". The
 // underlying maps are COW; only the one entry is overlaid.

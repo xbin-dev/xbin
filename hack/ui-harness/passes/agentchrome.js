@@ -262,7 +262,7 @@ async function agentChrome(browser) {
 
     // ---- a session start that asks: denied; one that never asks: Deny is primary ----
     const st = await text(`${SHEET} [role="dialog"]`);
-    check(/Start a tile agent in Crawler\?/.test(st) && /asks before acting/i.test(st) && /Claude Code · model sonnet/.test(st) && /Fix the export test\./.test(st) && /sent exactly like this/.test(st) && !(await page.$(`${SHEET} [data-choice]`)),
+    check(/Start a tile agent in Crawler\?/.test(st) && /asks before it edits or runs anything/i.test(st) && /Claude Code · model sonnet/.test(st) && /Fix the export test\./.test(st) && /sent exactly like this/.test(st) && !(await page.$(`${SHEET} [data-choice]`)),
       `[${width}] a tile agent start: the mode, the coding agent, the brief; no standing choice`);
     await page.click(`${SHEET} button[data-deny]`);
     await page.waitForFunction(() => !document.querySelector('bx-agent-dock').shadowRoot.querySelector('bx-agent-approve'));
@@ -317,7 +317,7 @@ async function agentChrome(browser) {
     const res = await page.$$eval(`${DLG} .item [data-result]`, (els) => els.map((e) => e.dataset.result));
     check(res.join(' ') === 'applied failed blocked skipped' && /1 of 3 changes applied/.test(await text(`${DLG} h2`)) && /One change failed, so the one after it was skipped\. The one that was applied stays\./.test(await text(`${DLG} .banner.warn`))
       && /xbin said: “the host name is taken”/.test(await text(`${DLG} [role="dialog"]`)), `[${width}] partial results, in words (${res.join(' ')}; ${await text(`${DLG} h2`)})`);
-    check(JSON.stringify(sentTo(/c1\/approve$/).map((c) => c.body)) === '[{"items":[1,2,4]},{"items":[1,2,4],"password":"right"}]', `[${width}] apply sent the ticked items, then again with the password`);
+    check(JSON.stringify(sentTo(/c1\/approve$/).map((c) => c.body)) === '[{"items":[1,2,4],"knows":["access.set"]},{"items":[1,2,4],"knows":["access.set"],"password":"right"}]', `[${width}] apply sent the ticked items (and the newer kinds it shows: D246), then again with the password`);
     await shot(page, `agent-chrome-results${tag}`, { fullPage: false });
     await page.click(`${DLG} [data-undo]`);
     await page.waitForFunction(() => document.querySelector('bx-agent-changes')?.set?.undoOf === 'c1');

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/fsutil"
@@ -97,4 +98,36 @@ func (o *Plane) logOpener(comp, dep string) func() (*os.File, error) {
 	root := filepath.Join(o.Root, ".xbin", "deploy")
 	sub := util.TileKey(comp) + "/d/" + dep
 	return func() (*os.File, error) { return fsutil.OpenIn(root, sub, "backend.log") }
+}
+
+// Tail is the end of tile's primary backend log: its last max bytes,
+// begun at a line (GET /delegate/tile's log, D246). The caller judges who
+// may read it (canReadLogs' rule: terminal level). os.ErrNotExist: no log
+// yet — the backend hasn't started.
+func (o *Plane) Tail(tile string, max int64) (string, error) {
+	f, err := o.logOpener(tile, o.primary(tile))()
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil {
+		return "", err
+	}
+	start := int64(0)
+	if fi.Size() > max {
+		start = fi.Size() - max
+	}
+	buf := make([]byte, fi.Size()-start)
+	n, err := f.ReadAt(buf, start)
+	if err != nil && n == 0 {
+		return "", err
+	}
+	s := string(buf[:n])
+	if start > 0 {
+		if i := strings.IndexByte(s, '\n'); i >= 0 {
+			s = s[i+1:]
+		}
+	}
+	return s, nil
 }

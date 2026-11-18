@@ -59,6 +59,8 @@ type fakeXbin struct {
 
 	net fakeNet // the web and MCP tiles (ws_fake_net_test.go)
 
+	access fakeAccess // a person's access and where a tile stands (ws_fake_access_test.go; D246)
+
 	said  map[string][]string // messages delivered to each tile agent
 	calls []string            // every call made, in order ("Request r-1", "Call POST /api/…")
 }
@@ -936,6 +938,8 @@ func (f *fakeXbin) plan(sid, title string, items []xbin.Change, dry bool) (wsCha
 			}
 			made[str(args["path"])] = item.N
 			blank[str(args["path"])] = str(args["template"]) == "starter"
+		case "access.set":
+			f.accessLine(&item, args) // as an agent reads it (ws_fake_access_test.go)
 		case "agent.start":
 			started[str(args["tile"])] = item.N
 			item.Line = "Start a tile agent in " + str(args["tile"]) + " — Claude Code, in its mode \"default\""

@@ -35,7 +35,7 @@ const MODELS = [{ id: 'hosted/big', name: 'big' }, { id: 'hosted/small', name: '
 const seed = () => ({
   state: { user: 'ana', mode: 'workspace', delegation: { workspace: true, paused: false }, models: { default: 'hosted/big', models: MODELS } },
   sessions: fresh(SESSIONS), full: fresh(FULL), empty: EMPTY, views: { 1: fresh(CONVERSATION) }, cards: { 1: fresh(CARDS) },
-  conn: { 1: { connection: { counts: FULL.counts }, summary: FULL.counts.summary, model: 'hosted/big', handle: 'h1' } },
+  conn: { 1: { connection: { counts: FULL.counts }, summary: FULL.counts.summary, model: 'hosted/big', handle: 'h1', budget: { tokens: 198144, window: 262144, setting: 1000000 } } },
   whatIf: {
     'local/llama': { backend: { model: 'local/llama', connects: 2, disconnects: 0, allowed: true, counts: {}, summary: '5 tiles · 3 orgs connected · 1 not connected' },
       full: { model: { upstream: 'local', model: 'llama', private: true }, connect: [{ tile: 'finance/ledger', name: 'Ledger' }, { tile: 'apps/supplier', name: 'Supplier portal' }], disconnect: [] } },
@@ -59,6 +59,7 @@ const seed = () => ({
   const totals = await page.$$eval('.wsp-total', (t) => t.map((x) => x.innerText.replace(/\s+/g, ' ').trim()));
   ok('totals first: connected, hidden by you, blocked, no access', totals.join('|') === '3 connected|1 hidden by you|2 blocked|0 no access', totals.join('|'));
   ok('the model on one row, with Change…', (await text(page, '.wsp-modelrow')).includes('big') && (await text(page, '.wsp-modelrow')).includes('not private') && (await text(page, '.wsp-modelrow')).includes('Change…'));
+  ok('…and what the conversation keeps under it (D246): the backend\'s numbers, never a spend limit', (await text(page, '[data-budget]')) === 'Keeps up to 198,144 tokens of this conversation — the workspace\'s setting is 1,000,000, and this model\'s window is 262,144 tokens. Older parts are folded away past that.', await text(page, '[data-budget]'));
   const orgs = await page.$$eval('.wsp-ti.org', (o) => o.map((x) => ({ name: x.querySelector('b').textContent, checked: x.getAttribute('aria-checked'), exp: x.getAttribute('aria-expanded'), dis: x.getAttribute('aria-disabled'), t: x.textContent.replace(/\s+/g, ' ') })));
   ok('orgs as tree items: Sales partly ticked, Finance blocked and unfolded, the tiles in no org last', orgs.map((o) => o.name).join() === 'Sales,Finance,Workspace'
     && orgs[0].checked === 'mixed' && orgs[1].dis === 'true' && orgs[1].exp === 'true' && /blocked/.test(orgs[1].t) && /tiles in no org/.test(orgs[2].t), JSON.stringify(orgs));

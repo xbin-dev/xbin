@@ -242,7 +242,7 @@ function pageTpl() {
       ${s ? chipView({ counts, model: s.model, private: store.isPrivate(), narrow: S.narrow, open: S.pop === 'scope', reach: s.reach }, { toggle: () => scopeAct.toggle() }) : nothing}
       <button class="wsp-menu-b" aria-label="more" aria-haspopup="menu" aria-expanded=${S.pop === 'menu' ? 'true' : 'false'} @click=${(e) => openPop('menu', e)}>${icon('ellipsis')}</button>
       ${S.pop === 'sessions' ? sessionsView({ list: S.sessions, current: S.sel, renaming: S.ses.renaming, err: S.ses.err }, sessAct) : nothing}
-      ${S.pop === 'scope' ? panelView({ ...S.scope, full: S.full, counts, model: s && s.model, private: store.isPrivate(), models: store.models(), err: S.scope.err || (S.full ? '' : S.fullErr) }, scopeAct) : nothing}
+      ${S.pop === 'scope' ? panelView({ ...S.scope, full: S.full, counts, model: s && s.model, private: store.isPrivate(), budget: store.budget(), models: store.models(), err: S.scope.err || (S.full ? '' : S.fullErr) }, scopeAct) : nothing}
       ${S.pop === 'menu' ? html`<div class="wsp-pop wsp-menu" role="menu" @keydown=${(e) => { if (e.key === 'Escape') closePop(); }}>
         <button role="menuitem" @click=${() => store.openNotebook()}>${icon('doc')}Notebook</button>
         <button role="menuitem" @click=${() => store.showWhatCan()}>${icon('question')}${W.whatCanItDo}</button></div>` : nothing}

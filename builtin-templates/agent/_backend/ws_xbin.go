@@ -50,6 +50,16 @@ type wsXbin interface {
 	// Looking: reads at the person's level, filtered by scope and policy.
 	Map(ctx context.Context, sid string) (wsMap, error)
 	Tile(ctx context.Context, sid, tile string) (wsTile, error)
+	// TileStanding is where one tile stands, in one read (D246; GET
+	// /delegate/tile): what it is, its backend in words, its slots and
+	// what they are bound to, its uses granted or pending, its jobs, its
+	// log's end and its tile agents — each part as far as the reads it
+	// replaces would have shown it. errWsUnavailable from an xbind before it.
+	TileStanding(ctx context.Context, sid, tile string) (wsTileView, error)
+	// AccountLookup says whether an account of a name exists, for a person
+	// who sees the workspace's accounts — and nothing to anyone else
+	// (D246; POST /delegate/accounts/lookup).
+	AccountLookup(ctx context.Context, sid, name string) (wsAccount, error)
 	Logs(ctx context.Context, sid, tile string, lines int) (string, error)
 	DocsSearch(ctx context.Context, sid, q string, limit int) ([]wsDocHit, error)
 	DocsPage(ctx context.Context, sid, path, section string) (wsDocPage, error)
@@ -348,6 +358,10 @@ type wsState struct {
 	PausedAt        string `json:"pausedAt,omitempty"` // RFC 3339, while paused
 	AdminChanges    bool   `json:"adminChanges"`
 	CanAdminChanges bool   `json:"canAdminChanges"`
+	// ContextBudget is the workspace's setting for how much of a
+	// conversation the agent keeps (tokens; D246) — 0 from an xbind before
+	// it: the window-derived rule alone (compact.go).
+	ContextBudget int `json:"contextBudget,omitempty"`
 }
 
 // wsMap is the compact map of what the person sees.

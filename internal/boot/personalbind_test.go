@@ -17,3 +17,16 @@ func TestPersonalBindRestartWired(t *testing.T) {
 		t.Error("the broker has no partition restart: wirePartitionRunner must call SetPartitionRestart(run.StopPartition) (plans/partitions/records/F15.md)")
 	}
 }
+
+// covers D246 — an access line's power rule asks the runner which tiles a
+// tile's build takes: boot wires it, or a power tile that builds another
+// tile's code would go unseen.
+func TestBuildsWithWired(t *testing.T) {
+	if testing.Short() {
+		t.Skip("boots a workspace")
+	}
+	d := zsBoot(t, zsWorkspace(t))
+	if d.st.Broker.BuildsWith == nil {
+		t.Error("the broker has no BuildsWith: boot must set brk.BuildsWith = run.BuildsWith (accessreach.go)")
+	}
+}

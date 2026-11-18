@@ -18,7 +18,7 @@ const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 const items = (cs) => (cs && cs.items) || [];
 
 /** PLAN_KINDS: the kinds this chrome knows how to show. A line of any other kind is shown, and can't be ticked. */
-export const PLAN_KINDS = Object.freeze(['grant.add', 'grant.revoke', 'binding.set', 'binding.remove', 'org.share', 'limits.set', 'tile.create', 'agent.start']);
+export const PLAN_KINDS = Object.freeze(['grant.add', 'grant.revoke', 'binding.set', 'binding.remove', 'org.share', 'limits.set', 'tile.create', 'agent.start', 'access.set']);
 export const knownKind = (kind) => PLAN_KINDS.includes(kind);
 
 /**

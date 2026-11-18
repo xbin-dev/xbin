@@ -73,7 +73,7 @@ func TestPlanStartsATileAgent(t *testing.T) {
 	it := cs.Items[0]
 	var start map[string]any
 	_ = json.Unmarshal(it.Start, &start)
-	if it.Line != `Start a tile agent in apps/x — Claude Code, in its mode "default"` || it.Admin || it.Blocked != "" || len(it.Warnings) != 0 ||
+	if it.Line != `Start a tile agent in apps/x — Claude Code, in its mode "default", which asks before it edits or runs anything` || it.Admin || it.Blocked != "" || len(it.Warnings) != 0 ||
 		start["asks"] != true || start["prompt"] != "Goal: fix the bug." || start["provider"] != "claude" || it.UndoByHand == "" || cs.Session == "" {
 		t.Fatalf("the start line: %+v (start %v)", it, start)
 	}
@@ -107,7 +107,7 @@ func TestPlanStartsATileAgent(t *testing.T) {
 	}
 	_ = json.Unmarshal(rec.Body.Bytes(), &dry)
 	if rec.Code != 200 || !dry.DryRun || dry.ID != "" || len(dry.Items) != 2 || dry.Items[0].N != 1 || dry.Items[1].N != 2 ||
-		dry.Items[0].Line != `Start a tile agent in apps/x — Claude Code, in its mode "default"` || dry.Items[0].Blocked != "" || dry.Items[1].Blocked != lineBlockedForAgent {
+		dry.Items[0].Line != `Start a tile agent in apps/x — Claude Code, in its mode "default", which asks before it edits or runs anything` || dry.Items[0].Blocked != "" || dry.Items[1].Blocked != lineBlockedForAgent {
 		t.Fatalf("a plan's dry run: %d %s", rec.Code, rec.Body.String())
 	}
 	if sets() != before {

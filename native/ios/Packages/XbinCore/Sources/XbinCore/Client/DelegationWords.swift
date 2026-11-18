@@ -453,7 +453,7 @@ public enum DelegationWords {
         let net = s["net"]?.stringValue ?? ""
         return SessionRows(
             agent: "\(who)\(model)\(cred)",
-            modeTag: asks ? "asks before acting" : "acts without asking", modeAsks: asks,
+            modeTag: asks ? "asks before it edits or runs anything" : "acts without asking", modeAsks: asks,
             modeText: asks ? "It asks you before it edits a file or runs a command."
                            : "It edits files and runs commands in \(t) without asking you.",
             modeName: s["mode"]?.stringValue ?? "",

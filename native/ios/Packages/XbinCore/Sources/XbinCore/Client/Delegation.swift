@@ -493,7 +493,9 @@ public enum DelegateRoute {
     /// Apply the ticked items of a change set (never an empty list: xbind
     /// applies nothing for one, and the app rejects instead).
     public static func apply(_ id: String, items: [Int], password: String = "") -> APIRequest {
-        var o: [String: JSONValue] = ["items": .array(items.map { .int(Int64($0)) })]
+        // knows: the line kinds newer than every client's that this app shows for what they are —
+        // xbind applies a line of one only then, so an older app never applies one (D246)
+        var o: [String: JSONValue] = ["items": .array(items.map { .int(Int64($0)) }), "knows": .array(PlanWords.newerKinds.map { .string($0) })]
         if !password.isEmpty { o["password"] = .string(password) }
         return .json("POST", "\(base)/changesets/\(seg(id))/approve", .object(o))
     }

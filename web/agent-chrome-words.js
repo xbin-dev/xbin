@@ -283,7 +283,7 @@ export function sessionRows(req) {
     signin: typeof s.signInId === 'string' && s.signInId
       ? { offer: true, id: s.signInId, name: who, without: s.signIn || '', trust: s.signInTrust && typeof s.signInTrust === 'object' ? s.signInTrust : null }
       : s.signIn === 'needed' && typeof s.provider === 'string' ? { harness: s.provider, name: who, text: `Needs your ${who} sign-in: without it the tile agent starts signed out.` } : null,
-    mode: asks ? { tag: 'asks before acting', tone: 'ok', text: 'It asks you before it edits a file or runs a command.', name: s.mode || '' }
+    mode: asks ? { tag: 'asks before it edits or runs anything', tone: 'ok', text: 'It asks you before it edits a file or runs a command.', name: s.mode || '' }
       : { tag: 'acts without asking', tone: 'bad', text: `It edits files and runs commands in ${t} without asking you.`, name: s.mode || '' },
     network: !s.net || s.net === 'none' ? 'Its model only. No internet.' : `Network: ${s.net}`,
     others: s.api === false ? 'It can call no other tile.' : 'It can call the tile APIs this tile is granted.',

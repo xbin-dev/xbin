@@ -8,7 +8,8 @@
 //	POST   /ws/sessions                      {main: true} Main, made on first use | {name?, scope?, model?, from?}
 //	PATCH  /ws/sessions/{id}                 {name?, archived?, scope?, model?}; 409 model_taint with the offer
 //	DELETE /ws/sessions/{id}                 not Main
-//	GET    /ws/sessions/{id}/connection      ?whatIf=<model>: what a model change would connect, as counts
+//	GET    /ws/sessions/{id}/connection      ?whatIf=<model>: what a model change would connect, as counts;
+//	                                         budget {tokens, window, setting}: what the conversation keeps (D246)
 //	GET    /ws/sessions/{id}/cards           requests, tile agents, briefs, the plan
 //	PUT    /ws/sessions/{id}/briefs/{bid}    the person's edit of a brief
 //	POST   /ws/sessions/{id}/briefs/{bid}/start   "Review and start…": the request to review, or the start
@@ -357,6 +358,10 @@ func handleWsConnection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out := map[string]any{"connection": c, "summary": wsConnLine(c), "model": s.Model, "handle": s.Handle}
+	if set := wsBudgetSetting(); set > 0 { // how much of this conversation its model is sent again with each call (ws_budget.go, D246)
+		win := contextWindow(r.Context(), s.Model)
+		out["budget"] = map[string]any{"tokens": wsEffectiveBudget(set, win), "window": win, "setting": set}
+	}
 	if what != nil {
 		out["whatIf"] = map[string]any{"model": what.Model, "connects": what.Connects, "disconnects": what.Disconnects, "counts": what.Counts,
 			"summary": wsConnLine(wsConnection{Counts: what.Counts}), "allowed": what.Allowed, "taintedOrgs": what.TaintedOrgs}

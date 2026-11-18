@@ -115,7 +115,7 @@ test('a kind this page does not know is shown and never ticked', () => {
 test('a start line is drawn as the single start is: only xbind\'s word that the mode asks earns the green tag', () => {
   const cs = dice();
   let r = W.startRows(cs.items[4]);
-  assert.equal(r.mode.tag, 'asks before acting');
+  assert.equal(r.mode.tag, 'asks before it edits or runs anything');
   assert.equal(r.brief, 'Goal: roll_dice.');
   assert.match(r.agent, /^Codex/);
   cs.items[4].start.asks = 'yes';
