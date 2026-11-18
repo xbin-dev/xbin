@@ -4,7 +4,7 @@
 // each is bound to, what it uses and whether each use is granted or
 // pending, what it provides and exposes, its scheduled jobs, the end of its
 // log and its tile agents. One call where the feedback run spent three to
-// ten a tile (plans/wsagent/real-model-feedback-2026-11-17.md §D, §H). Each
+// ten a tile (the real-model feedback of 2026-11-17 behind D246). Each
 // part is what xbind lets this conversation read of it — a part it doesn't
 // is said as not shown, with why, never guessed.
 package main

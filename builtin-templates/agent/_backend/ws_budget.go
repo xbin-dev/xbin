@@ -1,6 +1,6 @@
 // ws_budget.go — how much of a conversation a workspace agent keeps
-// (D246; xbin's delegation/budget.go, plans/wsagent/access-and-status.md
-// §3): the workspace's setting (GET /delegate/state's contextBudget,
+// (D246; xbin's delegation/budget.go, /docs/protocol/delegation.md §The
+// switches): the workspace's setting (GET /delegate/state's contextBudget,
 // 1 000 000 unless an admin or the host set another), applied as
 // min(setting, what the model's window allows) — the larger of the rule
 // before the setting (compact.go's budgetForWindow: 60 % of the window, at

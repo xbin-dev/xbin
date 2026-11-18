@@ -59,7 +59,7 @@ const (
 // /users-directory: every account's id and name, to add members). Nobody
 // else sees an account list.
 func (b *Broker) AccountsVisible(p auth.Principal) bool {
-	if b.Users == nil || p.Agent != "" || p.Component != "" || p.Impersonator != "" {
+	if b.Users == nil || p.Agent != "" || p.Component != "" || p.ViewAs() || p.Preview() {
 		return false
 	}
 	if p.Owner || b.canManageUsers(p) {

@@ -1,9 +1,9 @@
 package main
 
 // The scripted twins of the real-model feedback's jobs that D246 is for
-// (plans/wsagent/real-model-feedback-2026-11-17.md: job 9 "give Dave read
+// (the real-model feedback of 2026-11-17 behind D246: job 9 "give Dave read
 // access to Orders", job 4 the dashboard one grant short, job 3 the tile
-// that crashed on every call; plans/wsagent/access-and-status.md). Each
+// that crashed on every call). Each
 // counts the model's tool calls: what a job costs with the tools as they
 // are now, against what it cost — or could not reach — before.
 
