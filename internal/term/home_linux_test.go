@@ -154,19 +154,25 @@ func procUnder(pid string, ancestor int) bool {
 	return false
 }
 
-// liveTerm is an open terminal.
+// liveTerm is an open terminal, as a client of the /ws/term wire is meant
+// to be: the hub drops a socket whose writer falls 64 frames behind (a
+// burst of output while the daemon is starved of CPU — two cores, GOMAXPROCS
+// 1) without an exit frame, and the client reattaches by the session's id
+// and gets the tail again. A session has ended when its exit frame came, or
+// when it can no longer be attached to.
 type liveTerm struct {
-	t   *testing.T
-	c   *websocket.Conn
-	out strings.Builder
-	n   int
+	t    *testing.T
+	h    *homeLive
+	user string
+	id   string // the session's id (its session frame's)
+	c    *websocket.Conn
+	out  strings.Builder
+	n    int
 }
 
-// open opens a terminal for user on rel: the terminal, or the refusal.
-func (h *homeLive) open(t *testing.T, user, rel string) (*liveTerm, string) {
-	t.Helper()
+func (h *homeLive) dial(user, query string) (*websocket.Conn, string) {
 	hdr := http.Header{"X-User": []string{user}}
-	c, resp, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(h.url, "http")+"/ws/term?net=none&cwd="+rel, hdr)
+	c, resp, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(h.url, "http")+"/ws/term?"+query, hdr)
 	if err != nil {
 		body := err.Error()
 		if resp != nil {
@@ -176,8 +182,33 @@ func (h *homeLive) open(t *testing.T, user, rel string) (*liveTerm, string) {
 		}
 		return nil, body
 	}
-	lt := &liveTerm{t: t, c: c}
-	t.Cleanup(func() { c.Close() })
+	return c, ""
+}
+
+// openRaw opens a terminal for user on rel as it comes: the terminal, or
+// the refusal.
+func (h *homeLive) openRaw(t *testing.T, user, rel string) (*liveTerm, string) {
+	t.Helper()
+	c, why := h.dial(user, "net=none&cwd="+rel)
+	if c == nil {
+		return nil, why
+	}
+	lt := &liveTerm{t: t, h: h, user: user, c: c}
+	t.Cleanup(func() { lt.c.Close() })
+	return lt, ""
+}
+
+// open is openRaw with the shell quieted — no echo of what is typed, no
+// prompt — so a command's output is a frame or two, never a burst.
+func (h *homeLive) open(t *testing.T, user, rel string) (*liveTerm, string) {
+	t.Helper()
+	lt, why := h.openRaw(t, user, rel)
+	if lt == nil {
+		return nil, why
+	}
+	if out, ended := lt.run("stty -echo; PS1=; PS2=; unset PROMPT_COMMAND"); ended {
+		t.Fatalf("%s's terminal on %s ended as it opened:\n%s", user, rel, out)
+	}
 	return lt, ""
 }
 
@@ -197,10 +228,13 @@ func (lt *liveTerm) run(script string) (string, bool) {
 	lt.n++
 	marker := fmt.Sprintf("END-%d-MARK", lt.n)
 	// (typed with a gap so the echoed command line never holds the marker)
-	if err := lt.c.WriteMessage(websocket.BinaryMessage, []byte(script+fmt.Sprintf("; echo END-%d-''MARK\n", lt.n))); err != nil {
-		return lt.out.String(), true
-	}
+	line := []byte(script + fmt.Sprintf("; echo END-%d-''MARK\n", lt.n))
 	from := lt.out.Len()
+	for lt.c.WriteMessage(websocket.BinaryMessage, line) != nil {
+		if !lt.reattach() { // the socket was dropped before it was typed into
+			return lt.untilEnd(), true
+		}
+	}
 	for !strings.Contains(lt.out.String()[from:], marker) {
 		if lt.read() {
 			return lt.out.String()[from:], true
@@ -209,7 +243,23 @@ func (lt *liveTerm) run(script string) (string, bool) {
 	return lt.out.String()[from:], false
 }
 
-// read reads one frame; true when the session ended.
+// reattach opens a new socket on the session; false when it is gone.
+func (lt *liveTerm) reattach() bool {
+	if lt.id == "" {
+		return false
+	}
+	c, _ := lt.h.dial(lt.user, "session="+lt.id)
+	if c == nil {
+		return false // no such session any more: it ended
+	}
+	lt.c.Close()
+	lt.c = c
+	return true
+}
+
+// read reads one frame; true when the session ended. A socket that closes
+// without the exit frame was dropped by the hub: the session lives, and is
+// attached to again.
 func (lt *liveTerm) read() bool {
 	_ = lt.c.SetReadDeadline(time.Now().Add(60 * time.Second))
 	mt, b, err := lt.c.ReadMessage()
@@ -217,14 +267,20 @@ func (lt *liveTerm) read() bool {
 		if ne, ok := err.(interface{ Timeout() bool }); ok && ne.Timeout() {
 			lt.t.Fatalf("the terminal said nothing for 60s:\n%s", lt.out.String())
 		}
-		return true
+		return !lt.reattach()
 	}
 	if mt == websocket.BinaryMessage {
 		lt.out.Write(b)
 		return false
 	}
 	var ctl map[string]any
-	return json.Unmarshal(b, &ctl) == nil && ctl["op"] == "exit"
+	if json.Unmarshal(b, &ctl) != nil {
+		return false
+	}
+	if id, _ := ctl["id"].(string); ctl["op"] == "session" && id != "" {
+		lt.id = id
+	}
+	return ctl["op"] == "exit"
 }
 
 // untilEnd reads until the session ends, and returns everything it said.
@@ -237,23 +293,26 @@ func (lt *liveTerm) untilEnd() string {
 // exit ends the shell and waits for the session to be gone.
 func (lt *liveTerm) exit(m *Manager) {
 	lt.t.Helper()
-	_ = lt.c.WriteMessage(websocket.BinaryMessage, []byte("exit\n"))
+	for lt.c.WriteMessage(websocket.BinaryMessage, []byte("exit\n")) != nil {
+		if !lt.reattach() {
+			break
+		}
+	}
 	lt.untilEnd()
 	lt.c.Close()
 }
 
-// once opens a terminal, runs script, ends it, and waits until the
-// person's sessions are gone.
+// once opens a terminal, runs script, ends it, waits until the person's
+// sessions are gone, and returns everything the terminal said.
 func (h *homeLive) once(t *testing.T, user, rel, script string) string {
 	t.Helper()
 	lt := h.mustOpen(t, user, rel)
-	out, ended := lt.run(script)
-	if ended {
+	if out, ended := lt.run(script); ended {
 		t.Fatalf("%s's terminal on %s ended early:\n%s", user, rel, out)
 	}
 	lt.exit(h.m)
 	h.idle(t, user)
-	return out
+	return lt.out.String() // all of it: what its start said too (a note, a shell profile's output)
 }
 
 // idle waits until user has no session.
@@ -674,7 +733,7 @@ func TestHomeCopyCycles(t *testing.T) {
 	wg.Wait()
 	h.idle(t, "alice")
 	h.noLeaks(t)
-	if out := h.once(t, "alice", "apps/bob", "wc -l < ~/cycles"); !strings.Contains(out, fmt.Sprint(n)) {
+	if out := h.once(t, "alice", "apps/bob", "echo LINES=$(wc -l < ~/cycles)="); !strings.Contains(out, fmt.Sprintf("LINES=%d=", n)) {
 		t.Fatalf("the layer lost writes over %d cycles:\n%s", n, out)
 	}
 }
@@ -908,7 +967,10 @@ func TestHomeCopyPerf(t *testing.T) {
 	// a start: from the socket's dial to the shell's first answer
 	start := func(tile string) (time.Duration, *liveTerm) {
 		t0 := time.Now()
-		lt := h.mustOpen(t, "alice", tile)
+		lt, why := h.openRaw(t, "alice", tile)
+		if lt == nil {
+			t.Fatalf("open on %s: %s", tile, why)
+		}
 		if _, ended := lt.run("true"); ended {
 			t.Fatalf("the session on %s ended", tile)
 		}

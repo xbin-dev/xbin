@@ -105,13 +105,16 @@ func StartHold(hs HoldSpec, hostUID, hostGID int) (*Hold, error) {
 		hd.sock.Close()
 		return nil, err
 	}
+	// The waiter only waits: the launch's Handle is this goroutine's alone
+	// (a hold that dies at once — fuse-overlayfs missing — would otherwise
+	// have its Cleanup race Started below).
 	go func() {
 		_ = cmd.Wait()
-		h.Cleanup()
 		close(hd.done)
 	}()
 	fail := func(err error) (*Hold, error) {
-		hd.Close()
+		hd.Close() // ended and reaped: nothing reads the spec any more
+		h.Cleanup()
 		if out := hd.out.String(); out != "" {
 			err = fmt.Errorf("%w (%s)", err, out)
 		}
@@ -124,6 +127,11 @@ func StartHold(hs HoldSpec, hostUID, hostGID int) (*Hold, error) {
 	msg, fd, err := hd.recv()
 	if fd >= 0 {
 		unix.Close(fd)
+	}
+	if err == nil && msg == "ok" {
+		// it answered, so its init is long past reading the spec (in range
+		// mode the second stage reads it again after the maps are written)
+		h.Cleanup()
 	}
 	switch {
 	case err != nil:
