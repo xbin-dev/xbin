@@ -53,6 +53,10 @@ func (e *Engine) tokenBudget(ctx context.Context, cfg Config) (int, string) {
 		return budgetFloor, "default"
 	}
 	model := modelFor(ctx, cfg, "general")
+	if set := wsBudgetSetting(); set > 0 { // a workspace agent: its workspace's setting, under the window (ws_budget.go, D246)
+		w := contextWindow(ctx, model)
+		return wsEffectiveBudget(set, w), wsBudgetFrom(set, w, model)
+	}
 	if w := contextWindow(ctx, model); w > 0 {
 		return budgetForWindow(w), fmt.Sprintf("%d%% of %s's %d-token window", budgetShare, bareModel(model), w)
 	}

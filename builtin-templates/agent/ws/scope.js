@@ -44,6 +44,7 @@ export function panelView(s, act) {
       html`<div class="wsp-total"><b>${n || 0}</b><span>${icon(g)}${w}</span></div>`)}</div>
     <div class="wsp-modelrow"><span class="wsc-muted">Model</span> <b>${short(s.model) || 'none'}</b> <span class="wsc-muted">${s.private ? 'private' : s.full && s.full.model ? 'not private' : ''}</span>
       <span class="grow"></span><button @click=${() => act.models()}>Change…</button></div>
+    ${s.budget ? html`<div class="wsc-muted wsp-budget" data-budget>${budgetWords(s.budget)}</div>` : nothing}
     ${s.err ? html`<div class="wsc-err" role="alert">${s.err}</div>` : nothing}
     ${s.full ? html`
       <div class="wsp-filter" role="group" aria-label="show">
@@ -95,6 +96,13 @@ function tileRow(t, act) {
     <span class="grow"></span><span class="wsp-state ${w.tone}">${icon(w.icon)}${w.word}</span>
     ${t.via ? html`<div class="wsp-via wsc-muted">This tile is under ${t.by || 'this org'} by its share <span class="wsc-mono">${t.via}</span>.</div>` : nothing}
   </div>`;
+}
+
+/** budgetWords(b): what the conversation keeps, from the backend's {tokens, window, setting} (D246) — never a spend limit. */
+export function budgetWords(b) {
+  const n = (x) => Number(x || 0).toLocaleString('en-US');
+  const win = b.window ? `this model's window is ${n(b.window)} tokens` : 'its provider doesn’t say this model’s window';
+  return `Keeps up to ${n(b.tokens)} tokens of this conversation — the workspace's setting is ${n(b.setting)}, and ${win}. Older parts are folded away past that.`;
 }
 
 // ---- the model -----------------------------------------------------------------------------

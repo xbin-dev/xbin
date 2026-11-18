@@ -176,6 +176,10 @@ type Server struct {
 	// GET /delegate/tile (D246) — false while none runs. nil (tests): the
 	// read says nothing of a backend.
 	TileBackend func(tile string) (TileBackendRow, bool)
+	// AgentModelWindow answers the model the workspace agent's role resolves
+	// to and its context window (0 unknown) — for the admin's view of the
+	// context budget (D246, delegatebudget.go). nil: not said.
+	AgentModelWindow func(ctx context.Context) (model string, window int)
 
 	// Pol is what the broker decides for the server (see Policy): admin
 	// status, tile owners, bus visibility, interface meta, sandbox tokens,

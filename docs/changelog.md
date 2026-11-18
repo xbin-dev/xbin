@@ -10,6 +10,50 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-11-18
+
+- workspace agent: **a person's access to a tile is a change it can
+  propose** — `access.set {tile, user, level}` in a plan
+  (`POST /delegate/plans`) or an admin's change set — applied as the
+  tile's own access dialog's `PUT /access {kind: "user"}`, as the
+  approving person with their rights read again; personal on a tile you
+  own, an admin's line elsewhere (Ask an admin); terminal, a system
+  component and your own access are warned and start unticked, and your
+  own access is blocked unless you are a workspace admin. xbind writes the
+  line with the display name beside the account id and the level before
+  and after; the agent reads only its arguments and whether it was
+  applied. `POST /delegate/accounts/lookup {name}` tells the agent whether
+  an account of that exact id or display name exists — only for a person
+  who already sees accounts (an admin). `POST
+  /delegate/changesets/{id}/approve` takes `knows: ["access.set"]`: a
+  client that doesn't name the kind can't apply such a line (`409
+  {kinds}`) — xbin's chrome and the app send it (D246;
+  [protocol/delegation.md §A person's access](/docs/protocol/delegation.md)).
+- workspace agent: **`GET /delegate/tile?tile=` — where one tile stands,
+  in one read**: what it is, its backend in words (a crash loop and a
+  start's retries said plainly), its report and xbin's flags, its slots
+  and what each is bound to, its uses granted or pending, provides and
+  exposes, its scheduled jobs, its log's end and its coding-agent
+  sessions — each part as far as the read it replaces gives it (the
+  person's own bindings and grants views, logs and jobs at terminal
+  level). The agent's `tile_status` is this read; `tile_agent_status` is
+  folded into `tile_agent_result` (D246;
+  [protocol/delegation.md §Where a tile stands](/docs/protocol/delegation.md)).
+- resources: `GET /cron/jobs`'s main rows carry `next`, and `lastRun` /
+  `lastStatus` since xbind started (additive).
+- workspace agent: **a context budget**, 1 000 000 tokens by default — how
+  much of a conversation an agent keeps sending its model:
+  `PUT /delegate/workspace {contextBudget}` (32 000 to 10 000 000, `null`
+  for the default), the host file's `workspaceAgent.contextBudget` (a
+  preset and a ceiling), and on the agent's card on `/xbin/system` with
+  what the agent role's model keeps ("256k window → keeps up to 198 144").
+  A conversation keeps `min(setting, max(60 % of the window, window − 64 000))`;
+  32 000 when the window isn't known. Not a spend limit: usage and quotas
+  are the connector's. `GET /delegate/state` carries `contextBudget` (D246).
+- workspace agent: a tile agent's start says an asking mode "asks before
+  it edits or runs anything", on xbind's plan line and on the start's
+  sheet, web and app.
+
 ## 2026-11-17
 
 - coding agents: **a saved sign-in is used by default in your own

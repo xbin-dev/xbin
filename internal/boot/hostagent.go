@@ -1,6 +1,7 @@
 package boot
 
 import (
+	"context"
 	"path/filepath"
 
 	"github.com/xbin-dev/xbin/internal/delegation"
@@ -18,6 +19,7 @@ import (
 // changes (llm.Options.HostChanged).
 func (st *State) hostAgent(srv *server.Server, svc *llm.Service) {
 	srv.HostAgentFile = filepath.Join(st.WS, "data", "hostagent.json")
+	srv.AgentModelWindow = func(ctx context.Context) (string, int) { return svc.RoleModelWindow(ctx, "agent") } // the budget's view (D246)
 	if st.Cfg.LLMConfig != "" {
 		srv.HostAgent = func() server.HostAgentRule {
 			h := svc.HostWorkspaceAgent()
@@ -27,7 +29,7 @@ func (st *State) hostAgent(srv *server.Server, svc *llm.Service) {
 		if srv.Delegation != nil {
 			srv.Delegation.SetHost(func() delegation.HostNet {
 				h := svc.HostWorkspaceAgent()
-				return delegation.HostNet{Web: h.Web, MCP: h.MCP}
+				return delegation.HostNet{Web: h.Web, MCP: h.MCP, ContextBudget: h.ContextBudget}
 			})
 		}
 	}

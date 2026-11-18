@@ -212,6 +212,12 @@ type Workspace struct {
 	MCP   *MCPPolicy `json:"mcp,omitempty"`
 	NetBy string     `json:"netBy,omitempty"`
 	NetAt time.Time  `json:"netAt,omitempty"`
+	// ContextBudget is the admin's setting for how much of a conversation
+	// the workspace agent keeps (tokens; 0: never set — the default, or the
+	// host's preset): budget.go, D246. BudgetBy and BudgetAt: who, when.
+	ContextBudget int       `json:"contextBudget,omitempty"`
+	BudgetBy      string    `json:"budgetBy,omitempty"`
+	BudgetAt      time.Time `json:"budgetAt,omitempty"`
 }
 
 // Workspace reads the switch: off when it was never set or can't be read.

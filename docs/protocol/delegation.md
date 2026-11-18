@@ -738,7 +738,8 @@ that is invalid; a bad change is refused and the last good file stays):
 ```jsonc
 "workspaceAgent": {
   "web": { "mode": "read", "allow": ["docs.example.com"], "deny": ["intranet.example.com"] },
-  "mcp": { "mode": "tiles" }
+  "mcp": { "mode": "tiles" },
+  "contextBudget": 500000
   // "enabled", "who": the switch and who gets an agent (docs/workspace-agent.md §Set by your host)
 }
 ```
@@ -747,7 +748,8 @@ that is invalid; a bad change is refused and the last good file stays):
   holds, by their names in the `PUT`, beside the switch's and who's:
   `{"web.mode": {locked: true, reason: "set by your host", ceiling},
   …}`. A write the file refuses is `409 {error, settings}`, naming them.
-- `web.mode`, `web.search` and `mcp.mode` are a **preset and a ceiling**,
+- `web.mode`, `web.search`, `mcp.mode` and `contextBudget` (the agent's
+  context budget, below) are a **preset and a ceiling**,
   not a lock (the switch and who lock outright): in force is the admin's
   value when they set one, never past the host's, and the host's without
   one. An admin can narrow (turn it off); a write past the ceiling is
@@ -843,7 +845,10 @@ GET    /delegate/state          the person, their agent's page, or their
                                  net: {web: {policy, why?, only?}, mcp:
                                  {policy, why?}, search} — what the
                                  workspace policy lets them turn on, and
-                                 why not
+                                 why not. contextBudget: how much of a
+                                 conversation the agent keeps, tokens —
+                                 the workspace's setting in force
+                                 (§The context budget)
 PUT    /delegate/state          the person, or their agent's page —
                                  which may send {paused: true} and nothing
                                  else (403). {paused?, adminChanges?, web?,
@@ -862,7 +867,8 @@ PUT    /delegate/state          the person, or their agent's page —
                                  workspace or org admin turns adminChanges
                                  on (403)
 GET    /delegate/workspace      admin. {enabled, by?, at?, agent?, who?,
-                                 web, mcp, policy, locks?}: off until
+                                 web, mcp, contextBudget?, policy, budget,
+                                 locks?}: off until
                                  an admin turns it on; who as in the
                                  state; web {mode, allow, deny, search}
                                  and mcp {mode, servers} the admin's own
@@ -871,7 +877,13 @@ GET    /delegate/workspace      admin. {enabled, by?, at?, agent?, who?,
                                  force under the host's file ({web: {mode,
                                  allow, deny, hostAllow?, hostDeny?,
                                  search, byHost?}, mcp: {mode, byHost?,
-                                 servers, serversByHost?}}).
+                                 servers, serversByHost?}, contextBudget,
+                                 budgetByHost?}); contextBudget the
+                                 admin's own (absent: never set), budget
+                                 {setting, default, margin, min, max,
+                                 byHost?, model?, window?, keeps?} — what
+                                 the agent role's model keeps under the
+                                 setting in force (§The context budget).
                                  locks: what the host's file sets — its
                                  workspaceAgent key (docs/workspace-
                                  agent.md §Set by your host, D237) —
@@ -882,7 +894,9 @@ GET    /delegate/workspace      admin. {enabled, by?, at?, agent?, who?,
                                  when it sets nothing
                                  (by is "host" when the file set the
                                  switch; a ceiling: §Web and MCP)
-PUT    /delegate/workspace      admin. {enabled?, who?, web?: {mode?:
+PUT    /delegate/workspace      admin. {enabled?, who?, contextBudget?:
+                                 32000…10000000 | null (the default
+                                 again), web?: {mode?:
                                  "off" | "read", allow?, deny?, search?},
                                  mcp?: {mode?: "off" | "tiles" |
                                  "listed", servers?: [...]}}, at least
@@ -915,6 +929,20 @@ POST   /delegate/page/dismiss   the person, or the shell they drive. Ends
                                  the alert that names /xbin/agent for
                                  them (§The chrome). {ok}
 ```
+
+**The context budget** (D246) is how much of a conversation a person's
+agent sends its model again with each call: a workspace setting,
+**1 000 000 tokens** unless an admin sets another (32 000 to 10 000 000)
+or the host's file presets one (`workspaceAgent.contextBudget`, a preset
+and a ceiling, as a web or MCP mode). The agent keeps `min(setting,
+max(60 % of the model's window, window − 64 000))` — on a 1 048 576-token
+model 984 576, on a 262 144-token one 198 144, below a 160 000-token
+window today's 60 % — and 32 000 when the model's window isn't known;
+past it, the oldest tool results are folded away first and then the
+oldest turns summarised. The 64 000-token margin is one step's growth
+between the size the provider last reported and the next call, and the
+reply's room. It is **not a spend limit**: each person's usage and the
+connector's quotas bound what an agent spends ([llm.md](/docs/llm.md)).
 
 **What each switch stops.**
 

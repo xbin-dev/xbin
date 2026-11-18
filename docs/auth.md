@@ -1073,7 +1073,9 @@ mail delivered to it are other tiles' data: untrusted input.
 (off by default; set in their own session). The agent then reads grants,
 bindings, orgs and limits as the person sees them, and submits **change
 sets**: batches of operations from a closed list (grants, bindings, org
-shares, limits), each closed to wiring tiles: nothing on a workspace agent
+shares, limits, one person's access to a tile — applied as `PUT /access`,
+the tile's own access dialog's call, and never the proposing person's own
+unless they are a workspace admin: D246), each closed to wiring tiles: nothing on a workspace agent
 itself, no grant of `xbin`, `cap:*`, `gpu:*` or all `code`, no host
 network, no backup destination, no share of a tile that holds such power.
 xbind writes each operation's line and its before/after itself, and says
