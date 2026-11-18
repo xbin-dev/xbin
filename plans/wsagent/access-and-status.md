@@ -203,12 +203,13 @@ under that read's own gate:
 | level | the person's level (`X-XBin-User-Level` of a call; `/whoami`) | readable |
 | owner | `GET /owner?tile=` (any reader); a person's display name only to someone who sees accounts (§1), else the id | readable |
 | backend, restarts, retry, crash loop | `GET /tile-status` | readable (a delegate reads a tile its person reads) |
-| the log's tail | `GET /logs` | terminal level on the tile, as for the person; else `shown: false` and why |
+| the log's tail | `GET /logs` | terminal level on the tile, as for the person, on a tile that isn't partitioned (each partition keeps its own log); else `shown: false` and why |
+| its report, xbin's alerts | `GET /tile-report`'s row, `GET /tile-status`'s tile alerts | readable |
 | slots: declared, required/optional | the manifest (`GET /code/file?file=xbin.json`) | readable |
 | slots: what each is bound to | the person's own `GET /bindings` view | that view's rule: a tile they can write, own, or whose org they admin — else `wiring: false` and nothing of the bindings |
 | uses: granted or pending | the person's own `GET /grants` view (rows and `pending`) | that view's rule, as above |
 | provides, exposes | the manifest | readable |
-| scheduled jobs | `GET /cron/jobs` from a terminal on the tile (`bx cron`) — a tile's own credential reads its jobs | an admin, or terminal level on the tile; else absent |
+| scheduled jobs | `GET /cron/jobs` from a terminal on the tile (`bx cron`) — a tile's own credential reads its jobs | an admin, or terminal level on the tile (not on a partitioned tile, whose terminals list their partition's jobs); else absent |
 | coding-agent sessions | the person's `GET /term/sessions?compact=1` | their own sessions (terminal levels), less the tiles the orgs keep the agent out of; `last` only as the compact listing gives it |
 
 The `agent` level of the tile is honoured exactly as those reads honour
@@ -308,9 +309,37 @@ deal with that, cost is fine".
 | `budget` on `GET /ws/state` (template) | the page's | — |
 | tool `account_lookup`; `access.set` in `admin_propose` / `plan_propose`; `tile_status` rebuilt; `tile_agent_status` folded | — | prompt unchanged (at its cap): descriptions and results only |
 
+## What it measured (the scripted twins, `ws_eval_access_test.go`)
+
+| Job | Before | Now |
+|---|---|---|
+| 9, an admin: "give Dave read access to Invoices" | the real run: 45 calls (18 docs searches, 27 reads), no proposal | 2 tool calls (`account_lookup`, `plan_propose`), one proposal |
+| 9 as run, by someone who is no admin | as above | 2 calls; the line says "needs an admin", the review offers Ask an admin |
+| 4, the dashboard one grant short | never seen (the grant was a click on a panel the agent can't read) | one `tile_status` says PENDING and names the line; one `plan_propose` files it |
+| 3, the tile that crashes | `tile_status` + `tile_logs` (2; a real model read "idle" as healthy) | one `tile_status`: BROKEN, the runner's words, the log's last lines |
+
+## Red, without each rule (each test run with the rule taken out)
+
+The by-hand gate (`accessCheck` off): `TestAccessLineAppliesWithTheRightsHeldAtApply`
+and the property fail. Personal for org admins too: `TestAccessLinePersonalIsByHand`.
+No refusal of a tile a plan is still to make: `TestAccessLineWords`. One's
+own access unblocked: `TestAccessSelfThroughTheAgent`, the property; the
+server's rule for an admin's copy off: `TestAccessSelfThroughTheAgent`. No
+terminal warning: `TestAccessLineWords`, `TestAccessLineAppliesAsTheApproverNow`;
+no system warning: `TestAccessLineSystemComponent`. `knows` not asked:
+`TestApproveRefusesAKindTheClientDoesNotKnow`. The agent's redaction off:
+`TestAccessLineRedactedForAgent`. The lookup answering everyone:
+`TestLookupNoOracle`, `TestAccountLookupRoute`. Wiring, the log or the jobs
+shown past their reads' gates: `TestTileStandingIsUnionOfReads`. The host's
+budget ceiling off (both layers): `TestContextBudgetSetting` (delegation and
+server). The margin off: `TestWsContextBudget`.
+
 ## Not done
 
 - A person's access through an org (`org.share` exists); a person's
   access to many tiles at once (a pattern) — an admin's page.
 - The template a tile came from in the status read (above).
+- The budget's line in the app's native scope sheet (the web page's
+  scope panel has it); the native view draws the scope from its own
+  vocabulary.
 - Search by part of a name: exact only, by design.
