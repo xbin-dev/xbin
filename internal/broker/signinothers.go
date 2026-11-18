@@ -1,7 +1,9 @@
 package broker
 
 import (
+	"slices"
 	"sort"
+	"strings"
 
 	"github.com/xbin-dev/xbin/internal/signins"
 	"github.com/xbin-dev/xbin/internal/users"
@@ -43,16 +45,79 @@ func signinNotOwn(owner, user string, admin bool) bool {
 }
 
 // signinEditors is condition 2: the other enabled people, not admins, who
-// hold write level or more on the tile at path. Sorted.
-func (b *Broker) signinEditors(user, path string) []string {
-	var others []string
-	for _, id := range b.codeWritersNow(path) { // enabled, not an admin, write level or more
+// hold write level or more on the tile at path — or on a tile it LIES IN.
+// Write is decided per tile path, but a tile inside another's directory is
+// inside what that tile's sessions mount read-write (term/binds.go: a tile
+// in the read-write directory is not masked), so whoever can write
+// apps/crm can change apps/crm/reports' code too. Sorted; through names,
+// for each who is there only by a tile above, that tile (the nearest).
+func (b *Broker) signinEditors(user, path string) (others []string, through map[string]string) {
+	writers, through := b.codeWritersAbove(path)
+	for _, id := range writers {
 		if id != user {
 			others = append(others, id)
 		}
 	}
+	delete(through, user)
 	sort.Strings(others)
-	return others
+	return others, through
+}
+
+// codeWritersAbove is who can change the code of the tile at path: its
+// writers (codeWritersNow: enabled, not an admin, write level or more) and
+// those of every registered tile path lies in.
+func (b *Broker) codeWritersAbove(path string) (writers []string, through map[string]string) {
+	writers = b.codeWritersNow(path)
+	through = map[string]string{}
+	if b.Reg == nil {
+		return writers, through
+	}
+	for dir := path; ; {
+		i := strings.LastIndexByte(dir, '/')
+		if i < 0 {
+			break
+		}
+		dir = dir[:i]
+		if c, ok := b.Reg.Component(dir); !ok || c.Sealed {
+			continue
+		}
+		for _, id := range b.codeWritersNow(dir) {
+			if !slices.Contains(writers, id) {
+				writers = append(writers, id)
+				through[id] = dir
+			}
+		}
+	}
+	return writers, through
+}
+
+// pastOwner is a tile's owner as the record of who could change it counts
+// one (signins/past.go): an org, or a person who is not a workspace admin.
+// The workspace's own tiles and an admin's have none — admins are in every
+// person's trust base while they are admins, and one who stops being an
+// admin is recorded workspace-wide (ObserveAdmins) — so a workspace with
+// one account records nothing, whatever that account owns or hands on.
+func (b *Broker) pastOwner(owner string) string {
+	if kind, id, err := users.ParseOwner(owner); err == nil && kind == users.OwnerKindUser && b.Users != nil {
+		if u, ok := b.Users.Get(id); ok && !u.Disabled && u.IsAdmin() {
+			return ""
+		}
+	}
+	return owner
+}
+
+// observeAdmins notes the workspace's admins as they are now.
+func (b *Broker) observeAdmins() {
+	if b.SigninPast == nil || b.Users == nil {
+		return
+	}
+	var admins []string
+	for _, u := range b.Users.List() {
+		if !u.Disabled && u.IsAdmin() {
+			admins = append(admins, u.ID)
+		}
+	}
+	b.SigninPast.ObserveAdmins(admins)
 }
 
 // SigninSource answers, for user, the registered tile path is or lies in
@@ -76,8 +141,10 @@ func (b *Broker) SigninSource(user, path string) (signins.Source, bool) {
 	// change no event announced — and the others who no longer can are part
 	// of the question
 	if b.SigninPast != nil {
-		b.SigninPast.Observe(src.ID, c.Path, owner, b.codeWritersNow(c.Path))
-		src.Past, src.PastUntil = b.SigninPast.Others(src.ID, user)
+		writers, _ := b.codeWritersAbove(c.Path)
+		b.SigninPast.Observe(src.ID, c.Path, b.pastOwner(owner), writers)
+		was := b.SigninPast.Others(src.ID, user)
+		src.Past, src.PastAdmins, src.PastUntil, src.PastMore = was.Parties, was.Admins, was.Until, was.More
 		for _, id := range src.Past {
 			if u, ok := b.Users.Get(id); b.Users != nil && ok && u.Name != "" && u.Name != id {
 				src.Names[id] = u.Name
@@ -94,6 +161,7 @@ func (b *Broker) ObserveTileParties() {
 	if b.SigninPast == nil {
 		return
 	}
+	b.observeAdmins()
 	for _, c := range b.Reg.Components() {
 		if c.Sealed {
 			continue
@@ -102,7 +170,8 @@ func (b *Broker) ObserveTileParties() {
 		if b.Users != nil {
 			owner = b.Users.Owner(c.Path)
 		}
-		b.SigninPast.Observe(b.TileIdentity(c.Path), c.Path, owner, b.codeWritersNow(c.Path))
+		writers, _ := b.codeWritersAbove(c.Path)
+		b.SigninPast.Observe(b.TileIdentity(c.Path), c.Path, b.pastOwner(owner), writers)
 	}
 }
 
@@ -142,8 +211,8 @@ func (b *Broker) signinSourceOf(user, tile, owner string) signins.Source {
 			}
 		}
 	}
-	src.NotOwn = signinNotOwn(owner, user, src.Admin) // condition 1
-	src.Editors = b.signinEditors(user, tile)         // condition 2
+	src.NotOwn = signinNotOwn(owner, user, src.Admin)      // condition 1
+	src.Editors, src.Through = b.signinEditors(user, tile) // condition 2
 	if b.Users != nil {
 		for _, id := range src.Editors {
 			name(id)
