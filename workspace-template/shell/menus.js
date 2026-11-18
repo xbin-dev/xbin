@@ -38,7 +38,8 @@
 //                 shell-tiled.js tiledMenu: Rotate split, Swap with
 //                 sibling); null or absent off a Tiled screen
 // optional in actions:
-//   addBlock(kind)  the canvas menu's Add heading / Add text (D192)
+//   addBlock(kind)  the workspace section's Add heading or text ▸ (D192);
+//                   absent, the section has no such row
 
 import { COLS, docRows, where } from './doc-layout.js';
 import { addItems } from './blocks.js';
@@ -123,8 +124,8 @@ const tidy = (l) => l.replace(/^— | —$/g, '');
 const base = (p) => p.slice(p.lastIndexOf('/') + 1);
 const dir = (p) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '');
 
-// The canvas (background) menu: org-screen draft lines, open tile, create,
-// new screen, bring windows on-screen.
+// The canvas (background) menu: org-screen draft lines, the workspace
+// section, then the screen's own lines (Layout, bring windows on-screen).
 export function canvasMenuItems(s, a) {
   const items = [];
   const os = s.orgScreen;
@@ -138,7 +139,22 @@ export function canvasMenuItems(s, a) {
     items.push({ icon: 'copy', label: 'Copy to my screens', action: () => a.copyOrgScreen(os.id) });
     items.push({ kind: 'sep' });
   }
-  items.push({ icon: 'window', label: 'Open tile', items: openTileItems(s, a) });
+  items.push(...workspaceItems(s, a));
+  if (s.layoutItems?.length) {
+    const cur = s.layoutItems.find((x) => x.checked);
+    items.push({ kind: 'sep' }, { icon: 'doc', label: 'Layout', hint: cur?.label ?? '', items: s.layoutItems });
+  } else items.push({ kind: 'sep' });
+  items.push({ icon: 'restore', label: 'Bring windows on-screen', hint: 'pop-ups, floats', action: () => a.fitWindows(true) });
+  return items;
+}
+
+// The workspace section (D247): the same four lines, in the same order and
+// words, in the canvas menu and in every tile's menu — Open tile ▸, Create
+// a new tile, Add heading or text ▸ (D192's two lines, folded), New screen.
+// From a tile's menu the actions carry that tile, so what they open lands
+// beside it (bx-shell _menuActions).
+export function workspaceItems(s, a) {
+  const items = [{ icon: 'window', label: 'Open tile', items: openTileItems(s, a) }];
   const owners = s.owners ?? [];
   if (owners.length >= 2) {
     items.push({ icon: 'plus', label: 'Create a new tile', items: owners.map((o) => ({
@@ -149,14 +165,11 @@ export function canvasMenuItems(s, a) {
   } else {
     items.push({ icon: 'plus', label: 'Create a new tile…', disabled: true, hint: s.ownerHint ?? 'org-only policy — ask an org admin' });
   }
-  if (a.addBlock) items.push(...addItems(s, a)); // headings and text, no tile (D192)
-  items.push({ icon: 'grid', label: 'New screen', action: () => a.addScreen() });
-  if (s.layoutItems?.length) {
-    const cur = s.layoutItems.find((x) => x.checked);
-    items.push({ icon: 'doc', label: 'Layout', hint: cur?.label ?? '', items: s.layoutItems });
+  if (a.addBlock) { // headings and text, no tile (D192): one row, its two lines behind it
+    const add = addItems(s, a), off = add.every((x) => x.disabled);
+    items.push({ icon: 'doc', label: 'Add heading or text', hint: add[0].hint, disabled: off, items: add });
   }
-  items.push({ kind: 'sep' });
-  items.push({ icon: 'restore', label: 'Bring windows on-screen', hint: 'pop-ups, floats', action: () => a.fitWindows(true) });
+  items.push({ icon: 'grid', label: 'New screen', action: () => a.addScreen() });
   return items;
 }
 
@@ -198,7 +211,8 @@ export function rowItems(path, s, a) {
 }
 
 // The tile menu (card head, sidebar row, or relayed from inside the tile):
-// the four panels, screen actions, the admin lines.
+// the four panels and the tile's own lines first, then the workspace
+// section, then Admin ▸ (D247).
 export function tileMenuItems(path, s, a) {
   const c = (s.components ?? []).find((x) => x.path === path);
   const state = c?.state ?? 'enabled';
@@ -231,22 +245,33 @@ export function tileMenuItems(path, s, a) {
   if (dsum && mayOperate(st)) {
     items.push({ icon: 'deploy', label: 'Deployments…', hint: deployHint(dsum, st), action: () => a.frameOpen(path, 'deployments') });
   }
+  // the workspace section (D247), so a tile's menu reaches it where no
+  // canvas shows (Tiled), and Admin ▸ under it: rare and partly dangerous
+  items.push({ kind: 'sep' }, { kind: 'header', label: 'workspace' }, ...workspaceItems(s, a));
   if (s.canAdminTile?.(path)) {
-    items.push({ kind: 'sep' }, { kind: 'header', label: 'admin' });
-    if (state !== 'enabled') {
-      items.push({ icon: 'play', label: state === 'hidden' ? 'Unhide' : 'Enable', action: () => a.lifecycle(path, 'enabled') });
-    } else {
-      items.push({ icon: 'pause', label: 'Disable', danger: true,
-        action: () => a.confirm(`Disable ${path}? Its backend stops now.`) && a.lifecycle(path, 'disabled') });
-    }
-    if (state !== 'hidden' && !offloaded(c)) {
-      items.push({ icon: 'eye-slash', label: 'Hide', danger: true,
-        action: () => a.confirm(`Hide ${path}? It is disabled and drops out of sidebars until unhidden.`) && a.lifecycle(path, 'hidden') });
-    }
-    for (const [sec, label] of [['access', 'Access…'], ['runtime', 'Runtime…'], ['vault', 'Vault…'], ['grants', 'Roles & grants…'],
-      ['interfaces', 'Interfaces…'], ['backup', 'Backup…'], ['cron', 'Cron…']]) {
-      items.push({ icon: sec === 'access' ? 'settings' : '', label, action: () => a.openAdminWin(path, sec) });
-    }
+    items.push({ kind: 'sep' }, { icon: 'settings', label: 'Admin', hint: state !== 'enabled' ? state : '', items: adminItems(path, c, state, a) });
+  }
+  return items;
+}
+
+// Admin ▸ (D24; a submenu since D247): the lifecycle lines, then the
+// admin window's sections.
+function adminItems(path, c, state, a) {
+  const items = [];
+  if (state !== 'enabled') {
+    items.push({ icon: 'play', label: state === 'hidden' ? 'Unhide' : 'Enable', action: () => a.lifecycle(path, 'enabled') });
+  } else {
+    items.push({ icon: 'pause', label: 'Disable', danger: true,
+      action: () => a.confirm(`Disable ${path}? Its backend stops now.`) && a.lifecycle(path, 'disabled') });
+  }
+  if (state !== 'hidden' && !offloaded(c)) {
+    items.push({ icon: 'eye-slash', label: 'Hide', danger: true,
+      action: () => a.confirm(`Hide ${path}? It is disabled and drops out of sidebars until unhidden.`) && a.lifecycle(path, 'hidden') });
+  }
+  items.push({ kind: 'sep' });
+  for (const [sec, label] of [['access', 'Access…'], ['runtime', 'Runtime…'], ['vault', 'Vault…'], ['grants', 'Roles & grants…'],
+    ['interfaces', 'Interfaces…'], ['backup', 'Backup…'], ['cron', 'Cron…']]) {
+    items.push({ icon: sec === 'access' ? 'settings' : '', label, action: () => a.openAdminWin(path, sec) });
   }
   return items;
 }

@@ -33,7 +33,7 @@ import { md, mdCssText } from '/vendor/bx-md.js';
 import { snap } from './grid-layout.js';
 import { MIN, blocksOf, itemsOf, gridItems, splitItems, patchBlock, newBlock, keyOf, idOf, isBlockKey, levelOf,
   blockMenuItems, mobileOrder } from './blocks.js';
-import { placeNew, setCols, rowOf, step } from './doc-layout.js';
+import { placeNew, placeAfter, setCols, rowOf, step } from './doc-layout.js';
 import { fixedLayout, materialize, placeFixed } from './fixed-layout.js';
 import { rowItems } from './menus.js';
 import { screenMode } from './modes.js';
@@ -292,12 +292,13 @@ export function mutateItems(s, fn) {
   s._mutateTiles(() => tiles);
   if (blocks) s._mutateTiles(patch, 'blocks');
 }
-// addBlock(s, kind, at): a new empty heading or text on the active screen,
-// at the free spot nearest `at` (a menu's click) — on a Document screen the
-// last row — and straight into editing. An org screen in view mode opens
+// addBlock(s, kind, at, near): a new empty heading or text on the active
+// screen, at the free spot nearest `at` (a menu's click) — on a Document
+// screen the last row, or the row after `near`'s (the tile whose menu
+// asked, D247) — and straight into editing. An org screen in view mode opens
 // its draft for an editor (as opening a tile there does); nobody else
 // gets here (addItems disables the lines).
-export function addBlock(s, kind, at = null) {
+export function addBlock(s, kind, at = null, near = null) {
   const os = s._activeOrgScreen;
   if (os && !s._orgDrafts?.[os.id]) {
     if (!os.canEdit) return null;
@@ -307,7 +308,7 @@ export function addBlock(s, kind, at = null) {
   if (!sc) return null;
   const b = newBlock(kind, sc, at);
   s._mutateTiles((list) => [...list, b], 'blocks');
-  if (docMode(sc)) mutateItems(s, (items) => placeNew(items, keyOf(b.id)));
+  if (docMode(sc)) mutateItems(s, (items) => (near && s._isOpen(near) ? placeAfter(items, keyOf(b.id), near) : placeNew(items, keyOf(b.id)))); // after the row of the tile whose menu asked (D247)
   else if (screenMode(sc) === 'fixed') mutateItems(s, (items) => placeFixed(items, keyOf(b.id), at)); // its place inside the 48 columns (D193)
   s.updateComplete.then(() => startEdit(s._canvas, b.id));
   return b.id;

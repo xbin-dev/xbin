@@ -262,14 +262,15 @@ function mutateTree(s, fn) {
   s._mutateTiles((a) => ({ ...a, tiling: fn(treeOf(s._screen?.tiles, a, pane)) }), 'arrange');
 }
 
-// tiledToggle(s, path, open): the shell's _toggle opened or closed a tile
-// on a Tiled screen — it splits the focused tile's space (the active
-// window, else the last tile), or gives its space back. The tiles are
-// already changed; the tree is fitted to the others first so the new tile
-// goes where the focus is, not after the last one.
-export function tiledToggle(s, path, open) {
+// tiledToggle(s, path, open, near): the shell's _toggle opened or closed a
+// tile on a Tiled screen — it splits the space of `near` (the tile whose
+// menu opened it, D247), else the focused tile's (the active window, else
+// the last tile), or gives its space back. The tiles are already changed;
+// the tree is fitted to the others first so the new tile goes where the
+// focus is, not after the last one.
+export function tiledToggle(s, path, open, near = null) {
   if (!tiledScreen(s) || !s._canMutate) return;
-  const f = activeWindow(), focus = f?.startsWith('tile:') ? f.slice(5) : null, pane = paneFor(s);
+  const f = activeWindow(), focus = near ?? (f?.startsWith('tile:') ? f.slice(5) : null), pane = paneFor(s);
   const others = tiledPaths(s._screen?.tiles).filter((p) => p !== path);
   s._mutateTiles((a) => {
     const t = normalise(a.tiling, others, pane);

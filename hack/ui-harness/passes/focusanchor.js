@@ -3,7 +3,7 @@
 // whose documents the pass grows and shrinks: with a middle tile focused,
 // tiles above and below change height and its title bar stays at the same
 // viewport y (within 1 px) — at every resize the page saw, not only once it
-// settled — and the top bar doesn't take the hold for reading; the last
+// settled; the last
 // tile, focused by a click into its frame, grows and shrinks itself and
 // keeps its title bar where it was (a bottom spacer makes the room, and goes
 // once the page is scrolled up); scrolled fully out of view, the tile lets
@@ -99,7 +99,6 @@ async function focusAnchor(browser) {
   let y0;
   check(a?.path === C && a.held, `clicking ${C}'s title bar focuses it and holds it (${JSON.stringify(a)})`);
   y0 = await headY(page, C);
-  const bar0 = (await sh(page, (t) => t.topBar)).hidden;
   await snap(page, 'focusanchor-1-held');
   await sample(page, C);
   const s0 = await scrollTop(page);
@@ -111,7 +110,6 @@ async function focusAnchor(browser) {
     if (p === A && h === 900) await snap(page, 'focusanchor-2-above-grew');
   }
   check(await scrollTop(page) !== s0, `the page scrolled to hold it (${s0} → ${await scrollTop(page)})`);
-  check((await sh(page, (t) => t.topBar)).hidden === bar0, 'the top bar takes the hold for no scroll of the person\'s');
   // a tile above closes, and opens again (at the end of the page)
   await sh(page, (t, p) => t.closeTile(p), B); await sleep(400); await settle(page);
   let y = await headY(page, C);

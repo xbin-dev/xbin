@@ -1,6 +1,6 @@
 // hack/ui-harness/passes/tiled.js — the Tiled mode (D193): a screen
 // switched to Tiled shows its one tile filling the pane (no page scroll, the
-// top bar out of the way); a second tile splits it along the longer side, a
+// top bar above it, D247); a second tile splits it along the longer side, a
 // third splits the focused tile; dragging a divider shares the space anew
 // and is kept with the screen; a card dragged by its title bar onto another
 // swaps them at its centre, takes half of its space at an edge (D205: the
@@ -65,12 +65,9 @@ async function tiled(browser) {
   check(one && near(one.x, pane.x) && near(one.y, pane.y) && near(one.w, pane.w) && near(one.h, pane.h) && pane.h > 700,
     `one tile fills the pane (${JSON.stringify(R(one))} in ${JSON.stringify(R(pane))})`);
   check(scroll.sh <= scroll.ch + 1 && scroll.sw <= scroll.cw + 1, `the page doesn't scroll (${JSON.stringify(scroll)})`);
-  const bar = await sh(page, (t) => t.topBar);
-  check(bar.on && bar.hidden, `the top bar is out of the way (${JSON.stringify(bar)})`);
-  await page.mouse.move(700, 3); await sleep(300);
-  check(!(await sh(page, (t) => t.topBar)).hidden, 'the pointer at the top edge brings the bar back');
+  // the top bar stays above the tiles (D247: it used to slide away in Tiled)
   await page.mouse.move(700, 20); await page.mouse.move(700, 500, { steps: 12 }); await sleep(300);
-  check((await sh(page, (t) => t.topBar)).hidden, 'moving down onto the tiles sends it away again');
+  check(await sh(page, (t) => { const b = t.query('.top').getBoundingClientRect(), m = t.query('main').getBoundingClientRect(); return b.top >= 0 && b.height >= 30 && m.top >= b.bottom - 1 && getComputedStyle(t.query('.top')).transform === 'none'; }), 'the top bar stays above the tiles, the pointer on them');
 
   // a second tile splits the first along its longer side (a wide pane: side by side)
   await focusTile(page, A);
@@ -220,7 +217,7 @@ async function tiled(browser) {
   await sh(page, (t, id) => t.setScreenMode(id, 'canvas'), id);
   await settle(page);
   check(JSON.stringify(await geom(page)) === JSON.stringify(canvas), 'Canvas shows every tile at its old place and size');
-  check(!!(await rectIn(page, '.canvas')) && !(await sh(page, (t) => t.topBar)).on, 'the canvas is back, the bar in its place');
+  check(!!(await rectIn(page, '.canvas')) && (await rectIn(page, '.top'))?.y === 0, 'the canvas is back, the bar in its place');
 
   // an org screen in Tiled: view mode has no dividers; a draft's divider drag is published with it
   const srv = async (sid) => ((await (await ctx.request.get(`${URL}/api/xbin/screens`)).json()).org ?? []).find((x) => x.id === sid);

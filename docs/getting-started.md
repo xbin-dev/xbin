@@ -112,7 +112,8 @@ an organisation shares with its members show up as extra tabs; those are
 read-only until you click *edit layout*, and nothing changes for anyone else
 until you *Save and update for everyone*. Right-click the canvas to reopen a
 recent tile or create one, and it opens where you clicked; right-click a card (or press its ⋯) for its
-terminal, logs, source, proposals and admin.
+terminal, logs, source and proposals, the same workspace lines (open, create, new screen — what they open
+lands beside that tile) and, if you administer it, **Admin ▸**.
 
 ## First backend
 

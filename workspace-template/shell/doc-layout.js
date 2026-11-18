@@ -100,6 +100,16 @@ export function placeNew(tiles, path) {
   return normalise(tiles, rows.filter((r) => r.tiles.length));
 }
 
+// placeAfter(tiles, path, near) → tiles: as placeNew, but the new row goes
+// right after the row holding `near` (D247: opened from near's menu); at
+// the end when near has no row.
+export function placeAfter(tiles, path, near) {
+  const rows = clone(docRows(tiles)).map((r) => ({ ...r, tiles: r.tiles.filter((t) => t.path !== path) })).filter((r) => r.tiles.length);
+  const t = (tiles ?? []).find((x) => x.path === path && !x.float), at = where(rows, near);
+  if (t) rows.splice(at ? at.row + 1 : rows.length, 0, { cols: 1, tiles: [t] });
+  return normalise(tiles, rows);
+}
+
 // moveTile(tiles, path, {row, col, cols, insert}) → tiles.
 //   insert: true — the tile becomes a new row of its own (`cols` wide,
 //     default 1) placed before the row now at index `row` (past the end:

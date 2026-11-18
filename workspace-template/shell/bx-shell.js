@@ -82,8 +82,7 @@ import { tabStrip, revealActiveTab, addScreen, hideOrgTab, screenMode, setScreen
 import { writeRich } from '/vendor/copy-rich.js'; // a tile's selection copied with its HTML (D199)
 import { layoutFields } from './modes.js'; // a screen's mode and arrange travel with its copies (D193)
 import { tiledToggle, tiledMenu, tiledTestApi } from './shell-tiled.js'; // the Tiled mode's tree, from the shell's ends (D193)
-import { TopReveal } from './shell-doc.js'; // Document mode's top bar (D187)
-import { docRows, placeNew, setCols, rowOf, step, setHeight } from './doc-layout.js';
+import { docRows, placeNew, placeAfter, setCols, rowOf, step, setHeight } from './doc-layout.js';
 import { placeFixed } from './fixed-layout.js';
 import { gridItems, itemsOf } from './blocks.js'; // headings and text on a screen, no tile (D192)
 import { mutateItems, addBlock, blockTestApi } from './shell-blocks.js';
@@ -215,7 +214,6 @@ export class BxShell extends LitElement {
     this._onBlur = () => this._raiseFocusedFloat();
     this._look = appearance();
     this._front = activeWindow();
-    this._top = new TopReveal(this); // Document mode: the bar slides away while reading
     // a spawned window's frame changed its build state: its live square follows
     this.addEventListener('bx-build', () => this.requestUpdate());
     this.addEventListener('bx-meta', () => this.requestUpdate()); // a page's title for the sidebar (D194)
@@ -978,22 +976,24 @@ export class BxShell extends LitElement {
       docItems: itemsOf(this._tiles, this._screen?.blocks), tiledItems: tiledMenu(this),
     };
   }
-  _menuActions(at = null) {
+  // near: the tile whose menu this is (D247) — what its workspace lines open
+  // lands beside it in Tiled and after its row in Document mode
+  _menuActions(at = null, near = null) {
     return {
       enterEdit: (id) => this._enterEdit(id), saveOrgDraft: (id) => this._saveOrgDraft(id),
       discardDraft: (id) => this._discardDraft(id), copyOrgScreen: (id) => this._copyOrgScreen(id),
-      newTileDialog: (n, m, o, opts) => this._newTileDialog(n, m, o, { ...opts, at }), addScreen: () => addScreen(this),
-      fitWindows: (persist) => this._fitWindows(persist), openTile: (p) => this._openFromMenu(p, at),
+      newTileDialog: (n, m, o, opts) => this._newTileDialog(n, m, o, { ...opts, at, near }), addScreen: () => addScreen(this),
+      fitWindows: (persist) => this._fitWindows(persist), openTile: (p) => this._openFromMenu(p, at, near),
       toggle: (p) => this._toggle(p), togglePin: (p) => this._canvas?.togglePin(p), frameOpen: (p, l) => this._frameOpen(p, l, at),
       openFullPage: (p) => window.open(`/c/${p}/`, '_blank'), lifecycle: (p, st) => this._lifecycle(p, st),
       openAdminWin: (p, sec) => this._openAdminWin(p, sec), confirm: (m) => confirm(m),
       docCols: (p, n) => mutateItems(this, (t) => setCols(t, rowOf(t, p), n)), docStep: (p, d) => mutateItems(this, (t) => step(t, p, d)),
-      docFit: (p) => mutateItems(this, (t) => setHeight(t, p, 0)), addBlock: (kind) => addBlock(this, kind, at),
+      docFit: (p) => mutateItems(this, (t) => setHeight(t, p, 0)), addBlock: (kind) => addBlock(this, kind, at, near),
     };
   }
   _canvasMenuItems(at) { return canvasMenuItems(this._menuState(), this._menuActions(at)); }
-  _tileMenuItems(path, at) { return agentTileItems(this, path, tileMenuItems(path, this._menuState(), this._menuActions(at))); }
-  _openFromMenu(path, at = null) { if (!this._isOpen(path)) this._toggle(path, at); }
+  _tileMenuItems(path, at) { return agentTileItems(this, path, tileMenuItems(path, this._menuState(), this._menuActions(at, path))); }
+  _openFromMenu(path, at = null, near = null) { if (!this._isOpen(path)) this._toggle(path, at, near); }
   _noteRecent(path) { this._recent = [path, ...(this._recent ?? []).filter((p) => p !== path)].slice(0, 20); }
 
   async _lifecycle(path, state) {
@@ -1033,7 +1033,7 @@ export class BxShell extends LitElement {
   }
   // fixed: the owner was chosen up front (the context menu's per-owner
   // entries) — no owner select, the choice is stated in the message.
-  _newTileDialog(name = '', error = '', owner = null, { fixed = false, at = null } = {}) {
+  _newTileDialog(name = '', error = '', owner = null, { fixed = false, at = null, near = null } = {}) {
     const opts = this._ownerOptions();
     const def = owner ?? (this._isAdmin ? '' : (this._myId ? 'user:' + this._myId : ''));
     const fields = [{ name: 'name', label: 'Tile name', value: name, placeholder: 'My Tile' }];
@@ -1046,7 +1046,7 @@ export class BxShell extends LitElement {
       error,
       fields,
       buttons: [{ label: 'Cancel', value: null }, { label: 'Create', value: 'create', primary: true }],
-      owner: fixed ? (owner ?? '') : undefined, fixed, at,
+      owner: fixed ? (owner ?? '') : undefined, fixed, at, near,
     };
   }
   async _onNewTile({ button, values }) {
@@ -1055,9 +1055,9 @@ export class BxShell extends LitElement {
     if (button !== 'create') return;
     const name = (values.name || '').trim();
     const owner = values.owner ?? spec?.owner ?? null;
-    const fixed = !!spec?.fixed, at = spec?.at ?? null;
+    const fixed = !!spec?.fixed, at = spec?.at ?? null, near = spec?.near ?? null;
     const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
-    if (!slug) { this._newTileDialog(name, 'Enter a name with letters or digits.', owner, { fixed, at }); return; }
+    if (!slug) { this._newTileDialog(name, 'Enter a name with letters or digits.', owner, { fixed, at, near }); return; }
     const path = 'apps/' + slug;
     try {
       // Chrome runs as the owner cookie — raw fetch (xbin.fetch would attach a
@@ -1071,9 +1071,9 @@ export class BxShell extends LitElement {
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(d.error ?? r.status);
       await this._load();                    // pick up the new component
-      if (!this._isOpen(path)) this._toggle(path, at); // place it on this screen
+      if (!this._isOpen(path)) this._toggle(path, at, near); // place it on this screen (beside the tile whose menu asked)
     } catch (e) {
-      this._newTileDialog(name, String(e.message ?? e), owner, { fixed, at });
+      this._newTileDialog(name, String(e.message ?? e), owner, { fixed, at, near });
     }
   }
 
@@ -1576,7 +1576,7 @@ export class BxShell extends LitElement {
   }
 
   // `at` (a menu's click point, D80) places a new tile there; else _freeSpot.
-  _toggle(path, at = null) {
+  _toggle(path, at = null, near = null) {
     const os = this._activeOrgScreen;
     if (os && !this._orgDrafts?.[os.id]) {
       // A shared screen in view mode: an editor's deliberate add opens a draft
@@ -1592,12 +1592,13 @@ export class BxShell extends LitElement {
       return;
     }
     const { x, y } = at ? spotNear(gridItems(this._screen), at) : this._freeSpot();
+    if (near && !this._isOpen(near)) near = null; // a sidebar row's menu on a tile not on this screen
     this._noteRecent(path);
     const t = { path, x, y, w: DEF_W, h: DEF_H }, mode = screenMode(this._screen); // Document mode: a new tile is the last row (D187), its blocks counted (D192)
-    if (mode === 'doc') mutateItems(this, (items) => placeNew([...items, t], path));
+    if (mode === 'doc') mutateItems(this, (items) => (near ? placeAfter([...items, t], path, near) : placeNew([...items, t], path)));
     else if (mode === 'fixed') mutateItems(this, (items) => placeFixed([...items, t], path, at)); // Fixed width: inside the 48 columns (D193)
     else this._mutateTiles((tiles) => [...tiles, t]);
-    tiledToggle(this, path, true); // Tiled (D193): it splits the focused tile's space
+    tiledToggle(this, path, true, near); // Tiled (D193): it splits the focused tile's space — or near's (D247)
     if (this._mobile) this._drawer = false; // tapping a tile closes the drawer
   }
 
@@ -1685,13 +1686,12 @@ export class BxShell extends LitElement {
       hideOrgTab: (id) => hideOrgTab(s, id),
       folderCtx: (key) => s._folderCtx(key),
       fileInto: (folderId, path, ctx) => s._fileInto(folderId, path, ctx),
-      // Document mode (D187): the active screen's mode, its rows, the top bar
+      // Document mode (D187): the active screen's mode, its rows
       get screenMode() { return screenMode(s._screen); },
       addScreen(mode) { addScreen(s, mode); return s._active; }, // Tiled unless a mode is given (D205)
       tileMenuItems: (path) => s._tileMenuItems(path),
       setScreenMode: (id, mode) => setScreenMode(s, id ?? s._active, mode),
       docRows: () => docRows(itemsOf(s._tiles, s._screen?.blocks)).map((r) => ({ cols: r.cols, paths: r.tiles.map((t) => t.path) })),
-      get topBar() { return { on: s._top.on, hidden: s._top.hidden }; },
       get arrange() { return s._screen?.arrange ?? null; }, // the active screen's arrange (D193, modes.js)
       get prompts() { return Object.fromEntries(s._prompts ?? []); }, // path → its waiting decisions (D195)
       get routeMessage() { return s._routeMsg ?? null; }, // what a link named but can't be shown
@@ -1726,8 +1726,7 @@ export class BxShell extends LitElement {
           — read-only: this is what they see, in every tab of this browser, until you exit</span>
         <button class="chip" title="back to your own session" @click=${() => this._exitViewAs()}>exit view</button>
       </div>` : nothing}
-      ${this._top.edge()}
-      <div class="top ${this._top.on ? 'docmode' : ''} ${this._top.hidden ? 'away' : ''}">
+      <div class="top">
         ${this._mobile ? html`<button class="ham" title="menu" aria-label="menu" aria-expanded=${this._drawer ? 'true' : 'false'}
           @click=${() => { this._drawer = !this._drawer; }}><bx-icon name="menu"></bx-icon></button>` : nothing}
         ${brandLogo(this)}

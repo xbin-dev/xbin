@@ -20,7 +20,8 @@
  *                       narrow screen it is the whole page
  *   openAgent(shell, {tile})  open it about a tile
  *   agentTileItems(shell, path, items)  the tile menu with "Ask my agent
- *                       about this tile" in it (before its admin section):
+ *                       about this tile" in it (the last of the tile's own
+ *                       lines, before the workspace section):
  *                       the dock, opened about that tile — not where the
  *                       chip is hidden, before setup or while turned off
  *
@@ -85,7 +86,7 @@ export function agentTileItems(shell, path, items) {
   const st = a.words.dockState({ state: a.state, llm: a.llm, me: shell._who });
   if (st === 'setup' || st === 'off') return items; // no agent to ask yet, or none now
   const item = { icon: 'agent', label: 'Ask my agent about this tile', action: () => openAgent(shell, { tile: path }) };
-  const at = items.findIndex((x) => x.kind === 'header' && x.label === 'admin');
+  const at = items.findIndex((x) => x.kind === 'header' && (x.label === 'workspace' || x.label === 'admin')); // the tile's own lines end there (D247)
   const out = [...items];
   if (at > 0 && out[at - 1].kind === 'sep') out.splice(at - 1, 0, item); else out.push(item);
   return out;

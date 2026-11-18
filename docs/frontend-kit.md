@@ -573,8 +573,9 @@ can't tell which it is in, so write it to work in both.
 ## Headings and text on a screen
 
 A person can put **headings** (H1–H3, one line) and **text** (Markdown)
-on a screen without making a tile for them (D192): the canvas menu or the
-screen tab's menu → Add heading / Add text. They sit on the canvas's grid
+on a screen without making a tile for them (D192): the canvas menu or a
+tile's menu → Add heading or text ▸, or the screen tab's menu → Add
+heading / Add text. They sit on the canvas's grid
 like tiles (dragged by their grip, resized by their corner, pushing tiles
 and being pushed), are edited in place with a double-click, and in
 Document mode each is a row of its own, as wide as the page. They

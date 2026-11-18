@@ -34,6 +34,12 @@ const spy = (over = {}) => {
 };
 const labels = (items) => items.map((it) => (it.kind ? `<${it.kind}>` : it.label));
 const byLabel = (items, l) => items.find((it) => it.label === l);
+// Add heading or text ▸ (D247): the two block lines behind one row
+const addRow = (items) => byLabel(items, 'Add heading or text');
+const addLine = (items, l) => byLabel(addRow(items)?.items ?? [], l);
+// Admin ▸ (D247): the admin lines behind one row; null without it
+const adminLines = (items) => { const r = byLabel(items, 'Admin'); return r ? labels(r.items) : null; };
+const adminLine = (items, l) => byLabel(byLabel(items, 'Admin')?.items ?? [], l);
 // Label-based lookups for the tile menu, so a line or square added elsewhere
 // in it doesn't shift what an assertion reads: the grid by kind, a square by
 // its label, a header's section by the header's label.
@@ -66,12 +72,12 @@ test('lifecycle predicates', () => {
 test('canvas menu on a personal screen, one owner', () => {
   const { a, calls } = spy();
   const items = canvasMenuItems(state(), a);
-  assert.deepEqual(labels(items), ['Open tile', 'Create a new tile…', 'Add heading', 'Add text', 'New screen', '<sep>', 'Bring windows on-screen']);
+  assert.deepEqual(labels(items), ['Open tile', 'Create a new tile…', 'Add heading or text', 'New screen', '<sep>', 'Bring windows on-screen']);
   const create = byLabel(items, 'Create a new tile…');
   assert.equal(create.hint, 'me (personal)');
   create.action();
-  byLabel(items, 'Add heading').action();
-  byLabel(items, 'Add text').action();
+  addLine(items, 'Add heading').action();
+  addLine(items, 'Add text').action();
   byLabel(items, 'New screen').action();
   byLabel(items, 'Bring windows on-screen').action();
   assert.deepEqual(calls, [['newTileDialog', '', '', 'user:me', { fixed: true }], ['addBlock', 'heading'], ['addBlock', 'text'], ['addScreen'], ['fitWindows', true]]);
@@ -80,16 +86,18 @@ test('canvas menu on a personal screen, one owner', () => {
 
 test('canvas menu: Add heading / Add text (D192) — only with the action; an org screen per its draft', () => {
   const none = canvasMenuItems(state(), { addScreen() {}, fitWindows() {}, newTileDialog() {}, openTile() {} });
-  assert.ok(!byLabel(none, 'Add heading'), 'a caller without addBlock gets no lines');
+  assert.ok(!addRow(none), 'a caller without addBlock gets no row');
   const { a } = spy();
   const view = canvasMenuItems(state({ orgScreen: { id: 's1', canEdit: false } }), a);
-  assert.equal(byLabel(view, 'Add heading').disabled, true, 'a read-only org screen: disabled');
-  assert.equal(byLabel(view, 'Add text').hint, 'view mode');
+  assert.equal(addLine(view, 'Add heading').disabled, true, 'a read-only org screen: disabled');
+  assert.equal(addLine(view, 'Add text').hint, 'view mode');
+  assert.ok(addRow(view).disabled && addRow(view).hint === 'view mode', 'both lines off: the row is off too, saying why');
   const editor = canvasMenuItems(state({ orgScreen: { id: 's1', canEdit: true } }), a);
-  assert.equal(byLabel(editor, 'Add heading').disabled, false);
-  assert.equal(byLabel(editor, 'Add heading').hint, 'starts a draft');
+  assert.equal(addLine(editor, 'Add heading').disabled, false);
+  assert.equal(addLine(editor, 'Add heading').hint, 'starts a draft');
+  assert.ok(!addRow(editor).disabled && addRow(editor).hint === 'starts a draft');
   const draft = canvasMenuItems(state({ orgScreen: { id: 's1', canEdit: true }, draft: { dirty: false } }), a);
-  assert.equal(byLabel(draft, 'Add text').hint, '');
+  assert.equal(addLine(draft, 'Add text').hint, '');
 });
 
 test('create-tile variants by owner count', () => {
@@ -151,7 +159,7 @@ test('tile menu: panels, open/closed lines, view mode', () => {
   assert.deepEqual(grid(open).cells.map((c) => c.label), ['terminal', 'logs', 'source', 'proposals']);
   assert.equal(cell(open, 'proposals').badge, 2);
   assertInOrder(open, ['Close on this screen', 'Unpin into a window', 'Open full page'], 'an open tile\'s lines');
-  assert.equal(section(open, 'admin'), null, 'no admin block without canAdminTile');
+  assert.equal(adminLines(open), null, 'no Admin row without canAdminTile');
   assert.equal(byLabel(open, 'Disable'), undefined);
   cell(open, 'terminal').action();
   byLabel(open, 'Close on this screen').action();
@@ -175,23 +183,26 @@ test('tile menu: the admin block per lifecycle state', () => {
   const admin = { canAdminTile: () => true };
   const { a, calls } = spy();
   const enabled = tileMenuItems('apps/a', state(admin), a);
-  assert.deepEqual(section(enabled, 'admin'), ['Disable', 'Hide',
+  assert.deepEqual(adminLines(enabled), ['Disable', 'Hide', '<sep>',
     'Access…', 'Runtime…', 'Vault…', 'Roles & grants…', 'Interfaces…', 'Backup…', 'Cron…']);
-  assertInOrder(enabled, ['Open full page', '<sep>', '<header>', 'Disable'], 'the admin block follows the tile\'s lines');
-  assert.equal(byLabel(enabled, 'Disable').danger, true);
-  byLabel(enabled, 'Disable').action();
-  byLabel(enabled, 'Hide').action();
-  byLabel(enabled, 'Interfaces…').action();
+  assertInOrder(enabled, ['Open full page', '<sep>', '<header>', 'New screen', '<sep>', 'Admin'], 'Admin ▸ is last, under the workspace section');
+  assert.equal(labels(enabled).at(-1), 'Admin');
+  assert.equal(byLabel(enabled, 'Disable'), undefined, 'no admin line at the top level');
+  assert.equal(adminLine(enabled, 'Disable').danger, true);
+  adminLine(enabled, 'Disable').action();
+  adminLine(enabled, 'Hide').action();
+  adminLine(enabled, 'Interfaces…').action();
   assert.deepEqual(calls.filter((c) => c[0] !== 'confirm'), [['lifecycle', 'apps/a', 'disabled'], ['lifecycle', 'apps/a', 'hidden'], ['openAdminWin', 'apps/a', 'interfaces']]);
   assert.equal(calls.filter((c) => c[0] === 'confirm').length, 2, 'both destructive lines confirm first');
   const hiddenT = tileMenuItems('apps/c', state(admin), a);
-  assert.ok(byLabel(hiddenT, 'Unhide'));
-  assert.equal(byLabel(hiddenT, 'Hide'), undefined, 'a hidden tile is not offered Hide');
+  assert.ok(adminLine(hiddenT, 'Unhide'));
+  assert.equal(byLabel(hiddenT, 'Admin').hint, 'hidden', 'the Admin row names a state other than enabled');
+  assert.equal(adminLine(hiddenT, 'Hide'), undefined, 'a hidden tile is not offered Hide');
   const off = tileMenuItems('apps/d', state(admin), a);
-  assert.ok(byLabel(off, 'Enable'));
-  assert.equal(byLabel(off, 'Hide'), undefined, 'an offloaded tile is not offered Hide');
+  assert.ok(adminLine(off, 'Enable'));
+  assert.equal(adminLine(off, 'Hide'), undefined, 'an offloaded tile is not offered Hide');
   const declined = spy({ confirm: () => false });
-  byLabel(tileMenuItems('apps/a', state(admin), declined.a), 'Disable').action();
+  adminLine(tileMenuItems('apps/a', state(admin), declined.a), 'Disable').action();
   assert.deepEqual(declined.calls, [], 'a declined confirm fires nothing');
 });
 
@@ -247,8 +258,8 @@ test('tile menu: the deployments line from the summary', () => {
   const live = byLabel(tileMenuItems('apps/a', state({ components: withSummary(liveSum), deployState: () => undefined }), a), DEP);
   assert.equal(live.hint, 'main follows the work tree');
   const admin = tileMenuItems('apps/a', state({ components: withSummary(pinnedSum), deployState: () => undefined, canAdminTile: () => true }), a);
-  assertInOrder(admin, ['Open full page', DEP, '<sep>', '<header>', 'Disable'], 'before the admin block');
-  assert.deepEqual(section(admin, 'admin'), ['Disable', 'Hide', 'Access…', 'Runtime…', 'Vault…', 'Roles & grants…', 'Interfaces…', 'Backup…', 'Cron…']);
+  assertInOrder(admin, ['Open full page', DEP, '<sep>', '<header>', 'Open tile', 'Admin'], 'among the tile\'s own lines, before the workspace section and Admin');
+  assert.deepEqual(adminLines(admin), ['Disable', 'Hide', '<sep>', 'Access…', 'Runtime…', 'Vault…', 'Roles & grants…', 'Interfaces…', 'Backup…', 'Cron…']);
 });
 
 // covers 10-ux §7 — once the state is loaded it decides: the checkpoint in
@@ -397,6 +408,29 @@ test("Tiled (D193): a placed tile's menu takes the screen's Tiled lines; a float
   assert.equal(byLabel(tileMenuItems('apps/a', state({ tiles, tiledItems: null }), spy().a), 'Rotate split'), undefined);
   assert.deepEqual(asked, ['apps/a', 'apps/a']);
   // the canvas menu's Add lines are off: a Tiled screen draws no blocks
-  const add = byLabel(canvasMenuItems(state({ tiledItems }), spy().a), 'Add heading');
+  const add = addLine(canvasMenuItems(state({ tiledItems }), spy().a), 'Add heading');
   assert.ok(add.disabled && add.hint === 'not in Tiled');
+  const row = addRow(tileMenuItems('apps/a', state({ tiles, tiledItems }), spy().a));
+  assert.ok(row.disabled && row.hint === 'not in Tiled', 'the tile menu\'s row says the same');
+});
+
+test('the workspace section (D247): the same lines in the canvas menu and every tile menu, above Admin', () => {
+  const ws = ['Open tile', 'Create a new tile…', 'Add heading or text', 'New screen'];
+  const { a, calls } = spy();
+  assert.deepEqual(labels(canvasMenuItems(state(), a)).slice(0, 4), ws, 'the canvas menu leads with it');
+  for (const over of [{}, { docMode: true }, { tiledItems: () => [{ label: 'Rotate split' }] }, { canAdminTile: () => true }]) {
+    const items = tileMenuItems('apps/a', state(over), a);
+    assert.deepEqual(section(items, 'workspace'), ws, `a tile menu holds it under a "workspace" header (${JSON.stringify(Object.keys(over))})`);
+    assert.ok(labels(items).indexOf('<header>') > labels(items).indexOf('Open full page'), 'after the tile\'s own lines');
+  }
+  assert.deepEqual(section(tileMenuItems('apps/b', state(), a), 'workspace'), ws, 'a tile not on this screen (a sidebar row) too');
+  const items = tileMenuItems('apps/a', state({ owners: [] }), a);
+  assert.ok(byLabel(items, 'Create a new tile…').disabled, 'no owner: disabled there as on the canvas');
+  byLabel(items, 'New screen').action();
+  byLabel(byLabel(items, 'Open tile').items, 'e').action();
+  assert.deepEqual(calls, [['addScreen'], ['openTile', 'apps/e']]);
+  // the top level stays short: the panels square row, the tile's lines, four workspace lines, Admin
+  const busiest = tileMenuItems('apps/a', state({ canAdminTile: () => true, tiles: [{ path: 'apps/a' }], tiledItems: () => [{ label: 'Rotate split' }, { label: 'Swap with sibling' }],
+    components: withSummary(pinnedSum), deployState: () => undefined }), a);
+  assert.ok(busiest.filter((it) => !it.kind || it.kind === 'grid').length <= 12, `at most twelve rows (${JSON.stringify(labels(busiest))})`);
 });

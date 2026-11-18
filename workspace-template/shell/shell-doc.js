@@ -1,7 +1,8 @@
 /**
  * shell-doc.js — Document mode's view (D187): a screen as a scrolling page
  * of rows, one tile per row or 2 or 4 side by side, each tile as tall as
- * its content; and the top bar that gets out of the way while reading.
+ * its content. (The top bar used to slide away here while reading; it
+ * stays put in every mode since D247.)
  *
  * <bx-canvas> renders docView(this) instead of its grid when its `mode` is
  * 'doc' (floats stay floating windows). The rows come from doc-layout.js;
@@ -39,8 +40,7 @@
 import { html, nothing, repeat } from 'lit';
 import { dragPointer } from '/vendor/bx-kit.js';
 import { docRows, moveTile, setHeight } from './doc-layout.js';
-import { screenMode, docWidth, withDocWidth, DOC_MIN_W } from './modes.js';
-import { heldScroll } from './shell-anchor.js';
+import { docWidth, withDocWidth, DOC_MIN_W } from './modes.js';
 import { docItems, docBlock, mutateCanvas } from './shell-blocks.js';
 import { isBlockKey } from './blocks.js';
 
@@ -208,92 +208,4 @@ function widthStart(c, ev) {
       if (second) c._arrange((a) => withDocWidth(a, 0));
     },
   });
-}
-
-// ---- the top bar in Document mode ----
-// A reactive controller on <bx-shell>: on a Document-mode screen (wider
-// than 820px) the bar is fixed over the page and slides away while
-// reading. It shows when the pointer comes within 8px of the top edge,
-// when the page scrolls up, while focus is inside it and while a menu is
-// open; it goes when the page scrolls down. On a Tiled screen (D193) the
-// same, but nothing scrolls: it goes when the pointer leaves it downwards
-// (onto the tiles), unless focus or a menu holds it. The shell renders the
-// bar's classes from `on` (docmode) and `hidden` (away); the motion is CSS
-// (--bx-dur-panel; none under reduced motion).
-export class TopReveal {
-  constructor(host) {
-    this.host = host; this.on = false; this.hidden = false; this._y = 0; this._main = null; this._bar = null; this.tiled = false;
-    this._scroll = () => {
-      const y = this._main?.scrollTop ?? 0;
-      if (heldScroll(this._main) === y) { this._y = y; return; } // the focused tile holding its place (D191), not reading
-      if (y > this._y + 4) this._set(true);
-      else if (y < this._y - 4) this._set(false);
-      this._y = y;
-    };
-    this._move = (e) => {
-      if (!this.on) return;
-      if (this.hidden && e.clientY <= 8) this._set(false);
-      else if (this.tiled && !this.hidden && e.clientY > this._bottom() + 16) this._set(true);
-    };
-    // leaving the bar downwards — onto a tile's page too, which takes the moves after it
-    this._leave = (e) => { if (this.on && this.tiled && !this.hidden && e.clientY >= this._bottom() - 2) this._set(true); };
-    this._focus = (e) => { if (this.on && e.composedPath().some((el) => el.classList?.contains('top'))) this._set(false); };
-    host.addController(this);
-  }
-  hostConnected() {
-    window.addEventListener('pointermove', this._move, { passive: true });
-    this.host.renderRoot?.addEventListener?.('focusin', this._focus);
-  }
-  hostDisconnected() {
-    window.removeEventListener('pointermove', this._move);
-    this.host.renderRoot?.removeEventListener?.('focusin', this._focus);
-    this._main?.removeEventListener('scroll', this._scroll);
-    this._main = null;
-    this._bar?.removeEventListener('pointerleave', this._leave);
-    this._bar = null;
-  }
-  _bottom() { return this._bar?.getBoundingClientRect().bottom ?? 48; }
-  hostUpdated() {
-    const h = this.host;
-    const main = h.renderRoot?.querySelector('main') ?? null;
-    if (main !== this._main) {
-      this._main?.removeEventListener('scroll', this._scroll);
-      this._main = main;
-      main?.addEventListener('scroll', this._scroll, { passive: true });
-      this._y = main?.scrollTop ?? 0;
-    }
-    const bar = h.renderRoot?.querySelector('.top') ?? null;
-    if (bar !== this._bar) {
-      this._bar?.removeEventListener('pointerleave', this._leave);
-      this._bar = bar;
-      bar?.addEventListener('pointerleave', this._leave);
-    }
-    const mode = screenMode(h._screen), on = !h._mobile && (mode === 'doc' || mode === 'tiled');
-    this.tiled = mode === 'tiled';
-    if (on !== this.on) {
-      this.on = on; this.hidden = on; // entering Document mode: the bar starts out of the way
-      h.requestUpdate();
-    } else if (this.hidden && this._held()) {
-      this.hidden = false;
-      h.requestUpdate();
-    }
-  }
-  // a menu open, or focus inside the bar, holds it out
-  _held() {
-    const h = this.host;
-    return !!(h._settingsOpen || h._menu) || !!h.renderRoot?.querySelector('.top:focus-within');
-  }
-  _set(hidden) {
-    const v = this.on && hidden && !this._held();
-    if (v === this.hidden) return;
-    this.hidden = v;
-    this.host.requestUpdate();
-  }
-  reveal() { this._set(false); }
-  // While the bar is away, an 8px strip along the top edge brings it back
-  // when the pointer reaches it — over a tile, the pointer's moves go to
-  // the tile's document, never to this page.
-  edge() {
-    return this.on && this.hidden ? html`<div class="topedge" aria-hidden="true" @pointerenter=${() => this.reveal()}></div>` : nothing;
-  }
 }
