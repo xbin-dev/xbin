@@ -5979,3 +5979,35 @@ here: cut from the old end, never reword.
     only Responses); Anthropic's wire (unchanged: not relayed); a control
     on `/xbin/llm`'s provider form (the row says "translating"; the
     setting is the API's and `bx`'s).
+- **D245 — A person's home is copy-on-write on a tile they have not
+  trusted (2026-11-18, the owner's "Copy-on-write home";
+  `plans/wsagent/home-on-untrusted-tiles.md`).** A person's one home was
+  mounted read-write into every session they ran, so code in a tile
+  someone else controls could plant `~/.claude/settings.json`,
+  `~/.gitconfig` or `~/.bashrc` that ran later, on the person's own tile,
+  beside their saved sign-in (residual 10 of the sign-in store's threat
+  table; in every release so far).
+  - **The rule is the sign-in's.** Where a tile's source needs the
+    person's trust (`signins.Source.NeedsTrust`) and has not got it, the
+    session's home is a copy: reads come from the real home, writes go to
+    a layer per (person, tile identity) under `data/home-copies/`. One
+    function decides for every session, on the resolved tile; fixed at
+    the start and shown; a restart or resume never widens; a trust that
+    stops holding ends the sessions that have the real home there.
+    Trusting merges nothing back.
+  - **One overlay mount per (person, tile), held in a namespace of its
+    own** and handed to each session as a detached clone
+    (`open_tree`/`move_mount`), because two overlay mounts over one upper
+    are unsafe and nothing may be mounted on the host: fuse-overlayfs
+    (mounted without `allow_other`, so sibling sandboxes may use it) where
+    xbind has one, else the kernel's overlayfs — the root's own choice.
+    A copy that cannot be mounted fails the session (D78).
+  - **Rejected:** a host-level FUSE mount like the resources' gocryptfs
+    (fuse-overlayfs would run as xbind on sandbox-written data, and leaks
+    mounts); a mount per session (unsafe on a shared upper) or an
+    ephemeral one for the second session (a login made in one tab missing
+    in the next); merging the layer on trust (the attack itself); hiding
+    credential directories from reads (not built: the list is never
+    complete — what it would take is in the plan).
+  - **Kept open:** untrusted code still READS the home. An admin no
+    longer attaches to another person's session that has their real home.
