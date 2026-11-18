@@ -939,10 +939,9 @@ for; the microphone and speech-recognition purpose strings
 the agent composer's dictation, which is on-device only
 (`requiresOnDeviceRecognition`: no audio leaves the phone, nothing is
 collected — the privacy table stays as it is); notifications at
-`.timeSensitive` for approvals, which iOS treats as `.active` until the
-owner enables **Time Sensitive Notifications** on the App ID and adds
-`com.apple.developer.usernotifications.time-sensitive` to
-`Support/Xbin.entitlements` (left out so builds sign without it). No
+`.timeSensitive` for approvals: **Time Sensitive Notifications** is enabled
+on the App ID and `Support/Xbin.entitlements` carries
+`com.apple.developer.usernotifications.time-sensitive` (2026-11-18). No
 associated domains: a self-hosted workspace's domain can't be claimed by
 the App Store app; the browsing-web continuation handler is there for a
 domain the project might add.

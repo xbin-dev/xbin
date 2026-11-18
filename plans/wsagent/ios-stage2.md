@@ -601,7 +601,8 @@ Everything else is built to work the moment these are done.
 3. **Apple Developer → Certificates, Identifiers & Profiles → Identifiers →
    `dev.xbin.app`**: enable **Time Sensitive Notifications**; then add
    `<key>com.apple.developer.usernotifications.time-sensitive</key><true/>`
-   to `Support/Xbin.entitlements` (left out so builds sign without it). Push
+   to `Support/Xbin.entitlements`. **Done 2026-11-18** (the capability is on
+   the App ID; the entitlement is in the file). Push
    Notifications is already on; Live Activity pushes need nothing more (the
    relay's token-based APNs key covers `liveactivity`).
 4. **Background Modes** (Remote notifications, Background fetch) are
