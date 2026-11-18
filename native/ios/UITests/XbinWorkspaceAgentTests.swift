@@ -313,7 +313,7 @@ final class XbinWorkspaceAgentTests: XCTestCase {
         e.expect(heading, 30, "the start's approval")
         XCTAssertTrue(heading.label.contains("Start a tile agent in Note?"), "the heading: \(heading.label)")
         // the mode leads the rows
-        let mode = e.containing("asks before acting"), tile = e.app.staticTexts["Coding agent"]
+        let mode = e.containing("asks before it edits or runs anything"), tile = e.app.staticTexts["Coding agent"]
         XCTAssertTrue(mode.exists, "the mode: it asks before acting")
         XCTAssertTrue(tile.exists, "the coding agent's row")
         XCTAssertLessThan(mode.frame.minY, tile.frame.minY, "the mode's row comes first")

@@ -1058,7 +1058,7 @@ enum AgentDemoData {
      "n": 5,
      "kind": "agent.start",
      "args": {},
-     "line": "Start a tile agent in apps/dice — Codex, in its mode \"default\"",
+     "line": "Start a tile agent in apps/dice — Codex, in its mode \"default\", which asks before it edits or runs anything",
      "deferred": true,
      "needs": [
       1
@@ -1150,7 +1150,7 @@ enum AgentDemoData {
      "n": 5,
      "kind": "agent.start",
      "args": {},
-     "line": "Start a tile agent in apps/dice — Codex, in its mode \"default\"",
+     "line": "Start a tile agent in apps/dice — Codex, in its mode \"default\", which asks before it edits or runs anything",
      "deferred": true,
      "needs": [
       1

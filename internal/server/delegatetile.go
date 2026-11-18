@@ -76,6 +76,16 @@ type TileStanding struct {
 	// read them (an admin, or terminal level); nil otherwise.
 	Cron []StandingJob `json:"cron,omitempty"`
 	Log  StandingLog   `json:"log"`
+	// Report is what the tile says of itself (GET /tile-report); Alerts
+	// what xbind flags about it (GET /tile-status' tile alerts).
+	Report *StandingReport `json:"report,omitempty"`
+	Alerts []string        `json:"alerts,omitempty"`
+}
+
+// StandingReport is a tile's own status line.
+type StandingReport struct {
+	Level   string `json:"level"`
+	Message string `json:"message"`
 }
 
 // StandingOwner is a tile's owner as its person may see it: the id, and a
@@ -207,6 +217,12 @@ func (s *Server) apiDelegateTile(w http.ResponseWriter, r *http.Request) {
 		out["wiring"], out["slots"], out["uses"], out["provides"], out["exposes"], out["log"] = st.Wiring, st.Slots, st.Uses, st.Provides, st.Exposes, st.Log
 		if st.Cron != nil {
 			out["cron"] = st.Cron
+		}
+		if st.Report != nil {
+			out["report"] = st.Report
+		}
+		if len(st.Alerts) > 0 {
+			out["alerts"] = st.Alerts
 		}
 	}
 	out["sessions"] = s.standingSessions(p, tile)

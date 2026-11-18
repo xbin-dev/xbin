@@ -191,7 +191,7 @@ const dice = (o = {}, edit = (items) => items) => ({ id: 'pl_dice', user: 'ana',
     { n: 3, kind: 'binding.set', args: {}, line: "Bind apps/assistant's llm to xbin:llm", admin: true, deferred: true, needs: [2], before: { binding: [] }, after: { binding: [{ provider: 'xbin:llm' }] }, beforeText: 'not bound',
       afterText: "the workspace's LLM connector (xbin:llm)", warnings: ["SPEND: its calls spend the workspace's LLM quota"] },
     { n: 4, kind: 'binding.set', args: {}, line: "Bind apps/assistant's mcp to apps/dice", deferred: true, needs: [1, 2], before: { binding: [] }, after: { binding: [{ provider: 'apps/dice' }] }, afterText: 'apps/dice' },
-    { n: 5, kind: 'agent.start', args: {}, line: 'Start a tile agent in apps/dice — Codex, in its mode "default"', deferred: true, needs: [1], start: start() },
+    { n: 5, kind: 'agent.start', args: {}, line: 'Start a tile agent in apps/dice — Codex, in its mode "default", which asks before it edits or runs anything', deferred: true, needs: [1], start: start() },
   ]), ...o });
 export const plans = [
   dice(),
@@ -213,6 +213,13 @@ export const plans = [
   { id: 'pl_from', user: 'ana', agent: 'xbin/wsagent', plan: true, from: 'bob', askOf: 'x', askId: 'a1', title: 'A dice tool', state: 'proposed', created: t('09:10:00'), expires: '2026-11-23T09:00:00Z', items: [
     { n: 1, of: 3, kind: 'binding.set', args: {}, line: "Bind apps/helper's llm to xbin:llm", admin: true, before: { binding: [] }, after: { binding: [{ provider: 'xbin:llm' }] }, beforeText: 'not bound', warnings: ['SPEND: it spends the quota'] },
     { n: 2, of: 4, kind: 'grant.add', args: {}, line: 'Let apps/helper use apps/x as reader', admin: true, before: { roles: [] }, after: { roles: ['reader'] } }] },
+  // a person's access (D246): an owner's own line, a raise to terminal an admin's and warned, one's own access blocked
+  { id: 'pl_access', user: 'ana', agent: 'xbin/wsagent', plan: true, session: 'h1', title: 'Dave reads Invoices', state: 'proposed', created: t('09:30:00'), expires: '2026-11-23T09:00:00Z', items: [
+    { n: 1, kind: 'access.set', args: { tile: 'apps/invoices', user: 'dave', level: 'read' }, line: '“Dave Rossi” (dave): no access → read on apps/invoices', before: { level: '' }, after: { level: 'read', entry: 'read' }, beforeText: 'no access', afterText: 'read' },
+    { n: 2, kind: 'access.set', args: { tile: 'apps/orders', user: 'dave', level: 'terminal' }, line: '“Dave Rossi” (dave): read → terminal on apps/orders', admin: true, beforeText: 'read', afterText: 'terminal',
+      warnings: ['TERMINAL: dave can run code in apps/orders and change it — and with it everything the tile can reach'] },
+    { n: 3, kind: 'access.set', args: { tile: 'apps/orders', user: 'ana', level: 'terminal' }, line: 'Set the access of “ana” on apps/orders to terminal',
+      blocked: "your own access is changed by a workspace admin on xbin's own pages (or asked for from the tile's Request access) — never through your agent" }] },
   { id: 'pl_undo', plan: true, undoOf: 'pl_dice', title: 'Undo: A dice tool', state: 'proposed', created: t('09:20:00'), expires: '2026-11-23T09:00:00Z', byHand: ["xbin doesn't delete tiles: deleting apps/dice is yours to do, from the tile's own menu"],
     items: [{ n: 1, kind: 'binding.remove', args: {}, line: "Unbind apps/assistant's mcp", before: { binding: [{ provider: 'apps/dice' }] }, after: { binding: [] }, beforeText: 'apps/dice', afterText: 'not bound' }] },
 ];

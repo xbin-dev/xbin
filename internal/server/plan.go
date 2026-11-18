@@ -412,6 +412,9 @@ func (s *Server) previewStart(a planAgent, op delegation.ChangeOp, planned []del
 		inMode, inTheMode = "in its own default mode", "in its own default mode"
 	}
 	pv.Line = fmt.Sprintf("Start a tile agent in %s — %s, %s", in.Tile, name, inMode)
+	if asks { // what the mode means, beside its name (D246; the feedback's E: "read-only" was read as the file permissions)
+		pv.Line += ", which asks before it edits or runs anything"
+	}
 	pv.Start, _ = json.Marshal(shown)
 	// what the start resolves to is part of what was shown: the network and
 	// the API access too, which a tile's org rules decide once it exists

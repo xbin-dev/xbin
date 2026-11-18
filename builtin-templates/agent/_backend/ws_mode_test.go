@@ -18,10 +18,10 @@ import (
 // research subagents), and the profile's own. Pinned: a tool that appears
 // here by accident is a new reach.
 var wsTools = []string{
-	"admin_changes", "admin_propose", "ask_user", "docs_read", "docs_search", "finish", "memory_delete", "memory_get", "memory_set", "message_get",
+	"account_lookup", "admin_changes", "admin_propose", "ask_user", "docs_read", "docs_search", "finish", "memory_delete", "memory_get", "memory_set", "message_get",
 	"note", "notebook_archive", "notebook_edit", "notebook_read", "notebook_search", "notebook_write", "plan", "plan_propose", "preview", "recall", "research",
 	"subagent_cancel", "subagent_result", "subagent_status", "subagent_wait",
-	"tile_agent_brief", "tile_agent_cancel", "tile_agent_message", "tile_agent_result", "tile_agent_start", "tile_agent_status", "tile_agents",
+	"tile_agent_brief", "tile_agent_cancel", "tile_agent_message", "tile_agent_result", "tile_agent_start", "tile_agents",
 	"tile_api_doc", "tile_call", "tile_create", "tile_logs", "tile_status", "workspace_map",
 }
 

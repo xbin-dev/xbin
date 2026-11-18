@@ -83,6 +83,16 @@ func (b *Broker) TileStanding(person auth.Principal, tile string) server.TileSta
 		st.Cron = b.standingJobs(tile)
 	}
 	st.Log = b.standingLog(person, tile)
+	if b.obs != nil { // GET /tile-report's row (a reader's)
+		if level, msg, ok := b.obs.Report(tile); ok {
+			st.Report = &server.StandingReport{Level: level, Message: msg}
+		}
+	}
+	for _, a := range b.TileAlerts(tile) { // GET /tile-status' alerts, the tile's own
+		if a.Tile == tile && !a.System && a.Deployment == "" {
+			st.Alerts = append(st.Alerts, strings.TrimSpace(a.Kind+": "+a.Message))
+		}
+	}
 	return st
 }
 

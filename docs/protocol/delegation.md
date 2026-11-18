@@ -363,6 +363,7 @@ replaces, so it reaches nothing those don't (D246):
  owner?: {kind: user | org | workspace, id?, name?},
  backend: {state, error?, restarts?, retry?: {attempt, of, at},
            flag?: "crash-loop" | "retrying" | "failed", words},
+ report?: {level, message}, alerts?: [string],
  wiring, slots: [{slot, kind, service?, required, multi?, bound?}],
  uses: [{target, role, granted?, pending?}],
  provides: [{slot, kind, service?, role?}], exposes: [{slot, kind, paths?}],
@@ -376,6 +377,7 @@ replaces, so it reaches nothing those don't (D246):
 |---|---|---|
 | title, kind, orgs, agent level, mcp | `GET /delegate/map`'s row | the map's |
 | runtime | `GET /components/<path>` | read |
+| report, alerts | `GET /tile-report`'s row; `GET /tile-status`'s alerts about the tile | read |
 | owner | `GET /owner`; a person's display name only to someone who sees accounts (§A person's access) or to themselves, an org's where they see the org | read |
 | backend | `GET /tile-status`'s row of the primary, in words: a crash loop is "keeps exiting: …", a start that retries (D242) "crashing on start: … — xbin starts it again by itself (attempt 2 of 3) at …" | read |
 | slots' `bound`, uses' `granted` / `pending` (`wiring: true`) | the person's own `GET /bindings` and `GET /grants` views | a workspace admin; a tile they write, or one an org they admin owns |

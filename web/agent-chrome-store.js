@@ -176,7 +176,8 @@ class AgentStore {
   async apply(id, items, password = '', ticks = {}) { // ticks {signin, trust}: the start lines whose own sign-in lines the person ticked (D230)
     const signin = ticks.signin || [], trust = ticks.trust || [];
     const r = await call(`/delegate/changesets/${encodeURIComponent(id)}/approve`, { method: 'POST',
-      body: { items, ...(password ? { password } : {}), ...(signin.length ? { signin } : {}), ...(trust.length ? { trust } : {}) } });
+      // knows: the line kinds newer than every client's that this chrome draws for what they are — xbind applies a line of one only then (D246)
+      body: { items, knows: ['access.set'], ...(password ? { password } : {}), ...(signin.length ? { signin } : {}), ...(trust.length ? { trust } : {}) } });
     this.readState(); this.readChangesets();
     if (r.ok) return { ok: true, set: r.data };
     if (r.status === 403 && r.data && r.data.stepUp) return { ok: false, stepUp: r.data.stepUp, error: password ? say(r, 'That password was not accepted') : '' };

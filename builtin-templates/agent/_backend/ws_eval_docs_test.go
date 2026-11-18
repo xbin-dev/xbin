@@ -59,16 +59,16 @@ func TestWsEvalDocsToolsTakeWhatAModelSends(t *testing.T) {
 	if got := wsSnippet("A slot is bound"); got != "A slot is bound" {
 		t.Errorf("a whole snippet: %q", got)
 	}
-	// "give one person access to a tile" is nothing admin_propose can say — and its description says so
-	// (a real model spent thirty calls in the docs establishing it, by elimination)
+	// "give one person access to a tile" is access.set (D246) — and admin_propose says so, where a real model
+	// once spent thirty calls in the docs establishing that nothing names a person
 	said := false
 	for _, tool := range wsOtherTools() {
 		if tool.Spec.Function.Name == "admin_propose" {
-			said = strings.Contains(tool.Spec.Function.Description, "none names one person")
+			said = strings.Contains(tool.Spec.Function.Description, "One person's access (\"let Dave see Orders\"): access.set")
 		}
 	}
 	if !said {
-		t.Error("admin_propose as offered doesn't say that it can't give one person access to a tile")
+		t.Error("admin_propose as offered doesn't say how to give one person access to a tile")
 	}
 	// an MCP tool's arguments, as a line to read rather than a schema to parse
 	schema := map[string]any{"type": "object", "additionalProperties": false, "required": []string{"sides"}, "properties": map[string]any{
