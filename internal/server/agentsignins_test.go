@@ -565,7 +565,7 @@ func TestSigninsTrustRoutes(t *testing.T) {
 	}
 	// asked: whose tile it is, who can change it, and what a session runs on without
 	v := view(alice)
-	if hr := here(v); hr == nil || hr.Inject || hr.Trust == nil || hr.Trust.OwnerKind != "person" || hr.Trust.Owner != "bob" || !strings.HasPrefix(hr.Trust.Basis, "tb_") ||
+	if hr := here(v); hr == nil || hr.Inject || hr.Trust == nil || hr.Trust.OwnerKind != "person" || hr.Trust.Owner != "bob" || !strings.HasPrefix(hr.Trust.Basis, "tb2_") || hr.Trust.Means != 2 ||
 		len(hr.Trust.Editors) != 1 || hr.Trust.Editors[0] != "carol" || !hr.Trust.Allowed || hr.Without != "none" || len(v.Trusted) != 0 || !v.Policy.Trust.Allowed {
 		t.Fatalf("before her answer: %+v (trust %+v)", hr, hr.Trust)
 	}

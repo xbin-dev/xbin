@@ -8,6 +8,7 @@
 package term
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -20,6 +21,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -35,6 +37,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/sandbox"
 	"github.com/xbin-dev/xbin/internal/signins"
 	"github.com/xbin-dev/xbin/internal/users"
+	"github.com/xbin-dev/xbin/internal/util"
 )
 
 // homeLive is a manager under real isolation with the home rule wired:
@@ -53,7 +56,7 @@ func newHomeLive(t *testing.T) *homeLive {
 	t.Helper()
 	rootfs := layerRootfs(t)
 	root := t.TempDir()
-	tiles := &homeTiles{admins: map[string]bool{"root": true, "carol": true}}
+	tiles := &homeTiles{root: root, admins: map[string]bool{"root": true, "carol": true}}
 	for tile, owner := range map[string]string{"apps/alice": "user:alice", "apps/bob": "user:bob", "apps/other": "user:bob", "apps/ws": ""} {
 		if err := os.MkdirAll(filepath.Join(root, filepath.FromSlash(tile)), 0o755); err != nil {
 			t.Fatal(err)
@@ -71,6 +74,11 @@ func newHomeLive(t *testing.T) *homeLive {
 	m.Signins = &fakeSignins{real: store}
 	m.SigninSource = tiles.source
 	m.TileIdentity = tiles.identity
+	// the overlay a new copy is mounted with: the kernel's (then
+	// fuse-overlayfs) — or the one a run of these tests names, to drive the
+	// fallback where the kernel's works (XBIN_TEST_HOME_OVERLAY=fuse)
+	m.copies.prefer = os.Getenv("XBIN_TEST_HOME_OVERLAY")
+	m.Tokens = homeTokens{} // sessions get a terminal token, as under xbind (bx agent in a shell)
 	h := &homeLive{m: m, root: root, tiles: tiles, store: store, who: map[string]auth.Principal{
 		"alice": {UserID: "alice", Via: "session", User: &users.User{ID: "alice", Role: users.RoleUser, Tiles: map[string]string{"apps/*": users.LevelTerminal}}},
 		"carol": adminPerson("carol"),
@@ -575,11 +583,32 @@ func TestHomeCopyTrustAndForget(t *testing.T) {
 	if !strings.Contains(remade, "No such file") {
 		t.Fatalf("a tile made again got the old tile's layer:\n%s", remade)
 	}
-	if n := h.m.SweepHomeCopies(); n != 1 {
-		t.Fatalf("the sweep removed %d layers, want the old tile's", n)
+	// the old tile's layer is an orphan now: never mounted again, kept —
+	// its path is there, so nothing says the tile was deleted (a restored
+	// workspace looks the same) — listed as not used, and hers to forget
+	if n := h.m.SweepHomeCopies(); n != 0 {
+		t.Fatalf("the sweep removed %d layers of a tile whose path is there", n)
 	}
-	if rows := h.m.HomeCopies("alice"); len(rows) != 2 { // apps/other's, and the remade tile's
-		t.Fatalf("alice's copies after the sweep: %+v", rows)
+	rows := h.m.HomeCopies("alice")
+	var orphan string
+	for _, r := range rows {
+		if r.Gone {
+			orphan = r.ID
+		}
+	}
+	if len(rows) != 3 || orphan == "" { // apps/other's, the remade tile's, and the old tile's
+		t.Fatalf("alice's copies after the tile was made again: %+v", rows)
+	}
+	if _, _, err := h.m.ForgetHomeCopy("alice", orphan, "x"); err != nil {
+		t.Fatalf("forgetting the orphan: %v", err)
+	}
+	// the tile is deleted: its layer goes with it
+	h.tiles.drop("apps/bob")
+	if n := h.m.SweepHomeCopies(); n != 1 {
+		t.Fatalf("the sweep after the tile was deleted removed %d", n)
+	}
+	if rows := h.m.HomeCopies("alice"); len(rows) != 1 || rows[0].Tile != "apps/other" {
+		t.Fatalf("alice's copies after the tile was deleted: %+v", rows)
 	}
 }
 
@@ -639,27 +668,53 @@ func TestHomeCopyFailsClosed(t *testing.T) {
 			t.Fatalf("%s: a session is listed", name)
 		}
 	}
-	// fuse-overlayfs that cannot serve (the session's own root would use it
-	// too: the home's hold is asked first, and says why)
-	orig, had := os.LookupEnv("XBIN_FUSE_OVERLAYFS")
-	t.Setenv("XBIN_FUSE_OVERLAYFS", "/bin/false")
-	refused("a broken fuse-overlayfs", "it exited before serving the overlay")
-	if had {
-		os.Setenv("XBIN_FUSE_OVERLAYFS", orig)
-	} else {
-		os.Unsetenv("XBIN_FUSE_OVERLAYFS")
-	}
-	// a layer the other flavour wrote
 	layer, _ := h.m.homeCopyDir("alice", mustSource(t, h.tiles, "alice", "apps/bob"))
-	h.once(t, "alice", "apps/bob", "true")
-	other := sandbox.HoldKernel
-	if sandbox.FuseOverlayfs() == "" {
-		other = sandbox.HoldFuse
+	stamp := func(flavour string) {
+		t.Helper()
+		if err := os.MkdirAll(layer, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(layer, "overlay"), []byte(flavour+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if err := os.WriteFile(filepath.Join(layer, "overlay"), []byte(other+"\n"), 0o600); err != nil {
+	fuseEnv := func(v string) func() {
+		orig, had := os.LookupEnv("XBIN_FUSE_OVERLAYFS")
+		os.Setenv("XBIN_FUSE_OVERLAYFS", v)
+		return func() {
+			if had {
+				os.Setenv("XBIN_FUSE_OVERLAYFS", orig)
+			} else {
+				os.Unsetenv("XBIN_FUSE_OVERLAYFS")
+			}
+		}
+	}
+	// a layer fuse-overlayfs wrote, and a fuse-overlayfs that cannot serve:
+	// the kernel's overlay is not put over it instead, and the real home
+	// is not opened
+	h.once(t, "alice", "apps/bob", "true")
+	stamp(sandbox.HoldFuse)
+	back := fuseEnv("/bin/false")
+	refused("a broken fuse-overlayfs", "it exited before serving the overlay")
+	back()
+	// …and no fuse-overlayfs at all any more
+	back = fuseEnv("/nonexistent/fuse-overlayfs")
+	refused("fuse-overlayfs gone", "has no fuse-overlayfs any more")
+	back()
+	// a new layer where neither overlay mounts (a test's only way to an old
+	// kernel: fuse-overlayfs is named as the one to use, and is broken)
+	if _, _, err := h.m.ForgetHomeCopy("alice", filepath.Base(layer), "x"); err != nil {
 		t.Fatal(err)
 	}
-	refused("a layer of the other flavour", "forget what this tile wrote")
+	prefer := h.m.copies.prefer
+	h.m.copies.prefer = sandbox.HoldFuse
+	back = fuseEnv("/bin/false")
+	refused("no overlay that mounts", "it exited before serving the overlay")
+	back()
+	h.m.copies.prefer = prefer
+	if st, _ := os.ReadFile(filepath.Join(layer, "overlay")); len(st) != 0 {
+		t.Fatalf("a start that failed stamped the layer: %q", st)
+	}
 	// a layer whose upper is not a directory
 	if _, _, err := h.m.ForgetHomeCopy("alice", filepath.Base(layer), "x"); err != nil {
 		t.Fatal(err)
@@ -968,7 +1023,7 @@ func TestHomeCopyPerf(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	t.Logf("home: %d files, %d MiB (made in %v); overlay: %s", files, mib, time.Since(began).Round(time.Millisecond), map[bool]string{true: "fuse-overlayfs", false: "kernel"}[sandbox.FuseOverlayfs() != ""])
+	t.Logf("home: %d files, %d MiB (made in %v); the copy's overlay: %s", files, mib, time.Since(began).Round(time.Millisecond), cmp.Or(h.m.copies.prefer, "kernel"))
 	// a start: from the socket's dial to the shell's first answer
 	start := func(tile string) (time.Duration, *liveTerm) {
 		t0 := time.Now()
@@ -1025,4 +1080,290 @@ func TestHomeCopyPerf(t *testing.T) {
 	h.idle(t, "alice")
 	t.Logf("find ~ -type f (%d files): real home %v then %v; tile's copy %v then %v; first write to a %d KiB file of the home on the copy %v",
 		files, o1.Round(time.Millisecond), o2.Round(time.Millisecond), w1.Round(time.Millisecond), w2.Round(time.Millisecond), len(each)>>10, up.Round(time.Millisecond))
+}
+
+// homeTokens mints terminal tokens as xbind's auth does: one per session.
+type homeTokens struct{}
+
+func (homeTokens) MintTerminal(component, userID string) string { return util.RandomToken(24) }
+func (homeTokens) RevokeTerminal(string)                        {}
+
+// tokenPrincipal is the principal of the terminal token the session lt
+// was opened with, as xbind's auth builds one (auth.terminalPrincipal):
+// the tile's, attributed to the account that opened the shell — none for
+// the root token's — and naming the token by its reference.
+func (h *homeLive) tokenPrincipal(t *testing.T, lt *liveTerm) auth.Principal {
+	t.Helper()
+	h.m.mu.Lock()
+	s := h.m.sessions[lt.id]
+	h.m.mu.Unlock()
+	if s == nil {
+		t.Fatalf("no session %q", lt.id)
+	}
+	s.mu.Lock()
+	if s.token == "" { // (these sessions are offline, so xbind minted no API token: the one it would have)
+		s.token = util.RandomToken(24)
+	}
+	s.mu.Unlock()
+	p := auth.Principal{Component: s.tile, UserID: h.who[lt.user].UserID, Via: "terminal", TermRef: auth.TerminalRef(s.token)}
+	if p.UserID != "" {
+		p.User = h.who[lt.user].User
+	}
+	return p
+}
+
+// the reviewer's two attacks on a copy session that keeps an admin's
+// sandbox powers: (1) bind the workspace root again without its masks,
+// remount that read-write, write the victim's real home; (2) remount the
+// read-only workspace read-write and edit the victim's own tile. Each step
+// says what it did.
+func homeMountAttack(root, home, ownTile string) string {
+	return `mkdir -p /mnt/x; mount --bind ` + root + ` /mnt/x 2>&1; mount -o remount,rw,bind /mnt/x 2>&1; ` +
+		`(echo 'echo PW''NED-VIA-MOUNT' >> /mnt/x/` + strings.TrimPrefix(home, root+"/") + `/.bashrc) 2>&1; ` +
+		`mount -o remount,rw,bind ` + root + ` 2>&1; (echo planted > ` + root + `/` + ownTile + `/planted-by-tile) 2>&1; ` +
+		`unshare -Urm true 2>&1; echo CAPS=$(grep CapEff /proc/self/status)`
+}
+
+// H1: on a tile they have not trusted, an ADMIN's session — and the root
+// token's — is confined like a member's. With an admin's sandbox powers
+// (CAP_SYS_ADMIN in its user namespace) the tile's code could bind the
+// workspace again without its masks, remount it read-write and write the
+// admin's real home, or their own tile's source: the copy would protect
+// nothing. Both attacks fail; the real home and the own tile are
+// byte-identical on disk; trusting the tile gives the admin's sandbox back.
+func TestHomeCopyAdminIsConfined(t *testing.T) {
+	h := newHomeLive(t)
+	// can a session mount? CAP_SYS_ADMIN (bit 21) in its capability set
+	sysAdmin := func(out string) bool {
+		_, hex, ok := strings.Cut(out, "CapEff:")
+		if !ok {
+			t.Fatalf("no CapEff in:\n%s", out)
+		}
+		caps, err := strconv.ParseUint(strings.Fields(hex)[0], 16, 64)
+		if err != nil {
+			t.Fatalf("CapEff: %v in:\n%s", err, out)
+		}
+		return caps&(1<<21) != 0
+	}
+	for _, c := range []struct {
+		user     string
+		view     bool // the allow-list view (as xbind wires it), or the masked workspace
+		landlock bool // the Landlock read guard: where the kernel has it, it refuses a session's mounts too
+	}{{"root", true, false}, {"token", false, false}, {"carol", false, true}} {
+		t.Run(c.user, func(t *testing.T) {
+			h.m.TermView, h.m.noReadGuard = nil, !c.landlock
+			if c.view {
+				h.m.TermView = func(p auth.Principal) ([]string, map[string][]byte) {
+					return []string{"apps/alice", "apps/bob", "apps/other", "apps/ws"}, map[string][]byte{"xbin.json": []byte("{}\n")}
+				}
+			}
+			key := HomeKey(h.who[c.user])
+			home := h.seedHome(t, key)
+			own := filepath.Join(h.root, "apps", "ws") // the workspace's: an admin's own
+			if err := os.WriteFile(filepath.Join(own, "main.go"), []byte("package main\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			before, ownBefore := treeHash(t, home), treeHash(t, own)
+
+			lt := h.mustOpen(t, c.user, "apps/bob")
+			out, ended := lt.run(homeMountAttack(h.root, home, "apps/ws") + `; echo x > ` + h.root + `/apps/bob/own-tile-write && echo TILE-''WRITE-OK; echo y > ~/in-copy && echo HOME-''WRITE-OK`)
+			if ended {
+				t.Fatalf("%s's session on bob's tile ended:\n%s", c.user, lt.out.String())
+			}
+			rows := h.m.ListFor(key, "", nil)
+			if len(rows) != 1 || rows[0].Home == nil || rows[0].Home.Mode != HomeCopy || !rows[0].Home.Confined {
+				t.Fatalf("%s's row on bob's tile: %+v", c.user, rows)
+			}
+			if !strings.Contains(lt.out.String(), "confined like a member's") {
+				t.Errorf("%s was not told the session is confined:\n%s", c.user, lt.out.String())
+			}
+			// the session still does what a session does: its tile, its (copy of the) home
+			if !strings.Contains(out, "TILE-WRITE-OK") || !strings.Contains(out, "HOME-WRITE-OK") {
+				t.Errorf("%s's confined session can't write its tile or its home:\n%s", c.user, out)
+			}
+			if sysAdmin(out) {
+				t.Errorf("%s's session on a tile they have not trusted can mount (CAP_SYS_ADMIN):\n%s", c.user, out)
+			}
+			lt.exit(h.m)
+			h.idle(t, key)
+			if after := treeHash(t, home); after != before {
+				t.Fatalf("%s's REAL home was written from a copy session:\n--- before\n%s\n--- after\n%s\n--- the session said\n%s", c.user, before, after, out)
+			}
+			if after := treeHash(t, own); after != ownBefore {
+				t.Fatalf("%s's own tile was written from a session on bob's tile:\n--- before\n%s\n--- after\n%s\n--- the session said\n%s", c.user, ownBefore, after, out)
+			}
+			// on their own tile the admin's sandbox is the admin's
+			mine := h.mustOpen(t, c.user, "apps/ws")
+			out, _ = mine.run(`mkdir -p /mnt/y; mount -t tmpfs none /mnt/y 2>&1 && echo CAN-''MOUNT; echo CAPS=$(grep CapEff /proc/self/status)`)
+			if !sysAdmin(out) || (!c.landlock && !strings.Contains(out, "CAN-MOUNT")) {
+				t.Errorf("%s's session on their own tile lost the admin's sandbox:\n%s", c.user, out)
+			}
+			if rows := h.m.ListFor(key, "", nil); len(rows) != 1 || rows[0].Home.Mode != HomeOwn || rows[0].Home.Confined {
+				t.Errorf("%s's row on their own tile: %+v", c.user, rows)
+			}
+			mine.exit(h.m)
+			h.idle(t, key)
+		})
+	}
+	// an admin who trusts the tile has the admin's sandbox there again
+	h.m.noReadGuard = false
+	trustNow(t, h.store, h.tiles, "carol", "apps/bob")
+	lt := h.mustOpen(t, "carol", "apps/bob")
+	if out, _ := lt.run(`echo CAPS=$(grep CapEff /proc/self/status)`); !sysAdmin(out) {
+		t.Errorf("carol's session on a tile she trusted is still confined:\n%s", out)
+	}
+	lt.exit(h.m)
+	h.idle(t, "carol")
+}
+
+// M1 and L1: bx agent in a shell — a session opened with a terminal's
+// token. In the root token's shell on the workspace's tile it has the
+// root token's real home, as a one-person install always had (the agent's
+// own files land in homes/owner). In a shell that is on the tile's copy it
+// is on the copy — also after its person trusted the tile and has another
+// shell there with the real home: the token is that shell's, and an admin
+// may be attached to it.
+func TestHomeCopyBxAgentInAShell(t *testing.T) {
+	h := newHomeLive(t)
+	fake, bx, bins := homeBins(t)
+	t.Setenv(agent.FakeEnv, fake+" --persist")
+	h.m.BxPath = bx
+	h.m.ExtraBinds = []sandbox.Bind{{Src: bins, Dst: bins, RO: true}}
+	ownerHome := h.seedHome(t, ownerHomeKey)
+	home := h.seedHome(t, "alice")
+
+	// a one-person install: the root token's shell, bx agent in it
+	shell := h.mustOpen(t, "token", "apps/ws")
+	row := h.openAgent(t, h.tokenPrincipal(t, shell), AgentOpen{Cwd: "apps/ws"})
+	if row.Home == nil || row.Home.Mode != HomeOwn || row.Home.Confined {
+		t.Fatalf("bx agent in the root token's shell on the workspace's tile: %+v", row.Home)
+	}
+	agentSay(t, h.m, row.ID, "env")
+	h.endAgent(t, row.ID)
+	if ents, _ := os.ReadDir(filepath.Join(ownerHome, ".fakeacp", "sessions")); len(ents) == 0 {
+		t.Fatal("the agent's own files are not in the root token's real home")
+	}
+	if _, err := os.Stat(filepath.Join(h.root, "data", homeCopiesDir)); !os.IsNotExist(err) {
+		t.Fatalf("a one-person workspace has home copies after bx agent in a shell: %v", err)
+	}
+	shell.exit(h.m)
+	h.idle(t, ownerHomeKey)
+
+	// alice's shell on bob's tile is on the copy: so is its bx agent
+	before := treeHash(t, home)
+	onCopy := h.mustOpen(t, "alice", "apps/bob")
+	row = h.openAgent(t, h.tokenPrincipal(t, onCopy), AgentOpen{Cwd: "apps/bob"})
+	if row.Home.Mode != HomeCopy {
+		t.Fatalf("bx agent in a copy shell: %+v", row.Home)
+	}
+	h.endAgent(t, row.ID)
+	// she trusts the tile and opens another shell there: that one's bx agent
+	// has her real home — the copy shell's still does not
+	trustNow(t, h.store, h.tiles, "alice", "apps/bob")
+	real := h.mustOpen(t, "alice", "apps/bob")
+	if rows := h.m.ListFor("alice", "", nil); len(rows) != 2 {
+		t.Fatalf("her two shells: %+v", rows)
+	}
+	row = h.openAgent(t, h.tokenPrincipal(t, onCopy), AgentOpen{Cwd: "apps/bob"})
+	if row.Home.Mode != HomeCopy {
+		t.Fatalf("bx agent in the copy shell, with a real-home shell beside it: %+v", row.Home)
+	}
+	h.endAgent(t, row.ID)
+	if after := treeHash(t, home); after != before {
+		t.Fatalf("the copy shell's agent sessions wrote her real home:\n%s\n---\n%s", before, after)
+	}
+	row = h.openAgent(t, h.tokenPrincipal(t, real), AgentOpen{Cwd: "apps/bob"})
+	if row.Home.Mode != HomeOwn {
+		t.Fatalf("bx agent in the real-home shell: %+v", row.Home)
+	}
+	h.endAgent(t, row.ID)
+	onCopy.exit(h.m)
+	real.exit(h.m)
+	h.idle(t, "alice")
+}
+
+// M2: a start held in flight. The plan gives her real home (she trusts
+// the tile); while the sandbox starts she takes the trust back, and the
+// sweep sees no such session; when the session registers it is judged, and
+// ended with the reason — it never runs on with her real home.
+func TestHomeCopyStartInFlight(t *testing.T) {
+	h := newHomeLive(t)
+	home := h.seedHome(t, "alice")
+	trustNow(t, h.store, h.tiles, "alice", "apps/bob")
+	before := treeHash(t, home)
+	held, goOn := make(chan struct{}), make(chan struct{})
+	h.m.beforeRegister = func() { close(held); <-goOn }
+	type opened struct {
+		lt  *liveTerm
+		why string
+	}
+	got := make(chan opened, 1)
+	go func() {
+		lt, why := h.openRaw(t, "alice", "apps/bob")
+		got <- opened{lt, why}
+	}()
+	select {
+	case <-held:
+	case <-time.After(60 * time.Second):
+		t.Fatal("the start never reached its registration")
+	}
+	h.m.beforeRegister = nil
+	for _, tr := range h.store.Trusted("alice") {
+		if _, err := h.store.Untrust("alice", tr.ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n := h.m.EndSigninSessionsOn("alice", "apps/bob", "untrusted"); n != 0 {
+		t.Fatalf("the sweep ended %d sessions: none is listed yet", n)
+	}
+	close(goOn)
+	o := <-got
+	if o.lt == nil {
+		t.Fatalf("the start: %s", o.why)
+	}
+	said := o.lt.untilEnd()
+	if !strings.Contains(said, "had your real home") || !strings.Contains(said, "it belongs to bob") {
+		t.Fatalf("the session that registered after the untrust was not ended with the reason:\n%s", said)
+	}
+	h.idle(t, "alice")
+	if after := treeHash(t, home); after != before {
+		t.Fatalf("her real home changed:\n%s\n---\n%s", before, after)
+	}
+	// the next one there is on the copy
+	if out := h.once(t, "alice", "apps/bob", "true"); !strings.Contains(out, "this tile's copy") {
+		t.Fatalf("the next session:\n%s", out)
+	}
+}
+
+// L5: a process that is not root in the session uses its home on a copy as
+// it does on the real home — under sub-uid mapping, where there are other
+// uids. The kernel's overlay is a filesystem like any other; a FUSE mount
+// held in another user namespace serves one kuid only, which is why a new
+// copy is mounted with the kernel's and fuse-overlayfs is the fallback
+// (homecopy.go startHold). On the fallback the non-root process is refused:
+// asserted, so that the day it isn't is noticed.
+func TestHomeCopyNonRootUser(t *testing.T) {
+	h := newHomeLive(t)
+	if ok, why := sandbox.IDMapStatus(os.Getuid(), os.Getgid()); !ok {
+		t.Skipf("single-uid mapping here (%s): a sandbox has no other uid to test with", why)
+	}
+	home := h.seedHome(t, "alice")
+	const script = `chmod 755 ~ ~/notes && chmod 644 ~/notes/a.txt && mkdir -p -m 777 ~/pub && ` +
+		`setpriv --reuid=1000 --regid=1000 --clear-groups sh -c 'id -u; cat $HOME/notes/a.txt && echo by-1000 > $HOME/pub/w && cat $HOME/pub/w && echo NONROOT-''OK' 2>&1`
+	// the baseline, on her own tile and her real home: it works there
+	if out := h.once(t, "alice", "apps/alice", script); !strings.Contains(out, "NONROOT-OK") {
+		t.Skipf("this rootfs can't drop to another uid in a session (the baseline on the real home):\n%s", out)
+	}
+	before := treeHash(t, home)
+	out := h.once(t, "alice", "apps/bob", script+`; echo again > ~/pub/w2`)
+	fuse := h.m.copies.prefer == sandbox.HoldFuse
+	switch {
+	case !fuse && (!strings.Contains(out, "NONROOT-OK") || !strings.Contains(out, "a note") || !strings.Contains(out, "by-1000")):
+		t.Fatalf("a non-root process can't use the home on a copy (kernel overlay):\n%s", out)
+	case fuse && (strings.Contains(out, "NONROOT-OK") || !strings.Contains(out, "ermission denied")):
+		t.Fatalf("the fuse fallback: a non-root process was expected to be refused its home (the documented limit):\n%s", out)
+	}
+	if after := treeHash(t, home); after != before {
+		t.Fatalf("her real home changed:\n%s\n---\n%s", before, after)
+	}
 }

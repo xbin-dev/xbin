@@ -34,8 +34,10 @@ import (
 // (internal/broker/signinothers.go), re-stated here.
 type homeTiles struct {
 	mu     sync.Mutex
+	root   string // the workspace: a tile set here has its directory there
 	tiles  map[string]*homeTile
 	admins map[string]bool
+	past   *signins.Past // who could change each tile before (nil: not remembered)
 }
 
 type homeTile struct {
@@ -52,11 +54,23 @@ func (h *homeTiles) set(tile string, fn func(*homeTile)) {
 	}
 	if h.tiles[tile] == nil {
 		h.tiles[tile] = &homeTile{ident: "i-" + tile}
+		if h.root != "" {
+			_ = os.MkdirAll(filepath.Join(h.root, filepath.FromSlash(tile)), 0o755)
+		}
 	}
 	fn(h.tiles[tile])
 }
 
+// drop deletes the tile: out of the registry, and its directory.
 func (h *homeTiles) drop(tile string) {
+	h.unregister(tile)
+	if h.root != "" {
+		_ = os.RemoveAll(filepath.Join(h.root, filepath.FromSlash(tile)))
+	}
+}
+
+// unregister takes the tile out of the registry; its directory stays.
+func (h *homeTiles) unregister(tile string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	delete(h.tiles, tile)
@@ -89,6 +103,10 @@ func (h *homeTiles) source(user, tile string) (signins.Source, bool) {
 		}
 	}
 	sort.Strings(src.Editors)
+	if h.past != nil { // as the broker does: what stands now is noted, who no longer can is part of the question
+		h.past.Observe(src.ID, tile, t.owner, t.editors)
+		src.Past, src.PastUntil = h.past.Others(src.ID, user)
+	}
 	return src, true
 }
 
@@ -106,7 +124,7 @@ func (h *homeTiles) identity(tile string) string {
 func homeRig(t *testing.T) (*Manager, *homeTiles, *signins.Store) {
 	t.Helper()
 	root := t.TempDir()
-	tiles := &homeTiles{admins: map[string]bool{"root": true}}
+	tiles := &homeTiles{root: root, admins: map[string]bool{"root": true}}
 	store := signins.New(signins.Options{Dir: filepath.Join(root, "data", "signins"), AllowPlaintext: true})
 	m := NewManager(root, nil)
 	m.Isolate = true
@@ -420,19 +438,33 @@ func TestHomeLayerStore(t *testing.T) {
 		t.Fatalf("HomeCopyOn: %q %v", id, ok)
 	}
 
-	// a layer written by the other overlay flavour is not mounted
+	// a new layer is mounted with the kernel's overlay (a home is used by
+	// every uid of a session: homecopy.go startHold) and stamped; a layer
+	// is only ever mounted by the flavour that wrote it — one fuse-overlayfs
+	// wrote by fuse-overlayfs, and not at all where there is none any more
 	rel3()
-	other := layers.OverlayKernel
-	if st, _ := layers.Read(d3); st.Overlay == layers.OverlayKernel {
-		other = layers.OverlayFuse
+	if st, _ := layers.Read(d3); st.Overlay != layers.OverlayKernel || (*holds)[1].spec.Fuse != "" {
+		t.Fatalf("a new layer's flavour: %+v, hold %+v", st, (*holds)[1].spec)
 	}
-	if err := layers.Stamp(d3, layers.Stamps{Overlay: other}); err != nil {
+	if err := layers.Stamp(d3, layers.Stamps{Overlay: layers.OverlayFuse}); err != nil {
 		t.Fatal(err)
 	}
 	o := openOpts{homeKey: "alice", home: m.homePlanFor(alice, "apps/org", false)}
+	t.Setenv("XBIN_FUSE_OVERLAYFS", filepath.Join(m.Root, "no-fuse-overlayfs"))
 	if b, _, _, _, err := m.homeBind(HomeDir(m.Root, "alice"), o); err == nil || b != nil || !strings.Contains(err.Error(), "forget what this tile wrote") {
-		t.Fatalf("a foreign flavour: %+v %v", b, err)
+		t.Fatalf("a layer fuse-overlayfs wrote, and no fuse-overlayfs: %+v %v", b, err)
 	}
+	fo := filepath.Join(m.Root, "fuse-overlayfs")
+	if err := os.WriteFile(fo, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("XBIN_FUSE_OVERLAYFS", fo)
+	n := len(*holds)
+	_, _, _, relF, err := m.homeBind(HomeDir(m.Root, "alice"), o)
+	if err != nil || len(*holds) != n+1 || (*holds)[n].spec.Fuse != fo {
+		t.Fatalf("a layer fuse-overlayfs wrote, with one here: %v, hold %+v", err, (*holds)[len(*holds)-1].spec)
+	}
+	relF()
 
 	// forget: nobody else's, no path tricks; hers goes with its hold
 	// (a layer's id is its tile's: carol's for bob's tile has the same one, under her own directory)
@@ -464,23 +496,62 @@ func TestHomeLayerStore(t *testing.T) {
 	}
 	rel6()
 	rel4()
-	// the sweep: carol's layer for the tile that is gone goes; the new one
-	// stays; an unregistered tile whose directory is still that directory
-	// keeps its layer
+	// the sweep removes a layer only when its tile's path is positively not
+	// there. The old layer of the tile that was made again stays — an
+	// orphan: never mounted again, listed as not used, forgotten by its
+	// person (a workspace restored from a backup gives every tile another
+	// identity: its people's copies must not go without their click) — and
+	// so does an unregistered tile's, and one whose identity can't be read
 	tiles.set("apps/kept", func(x *homeTile) { x.owner = "user:bob" })
 	d7, rel7 := open(carol, "apps/kept")
 	rel7()
-	if n := m.SweepHomeCopies(); n != 1 {
-		t.Fatalf("the sweep removed %d layers, want 1 (the remade tile's old one)", n)
+	tiles.unregister("apps/kept")
+	if n := m.SweepHomeCopies(); n != 0 {
+		t.Fatalf("the sweep removed %d layers of tiles that are still there", n)
 	}
-	for dir, want := range map[string]bool{d4: false, d6: true, d7: true} {
-		if _, err := os.Stat(dir); (err == nil) != want {
-			t.Errorf("after the sweep, %s exists: %v, want %v", dir, err == nil, want)
+	ident := m.TileIdentity
+	m.TileIdentity = func(string) string { return "" } // EMFILE, EACCES: unknown, not gone
+	if n := m.SweepHomeCopies(); n != 0 {
+		t.Fatalf("the sweep removed %d layers on an identity it could not read", n)
+	}
+	for _, hc := range m.HomeCopies("carol") {
+		if hc.Gone {
+			t.Errorf("an unreadable identity lists %s as gone", hc.Tile)
 		}
 	}
-	tiles.drop("apps/bob") // really gone
-	if n := m.SweepHomeCopies(); n != 1 {
-		t.Fatalf("the sweep after the tile went removed %d", n)
+	m.TileIdentity = ident
+	for dir := range map[string]bool{d4: true, d6: true, d7: true} {
+		if _, err := os.Stat(dir); err != nil {
+			t.Errorf("after the sweep, %s is gone: %v", dir, err)
+		}
+	}
+	gone := 0
+	for _, hc := range m.HomeCopies("carol") {
+		if hc.Gone {
+			gone++
+			if hc.ID != filepath.Base(d4) {
+				t.Errorf("listed as gone: %+v", hc)
+			}
+		}
+	}
+	if gone != 1 {
+		t.Fatalf("the remade tile's old layer is not listed as an orphan (%d gone): %+v", gone, m.HomeCopies("carol"))
+	}
+	// a tile reached through a link is never "absent" (its disk may be unmounted)
+	if err := os.Symlink(filepath.Join(m.Root, "nowhere"), filepath.Join(m.Root, "linked")); err != nil {
+		t.Fatal(err)
+	}
+	for path, want := range map[string]bool{"apps/bob": false, "apps/nope": true, "nope/deeper/tile": true, "linked/tile": false, "../x": false, "": false} {
+		if got := tileAbsent(m.Root, path); got != want {
+			t.Errorf("tileAbsent(%q) = %v, want %v", path, got, want)
+		}
+	}
+	tiles.drop("apps/bob") // deleted: its layers go, the old one and the new
+	if n := m.SweepHomeCopies(); n != 2 {
+		t.Fatalf("the sweep after the tile was deleted removed %d, want carol's two", n)
+	}
+	if _, err := os.Stat(d7); err != nil {
+		t.Fatalf("the unregistered tile's layer went too: %v", err)
 	}
 	// the account is deleted: every layer of theirs
 	m.ForgetHomeCopies("carol", "gone")
@@ -648,29 +719,381 @@ func TestHomeAdminPass(t *testing.T) {
 // A terminal's token gets the real home only where a session of that
 // person's on that tile already has it.
 func TestHomeTerminalToken(t *testing.T) {
-	m, tiles, _ := homeRig(t)
+	m, tiles, store := homeRig(t)
 	tiles.set("apps/alice", func(x *homeTile) { x.owner = "user:alice" })
 	tiles.set("apps/bob", func(x *homeTile) { x.owner = "user:bob" })
+	tiles.set("apps/ws", func(x *homeTile) {})
 	alice := person("alice")
-	tok := func(tile string) auth.Principal {
-		return auth.Principal{UserID: "alice", User: alice.User, Via: "terminal", Component: tile}
+	// tokenOf is the principal of the terminal token s was opened with
+	tokenOf := func(s *Session, user string) auth.Principal {
+		p := auth.Principal{UserID: user, Via: "terminal", Component: s.tile, TermRef: auth.TerminalRef(s.token)}
+		if user != "" {
+			p.User = alice.User
+		}
+		return p
 	}
-	if pl := m.homePlanFor(tok("apps/alice"), "apps/alice", false); pl.mode != HomeCopy {
-		t.Fatalf("no session there: %+v", pl)
+	shell := func(p auth.Principal, tile string) *Session {
+		s := liveSession(t, m, p, tile)
+		s.token = util.RandomToken(24)
+		return s
 	}
-	liveSession(t, m, alice, "apps/alice")
-	if pl := m.homePlanFor(tok("apps/alice"), "apps/alice", false); pl.mode != HomeOwn {
+	// a token no live session was opened with (or none at all): the copy
+	stray := auth.Principal{UserID: "alice", User: alice.User, Via: "terminal", Component: "apps/alice", TermRef: auth.TerminalRef("no-such-token")}
+	if pl := m.homePlanFor(stray, "apps/alice", false); pl.mode != HomeCopy {
+		t.Fatalf("a token of no session: %+v", pl)
+	}
+	stray.TermRef = ""
+	if pl := m.homePlanFor(stray, "apps/alice", false); pl.mode != HomeCopy {
+		t.Fatalf("a terminal principal without a reference: %+v", pl)
+	}
+	// bx agent in her own tile's shell: her real home, as the shell has
+	own := shell(alice, "apps/alice")
+	if pl := m.homePlanFor(tokenOf(own, "alice"), "apps/alice", false); pl.mode != HomeOwn {
 		t.Fatalf("from her own tile's shell: %+v", pl)
 	}
 	// on a tile she has not trusted the shell is on the copy, and so is what its token opens
-	liveSession(t, m, alice, "apps/bob")
-	if pl := m.homePlanFor(tok("apps/bob"), "apps/bob", false); pl.mode != HomeCopy {
+	onCopy := shell(alice, "apps/bob")
+	if pl := m.homePlanFor(tokenOf(onCopy, "alice"), "apps/bob", false); pl.mode != HomeCopy {
 		t.Fatalf("from an untrusted tile's shell: %+v", pl)
 	}
-	// someone else's real-home session there is not hers
-	liveSession(t, m, person("bob"), "apps/bob")
-	if pl := m.homePlanFor(tok("apps/bob"), "apps/bob", false); pl.mode != HomeCopy {
-		t.Fatalf("bob's session vouched for alice's token: %+v", pl)
+	// she trusts the tile; a NEW shell there has the real home — the old one
+	// stays on the copy, and ITS token still opens nothing more than it has:
+	// an admin may be attached to it (copy sessions keep the admin pass), and
+	// a session it opened with the real home would be one they drive
+	trustNow(t, store, tiles, "alice", "apps/bob")
+	fresh := shell(alice, "apps/bob")
+	if !fresh.realHome() || onCopy.realHome() {
+		t.Fatalf("after the trust: new shell real %v, old shell real %v", fresh.realHome(), onCopy.realHome())
+	}
+	if pl := m.homePlanFor(tokenOf(onCopy, "alice"), "apps/bob", false); pl.mode != HomeCopy || !strings.Contains(pl.why, "only when that terminal has it") {
+		t.Fatalf("the copy shell's token, with a real-home shell of hers beside it: %+v", pl)
+	}
+	if pl := m.homePlanFor(tokenOf(fresh, "alice"), "apps/bob", false); pl.mode != HomeOwn {
+		t.Fatalf("the real-home shell's token: %+v", pl)
+	}
+	// a token is its tile's and its person's: not another tile, not another person's home
+	if pl := m.homePlanFor(tokenOf(own, "alice"), "apps/bob", false); pl.mode != HomeCopy {
+		t.Fatalf("her own tile's token on another tile: %+v", pl)
+	}
+	bobs := tokenOf(own, "bob")
+	if pl := m.homePlanFor(bobs, "apps/alice", false); pl.mode != HomeCopy {
+		t.Fatalf("her shell's token claiming to be bob's: %+v", pl)
+	}
+
+	// the root token's shell: bx agent there is the root token's — on the
+	// workspace's own tile its real home, as a one-person install has always
+	// had (the token's principal has no account and is not "the owner")
+	root := shell(auth.Principal{Owner: true, Via: "bearer"}, "apps/ws")
+	if !root.realHome() || root.homeKey != ownerHomeKey {
+		t.Fatalf("the root token's shell on the workspace's tile: real %v home %q", root.realHome(), root.homeKey)
+	}
+	rp := tokenOf(root, "")
+	if !rootHome(rp) || rp.IsAdmin() {
+		t.Fatalf("the root token's terminal principal: rootHome %v admin %v", rootHome(rp), rp.IsAdmin())
+	}
+	if pl := m.homePlanFor(rp, "apps/ws", false); pl.mode != HomeOwn || !pl.admin {
+		t.Fatalf("bx agent in the root token's shell, on the workspace's tile: %+v", pl)
+	}
+	// …and on a person's tile the root token's shell is on the copy, and so is its bx agent
+	rootOnBob := shell(auth.Principal{Owner: true, Via: "bearer"}, "apps/bob")
+	if rootOnBob.realHome() {
+		t.Fatal("the root token has its real home on bob's tile")
+	}
+	if pl := m.homePlanFor(tokenOf(rootOnBob, ""), "apps/bob", false); pl.mode != HomeCopy {
+		t.Fatalf("bx agent in the root token's shell on bob's tile: %+v", pl)
+	}
+}
+
+// On a tile a person has not trusted, an admin's session — and the root
+// token's — is confined like a member's: the restricted tier and its view
+// of the workspace. Trusting the tile, and their own tiles, keep the
+// admin's sandbox. A restart or resume kept on the copy is confined too.
+func TestHomeCopyConfinesAdmins(t *testing.T) {
+	m, tiles, store := homeRig(t)
+	tiles.set("apps/ws", func(x *homeTile) {})
+	tiles.set("apps/bob", func(x *homeTile) { x.owner = "user:bob" })
+	views := 0
+	m.TermView = func(p auth.Principal) ([]string, map[string][]byte) {
+		views++
+		return []string{"apps/ws", "apps/bob"}, map[string][]byte{"xbin.json": []byte("{}")}
+	}
+	root, token, alice := adminPerson("root"), auth.Principal{Owner: true, Via: "bearer"}, person("alice")
+	alice.User.Tiles = map[string]string{"apps/*": users.LevelTerminal}
+	open := func(p auth.Principal, tile string) openOpts { return m.openOptsFor(p, tile, tile, "none", "", true) }
+
+	for name, p := range map[string]auth.Principal{"an admin": root, "the root token": token} {
+		// their own: the admin's sandbox, the real home
+		if o := open(p, "apps/ws"); o.restricted || o.rootFiles != nil || o.home.mode != HomeOwn || o.home.confines() {
+			t.Errorf("%s on the workspace's tile: restricted %v view %v home %+v", name, o.restricted, o.rootFiles != nil, o.home)
+		}
+		// a tile they have not trusted: a member's
+		o := open(p, "apps/bob")
+		if !o.restricted || o.rootFiles == nil || len(o.readable) != 2 || o.home.mode != HomeCopy || !o.home.confines() || !o.home.admin {
+			t.Errorf("%s on bob's tile: restricted %v view %v readable %v home %+v", name, o.restricted, o.rootFiles != nil, o.readable, o.home)
+		}
+		if v := o.home.view(m, false); v == nil || !v.Confined {
+			t.Errorf("%s on bob's tile: the row does not say it is confined: %+v", name, v)
+		}
+	}
+	// a member is restricted everywhere, and "confined" is not said to them
+	if o := open(alice, "apps/bob"); !o.restricted || o.home.view(m, false).Confined {
+		t.Errorf("a member on bob's tile: restricted %v view %+v", o.restricted, o.home.view(m, false))
+	}
+	// the admin trusts the tile: new sessions there are the admin's again
+	trustNow(t, store, tiles, "root", "apps/bob")
+	if o := open(root, "apps/bob"); o.restricted || o.rootFiles != nil || o.home.mode != HomeOwn {
+		t.Fatalf("an admin on a tile they trusted: restricted %v home %+v", o.restricted, o.home)
+	}
+	// …but one kept on the copy (a restart, a resume) stays a member's
+	o := open(root, "apps/bob")
+	m.setHome(root, &o, m.homePlanFor(root, "apps/bob", true))
+	if !o.restricted || o.rootFiles == nil || o.home.mode != HomeCopy || !o.home.kept {
+		t.Fatalf("an admin's session kept on the copy: restricted %v view %v home %+v", o.restricted, o.rootFiles != nil, o.home)
+	}
+	if views == 0 {
+		t.Fatal("the view was never asked for")
+	}
+	// without sandboxes nothing is confined (nothing is mounted)
+	m.Isolate = false
+	if o := open(root, "apps/bob"); o.restricted || o.home.confines() {
+		t.Fatalf("no sandboxes: restricted %v", o.restricted)
+	}
+}
+
+// A session that is being opened is no session yet for a sweep: its home
+// was decided before, and it is listed only once its sandbox has started
+// (a VM takes a while). A trust that stops holding in between is seen when
+// the session registers — its home, and the sign-in it carries — and one
+// opened on a copy that is being forgotten ends as it registers.
+func TestHomeJudgedAgainAtRegistration(t *testing.T) {
+	m, tiles, store := homeRig(t)
+	tiles.set("apps/bob", func(x *homeTile) { x.owner = "user:bob" })
+	tiles.set("apps/alice", func(x *homeTile) { x.owner = "user:alice" })
+	alice := person("alice")
+	trustNow(t, store, tiles, "alice", "apps/bob")
+
+	// nothing happened between the plan and the listing: it stays
+	calm := liveSession(t, m, alice, "apps/bob")
+	m.registered(calm)
+	if !alive(m, calm.ID) || !calm.realHome() {
+		t.Fatal("a session nothing happened to was ended at its registration")
+	}
+	// the plan is made (her real home: she trusts the tile) …
+	plan := m.homePlanFor(alice, "apps/bob", false)
+	if plan.mode != HomeOwn {
+		t.Fatalf("the plan: %+v", plan)
+	}
+	// … then, while the sandbox starts, she takes the trust back; the sweep
+	// that follows sees no such session (it ends the one that is listed)
+	for _, tr := range store.Trusted("alice") {
+		if _, err := store.Untrust("alice", tr.ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n := m.EndSigninSessionsOn("alice", "apps/bob", "untrusted"); n != 1 {
+		t.Fatalf("the sweep ended %d sessions, want the listed one", n)
+	}
+	waitGone(t, m, calm.ID)
+	// … and the session registers: judged now, ended, told why
+	late := fakeSession(t, m, "alice", "apps/bob")
+	late.home = sessionHome{plan: plan}
+	m.registered(late)
+	waitGone(t, m, late.ID)
+	if got := string(late.hub.Tail(4096)); !strings.Contains(got, "had your real home") {
+		t.Fatalf("the session that registered late was not told why: %q", got)
+	}
+	// a plan made after the sweep is not judged twice, and one on her own tile never ends
+	own := liveSession(t, m, alice, "apps/alice")
+	m.HomeSweep()
+	m.registered(own)
+	if !alive(m, own.ID) {
+		t.Fatal("her own tile's session was ended by a later sweep's generation")
+	}
+	// a session on the copy is never ended by a trust change, late or not
+	onCopy := liveSession(t, m, alice, "apps/bob")
+	m.HomeSweep()
+	m.registered(onCopy)
+	if !alive(m, onCopy.ID) {
+		t.Fatal("a session on a copy was ended at its registration")
+	}
+}
+
+// Forget ends the sessions on a copy; a start that is under way is waited
+// for and ends itself as it registers — never a session left running on a
+// layer that was removed under it. One that doesn't come up in time makes
+// the forget fail with nothing removed.
+func TestHomeForgetDuringAStart(t *testing.T) {
+	m, tiles, _ := homeRig(t)
+	tiles.set("apps/bob", func(x *homeTile) { x.owner = "user:bob" })
+	alice := person("alice")
+	home := HomeDir(m.Root, "alice")
+	if err := os.MkdirAll(home, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	holds := fakeHolds(m)
+	o := openOpts{homeKey: "alice", home: m.homePlanFor(alice, "apps/bob", false)}
+	// a first session makes the layer, and ends
+	_, dir, _, rel, err := m.homeBind(home, o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rel()
+	id := filepath.Base(dir)
+
+	// a start is under way: its hold is starting (the layer's lock is held)
+	start := m.copies.start
+	starting, goOn := make(chan struct{}), make(chan struct{})
+	m.copies.start = func(hs sandbox.HoldSpec) (overlayHold, error) {
+		close(starting)
+		<-goOn
+		return start(hs)
+	}
+	type bound struct {
+		dir string
+		rel func()
+		err error
+	}
+	got := make(chan bound, 1)
+	go func() {
+		_, dir, _, rel, err := m.homeBind(home, o)
+		got <- bound{dir, rel, err}
+	}()
+	<-starting
+	old := forgetWait
+	forgetWait = 300 * time.Millisecond
+	defer func() { forgetWait = old }()
+	forgot := make(chan error, 1)
+	go func() {
+		_, _, err := m.ForgetHomeCopy("alice", id, "forgotten")
+		forgot <- err
+	}()
+	select {
+	case err := <-forgot:
+		t.Fatalf("forget did not wait for the start that holds the layer: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(goOn) // the hold is up: the start has its clone, and is not a listed session yet
+	b := <-got
+	if b.err != nil {
+		t.Fatalf("the start: %v", b.err)
+	}
+	// it doesn't register in time: forget fails, and NOTHING was removed — its hold runs, its layer is there
+	if err := <-forgot; err == nil || !strings.Contains(err.Error(), "nothing was removed") {
+		t.Fatalf("forget with a start in flight: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "meta.json")); err != nil {
+		t.Fatalf("the layer was removed under a starting session: %v", err)
+	}
+	if h := (*holds)[len(*holds)-1]; h.closed.Load() {
+		t.Fatal("the starting session's hold was ended under it")
+	}
+
+	// again, and this time the session registers while the forget waits: it ends itself, and the copy goes
+	forgetWait = 20 * time.Second
+	go func() {
+		_, _, err := m.ForgetHomeCopy("alice", id, "forgotten")
+		forgot <- err
+	}()
+	for deadline := time.Now().Add(5 * time.Second); !m.copies.forgetting(dir); time.Sleep(time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("forget never started")
+		}
+	}
+	// a new start on a copy being forgotten is refused
+	if _, _, _, _, err := m.homeBind(home, o); err == nil || !strings.Contains(err.Error(), "being forgotten") {
+		t.Fatalf("a start on a copy being forgotten: %v", err)
+	}
+	s := fakeSession(t, m, "alice", "apps/bob")
+	s.home = sessionHome{plan: o.home, dir: b.dir}
+	go func() { // (its sandbox goes when it ends: the hold is released)
+		for alive(m, s.ID) {
+			time.Sleep(time.Millisecond)
+		}
+		b.rel()
+	}()
+	m.registered(s)
+	waitGone(t, m, s.ID)
+	if got := string(s.hub.Tail(4096)); !strings.Contains(got, "being forgotten while this session started") {
+		t.Fatalf("the session that started during a forget was not told: %q", got)
+	}
+	if err := <-forgot; err != nil {
+		t.Fatalf("forget once the starting session ended: %v", err)
+	}
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatalf("the forgotten layer is still there: %v", err)
+	}
+}
+
+// The host's file can forbid trusting with no request to xbind: the home
+// rule looks at every judgement, an unusable trust gives the copy, and the
+// first time it is seen the sessions that had the real home on a trust end.
+func TestHomeTrustSwitchedOffByTheHost(t *testing.T) {
+	m, tiles, store := homeRig(t)
+	tiles.set("apps/bob", func(x *homeTile) { x.owner = "user:bob" })
+	tiles.set("apps/alice", func(x *homeTile) { x.owner = "user:alice" })
+	alice := person("alice")
+	trustNow(t, store, tiles, "alice", "apps/bob")
+	var off atomic.Bool
+	m.SigninTrustOff = func() bool { return off.Load() }
+	onTrust := liveSession(t, m, alice, "apps/bob")
+	if !onTrust.realHome() {
+		t.Fatal("a trusted tile's session is not on the real home")
+	}
+	// the host's file changes; nobody calls a route. The next thing anyone
+	// does is open a terminal on her own tile (no sign-in is judged)
+	off.Store(true)
+	if _, err := store.SetTrustPolicy(false); err != nil {
+		t.Fatal(err)
+	}
+	if pl := m.homePlanFor(alice, "apps/alice", false); pl.mode != HomeOwn {
+		t.Fatalf("her own tile: %+v", pl)
+	}
+	waitGone(t, m, onTrust.ID)
+	if pl := m.homePlanFor(alice, "apps/bob", false); pl.mode != HomeCopy || pl.trust == nil || pl.trust.Allowed {
+		t.Fatalf("the tile she trusted, with trusting off: %+v", pl)
+	}
+}
+
+// The sticky condition: a tile that is only hers now, which someone else
+// could change before, is not "hers alone" — the copy, until she answers.
+func TestHomeRuleRemembersPastEditors(t *testing.T) {
+	m, tiles, store := homeRig(t)
+	tiles.past = signins.NewPast(filepath.Join(m.Root, "data", "signins", "tiles.json"), nil)
+	tiles.set("apps/alice", func(x *homeTile) { x.owner = "user:alice" })
+	tiles.set("apps/ws", func(x *homeTile) {})
+	alice, root := person("alice"), adminPerson("root")
+	if pl := m.homePlanFor(alice, "apps/alice", false); pl.mode != HomeOwn {
+		t.Fatalf("her own tile, never shared: %+v", pl)
+	}
+	if pl := m.homePlanFor(root, "apps/ws", false); pl.mode != HomeOwn {
+		t.Fatalf("an admin on the workspace's tile: %+v", pl)
+	}
+	if tiles.past.Recorded() != 0 {
+		t.Fatalf("a workspace nobody shared anything in recorded %d tiles", tiles.past.Recorded())
+	}
+	own := liveSession(t, m, alice, "apps/alice")
+	// mallory gets write, leaves a hook, loses write — seen at the events
+	tiles.set("apps/alice", func(x *homeTile) { x.editors = []string{"mallory"} })
+	if n := m.HomeSweep(); n != 1 {
+		t.Fatalf("mallory gained write: the sweep ended %d real-home sessions", n)
+	}
+	waitGone(t, m, own.ID)
+	tiles.set("apps/alice", func(x *homeTile) { x.editors = nil })
+	pl := m.homePlanFor(alice, "apps/alice", false)
+	if pl.mode != HomeCopy || !strings.Contains(pl.why, "apps/alice wasn't always only yours — mallory could change it until ") || pl.trust == nil || len(pl.trust.Past) != 1 {
+		t.Fatalf("her tile after mallory lost write: %+v trust %+v", pl, pl.trust)
+	}
+	// her answer — for the card that names mallory — gives it back
+	trustNow(t, store, tiles, "alice", "apps/alice")
+	if pl := m.homePlanFor(alice, "apps/alice", false); pl.mode != HomeOwn {
+		t.Fatalf("after her answer: %+v", pl)
+	}
+	// a workspace tile a non-admin could edit: the admin's exemption is gone until they answer
+	tiles.set("apps/ws", func(x *homeTile) { x.editors = []string{"frank"} })
+	m.homePlanFor(root, "apps/ws", false)
+	tiles.set("apps/ws", func(x *homeTile) { x.editors = nil })
+	if pl := m.homePlanFor(root, "apps/ws", false); pl.mode != HomeCopy || !strings.Contains(pl.why, "frank could change it until") {
+		t.Fatalf("a workspace tile frank could edit, for an admin: %+v", pl)
 	}
 }
 

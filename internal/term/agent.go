@@ -269,7 +269,7 @@ func (m *Manager) OpenAgentWith(p auth.Principal, a AgentOpen) (SessionInfo, int
 		// it restarts, or resumes, a session that ran on this tile's copy of
 		// the home: it stays on the copy (its agent's own session files are
 		// there), whatever the rule says now — never the other way (home.go)
-		o.home = m.homePlanFor(p, tile, true)
+		m.setHome(p, &o, m.homePlanFor(p, tile, true))
 	}
 	if code, err := m.pickTarget(p, &o, tile, a.Deployment); err != nil {
 		return SessionInfo{}, code, err
@@ -484,6 +484,9 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 		s.signinHello(m, h) // what it signs in with (signin.go)
 	})
 	st.drv = drv // before the session is visible: info() and the API read it
+	if m.beforeRegister != nil {
+		m.beforeRegister()
+	}
 	m.mu.Lock()
 	m.sessions[s.ID] = s
 	m.mu.Unlock()
@@ -558,6 +561,7 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 		close(st.ready)
 	}()
 	slog.Info("agent session created", "id", s.ID, "cwd", filepath.ToSlash(rel), "provider", prov.ID, "mode", mode, "net", o.net, "restricted", o.restricted)
+	m.registered(s) // a sweep that ran while it was being opened never saw it (home.go)
 	return s, nil
 }
 

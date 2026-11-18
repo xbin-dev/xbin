@@ -46,6 +46,17 @@ func TestHomeCopyRoutes(t *testing.T) {
 		}
 		return out
 	}
+	// a workspace nobody shares anything in keeps no record of who could
+	// change its tiles (signins/past.go): the scaffold's tiles are the
+	// workspace's, and only its admin can change them
+	pastFile := filepath.Join(ws, "data", "signins", "tiles.json")
+	if d.st.Broker.SigninPast == nil {
+		t.Fatal("the record of who could change tiles is not wired")
+	}
+	d.st.Broker.ObserveTileParties()
+	if _, err := os.Stat(pastFile); !os.IsNotExist(err) || d.st.Broker.SigninPast.Recorded() != 0 {
+		t.Fatalf("a one-person workspace recorded who could change its tiles: %v (%d)", err, d.st.Broker.SigninPast.Recorded())
+	}
 	alice := d.addUser("alice", map[string]string{"apps/plain": "terminal"})
 	bob := d.addUser("bob", map[string]string{"apps/plain": "terminal"})
 
@@ -162,6 +173,40 @@ func TestHomeCopyRoutes(t *testing.T) {
 	}
 	if v = get(alice); len(v.Homes) != 0 {
 		t.Fatalf("alice's copies after the forget and the sweep: %+v", v.Homes)
+	}
+
+	// the sticky condition, through the routes an admin uses: the tile
+	// becomes alice's, and bob — who could change it — loses his access. It
+	// is "only hers" now, and still asks for her trust: the card names bob
+	api(200, "POST", "/owner", map[string]any{"tile": "apps/plain", "to": "user:alice"})
+	api(200, "PATCH", "/users/bob", map[string]any{"tiles": map[string]string{}})
+	var sticky struct {
+		Harnesses []struct {
+			Here *struct {
+				Why   string
+				Trust *struct {
+					Basis     string
+					OwnerKind string
+					Editors   []string
+					Past      []string
+					PastUntil int64
+					Means     int
+				}
+			}
+		}
+	}
+	if err := json.Unmarshal([]byte(api(200, "GET", "/agent/signins?tile=apps/plain", nil, alice)), &sticky); err != nil {
+		t.Fatal(err)
+	}
+	if len(sticky.Harnesses) == 0 || sticky.Harnesses[0].Here == nil || sticky.Harnesses[0].Here.Trust == nil {
+		t.Fatalf("a tile bob could change before asks nothing of alice: %+v", sticky)
+	}
+	if q := sticky.Harnesses[0].Here; q.Trust.OwnerKind != "you" || len(q.Trust.Editors) != 0 || len(q.Trust.Past) != 1 || q.Trust.Past[0] != "bob" || q.Trust.PastUntil == 0 || q.Trust.Means != 2 ||
+		!strings.Contains(q.Why, "apps/plain wasn't always only yours — bob could change it until ") {
+		t.Fatalf("the question for a tile bob could change before: %+v why %q", q.Trust, q.Why)
+	}
+	if _, err := os.Stat(pastFile); err != nil {
+		t.Fatalf("the record of who could change the tile: %v", err)
 	}
 
 	// trusting a tile is not gated by the switch on SAVED SIGN-INS: it

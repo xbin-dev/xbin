@@ -19,7 +19,6 @@ func (m *Manager) openOptsFor(p auth.Principal, tile, cwd, netMode, gpuMode stri
 		api: apiAccess, restricted: !p.IsAdmin(),
 		netGrant: m.termNetFor(p, tile), // the tile's org's network sets (D54)
 	}
-	o.home = m.homePlanFor(p, tile, false)    // their real home, or this tile's copy of it (home.go, D245)
 	o.noLLM = !p.IsAdmin() && !p.CanTermAPI() // no tile API token in their terminals (D17): no LLM key either
 	asked := o.net
 	o.api, o.net = clampTermScopes(p, o.api, o.net, o.netGrant)
@@ -28,6 +27,19 @@ func (m *Manager) openOptsFor(p auth.Principal, tile, cwd, netMode, gpuMode stri
 		o.netNote = clampNote(asked, o.net, o.netGrant)
 	}
 	o.netHost, o.netRules, o.label = resolveNet(o.net, o.netGrant)
+	m.setHome(p, &o, m.homePlanFor(p, tile, false)) // their real home, or this tile's copy of it (home.go, D245)
+	return o
+}
+
+// setHome gives o its home and what follows from it: the restricted tier
+// for every non-admin — and for an admin (and the root token) whose home
+// here is the tile's copy (homePlan.confines: with an unrestricted
+// sandbox's capabilities the tile's code could mount its way back to the
+// real home) — and that tier's view of the workspace.
+func (m *Manager) setHome(p auth.Principal, o *openOpts, pl homePlan) {
+	o.home = pl
+	o.restricted = !p.IsAdmin() || pl.confines()
+	o.readable, o.rootFiles, o.hide = nil, nil, nil
 	if o.restricted {
 		if m.TermView != nil { // D40 allow-list view
 			o.readable, o.rootFiles = m.TermView(p)
@@ -35,5 +47,4 @@ func (m *Manager) openOptsFor(p auth.Principal, tile, cwd, netMode, gpuMode stri
 			o.hide = m.HiddenTiles(p)
 		}
 	}
-	return o
 }

@@ -189,6 +189,16 @@ type SigninTrust struct {
 	// Names their display names by id, where they have another.
 	Editors []string          `json:"editors,omitempty"`
 	Names   map[string]string `json:"names,omitempty"`
+	// Past: the others who could change the tile's code BEFORE and can't
+	// now — account ids and "org:<id>" (signins/past.go, D245) — and
+	// PastUntil when the last of them was last seen able to (Unix ms). A
+	// file they left would run in the person's sessions, so the tile asks
+	// for trust though it is only theirs now.
+	Past      []string `json:"past,omitempty"`
+	PastUntil int64    `json:"pastUntil,omitempty"`
+	// Means: what the answer grants (signins.TrustMeans) — 2: the sign-in
+	// is used here, and this tile's code can change the person's home.
+	Means int `json:"means"`
 	// Allowed false: the workspace doesn't let people trust a tile's
 	// source — Forbidden says who can change that.
 	Allowed   bool   `json:"allowed"`
@@ -198,7 +208,8 @@ type SigninTrust struct {
 // trustNeed is src as a card asks about it.
 func trustNeed(src signins.Source, pol signins.TrustPolicy) *SigninTrust {
 	t := &SigninTrust{Tile: src.Tile, Name: src.Name, Basis: src.Basis(), OwnerKind: src.OwnerKind, Owner: src.OwnerID, OwnerName: src.OwnerName,
-		Admin: src.OwnerKind == "workspace" && src.Admin, Allowed: pol.Allowed}
+		Admin: src.OwnerKind == "workspace" && src.Admin, Allowed: pol.Allowed,
+		Past: src.Past, PastUntil: src.PastUntil, Means: signins.TrustMeans}
 	if signins.CoEditorsNeedTrust {
 		t.Editors = src.Editors
 		if len(src.Names) > 0 {
@@ -236,6 +247,9 @@ func sourceWords(src signins.Source) string {
 	}
 	if signins.CoEditorsNeedTrust && len(src.Editors) > 0 {
 		parts = append(parts, othersWords(src.Editors)+" can change it")
+	}
+	if len(src.Past) > 0 { // nobody else now, but before (signins/past.go)
+		parts = append(parts, othersWords(src.Past)+" could change it until "+time.UnixMilli(src.PastUntil).UTC().Format("2006-01-02"))
 	}
 	return strings.Join(parts, ", and ")
 }
@@ -448,9 +462,9 @@ func (m *Manager) signinJudge(p auth.Principal, o openOpts, rel string, prov age
 	}
 	need := trustNeed(src, m.Signins.Policy().Trust)
 	if !need.Allowed {
-		return src.Tile + " isn't only yours — " + sourceWords(src) + " — and trusting a tile's source is switched off for this workspace", need
+		return sourcePhrase(src) + " — and trusting a tile's source is switched off for this workspace", need
 	}
-	return src.Tile + " isn't only yours — " + sourceWords(src) + " — and you haven't said you trust its source", need
+	return sourcePhrase(src) + " — and you haven't said you trust its source", need
 }
 
 // signinBefore is the rule's part that asks nothing of the tile's source:
@@ -754,6 +768,7 @@ func (ss *sessionSignin) endClaim() bool {
 // sign-in id ("": any saved sign-in), saying why in each, and answers how
 // many it ended.
 func (m *Manager) EndSigninSessions(user, id, why string) int {
+	m.judged.Add(1) // a session still being opened is judged when it registers (home.go registered)
 	n := 0
 	for _, s := range m.sorted() {
 		s.mu.Lock()
@@ -771,6 +786,7 @@ func (m *Manager) EndSigninSessions(user, id, why string) int {
 // EndSigninSessionsOn ends user's running sessions on tile that carry a
 // saved sign-in (they stopped trusting its source), saying why.
 func (m *Manager) EndSigninSessionsOn(user, tile, why string) int {
+	m.judged.Add(1) // (as above)
 	n := 0
 	for _, s := range m.sorted() {
 		s.mu.Lock()
@@ -807,47 +823,89 @@ func (m *Manager) SigninSweep() int {
 		return n
 	}
 	for _, s := range m.sorted() {
-		s.mu.Lock()
-		ss := s.sig()
-		carries, user := ss.carries() && !ss.ending, ""
-		if carries {
-			user = ss.user
-		}
-		s.mu.Unlock()
-		if !carries {
-			continue
-		}
-		why := ""
-		if off {
-			why = "Saved coding-agent sign-ins were switched off for this workspace, so this session — which ran on yours — was ended."
-		} else {
-			tile, ok := m.TileOf(s.Cwd) // judged afresh, on the tile as the registry has it now
-			var src signins.Source
-			if ok && m.SigninSource != nil {
-				src, ok = m.SigninSource(user, tile)
-			}
-			switch {
-			case !ok: // its tile is gone from the registry: nothing vouches for it any more
-				why = s.Cwd + " is no longer a registered tile, so this session — which ran on your saved sign-in — was ended."
-			case !src.NeedsTrust() || m.Signins.Trusts(user, src):
-			case !m.Signins.Policy().Trust.Allowed:
-				why = "Trusting a tile's source was switched off for this workspace, and " + src.Tile + " isn't only yours, so this session — which ran on your saved sign-in — was ended."
-			default:
-				why = src.Tile + " isn't only yours — " + sourceWords(src) + " — and you haven't said you trust its source as it is now, so this session — which ran on your saved sign-in — was ended. Start it again: xbin asks first."
-			}
-		}
-		if why == "" {
-			continue
-		}
-		s.mu.Lock()
-		claimed := s.sig().endClaim()
-		s.mu.Unlock()
-		if claimed {
-			m.endForSignin(s, why)
+		if m.signinJudgeOne(s, off) {
 			n++
 		}
 	}
 	return n
+}
+
+// signinJudgeLive judges one running session that carries a saved sign-in
+// by the rule as it stands, and ends it where a sweep would — or where the
+// sign-in it carries is no longer its person's (removed or replaced while
+// the session was being opened: registered, home.go).
+func (m *Manager) signinJudgeLive(s *Session) bool {
+	if m.Signins == nil {
+		return false
+	}
+	if m.signinJudgeOne(s, m.SigninsOff != nil && m.SigninsOff()) {
+		return true
+	}
+	s.mu.Lock()
+	ss := s.sig()
+	carries := ss.carries() && !ss.ending
+	var user, id, provider string
+	if carries {
+		user, id, provider = ss.user, ss.id, s.agent.provider.ID
+	}
+	s.mu.Unlock()
+	if !carries {
+		return false
+	}
+	if sg, err := m.Signins.Peek(user, provider, id); err == nil && sg != nil {
+		return false
+	}
+	s.mu.Lock()
+	claimed := s.sig().endClaim()
+	s.mu.Unlock()
+	if claimed {
+		m.endForSignin(s, "Your saved sign-in was removed or replaced while this session was starting, so it was ended.")
+	}
+	return claimed
+}
+
+// signinJudgeOne is the sweep's judgement of one session (off: saved
+// sign-ins are switched off). It reports whether it ended it.
+func (m *Manager) signinJudgeOne(s *Session, off bool) bool {
+	s.mu.Lock()
+	ss := s.sig()
+	carries, user := ss.carries() && !ss.ending, ""
+	if carries {
+		user = ss.user
+	}
+	s.mu.Unlock()
+	if !carries {
+		return false
+	}
+	why := ""
+	if off {
+		why = "Saved coding-agent sign-ins were switched off for this workspace, so this session — which ran on yours — was ended."
+	} else {
+		tile, ok := m.TileOf(s.Cwd) // judged afresh, on the tile as the registry has it now
+		var src signins.Source
+		if ok && m.SigninSource != nil {
+			src, ok = m.SigninSource(user, tile)
+		}
+		switch {
+		case !ok: // its tile is gone from the registry: nothing vouches for it any more
+			why = s.Cwd + " is no longer a registered tile, so this session — which ran on your saved sign-in — was ended."
+		case !src.NeedsTrust() || m.Signins.Trusts(user, src):
+		case !m.Signins.Policy().Trust.Allowed:
+			why = "Trusting a tile's source was switched off for this workspace, and " + src.Tile + " isn't only yours, so this session — which ran on your saved sign-in — was ended."
+		default:
+			why = sourcePhrase(src) + " — and you haven't said you trust its source as it is now, so this session — which ran on your saved sign-in — was ended. Start it again: xbin asks first."
+		}
+	}
+	if why == "" {
+		return false
+	}
+	s.mu.Lock()
+	claimed := s.sig().endClaim()
+	s.mu.Unlock()
+	if claimed {
+		m.endForSignin(s, why)
+	}
+	return claimed
 }
 
 // signinsOff reads the workspace's switch, and — the first time it is seen

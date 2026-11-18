@@ -345,7 +345,7 @@ func TestSigninRule(t *testing.T) {
 	}
 	*others = []string{"bob", "carol", "dave", "erin", "frank"}
 	if pl := plan(alice, openOpts{}, false, false); !strings.Contains(pl.why, "bob, carol and 3 more can change it") ||
-		pl.trust == nil || len(pl.trust.Editors) != 5 || !pl.trust.Allowed || pl.trust.OwnerKind != "you" || !strings.HasPrefix(pl.trust.Basis, "tb_") {
+		pl.trust == nil || len(pl.trust.Editors) != 5 || !pl.trust.Allowed || pl.trust.OwnerKind != "you" || !strings.HasPrefix(pl.trust.Basis, "tb2_") || pl.trust.Means != signins.TrustMeans {
 		t.Fatalf("a tile five others can change — the question names every one of them: %q %+v", pl.why, pl.trust)
 	}
 	// a partitioned tile is no exception: its directory is shared code,

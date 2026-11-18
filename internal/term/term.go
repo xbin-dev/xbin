@@ -23,6 +23,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -228,6 +229,16 @@ type Manager struct {
 	rmTree   func(dir string) error // tests: stands in for removeLayer's confined removal
 	parts    partState              // partition holds and opens in flight (partitionhold.go)
 	copies   homeCopies             // the holds of the copies of people's homes (homecopy.go)
+	// judged counts the sweeps of running sessions (HomeSweep, the sign-in
+	// sweep and ends): a session whose plan was made under an earlier count
+	// is judged again when it registers (home.go registered)
+	judged atomic.Uint64
+	// beforeRegister (tests): called by a start just before its session is
+	// listed — a start held in flight. noReadGuard (tests): sessions get no
+	// Landlock read guard, as on a kernel without Landlock — which, where
+	// it is there, also happens to refuse every mount a session makes
+	beforeRegister func()
+	noReadGuard    bool
 
 	base      baseState                               // base auto-update: the current base, the remover, notes (basemove.go)
 	stampHook func(dir string, s layers.Stamps) error // tests: stands in for layers.Stamp (Manager.stamp)
@@ -476,6 +487,9 @@ func (m *Manager) create(o openOpts) (*Session, error) {
 	if note := m.takeMoveNote(o.layerKey(rel), o.movedLayer(), o.launch.baseMoved != ""); m.Isolate && note != "" { // the layer this shell claims: a person's own on a partitioned tile
 		s.hub.Output([]byte(note))
 	}
+	if m.beforeRegister != nil {
+		m.beforeRegister()
+	}
 	m.mu.Lock()
 	m.sessions[s.ID] = s
 	m.mu.Unlock()
@@ -495,6 +509,7 @@ func (m *Manager) create(o openOpts) (*Session, error) {
 		m.dropLeaf(leaf)
 	})
 	slog.Info("terminal session created", "id", s.ID, "cwd", filepath.ToSlash(rel), "net", o.net, "restricted", o.restricted, "vm", o.vm)
+	m.registered(s) // a sweep that ran while it was being opened never saw it (home.go)
 	return s, nil
 }
 
@@ -671,6 +686,9 @@ func (m *Manager) sandboxShell(dir, rel, homeDir, token string, o openOpts) (*ex
 			Root:       m.Root,
 			SecretDirs: []string{".xbin", "data", "homes"},
 			AllowUnder: allow,
+		}
+		if m.noReadGuard { // tests: a kernel without Landlock
+			spec.ReadGuard = nil
 		}
 	}
 

@@ -75,6 +75,12 @@ func (st *State) setupSignins(srv *server.Server) {
 		// identity (term/home.go, D245). The same source and the same trust
 		// decide which home a session mounts: wired whenever sessions exist
 		tm.TileIdentity = brk.TileIdentity
+		// who could change each tile's code BEFORE (signins/past.go): once
+		// someone else could, the tile asks for each person's trust even
+		// after it is "only theirs" again — what they left stays in it. Kept
+		// per tile identity in xbind's data, noted at the events below, at
+		// every rescan and at every judgement of a tile
+		brk.SigninPast = signins.NewPast(filepath.Join(st.WS, "data", "signins", "tiles.json"), nil)
 		srv.SigninSourcePlanned = brk.SigninSourcePlanned
 		tm.SigninsOff = func() bool { return !store.Policy().Enabled }           // the admins' switch, or the host's file
 		tm.SigninTrustOff = func() bool { return !store.Policy().Trust.Allowed } // …and the one on trusting a tile's source
@@ -90,6 +96,7 @@ func (st *State) setupSignins(srv *server.Server) {
 		// they have it — and then the sessions that ran on one are ended.
 		// (The judgement at every start voids as well: the backstop.)
 		revalidate := func() {
+			brk.ObserveTileParties() // before anything is judged: who can change each tile now
 			if n := store.Revalidate(brk.SigninSource); n > 0 {
 				slog.Info("saved sign-ins: trusted tiles changed and ask again", "voided", n)
 			}

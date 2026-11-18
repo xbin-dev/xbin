@@ -71,7 +71,39 @@ func (b *Broker) SigninSource(user, path string) (signins.Source, bool) {
 	}
 	src := b.signinSourceOf(user, c.Path, owner)
 	src.ID, src.Name = b.TileIdentity(c.Path), c.Manifest.Title
+	// who could change it BEFORE (signins/past.go, D245): what stands now is
+	// noted at every judgement — a session's start is the backstop for a
+	// change no event announced — and the others who no longer can are part
+	// of the question
+	if b.SigninPast != nil {
+		b.SigninPast.Observe(src.ID, c.Path, owner, b.codeWritersNow(c.Path))
+		src.Past, src.PastUntil = b.SigninPast.Others(src.ID, user)
+		for _, id := range src.Past {
+			if u, ok := b.Users.Get(id); b.Users != nil && ok && u.Name != "" && u.Name != id {
+				src.Names[id] = u.Name
+			}
+		}
+	}
 	return src, true
+}
+
+// ObserveTileParties notes, for every registered tile, who can change its
+// code now (signins/past.go): called when people, their access or a tile's
+// owner change, and at every rescan.
+func (b *Broker) ObserveTileParties() {
+	if b.SigninPast == nil {
+		return
+	}
+	for _, c := range b.Reg.Components() {
+		if c.Sealed {
+			continue
+		}
+		owner := ""
+		if b.Users != nil {
+			owner = b.Users.Owner(c.Path)
+		}
+		b.SigninPast.Observe(b.TileIdentity(c.Path), c.Path, owner, b.codeWritersNow(c.Path))
+	}
 }
 
 // SigninSourcePlanned is SigninSource for a tile a plan is about to create

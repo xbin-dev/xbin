@@ -233,7 +233,7 @@ func TestDelegateStartDefaultsSavedSignIn(t *testing.T) {
 	sess, _ = req.Preview["session"].(map[string]any)
 	line, _ := sess["signInTrust"].(map[string]any)
 	basis, _ := line["basis"].(string)
-	if sess["signInId"] != mine[0].ID || line == nil || line["ownerKind"] != "you" || line["allowed"] != true || fmt.Sprint(line["editors"]) != "[bob]" || !strings.HasPrefix(basis, "tb_") {
+	if sess["signInId"] != mine[0].ID || line == nil || line["ownerKind"] != "you" || line["allowed"] != true || fmt.Sprint(line["editors"]) != "[bob]" || !strings.HasPrefix(basis, "tb2_") {
 		t.Fatalf("the approval's preview on a tile bob can change: %v", sess)
 	}
 	// the sign-in ticked, the trust line not: approved, no trust recorded — the start is one that asked

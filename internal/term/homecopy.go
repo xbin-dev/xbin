@@ -33,6 +33,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -60,9 +61,12 @@ type homeCopies struct {
 	keys     map[string]*sync.Mutex // layer dir → starts, stops and removals of it, one at a time
 	removing map[string]bool        // layer dir → being forgotten: no session starts on it
 	sizes    map[string]copySize    // layer dir → its size as last measured (a list re-reads within copySizeTTL)
-	// tests: stand in for sandbox.StartHold and confine.DiskUsage
-	start func(sandbox.HoldSpec) (overlayHold, error)
-	usage func(dir string) (int64, error)
+	// tests: stand in for sandbox.StartHold and confine.DiskUsage; prefer
+	// names the one flavour a new layer is mounted with ("" = the kernel's,
+	// then fuse-overlayfs)
+	prefer string
+	start  func(sandbox.HoldSpec) (overlayHold, error)
+	usage  func(dir string) (int64, error)
 }
 
 // copySize is a layer's measured size.
@@ -132,8 +136,10 @@ type HomeCopyInfo struct {
 	Bytes int64 `json:"bytes"`
 	// Sessions: how many live sessions are on it.
 	Sessions int `json:"sessions"`
-	// Gone: the tile it was made for is no longer there (it goes at the
-	// next sweep).
+	// Gone: the tile it was made for is not there any more — deleted (the
+	// copy goes at the next sweep), or another directory stands at its path
+	// (the tile was made again, or the workspace restored): an orphan, not
+	// used, kept until its person forgets it.
 	Gone bool `json:"gone,omitempty"`
 }
 
@@ -185,9 +191,9 @@ func writeCopyMeta(dir string, meta copyMeta) error {
 }
 
 // prepareCopy makes the layer's directories and its meta.json on first
-// use, and checks an existing layer's flavour against the one this xbind
-// mounts: an upper written by one overlay is never mounted by the other.
-func prepareCopy(dir, lower, flavour string, src signins.Source) error {
+// use, and answers the overlay flavour that wrote the layer ("" for one
+// nothing was written to yet).
+func prepareCopy(dir, lower string, src signins.Source) (stamp string, err error) {
 	fresh := false
 	if _, err := os.Lstat(filepath.Join(dir, "meta.json")); errors.Is(err, os.ErrNotExist) {
 		fresh = true
@@ -201,23 +207,92 @@ func prepareCopy(dir, lower, flavour string, src signins.Source) error {
 		mode os.FileMode
 	}{{dir, 0o700}, {filepath.Join(dir, "upper"), mode}, {filepath.Join(dir, "work"), 0o700}} {
 		if err := os.MkdirAll(d.p, d.mode); err != nil {
-			return err
+			return "", err
 		}
 		if fi, err := os.Lstat(d.p); err != nil || !fi.IsDir() {
-			return fmt.Errorf("%s is not a directory", d.p)
+			return "", fmt.Errorf("%s is not a directory", d.p)
 		}
 	}
 	st, err := layers.Read(dir)
 	if err != nil {
-		return fmt.Errorf("the layer's stamp is unreadable: %w", err)
-	}
-	if st.Overlay != "" && st.Overlay != flavour { // (stamped once a hold of it has started: acquire)
-		return fmt.Errorf("it was written by the %s overlay and this xbind mounts the %s one (fuse-overlayfs came or went) — forget what this tile wrote to your home to start a new copy", st.Overlay, flavour)
+		return "", fmt.Errorf("the layer's stamp is unreadable: %w", err)
 	}
 	if fresh {
-		return writeCopyMeta(dir, copyMeta{Tile: src.Tile, Name: src.Name, Ident: src.ID, Created: time.Now().UnixMilli()})
+		return st.Overlay, writeCopyMeta(dir, copyMeta{Tile: src.Tile, Name: src.Name, Ident: src.ID, Created: time.Now().UnixMilli()})
 	}
-	return nil
+	return st.Overlay, nil
+}
+
+// startHold starts the hold of the layer at dir over lower, with the
+// overlay flavour the layer was written by — an upper written by one
+// overlay is never mounted by the other — and for a new layer the
+// kernel's overlayfs first, fuse-overlayfs where the kernel's can't be
+// mounted in a user namespace (before Linux 5.11).
+//
+// The kernel's first, though a sandbox's root prefers fuse-overlayfs: a
+// home is used by every uid of the session, and a FUSE mount held in one
+// user namespace cannot be. Mounted allow_other it serves that namespace
+// and its children only — a session's namespace is a sibling — and without
+// it only the one kuid that mounted it, root of every sandbox (hold_linux.go):
+// a process that dropped to another uid in the session (a package's
+// post-install user, `su`, a build that runs as nobody) gets EACCES on the
+// whole home. The kernel's overlay is a filesystem like any other there.
+// What it lacks is renaming, in place, a directory that exists in the real
+// home (EXDEV: redirect_dir is not for user namespaces).
+func (c *homeCopies) startHold(dir, lower string, src signins.Source) (overlayHold, error) {
+	stamp, err := prepareCopy(dir, lower, src)
+	if err != nil {
+		return nil, err
+	}
+	start := c.start
+	if start == nil {
+		start = func(hs sandbox.HoldSpec) (overlayHold, error) {
+			h, err := sandbox.StartHold(hs, os.Getuid(), os.Getgid())
+			if err != nil {
+				return nil, err // (a typed nil must not become a non-nil interface)
+			}
+			return h, nil
+		}
+	}
+	spec := sandbox.HoldSpec{Lower: lower, Upper: filepath.Join(dir, "upper"), Work: filepath.Join(dir, "work")}
+	fuse := sandbox.FuseOverlayfs()
+	try := []string{sandbox.HoldKernel, sandbox.HoldFuse}
+	switch {
+	case stamp != "":
+		try = []string{stamp}
+	case c.prefer != "":
+		try = []string{c.prefer}
+	}
+	var errs []string
+	for _, flavour := range try {
+		hs := spec
+		if flavour == sandbox.HoldFuse {
+			if fuse == "" {
+				if stamp != "" {
+					return nil, errors.New("it was written by the fuse overlay and this xbind has no fuse-overlayfs any more — forget what this tile wrote to your home to start a new copy")
+				}
+				continue
+			}
+			hs.Fuse = fuse
+		}
+		h, err := start(hs)
+		if err != nil {
+			errs = append(errs, flavour+" overlay: "+err.Error())
+			continue
+		}
+		// the layer is this flavour's from here on: stamped before any
+		// session can write through it (a start that failed wrote nothing,
+		// and leaves no stamp)
+		if err := layers.Stamp(dir, layers.Stamps{Overlay: flavour}); err != nil {
+			h.Close()
+			return nil, fmt.Errorf("the layer could not be stamped: %w", err)
+		}
+		return h, nil
+	}
+	if len(errs) == 0 {
+		return nil, errors.New("no overlay could be mounted here")
+	}
+	return nil, errors.New(strings.Join(errs, "; "))
 }
 
 // acquire gives one session a clone of the layer's overlay over lower (the
@@ -242,31 +317,9 @@ func (c *homeCopies) acquire(m *Manager, dir, lower string, src signins.Source) 
 		}
 	}
 	if hh == nil {
-		fuse := sandbox.FuseOverlayfs()
-		spec := sandbox.HoldSpec{Lower: lower, Upper: filepath.Join(dir, "upper"), Work: filepath.Join(dir, "work"), Fuse: fuse}
-		if err := prepareCopy(dir, lower, spec.Flavour(), src); err != nil {
-			return nil, nil, err
-		}
-		start := c.start
-		if start == nil {
-			start = func(hs sandbox.HoldSpec) (overlayHold, error) {
-				h, err := sandbox.StartHold(hs, os.Getuid(), os.Getgid())
-				if err != nil {
-					return nil, err // (a typed nil must not become a non-nil interface)
-				}
-				return h, nil
-			}
-		}
-		h, err := start(spec)
+		h, err := c.startHold(dir, lower, src)
 		if err != nil {
 			return nil, nil, err
-		}
-		// the layer is this flavour's from here on: stamped before any
-		// session can write through it (a start that failed wrote nothing,
-		// and leaves no stamp)
-		if err := layers.Stamp(dir, layers.Stamps{Overlay: spec.Flavour()}); err != nil {
-			h.Close()
-			return nil, nil, fmt.Errorf("the layer could not be stamped: %w", err)
 		}
 		hh = &copyHold{dir: dir, h: h}
 		c.mu.Lock()
@@ -378,8 +431,13 @@ func (m *Manager) HomeCopies(homeKey string) []HomeCopyInfo {
 			continue
 		}
 		hc := HomeCopyInfo{ID: e.Name(), Tile: meta.Tile, Name: meta.Name, Created: meta.Created, Bytes: m.copies.size(dir), Sessions: m.copies.live(dir)}
-		if m.TileIdentity != nil {
-			hc.Gone = m.TileIdentity(meta.Tile) != meta.Ident
+		// not that tile any more: deleted, or another directory at its path
+		// (made again; a restored workspace). An identity that can't be read
+		// just now says nothing
+		hc.Gone = tileAbsent(m.Root, meta.Tile)
+		if id := ""; m.TileIdentity != nil && !hc.Gone {
+			id = m.TileIdentity(meta.Tile)
+			hc.Gone = id != "" && id != meta.Ident
 		}
 		out = append(out, hc)
 	}
@@ -405,6 +463,14 @@ var ErrNoHomeCopy = errors.New("no such copy of your home")
 // to my home": the sessions on it are ended first (why says so in each),
 // its hold stopped, and the layer removed by a confined run. It answers
 // the tile it was for and how many sessions it ended.
+//
+// It ENDS the sessions on the copy rather than refusing while one runs:
+// the person asked for what the tile wrote to be gone, and a session on it
+// is the tile's code still writing. A start that is under way is waited
+// for (it holds the layer's lock while its hold starts), then ends itself
+// as it registers (registered): no session is left on a layer that was
+// removed under it. One that takes longer than the wait to come up — a VM —
+// makes the forget fail, with nothing removed.
 func (m *Manager) ForgetHomeCopy(homeKey, id, why string) (tile string, ended int, err error) {
 	if id == "" || filepath.Base(id) != id || id == "." || id == ".." {
 		return "", 0, ErrNoHomeCopy
@@ -415,16 +481,19 @@ func (m *Manager) ForgetHomeCopy(homeKey, id, why string) (tile string, ended in
 		return "", 0, ErrNoHomeCopy
 	}
 	c := &m.copies
+	unlock := c.lock(dir) // a start that holds it is done first: its session is counted on the hold, or it failed
 	c.mu.Lock()
 	if c.removing == nil {
 		c.removing = map[string]bool{}
 	}
 	if c.removing[dir] {
 		c.mu.Unlock()
+		unlock()
 		return meta.Tile, 0, nil // another forget is at it
 	}
-	c.removing[dir] = true // no session starts on it from here on
+	c.removing[dir] = true // no session starts on it from here on; one being opened ends as it registers
 	c.mu.Unlock()
+	unlock()
 	defer func() {
 		c.mu.Lock()
 		delete(c.removing, dir)
@@ -432,19 +501,24 @@ func (m *Manager) ForgetHomeCopy(homeKey, id, why string) (tile string, ended in
 		c.mu.Unlock()
 	}()
 	ended = m.endCopySessions(dir, why)
-	deadline := time.Now().Add(20 * time.Second)
+	deadline := time.Now().Add(forgetWait)
 	for c.live(dir) > 0 {
+		ended += m.endCopySessions(dir, why) // (one that registered since)
 		if time.Now().After(deadline) {
-			return meta.Tile, ended, errors.New("the sessions on this copy did not end in time — try again")
+			return meta.Tile, ended, errors.New("a session on this copy is still starting or ending — nothing was removed; try again in a moment")
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	unlock := c.lock(dir)
+	unlock = c.lock(dir)
 	defer unlock()
 	c.mu.Lock()
 	hh := c.holds[dir]
+	live := hh != nil && hh.refs > 0
 	c.mu.Unlock()
-	if hh != nil { // (a hold with no session left: its last release is ending it, or did)
+	if live { // (cannot be: nothing starts on a layer being forgotten)
+		return meta.Tile, ended, errors.New("a session started on this copy — nothing was removed; try again")
+	}
+	if hh != nil { // a hold with no session left: its last release is ending it, or did
 		c.drop(hh)
 	}
 	if err := m.removeLayer(dir); err != nil {
@@ -452,6 +526,17 @@ func (m *Manager) ForgetHomeCopy(homeKey, id, why string) (tile string, ended in
 	}
 	slog.Info("audit", "event", "home.copy.forget", "home", homeKey, "tile", meta.Tile, "ended", ended)
 	return meta.Tile, ended, nil
+}
+
+// forgetWait is how long a forget waits for the sessions on a copy to be
+// gone (a var: tests shorten it).
+var forgetWait = 20 * time.Second
+
+// forgetting reports a layer that is being forgotten.
+func (c *homeCopies) forgetting(dir string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.removing[dir]
 }
 
 // ForgetHomeCopies removes every layer of homeKey's (the account was
@@ -467,16 +552,20 @@ func (m *Manager) ForgetHomeCopies(homeKey, why string) {
 	_ = os.Remove(root) // empty now, or it stays with what could not be removed
 }
 
-// SweepHomeCopies removes the layers whose tile is gone: its directory is
-// no longer there, or is another directory now (TileIdentity — a tile made
-// again at the path has another identity, and another layer). A tile that
-// is merely unregistered keeps its layers: its directory is still that
-// directory. Called at boot and after every rescan. It answers how many
-// it removed.
+// SweepHomeCopies removes the layers whose tile was DELETED: its path is
+// positively not there any more (tileAbsent). Called at boot and after
+// every rescan. It answers how many it removed.
+//
+// Nothing else removes a layer without its person's click. A tile whose
+// directory is there with another identity — made again at the path, or
+// the whole workspace restored from a backup or moved to another disk,
+// which gives every directory a new one — keeps its old layers as
+// orphans: never mounted again (the tile's layer is keyed by its identity
+// now), listed for their person as "not used", and forgotten by them. An
+// identity that can't be read just now (too many open files, a permission)
+// is not a reason either: a transient error once would have removed every
+// copy. A tile that is merely unregistered keeps its layers too.
 func (m *Manager) SweepHomeCopies() int {
-	if m.TileIdentity == nil {
-		return 0
-	}
 	root := filepath.Join(m.Root, "data", homeCopiesDir)
 	homes, _ := os.ReadDir(root)
 	n := 0
@@ -484,11 +573,11 @@ func (m *Manager) SweepHomeCopies() int {
 		ents, _ := os.ReadDir(filepath.Join(root, h.Name()))
 		for _, e := range ents {
 			meta, err := readCopyMeta(filepath.Join(root, h.Name(), e.Name()))
-			if err != nil || meta.Ident == "" || m.TileIdentity(meta.Tile) == meta.Ident {
+			if err != nil || meta.Tile == "" || !tileAbsent(m.Root, meta.Tile) {
 				continue
 			}
-			if _, _, err := m.ForgetHomeCopy(h.Name(), e.Name(), meta.Tile+" is gone, so this session — on its copy of your home — was ended."); err != nil {
-				slog.Warn("home copies: a removed tile's layer stays", "home", h.Name(), "tile", meta.Tile, "err", err)
+			if _, _, err := m.ForgetHomeCopy(h.Name(), e.Name(), meta.Tile+" was deleted, so this session — on its copy of your home — was ended."); err != nil {
+				slog.Warn("home copies: a deleted tile's layer stays", "home", h.Name(), "tile", meta.Tile, "err", err)
 				continue
 			}
 			n++
@@ -496,4 +585,26 @@ func (m *Manager) SweepHomeCopies() int {
 		_ = os.Remove(filepath.Join(root, h.Name())) // when empty
 	}
 	return n
+}
+
+// tileAbsent reports that the workspace-relative path tile is positively
+// not there: one of its components does not exist, and every component
+// before it is a real directory (not a link to somewhere that may be
+// unmounted, not something that could not be read). Any doubt is "no".
+func tileAbsent(root, tile string) bool {
+	at := root
+	for _, c := range strings.Split(strings.Trim(filepath.ToSlash(tile), "/"), "/") {
+		if c == "" || c == "." || c == ".." {
+			return false
+		}
+		at = filepath.Join(at, c)
+		fi, err := os.Lstat(at)
+		switch {
+		case errors.Is(err, os.ErrNotExist):
+			return true
+		case err != nil || !fi.IsDir():
+			return false // unreadable, a link, a file: not known
+		}
+	}
+	return false
 }
