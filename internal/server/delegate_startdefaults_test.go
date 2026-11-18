@@ -207,10 +207,10 @@ func TestDelegateStartDefaultsSavedSignIn(t *testing.T) {
 	if c, b := approve(req.ID, `{"grant":"once","signin":true,"via":"notification"}`, own); c != 409 || stored(req.ID).State != delegation.Pending {
 		t.Fatalf("the sign-in's line from a notification: %d %s", c, b)
 	}
-	if c, b := approve(req.ID, `{"grant":"once","trust":true}`, own); c != 400 || stored(req.ID).State != delegation.Pending {
+	if c, b := approve(req.ID, `{"grant":"once","trust":true,"shown":"signin+home"}`, own); c != 400 || stored(req.ID).State != delegation.Pending {
 		t.Fatalf("the trust line without the sign-in's: %d %s", c, b)
 	}
-	if c, b := approve(req.ID, `{"grant":"once","signin":true,"trust":true}`, own); c != 400 || stored(req.ID).State != delegation.Pending {
+	if c, b := approve(req.ID, `{"grant":"once","signin":true,"trust":true,"shown":"signin+home"}`, own); c != 400 || stored(req.ID).State != delegation.Pending {
 		t.Fatalf("a trust tick where the sheet carried no trust line: %d %s", c, b)
 	}
 	if c, b := approve(req.ID, `{"grant":"once","signin":true}`, own); c != 200 {
@@ -247,13 +247,17 @@ func TestDelegateStartDefaultsSavedSignIn(t *testing.T) {
 	// what the sheet showed — refused, nothing decided, nothing recorded
 	req = ask()
 	others = []string{"bob", "mallory"}
-	if c, b := approve(req.ID, `{"grant":"once","signin":true,"trust":true}`, own); c != 409 || !strings.Contains(b, "look again") || !strings.Contains(b, `"changed":true`) ||
+	if c, b := approve(req.ID, `{"grant":"once","signin":true,"trust":true,"shown":"signin+home"}`, own); c != 409 || !strings.Contains(b, "look again") || !strings.Contains(b, `"changed":true`) ||
 		stored(req.ID).State != delegation.Pending || len(w.s.Signins.Trusted("alice")) != 0 {
 		t.Fatalf("trusting a tile that changed since the sheet was drawn: %d %s (state %s, trusted %+v)", c, b, stored(req.ID).State, w.s.Signins.Trusted("alice"))
 	}
 	// both ticked, the tile as shown: her trust is on record — for that tile, as it stands — and the start carries the sign-in
 	req = ask()
-	c0, b0 := approve(req.ID, `{"grant":"once","signin":true,"trust":true}`, own)
+	// a sheet that doesn't say what its trust line showed (a page from before trusting meant the home too): refused, told to reload
+	if c, b := approve(req.ID, `{"grant":"once","signin":true,"trust":true}`, own); c != 409 || !strings.Contains(b, `"reload":true`) || stored(req.ID).State != delegation.Pending {
+		t.Fatalf("a ticked trust line without what was shown: %d %s", c, b)
+	}
+	c0, b0 := approve(req.ID, `{"grant":"once","signin":true,"trust":true,"shown":"signin+home"}`, own)
 	if tr := w.s.Signins.Trusted("alice"); c0 != 200 || len(tr) != 1 || tr[0].Tile != "apps/x" || tr[0].Via != "approval" || len(tr[0].Editors) != 2 || !stored(req.ID).UseSignin {
 		t.Fatalf("approved with both lines ticked: %d %s — %+v", c0, b0, tr)
 	}

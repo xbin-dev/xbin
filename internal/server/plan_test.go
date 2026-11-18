@@ -355,7 +355,7 @@ func TestPlanStartUsesOnlyTheSignInItsLineNamed(t *testing.T) {
 		var cs delegation.ChangeSet
 		_ = json.Unmarshal(rec.Body.Bytes(), &cs)
 		opened = nil
-		for _, body := range []string{`{"items":[1],"signin":[1]}`, `{"items":[1],"signin":[2]}`, `{"items":[1],"trust":[1]}`} {
+		for _, body := range []string{`{"items":[1],"signin":[1]}`, `{"items":[1],"signin":[2]}`, `{"items":[1],"trust":[1],"shown":"signin+home"}`} {
 			if rec := w.do(w.full, "POST", "/api/xbin/delegate/changesets/"+cs.ID+"/approve", body, own); rec.Code != 400 || len(opened) != 0 {
 				t.Fatalf("%s: %d %s (%d opens)", body, rec.Code, rec.Body.String(), len(opened))
 			}
@@ -384,9 +384,10 @@ func TestPlanStartUsesOnlyTheSignInItsLineNamed(t *testing.T) {
 	}{
 		{"neither ticked", `{"items":[1]}`, nil, 200, "", 0},
 		{"the sign-in ticked, the trust line not", `{"items":[1],"signin":[1]}`, nil, 200, "sg-work", 0},
-		{"the trust line alone", `{"items":[1],"trust":[1]}`, nil, 400, "", 0},
-		{"the tile changed since the line was drawn", `{"items":[1],"signin":[1],"trust":[1]}`, func() { editors = []string{"mallory"} }, 409, "", 0},
-		{"both ticked", `{"items":[1],"signin":[1],"trust":[1]}`, nil, 200, "sg-work", 1},
+		{"the trust line alone", `{"items":[1],"trust":[1],"shown":"signin+home"}`, nil, 400, "", 0},
+		{"the tile changed since the line was drawn", `{"items":[1],"signin":[1],"trust":[1],"shown":"signin+home"}`, func() { editors = []string{"mallory"} }, 409, "", 0},
+		{"a page that doesn't say what its trust line showed", `{"items":[1],"signin":[1],"trust":[1]}`, nil, 409, "", 0},
+		{"both ticked", `{"items":[1],"signin":[1],"trust":[1],"shown":"signin+home"}`, nil, 200, "sg-work", 1},
 	} {
 		editors = nil
 		now, line = "sg-work", question()

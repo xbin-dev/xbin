@@ -306,6 +306,9 @@ func (s *Server) apiChangeSetApprove(w http.ResponseWriter, r *http.Request) {
 		// whose trust line they ticked with it ("I trust this tile's source").
 		Signin []int `json:"signin"`
 		Trust  []int `json:"trust"`
+		// Shown, with ticked trust lines: what the page said trusting
+		// means (signins.TrustShown)
+		Shown string `json:"shown"`
 	}
 	if r.ContentLength != 0 {
 		r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
@@ -397,6 +400,9 @@ func (s *Server) apiChangeSetApprove(w http.ResponseWriter, r *http.Request) {
 	}
 	// a start line's sign-in ticks: held to what the line showed, before
 	// the set is claimed — a refusal leaves it open (signinstrust.go)
+	if len(body.Trust) > 0 && !s.trustShown(w, body.Shown) {
+		return
+	}
 	ticks, status, why := s.planTicks(a.user, cs, chosen, body.Signin, body.Trust)
 	if why != "" {
 		WriteJSON(w, status, map[string]any{"error": why, "changed": status == http.StatusConflict, "docs": agentSigninsDocs})

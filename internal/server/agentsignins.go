@@ -179,6 +179,10 @@ type signinsView struct {
 	Home  *homeHere     `json:"home,omitempty"`
 	// Admin: the caller may see who has sign-ins and set the switch.
 	Admin bool `json:"admin,omitempty"`
+	// Kept, for admins: the copies of homes kept from accounts that no
+	// longer exist (xbind removes no copy on its own) — theirs to forget
+	// (DELETE /agent/signins/homes/{id}?of=<user>).
+	Kept []keptHomeRow `json:"kept,omitempty"`
 }
 
 func (s *Server) signinsViewFor(r *http.Request, user string) (signinsView, error) {
@@ -192,6 +196,9 @@ func (s *Server) signinsViewFor(r *http.Request, user string) (signinsView, erro
 	out.Notice = notice
 	tile := strings.Trim(r.URL.Query().Get("tile"), "/")
 	out.Homes = s.homeCopyRows(auth.PrincipalOf(r))
+	if out.Admin {
+		out.Kept = s.keptHomeRows()
+	}
 	if p := auth.PrincipalOf(r); tile != "" && s.Term != nil && p.CanTerminalTile(s.sessionTile(tile)) {
 		out.Home = s.homeHereFor(p, s.sessionTile(tile), out.Homes) // the tile the path lies in, as for a session there
 	}
@@ -223,7 +230,7 @@ func (s *Server) signinsViewFor(r *http.Request, user string) (signinsView, erro
 }
 
 func (s *Server) apiSigninsGet(w http.ResponseWriter, r *http.Request) {
-	user := s.signinsPerson(w, r)
+	user := s.signinsTruster(w, r, false) // (the root token: its trusted tiles, its home and copies — signinsroot.go)
 	if user == "" {
 		return
 	}

@@ -784,8 +784,8 @@ func (s *Server) apiDelegateRequestDecide(w http.ResponseWriter, r *http.Request
 		// Via "notification": the person decided from a notification's
 		// action on their device (D241) — held to the lock screen's rule
 		// and recorded as such
-		Via           string `json:"via"`
-		Signin, Trust bool   // a start's "use my sign-in" line and its trust line, ticked (signinstrust.go)
+		Via            string `json:"via"`
+		signinTickBody        // a start's "use my sign-in" line and its trust line, ticked, and what the sheet showed (signinstrust.go)
 	}
 	if r.ContentLength != 0 {
 		if err := DecodeJSON(r, &body); err != nil {
@@ -830,7 +830,7 @@ func (s *Server) apiDelegateRequestDecide(w http.ResponseWriter, r *http.Request
 		device = a.p.DeviceID
 	}
 	// a start's sign-in lines, ticked: held to what the sheet showed, before anything is decided
-	basis, ok := s.approveTicks(w, a.user, r.PathValue("id"), approve && body.Signin, approve && body.Trust)
+	basis, ok := s.approveTicks(w, a.user, r.PathValue("id"), approve && body.Signin, approve && body.Trust, body.Shown)
 	if !ok {
 		return
 	}

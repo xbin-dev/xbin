@@ -11,9 +11,11 @@ package server
 
 import (
 	"errors"
+	"log/slog"
 	"net/http"
 
 	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/signins"
 	"github.com/xbin-dev/xbin/internal/term"
 )
 
@@ -72,7 +74,7 @@ func (s *Server) homeHereFor(p auth.Principal, tile string, copies []homeCopyRow
 // ended, and the copy is removed → {ok, tile, ended}. Their real home is
 // not touched. 404 not theirs.
 func (s *Server) apiSigninsHomeForget(w http.ResponseWriter, r *http.Request) {
-	user := s.signinsPerson(w, r)
+	user := s.signinsTruster(w, r, false) // a person, or the root token for its own (signinsroot.go)
 	if user == "" {
 		return
 	}
@@ -81,8 +83,18 @@ func (s *Server) apiSigninsHomeForget(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p := auth.PrincipalOf(r)
-	tile, ended, err := s.Term.ForgetHomeCopy(term.HomeKey(p), r.PathValue("id"),
-		"You had xbin forget what this tile wrote to your home, so this session — which was on that copy — was ended. Start it again: it gets a fresh copy.")
+	key, why := term.HomeKey(p), "You had xbin forget what this tile wrote to your home, so this session — which was on that copy — was ended. Start it again: it gets a fresh copy."
+	if of := r.URL.Query().Get("of"); of != "" {
+		// an admin forgets a copy kept from an account that no longer
+		// exists — never a living account's, never the root token's
+		if !s.settingsAdmin(r) || p.ReadOnly() || p.Agent != "" || !s.keptHomeKey(of) {
+			WriteError(w, http.StatusNotFound, term.ErrNoHomeCopy.Error(), agentSigninsDocs)
+			return
+		}
+		key, why = of, "The copy this session was on was removed by a workspace admin."
+		slog.Info("audit", "event", "home.copy.forget-kept", "of", of, "copy", r.PathValue("id"), "by", p.From())
+	}
+	tile, ended, err := s.Term.ForgetHomeCopy(key, r.PathValue("id"), why)
 	switch {
 	case errors.Is(err, term.ErrNoHomeCopy):
 		WriteError(w, http.StatusNotFound, err.Error(), agentSigninsDocs)
@@ -91,4 +103,45 @@ func (s *Server) apiSigninsHomeForget(w http.ResponseWriter, r *http.Request) {
 	default:
 		WriteJSON(w, http.StatusOK, map[string]any{"ok": true, "tile": tile, "ended": ended})
 	}
+}
+
+// keptHomeRow is a copy of a home kept from an account that no longer
+// exists, as the workspace's admins see it.
+type keptHomeRow struct {
+	User string `json:"user"` // the deleted account's id (its home's key)
+	term.HomeCopyInfo
+}
+
+// keptHomeKey reports a home key that has copies and is no account's now
+// (nor the root token's).
+func (s *Server) keptHomeKey(key string) bool {
+	if s.Term == nil || key == "" || key == signins.RootTokenUser || s.Auth == nil || s.Auth.Users == nil {
+		return false
+	}
+	if _, ok := s.Auth.Users.Get(key); ok {
+		return false
+	}
+	for _, k := range s.Term.HomeCopyKeys() {
+		if k == key {
+			return true
+		}
+	}
+	return false
+}
+
+// keptHomeRows lists the copies kept from deleted accounts.
+func (s *Server) keptHomeRows() []keptHomeRow {
+	out := []keptHomeRow{}
+	if s.Term == nil {
+		return out
+	}
+	for _, key := range s.Term.HomeCopyKeys() {
+		if !s.keptHomeKey(key) {
+			continue
+		}
+		for _, hc := range s.Term.HomeCopies(key) {
+			out = append(out, keptHomeRow{User: key, HomeCopyInfo: hc})
+		}
+	}
+	return out
 }
