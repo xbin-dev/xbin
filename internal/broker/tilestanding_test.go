@@ -3,6 +3,7 @@ package broker
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/delegation"
 	"github.com/xbin-dev/xbin/internal/registry"
 	"github.com/xbin-dev/xbin/internal/server"
 	"github.com/xbin-dev/xbin/internal/util"
@@ -184,6 +186,12 @@ func TestTileStandingIsUnionOfReads(t *testing.T) {
 	if code, _ := w.do("GET", "/delegate/tile?tile=apps/nope", "", agentOf("carol")); code != 403 {
 		t.Errorf("a tile that isn't there answers otherwise: %d", code)
 	}
+	// a tile its org's rules keep the agent from: refused as the reads it replaces are
+	w.srv.AgentPolicy = delegation.OpenPolicy{Deny: map[string]error{"apps/x": errors.New("the org keeps agents out")}}
+	if code, body := w.do("GET", "/delegate/tile?tile=apps/x", "", agentOf("bob")); code != 403 || !strings.Contains(body, "keeps agents out") {
+		t.Errorf("a tile the org's rules block: %d %s", code, body)
+	}
+	w.srv.AgentPolicy = delegation.OpenPolicy{}
 	// the conversation now holds the orgs of what it read
 	if code, _ := w.do("GET", "/delegate/tile?tile=apps/pg", "", agentOf("bob")); code != 200 {
 		t.Fatalf("bob reads apps/pg: %d", code)
