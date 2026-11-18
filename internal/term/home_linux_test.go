@@ -752,8 +752,13 @@ func homeBins(t *testing.T) (fake, bx, dir string) {
 	t.Helper()
 	homeBinsOnce.Do(func() {
 		repo, _ := filepath.Abs("../..")
-		homeBinsDir, homeBinsErr = os.MkdirTemp("", "xbin-home-bins-*")
-		if homeBinsErr != nil {
+		if homeBinsErr = buildErr; homeBinsErr != nil {
+			return
+		}
+		// beside the package's own test binaries (agent_test.go's TestMain
+		// makes that directory and removes it when the tests end)
+		homeBinsDir = filepath.Join(filepath.Dir(fakeBin), "static")
+		if homeBinsErr = os.MkdirAll(homeBinsDir, 0o755); homeBinsErr != nil {
 			return
 		}
 		homeFake, homeBx = filepath.Join(homeBinsDir, "fakeacp"), filepath.Join(homeBinsDir, "bx")
