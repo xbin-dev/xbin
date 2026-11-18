@@ -53,6 +53,24 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   [changes/2026-11-18-home-on-untrusted-tiles.md](changes/2026-11-18-home-on-untrusted-tiles.md);
   the rule: [agent-signins.md](agent-signins.md#your-home-on-a-tile-that-isnt-only-yours)
   (D245).
+- coding agents: **saving a Claude sign-in no longer sticks at "Checking
+  the code…"** ([agent-signins.md](/docs/agent-signins.md),
+  [protocol/agents.md](/docs/protocol/agents.md)). xbind's guided sign-in
+  (and the agent template's "Remember this sign-in") typed the code and
+  its Enter in one write; Claude Code's `setup-token` is a full-screen
+  prompt that takes a long chunk as a paste, Enter included, so a real
+  code — they are about 90 characters — was shown in its prompt and never
+  submitted, and the card waited a minute and then said the CLI didn't
+  answer. The code now goes in as a terminal paste (bracketed where the
+  CLI turned that on) and Enter in a write of its own — checked against
+  Claude Code 2.1.280 itself. A code that isn't whole is said as that
+  again and the same sign-in page stays good: `setup-token` reports it as
+  "OAuth error: Invalid code…" and waits for Enter, which read as a
+  failure before; xbind now presses Enter and the card asks for the code
+  again. A client that drives a provider's `signin` itself: type the
+  code, then Enter separately (`retry` is the new optional marker for a
+  CLI that waits for Enter after a malformed code; a line holding
+  `invalid` is never the `fail` line).
 
 ## 2026-11-17
 

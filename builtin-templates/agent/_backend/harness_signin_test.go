@@ -36,7 +36,8 @@ const testClaudeURL = "https://claude.com/cai/oauth/authorize?code=true&client_i
 //     credentials file) with "Login successful." and exit 0; any other is
 //     "Login failed: …", exit 1;
 //   - `claude setup-token` on a terminal only: the link as Ink draws it (an
-//     OSC 8 link), the prompt, then good-XXXX#… prints a one-year token
+//     OSC 8 link), bracketed paste on, the prompt, a code as a bracketed
+//     paste and Enter (pasted, below), then good-XXXX#… prints a one-year token
 //     ending in XXXX (exit 0, $HOME untouched); newformat… prints a token in
 //     a format the scan doesn't know; refuse… is its OAuth error. It refuses
 //     to run with anything of the sandbox's environment (IN_SANDBOX) or a
@@ -47,6 +48,25 @@ code() {
   while IFS= read -r c; do
     c=$(printf '%s' "$c" | tr -d '\r')
     case "$c" in *'#'*) ;; *) printf 'Invalid code. Please make sure the full code was copied.\n' >&2; printf 'Paste code here if prompted > ' >&2; continue ;; esac
+    printf '%s\n' "$c"
+    return 0
+  done
+  exit 1
+}
+# pasted is the code as setup-token's Ink prompt takes it: a bracketed paste,
+# then Enter (a line that is no bracketed paste is typing that never
+# submits); a malformed one is its OAuth error and "Press Enter to retry",
+# then the prompt again after an Enter.
+pasted() {
+  esc=$(printf '\033')
+  while IFS= read -r c; do
+    c=$(printf '%s' "$c" | tr -d '\r')
+    case "$c" in "${esc}[200~"*"${esc}[201~") c=${c#"${esc}[200~"}; c=${c%"${esc}[201~"} ;; *) continue ;; esac
+    case "$c" in *'#'*) ;; *)
+      printf 'OAuth error: Invalid code. Please make sure the full code was copied\nPress Enter to retry.\n' >&2
+      IFS= read -r _ || exit 1
+      printf 'Retrying…\n\n\033[2GPaste\033[8Gcode\033[13Ghere\033[18Gif\033[21Gprompted\033[30G>\n' >&2; continue ;;
+    esac
     printf '%s\n' "$c"
     return 0
   done
@@ -68,8 +88,8 @@ setup-token)
   [ -d "$HOME" ] && [ -z "$(ls -A "$HOME")" ] || { printf 'OAuth error: the mint runs in a HOME of the sandbox (%s)\n' "$HOME"; exit 1; }
   printf '\033[2G\033[1mThis\033[7Gwill\033[12Gguide\033[18Gyou\033[22Gthrough\033[30Glong-lived\033[41G(1-year)\033[50Gauth\033[55Gtoken\033[61Gsetup\033[22m\n'
   printf "\033]8;id=t;%s\007\033[38;5;246m%s\033[39m\033]8;;\007\n" "$URL" "$URL"
-  printf '\n\033[2GPaste\033[8Gcode\033[13Ghere\033[18Gif\033[21Gprompted\033[30G>\n'
-  c=$(code)
+  printf '\033[?2004h\n\033[2GPaste\033[8Gcode\033[13Ghere\033[18Gif\033[21Gprompted\033[30G>\n'
+  c=$(pasted)
   case "$c" in
   good-*) s=${c%%#*}; s=${s#good-}
     printf '\033[32m✓\033[39m Long-lived authentication token created successfully!\n\nYour OAuth token (valid for 1 year):\n\n'

@@ -40,12 +40,14 @@ type mintExec struct {
 	ended  bool
 	wake   chan struct{}
 	closed bool
+	pasted string // the code pasted, until an Enter submits it
+	retry  bool   // a malformed code was refused: the next Enter asks again
 }
 
 func (m *scriptedMint) Start(acp.Signin, time.Duration) (acp.GuidedExec, error) {
 	m.started++
 	x := &mintExec{m: m, wake: make(chan struct{}, 16)}
-	x.say("\x1b]8;id=t;" + fakeSigninURL + "\x07" + fakeSigninURL + "\x1b]8;;\x07\r\n\r\nPaste code here if prompted >\r\n")
+	x.say("\x1b[?2004h\x1b]8;id=t;" + fakeSigninURL + "\x07" + fakeSigninURL + "\x1b]8;;\x07\r\n\r\nPaste code here if prompted >\r\n")
 	return x, nil
 }
 
@@ -79,11 +81,33 @@ func (x *mintExec) Read(ctx context.Context) ([]byte, bool, *int, error) {
 	}
 }
 
+// Write is the CLI reading its terminal as Claude Code's setup-token does
+// (Ink): a bracketed paste is the code, a lone Enter submits it — or, after
+// a malformed code, asks again; anything else (a code and its Enter in one
+// chunk) is typing that never submits.
 func (x *mintExec) Write(_ context.Context, p []byte) error {
-	code := strings.TrimRight(string(p), "\r\n")
+	if c, ok := strings.CutPrefix(string(p), "\x1b[200~"); ok {
+		x.mu.Lock()
+		x.pasted = strings.TrimSuffix(c, "\x1b[201~")
+		x.mu.Unlock()
+		return nil
+	}
+	if string(p) != "\r" {
+		return nil
+	}
+	x.mu.Lock()
+	code, retry := x.pasted, x.retry
+	x.pasted, x.retry = "", false
+	x.mu.Unlock()
 	switch {
+	case retry:
+		x.say("Retrying…\r\nPaste code here if prompted >\r\n")
+	case code == "":
 	case !strings.Contains(code, "#"):
-		x.say("Invalid code. Please make sure the full code was copied.\r\n")
+		x.mu.Lock()
+		x.retry = true
+		x.mu.Unlock()
+		x.say("OAuth error: Invalid code. Please make sure the full code was copied\r\nPress Enter to retry.\r\n")
 	case strings.HasPrefix(code, "good"):
 		x.say("Your OAuth token (valid for 1 year):\r\n\r\n" + fakeSigninToken + "\r\n")
 	default:

@@ -93,6 +93,7 @@ type Guided struct {
 
 	mu      sync.Mutex // one call at a time drives it
 	out     []byte
+	paste   PasteMode
 	st      SigninState
 	running bool
 	started bool
@@ -142,9 +143,11 @@ func (g *Guided) Link() GuidedLink {
 	return GuidedLink{URL: g.st.URL, Paste: g.st.Code}
 }
 
-// Code types code (CleanCode's) and Enter — a newline over pipes, a
-// carriage return on a terminal (Ink's return) — and waits (at most wait)
-// for the CLI's word on it.
+// Code types code (CleanCode's) and Enter the way the sign-in reads them
+// (Signin.Typed) and waits (at most wait) for the CLI's word on it. A code
+// the CLI refuses as malformed leaves the sign-in open: where the CLI then
+// waits for Enter (Signin.Retry), Code presses it and returns once the CLI
+// asks for the code again.
 func (g *Guided) Code(ctx context.Context, code string, wait time.Duration) (GuidedDone, error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -153,13 +156,11 @@ func (g *Guided) Code(ctx context.Context, code string, wait time.Duration) (Gui
 	}
 	ctx, cancel := context.WithTimeout(ctx, wait)
 	defer cancel()
-	invalid := g.st.Invalid
-	enter := "\n"
-	if g.Spec.TTY {
-		enter = "\r"
-	}
-	if err := g.Exec.Write(ctx, []byte(code+enter)); err != nil {
-		return GuidedDone{}, &GuidedError{Kind: GuidedIO, Msg: fmt.Sprintf("couldn't hand %s the code: %v", g.Name, err)}
+	invalid, retry := g.st.Invalid, g.st.Retry
+	for _, w := range g.Spec.Typed(code, g.paste.On()) {
+		if err := g.Exec.Write(ctx, w); err != nil {
+			return GuidedDone{}, &GuidedError{Kind: GuidedIO, Msg: fmt.Sprintf("couldn't hand %s the code: %v", g.Name, err)}
+		}
 	}
 	for {
 		st := g.st
@@ -171,6 +172,9 @@ func (g *Guided) Code(ctx context.Context, code string, wait time.Duration) (Gui
 		case !g.mint() && st.Done:
 			return GuidedDone{}, nil
 		case st.Invalid > invalid:
+			if err := g.again(ctx, retry); err != nil {
+				return GuidedDone{}, err
+			}
 			return GuidedDone{}, &GuidedError{Kind: GuidedInvalid, Msg: g.Name + " says that isn't the whole code — copy it again from the sign-in page and paste it"}
 		case st.Failed != "":
 			return GuidedDone{}, &GuidedError{Kind: GuidedFailed, Msg: MaskCredentials(st.Failed)}
@@ -191,6 +195,45 @@ func (g *Guided) Code(ctx context.Context, code string, wait time.Duration) (Gui
 			return GuidedDone{}, &GuidedError{Kind: GuidedIO, Msg: fmt.Sprintf("reading %s's sign-in: %v", g.Name, err)}
 		}
 	}
+}
+
+// again brings a CLI that waits for Enter after a malformed code
+// (Signin.Retry) back to its code prompt (g.mu held): it waits for the line
+// that says so (more of them than retry, the count before the code went
+// in), presses Enter, and waits for the prompt. Nothing to do for
+// a CLI that asks again by itself.
+func (g *Guided) again(ctx context.Context, retry int) error {
+	if g.Spec.Retry == "" {
+		return nil
+	}
+	gone := func(err error) error {
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+			return &GuidedError{Kind: GuidedTimeout, Msg: g.Name + " didn't ask for the code again — start the sign-in again"}
+		}
+		return &GuidedError{Kind: GuidedIO, Msg: fmt.Sprintf("reading %s's sign-in: %v", g.Name, err)}
+	}
+	ended := &GuidedError{Kind: GuidedEnded, Msg: g.Name + "'s sign-in ended on that code — start it again"}
+	for g.st.Retry <= retry { // the line arrives with the refusal, or right after
+		if !g.running {
+			return ended
+		}
+		if err := g.read(ctx); err != nil {
+			return gone(err)
+		}
+	}
+	prompts := g.st.Prompts
+	if err := g.Exec.Write(ctx, []byte("\r")); err != nil {
+		return &GuidedError{Kind: GuidedIO, Msg: fmt.Sprintf("couldn't ask %s for the code again: %v", g.Name, err)}
+	}
+	for g.st.Prompts <= prompts {
+		if !g.running {
+			return ended
+		}
+		if err := g.read(ctx); err != nil {
+			return gone(err)
+		}
+	}
+	return nil
 }
 
 // Close ends the sign-in: the command killed, everything read dropped.
@@ -215,6 +258,7 @@ func (g *Guided) read(ctx context.Context) error {
 	}
 	b, running, exit, err := g.Exec.Read(ctx)
 	if len(b) > 0 {
+		g.paste.Feed(b)
 		g.out = append(g.out, b...)
 		if len(g.out) > guidedOutMax {
 			g.out = append([]byte(nil), g.out[len(g.out)-guidedOutMax:]...)
