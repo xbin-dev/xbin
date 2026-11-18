@@ -29,11 +29,17 @@ const wsBudgetMargin = 64000
 var wsBudgetSet atomic.Int64
 
 // wsBudgetSetting is the setting in force for this process: 0 outside
-// workspace mode, or before xbind said one.
+// workspace mode, or from an xbind that doesn't say one. Not known yet (the
+// first step after a start, before a model call read the state): the state
+// is read now — the read every model call makes, cached a second.
 func wsBudgetSetting() int {
 	if !wsMode() {
 		return 0
 	}
+	if n := wsBudgetSet.Load(); n > 0 {
+		return int(n)
+	}
+	_ = wsOffCached()
 	return int(wsBudgetSet.Load())
 }
 

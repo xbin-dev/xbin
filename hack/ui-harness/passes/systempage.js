@@ -155,9 +155,9 @@ async function systemPage(browser) {
         // the context budget (D246): the default said with what the agent role's model keeps, a lower one saved, the default again
         await pol.evaluate((el) => el.testApi().reload());
         await until(async () => (await pol.locator('input[data-field=budget]').count()) === 1, 'the budget field');
-        const note = await pol.innerText();
-        check(note.includes('It is not a spend limit') && (await pol.locator('input[data-field=budget]').getAttribute('placeholder')) === '1000000',
-          `${P}: the context budget — 1,000,000 by default, never called a spend limit`);
+        const spend = await pol.locator('.small', { hasText: 'It is not a spend limit' }).count();
+        const ph = await pol.locator('input[data-field=budget]').getAttribute('placeholder');
+        check(spend === 1 && ph === '1000000', `${P}: the context budget — 1,000,000 by default, never called a spend limit (${spend}, ${ph})`);
         await pol.locator('input[data-field=budget]').fill('150000');
         const [bput] = await Promise.all([A.page.waitForRequest((r) => r.method() === 'PUT' && r.url().endsWith('/api/xbin/delegate/workspace')), pol.locator('[data-save]').click()]);
         await until(async () => (await pol.locator('[role=status]').count()) === 1, 'saved');

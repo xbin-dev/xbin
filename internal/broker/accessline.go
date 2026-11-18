@@ -238,7 +238,10 @@ func (b *Broker) previewAccess(p auth.Principal, op delegation.ChangeOp, planned
 	default:
 		pv.Effects = append(pv.Effects, fmt.Sprintf("they can use %s at %s — their own entry, which overrides what their orgs and the workspace defaults give", a.Tile, a.Level))
 	}
-	whoShort := id
+	whoShort := m.ID // an id xbind resolved; a name as typed only quoted (it is the agent's text)
+	if whoShort == "" {
+		whoShort = delegation.QuoteName(typed)
+	}
 	if a.Level == users.LevelTerminal {
 		pv.Warnings = append(pv.Warnings, fmt.Sprintf(accessWarnTerminal, whoShort, a.Tile))
 	}
