@@ -40,6 +40,24 @@ const termRootHint = "the tile's persistent terminal layer holds it: reset the t
 // directory: the tile itself, or a directory inside it, which is what is
 // bound read-write. What is masked is decided on the tile.
 func scopedBinds(root, tile, rel, homeDir string, extra []sandbox.Bind, hide []string) []sandbox.Bind {
+	return scopedBindsHome(root, tile, rel, realHomeBind(homeDir), extra, hide)
+}
+
+// realHomeBind is the read-write bind of a person's real home (nil when
+// there is none yet).
+func realHomeBind(homeDir string) *sandbox.Bind {
+	if !pathIsDir(homeDir) {
+		return nil
+	}
+	return &sandbox.Bind{Src: homeDir, Dst: homeDir}
+}
+
+// scopedBindsHome is scopedBinds with the session's home as the home rule
+// decided it (home.go homeBind): the person's real home read-write, or a
+// clone of the tile's copy-on-write view of it, mounted at the same path —
+// nil for none. The plan is built from that bind alone: nothing here binds
+// a home by its path.
+func scopedBindsHome(root, tile, rel string, home *sandbox.Bind, extra []sandbox.Bind, hide []string) []sandbox.Bind {
 	if rel == "" {
 		return append([]sandbox.Bind{{Src: root, Dst: root}}, extra...) // owner plane: all rw (root terminals are disabled)
 	}
@@ -66,8 +84,8 @@ func scopedBinds(root, tile, rel, homeDir string, extra []sandbox.Bind, hide []s
 		sandbox.Bind{Dst: filepath.Join(root, "data"), Mask: true, RO: true},
 		sandbox.Bind{Dst: filepath.Join(root, "homes"), Mask: true}, // rw: own $HOME nests below
 	)
-	if pathIsDir(homeDir) {
-		binds = append(binds, sandbox.Bind{Src: homeDir, Dst: homeDir}) // this user's $HOME: read-write (nests over the homes mask)
+	if home != nil {
+		binds = append(binds, *home) // this user's $HOME — theirs, or this tile's copy of it (nests over the homes mask)
 	}
 	comp := filepath.Join(root, filepath.FromSlash(rel))
 	if util.ComponentPathOK(rel) {
@@ -201,6 +219,12 @@ func (m *Manager) RefreshViews() {
 // always is, past the terminal gate, which asks the tile; otherwise the
 // session's directory stays the view's empty, read-only mountpoint.
 func scopedBindsView(root, tile, rel, homeDir, viewDir string, readable []string, extra []sandbox.Bind) []sandbox.Bind {
+	return scopedBindsViewHome(root, tile, rel, realHomeBind(homeDir), viewDir, readable, extra)
+}
+
+// scopedBindsViewHome is scopedBindsView with the session's home as the
+// home rule decided it (scopedBindsHome).
+func scopedBindsViewHome(root, tile, rel string, home *sandbox.Bind, viewDir string, readable []string, extra []sandbox.Bind) []sandbox.Bind {
 	binds := []sandbox.Bind{{Src: viewDir, Dst: root, RO: true}}
 	own := false
 	for _, r := range readable {
@@ -217,8 +241,8 @@ func scopedBindsView(root, tile, rel, homeDir, viewDir string, readable []string
 	if comp := filepath.Join(root, filepath.FromSlash(rel)); own {
 		binds = append(binds, sandbox.Bind{Src: comp, Dst: comp}) // own component (or a directory in it): rw
 	}
-	if pathIsDir(homeDir) {
-		binds = append(binds, sandbox.Bind{Src: homeDir, Dst: homeDir}) // own $HOME: rw
+	if home != nil {
+		binds = append(binds, *home) // own $HOME: rw — or this tile's copy of it
 	}
 	return append(binds, extra...)
 }

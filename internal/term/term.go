@@ -73,8 +73,11 @@ type Session struct {
 	vm      bool          // a VM sandbox (vm.go)
 	target  sessionTarget // the target deployment, fixed at start (target.go)
 	part    sessionPart   // its partition on a partitioned tile, fixed at start (partition.go)
-	purpose string        // "" or PurposeSignin, fixed at start (purpose.go)
-	origin  string        // "" or the sealed component that opened it for its person (delegate.go), fixed at start
+	home    sessionHome   // which home it mounts — the person's, or this tile's copy — fixed at start (home.go)
+	// homeEnding: a sweep or a forget is ending it for its home (claimEnd); guarded by mu
+	homeEnding bool
+	purpose    string // "" or PurposeSignin, fixed at start (purpose.go)
+	origin     string // "" or the sealed component that opened it for its person (delegate.go), fixed at start
 	// originMode: the mode a session with an origin was opened in — the one
 	// its person approved, or their preference's (delegate.go); a restart
 	// carries it over
@@ -208,6 +211,12 @@ type Manager struct {
 	TilePartitioned    func(path string) (tile string, partitioned bool)
 	PersonPartitionKey func(userID string) string
 
+	// TileIdentity answers a tile's identity now — its directory's own, ""
+	// when there is none (the broker's TileIdentity): what tells a tile from
+	// one made later at its path, for the copies of people's homes
+	// (homecopy.go). nil ⇒ no layer is ever swept.
+	TileIdentity func(tile string) string
+
 	LLMHook // the workspace's LLM connector for sessions: LLM, Credentials, LLMDoor (llmhook.go, D226)
 	// SigninLife is how long a guided sign-in's shell (?purpose=signin,
 	// purpose.go) lives before xbind ends it. 0 ⇒ 15 minutes.
@@ -218,6 +227,7 @@ type Manager struct {
 	envHeld  map[string]bool        // component key → a live session holds its persistent layer
 	rmTree   func(dir string) error // tests: stands in for removeLayer's confined removal
 	parts    partState              // partition holds and opens in flight (partitionhold.go)
+	copies   homeCopies             // the holds of the copies of people's homes (homecopy.go)
 
 	base      baseState                               // base auto-update: the current base, the remover, notes (basemove.go)
 	stampHook func(dir string, s layers.Stamps) error // tests: stands in for layers.Stamp (Manager.stamp)
@@ -348,6 +358,7 @@ type openOpts struct {
 	target     sessionTarget     // the target deployment (pickTarget, target.go)
 	part       sessionPart       // the partition on a partitioned tile (pickPartition, partition.go)
 	purpose    string            // "" or PurposeSignin: a guided sign-in's shell (purpose.go)
+	home       homePlan          // which home it mounts: the person's, or this tile's copy (home.go; openOptsFor)
 	origin     string            // "" or the sealed component opening it for its person (delegate.go)
 	originMode string            // the mode that component's open was authorised with (delegate.go)
 	llmOpts                      // its hold on the LLM connector, when it gets one (llmhook.go)
@@ -357,6 +368,9 @@ type openOpts struct {
 // the limits, the user's home and the terminal token. Returns the token's
 // revoke.
 func (m *Manager) prepare(o openOpts) (dir, rel, homeDir, token string, revokeTok func(), err error) {
+	if o.home.refuse != "" { // the home the rule gives it can't be had: never another in its place (home.go)
+		return "", "", "", "", nil, errors.New(o.home.refuse)
+	}
 	dir = m.Root
 	if o.cwd != "" {
 		dir, rel, err = util.SafeJoin(m.Root, o.cwd)
@@ -452,8 +466,10 @@ func (m *Manager) create(o openOpts) (*Session, error) {
 		cleanup: cleanup, relay: rl, envKey: envKey, homeKey: o.homeKey, token: token,
 		baseOld: m.layerOutdated(envKey), gpu: o.gpu, api: o.api, target: o.target, part: o.part,
 		purpose: o.purpose, name: nameFor(o.purpose), origin: o.origin,
+		home: sessionHome{plan: o.home, dir: o.launch.homeCopy},
 		born: time.Now(), hub: termwire.NewHub(maxScrollback),
 	}
+	s.sayHome(m, o) // the first session on a tile's copy of the home says what that means (home.go)
 	// before the PTY's first byte (pump hasn't started): this start moved the
 	// tile's layer to the current base, or an agent session's start did and
 	// no shell has said so yet (D175) — an ephemeral session too
@@ -580,21 +596,33 @@ func (m *Manager) releaseEnv(key string) {
 // live session may hold a component's layer; concurrent sessions on the same
 // component fall back to an ephemeral upper. netMode picks the network scope.
 func (m *Manager) sandboxShell(dir, rel, homeDir, token string, o openOpts) (*exec.Cmd, func(), func() *relay.Relay, string, []string, error) {
-	binds := scopedBinds(m.Root, o.onTile(rel), rel, homeDir, m.ExtraBinds, o.hide) // decided on the tile; rel is the directory bound read-write
+	// the session's home, as the rule decided it (home.go): the person's
+	// real one, or a clone of this tile's copy of it — which is mounted or
+	// the session fails. Released when the sandbox is gone
+	home, homeCopy, homeStarted, releaseHome, err := m.homeBind(homeDir, o)
+	if err != nil {
+		return nil, nil, nil, "", nil, err
+	}
+	if o.launch != nil {
+		o.launch.homeCopy = homeCopy
+	}
+	binds := scopedBindsHome(m.Root, o.onTile(rel), rel, home, m.ExtraBinds, o.hide) // decided on the tile; rel is the directory bound read-write
 	viewDir := ""
 	if o.restricted && rel != "" && o.rootFiles != nil { // D40 allow-list view
 		vd, err := m.stageView(rel, o.homeKey, o.readable, o.rootFiles)
 		if err != nil {
+			releaseHome()
 			return nil, nil, nil, "", nil, fmt.Errorf("stage terminal view: %w", err)
 		}
 		viewDir = vd
 		m.trackView(viewDir, o.readable) // its go.work follows the workspace (RefreshViews)
-		binds = scopedBindsView(m.Root, o.onTile(rel), rel, homeDir, viewDir, o.readable, m.ExtraBinds)
+		binds = scopedBindsViewHome(m.Root, o.onTile(rel), rel, home, viewDir, o.readable, m.ExtraBinds)
 	}
 	if o.kind == KindAgent { // the daemon's own bx, read-only, is the entry (agent.go)
 		binds = append(binds, sandbox.Bind{Src: m.BxPath, Dst: agentHostPath, RO: true})
 	}
 	dropView := func() {
+		releaseHome() // (every failure below runs this; the session's end does too)
 		if viewDir != "" {
 			m.dropView(viewDir)
 		}
@@ -719,6 +747,7 @@ func (m *Manager) sandboxShell(dir, rel, homeDir, token string, o openOpts) (*ex
 	// post runs after the PTY starts: complete uid mapping (range mode) and, for
 	// the relay scopes, stand up the egress relay on the init's TUN.
 	post := func() *relay.Relay {
+		homeStarted() // the init holds its own copy of the home's mount
 		if err := h.SetupUserns(); err != nil {
 			slog.Warn("terminal sandbox: userns setup", "err", err)
 		}

@@ -229,8 +229,14 @@ func (m *Manager) partitioned(s *Session) bool {
 func (m *Manager) adminPass(s *Session, p auth.Principal) bool {
 	// nor in a session that carries its person's saved sign-in, on any tile
 	// (signin.go): driving it would be a way to its environment
-	return p.IsAdmin() && (s.homeKey == HomeKey(p) || !(m.partitioned(s) || s.carriesSignin()))
+	// nor in one that has its person's real home (home.go): driving it is
+	// writing that home
+	return p.IsAdmin() && (s.homeKey == HomeKey(p) || !(m.partitioned(s) || s.carriesSignin() || s.realHome()))
 }
+
+// realHomeRefusal is the refusal of an admin on another person's session
+// that has that person's real home.
+const realHomeRefusal = "session belongs to another user: it has their own home, which typing there would change, so an admin can't open it (ending it is allowed)"
 
 // viewAsBarred is the refusal of p, an admin viewing as a person
 // (read-only), on s when s's tile keeps each person's data apart: view-as

@@ -179,6 +179,9 @@ type AgentOpen struct {
 	// delegate's open without it is refused.
 	Delegate *DelegateStart
 	origin   string // a restart: the session's origin carries over
+	// home: a restart — HomeCopy when the session it restarts was on the
+	// tile's copy of the home: it stays on it (home.go)
+	home string
 	// originMode: a restart — the mode the session was first opened in by
 	// its origin carries over too (the restart's own mode is the person's)
 	originMode string
@@ -261,6 +264,12 @@ func (m *Manager) OpenAgentWith(p auth.Principal, a AgentOpen) (SessionInfo, int
 	o.origin = cmp.Or(p.Agent, a.origin) // a delegate's open; a restart keeps its session's (delegate.go)
 	if o.originMode = a.originMode; p.Agent != "" {
 		o.originMode = mode // the mode its person approved, or their preference's
+	}
+	if a.home == HomeCopy || (resumeFrom != nil && resumeFrom.Home == HomeCopy) {
+		// it restarts, or resumes, a session that ran on this tile's copy of
+		// the home: it stays on the copy (its agent's own session files are
+		// there), whatever the rule says now — never the other way (home.go)
+		o.home = m.homePlanFor(p, tile, true)
 	}
 	if code, err := m.pickTarget(p, &o, tile, a.Deployment); err != nil {
 		return SessionInfo{}, code, err
@@ -455,6 +464,7 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 		cleanup: cleanup, relay: rl, envKey: envKey, homeKey: o.homeKey, token: token,
 		baseOld: m.layerOutdated(envKey), gpu: o.gpu, api: o.api, target: o.target, part: o.part,
 		origin: o.origin, originMode: o.originMode,
+		home: sessionHome{plan: o.home, dir: o.launch.homeCopy},
 		born: time.Now(), hub: termwire.NewHub(0), // no terminal socket: the hub keeps its activity clock
 	}
 	st.snap = newSnapper(dir, func(e agent.Event) { s.logEvent(m, e) })
@@ -482,7 +492,8 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 	if o.launch.baseMoved != "" { // D175: this start moved the tile's layer to the current base
 		s.sayBaseMoved(m, o.layerKey(rel), o.movedLayer()) // the layer it moved: on a partitioned tile its person's (partition.go)
 	}
-	s.llmSay(m) // why it runs without the workspace's LLM connector, when that needs saying (llmhook.go)
+	s.llmSay(m)     // why it runs without the workspace's LLM connector, when that needs saying (llmhook.go)
+	s.sayHome(m, o) // the first session on a tile's copy of the home says what that means (home.go)
 
 	// The agent's env: the sandbox env (with the per-user $HOME the CLI reads
 	// its login from) plus the provider's own non-secret knobs. No API keys —

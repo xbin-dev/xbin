@@ -87,7 +87,7 @@
     // to the current one at a start with base auto-update on (D175): only
     // these tests of this unit-heavy package (the broker's run whole
     // above); skip without .rootfs/userns
-    { "name": "term", "pkg": "./internal/term/", "run": "^(TestConfined|TestTermMountPoints|TestPartitionLayer)", "overhead": 3 },
+    { "name": "term", "pkg": "./internal/term/", "run": "^(TestConfined|TestTermMountPoints|TestPartitionLayer|TestHomeCopy)", "overhead": 3 },
 
     // the app tunnel's iroh sidecar (D204) as xbind runs it: the
     // supervisor launches it in its bare sandbox (the binary passed open,

@@ -23,6 +23,7 @@ type sbxLaunch struct {
 	emulated      bool
 	disk          string
 	baseMoved     string // the base the tile's layer moved off at this start ("" = none; claimLayer, D175)
+	homeCopy      string // the layer of the tile's copy of the home the session mounts ("" = the real home; home.go)
 }
 
 // setVM records a VM session's sizes and disk (applyVM), field by field:

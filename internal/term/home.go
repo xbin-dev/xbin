@@ -1,0 +1,373 @@
+package term
+
+// home.go — which home a session mounts (D245;
+// plans/wsagent/home-on-untrusted-tiles.md). A person has ONE home,
+// homes/<user>, and every session of theirs used to mount it read-write.
+// Code in a tile someone else controls runs in such a session, and what it
+// wrote there — ~/.claude/settings.json, ~/.gitconfig, ~/.bashrc — ran
+// later on the person's own tile, beside their saved sign-in.
+//
+// THE RULE (homePlanFor; the one place it is decided, for every session
+// that mounts a home, on the registered tile the session is on): on a tile
+// whose source needs the person's trust (signins.Source.NeedsTrust — owned
+// by someone else, or changeable by someone else who isn't a workspace
+// admin) and has not got it (the store's Trusts: the sign-in's own answer,
+// one per person and tile identity), the home is a COPY: the session reads
+// the person's real home, and every write goes to a layer kept for that
+// person on that tile (homecopy.go), never to the real home. Everywhere
+// else it is the person's OWN home, read-write, as it always was.
+//
+// It is fixed when the session starts and shown on its row. A restart, and
+// a resume of a past session, never widen: one that ran on the copy stays
+// on it (keep). A trust that stops holding ends the sessions that have the
+// real home on that tile (HomeSweep) — they could otherwise keep writing;
+// sessions on the copy are never ended by a trust change. A session with
+// its person's real home is its person's alone: an admin has no pass into
+// it (adminPass, mayReattach), since typing there is writing that home.
+//
+// Without sandboxes there is nothing to mount: a session is a process of
+// xbind's own user with the real home, and nothing is protected.
+
+import (
+	"errors"
+	"fmt"
+	"log/slog"
+	"strings"
+
+	"github.com/xbin-dev/xbin/internal/agent"
+	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/sandbox"
+	"github.com/xbin-dev/xbin/internal/signins"
+)
+
+// A session's home (SessionHome.Mode).
+const (
+	HomeOwn  = "own"  // the person's real home, read-write
+	HomeCopy = "copy" // a copy-on-write view of it: writes stay on the tile
+)
+
+// HomeDocs is where the home rule is explained to a person.
+const HomeDocs = "/docs/agent-signins.md#your-home-on-a-tile-that-isnt-only-yours"
+
+// SessionHome is a session's home, for its row (SessionInfo.Home) and its
+// first notice.
+type SessionHome struct {
+	// Mode: "own" — home: yours — or "copy" — home: this tile's copy
+	// (changes stay on this tile).
+	Mode string `json:"mode"`
+	// Why it is the tile's copy; or, for "own", what there is to know
+	// (a workspace without sandboxes protects nothing).
+	Why string `json:"why,omitempty"`
+	// Kept: the session is on the copy because it started (or its past
+	// session ran) on it — a new session may get the real home.
+	Kept bool `json:"kept,omitempty"`
+	// Unsandboxed: the workspace runs without sandboxes.
+	Unsandboxed bool `json:"unsandboxed,omitempty"`
+	// Trust: the question whose answer gives new sessions on this tile the
+	// real home (the sign-in's own; POST /agent/signins/trust). Absent
+	// when nothing the person can answer would change it.
+	Trust *SigninTrust `json:"trust,omitempty"`
+	Docs  string       `json:"docs"`
+}
+
+// homePlan is a new session's home, decided before the session exists
+// (openOpts.home).
+type homePlan struct {
+	mode string // "" = no plan was made: the real home, as before (a manager with no rule wired)
+	why  string
+	kept bool
+	// guarded: sandboxes are on and the rule was asked — the mode is what
+	// the session's mounts enforce
+	guarded bool
+	// refuse: the session can't have the home the rule gives it (a copy
+	// without a tile identity): the open fails with this, and never falls
+	// back to the real home
+	refuse string
+	user   string         // whose home (the account id; "" the root token's)
+	src    signins.Source // the tile, as the rule saw it: a copy's layer is keyed by its identity
+	trust  *SigninTrust
+}
+
+// sessionHome is a live session's home, fixed at its start.
+type sessionHome struct {
+	plan homePlan
+	dir  string // the copy's layer directory ("" for the real home)
+	told bool   // the session said, once, what the copy means (the first on this layer)
+}
+
+// homeView is a plan as a row shows it.
+func (pl homePlan) view(m *Manager, agentRow bool) *SessionHome {
+	if pl.mode == "" {
+		return nil
+	}
+	v := &SessionHome{Mode: pl.mode, Why: pl.why, Kept: pl.kept, Unsandboxed: !m.Isolate, Docs: HomeDocs}
+	if agentRow {
+		// a session the person's workspace agent started is read by it: the
+		// mode, and nothing of who owns the tile or who can change it
+		v.Why, v.Trust = "", nil
+		return v
+	}
+	if pl.mode == HomeCopy {
+		v.Trust = pl.trust
+	}
+	return v
+}
+
+// HomeWords is a home mode as every client says it.
+func HomeWords(mode string) string {
+	if mode == HomeCopy {
+		return "home: this tile's copy (changes stay on this tile)"
+	}
+	return "home: yours"
+}
+
+// homePlanFor decides the home of a session p opens on tile — the
+// registered tile the session's directory is or lies in (sessionTile).
+// keep: the session restarts or resumes one that ran on the tile's copy.
+func (m *Manager) homePlanFor(p auth.Principal, tile string, keep bool) homePlan {
+	pl := homePlan{mode: HomeOwn, user: p.UserID}
+	if !m.Isolate {
+		pl.why = "this workspace runs without sandboxes: every session is a process of xbind's own user with your real home, and nothing protects it from a tile's code"
+		return pl
+	}
+	if m.SigninSource == nil {
+		// no rule is wired (boot wires one whenever sandboxes are on): the
+		// home is mounted as it always was, and nothing claims otherwise
+		pl.mode = ""
+		return pl
+	}
+	pl.guarded = true
+	src, ok := m.SigninSource(p.UserID, tile)
+	if !ok {
+		pl.mode, pl.refuse = HomeCopy, tile+" is in no registered tile, so xbind can't tell whose code would run with your home"
+		return pl
+	}
+	if p.Owner && p.UserID == "" {
+		// the root token: the workspace's own admin, with no account — a
+		// workspace-owned tile is its own, anyone else's is not
+		src.Admin, src.NotOwn = true, src.Owner != ""
+	}
+	pl.src = src
+	copyOf := func(why string) homePlan {
+		pl.mode, pl.why = HomeCopy, why
+		if src.ID == "" {
+			pl.refuse = "xbind can't tell " + src.Tile + " from another tile made at its path, so it can't keep a copy of your home for it — and your real home is not opened there: " + why
+		}
+		return pl
+	}
+	// whose session it is: only a person's own (theirs, or their workspace
+	// agent's for them) can have their real home at all
+	switch {
+	case p.ReadOnly():
+		return copyOf("viewing as someone never opens their real home")
+	case p.Component != "" && p.Via == "terminal":
+		// a shell's own token (bx agent in a terminal), on its own tile:
+		// never more than the sessions it came from
+		if !m.hasRealHome(HomeKey(p), tile) {
+			return copyOf("a session opened with a terminal's token gets your real home only from a session that already has it")
+		}
+	case p.Component != "":
+		return copyOf("a tile's credentials never open a person's real home")
+	}
+	if keep {
+		pl.kept = true
+		return copyOf("this session started on this tile's copy of your home and stays on it — a new session is judged anew")
+	}
+	if !src.NeedsTrust() || (m.Signins != nil && m.Signins.Trusts(p.UserID, src)) {
+		return pl // only theirs, or they said they trust its source
+	}
+	why := src.Tile + " isn't only yours — " + sourceWords(src) + " — and you haven't said you trust its source"
+	switch {
+	case m.Signins == nil:
+	case !signinPerson(p) || p.Agent != "":
+		if p.Owner {
+			why += " (the root token keeps no trust answers: sign in as a person to trust a tile)"
+		}
+	default:
+		pol := m.Signins.Policy().Trust
+		pl.trust = trustNeed(src, pol)
+		if !pol.Allowed {
+			why = src.Tile + " isn't only yours — " + sourceWords(src) + " — and trusting a tile's source is switched off for this workspace"
+		}
+	}
+	return copyOf(why)
+}
+
+// hasRealHome reports a live session of homeKey's on tile that has the
+// real home (what a terminal's token may open another one with).
+func (m *Manager) hasRealHome(homeKey, tile string) bool {
+	for _, s := range m.sorted() {
+		if s.homeKey == homeKey && m.tileOf(s) == tile && s.home.plan.mode == HomeOwn {
+			return true
+		}
+	}
+	return false
+}
+
+// realHome reports a session that has its person's real home under the
+// rule (sandboxes on): its person's alone.
+func (s *Session) realHome() bool {
+	return s.home.plan.guarded && s.home.plan.mode == HomeOwn
+}
+
+// HomeRule answers, for a launcher or a status bar, the home a session p
+// opens on tile would get now (nil: this manager decides nothing).
+func (m *Manager) HomeRule(p auth.Principal, tile string) *SessionHome {
+	return m.homePlanFor(p, tile, false).view(m, false)
+}
+
+// homeBind is the bind of the session's home: the real one, or a clone of
+// the tile's copy (homecopy.go; dir is then its layer). started is called
+// once the session's sandbox has started (its init then holds its own copy
+// of the mount), release once that sandbox is gone — or at once when it
+// never starts. A copy that cannot be had is an error: there is no way
+// from here to a bind of the real home for a session the rule gives the
+// copy (D78).
+func (m *Manager) homeBind(homeDir string, o openOpts) (b *sandbox.Bind, dir string, started, release func(), err error) {
+	none := func() {}
+	pl := o.home
+	if pl.refuse != "" {
+		return nil, "", none, none, errors.New(pl.refuse)
+	}
+	switch {
+	case pl.mode == HomeCopy:
+	case pl.mode == "" && m.SigninSource != nil:
+		// a session nobody decided a home for, where the rule is wired: a
+		// caller that skipped openOptsFor. Never the real home by default
+		return nil, "", none, none, errors.New("no home was decided for this session (xbind's own fault): it is not started")
+	default:
+		return realHomeBind(homeDir), "", none, none, nil // the person's real home: read-write
+	}
+	if dir, err = m.homeCopyDir(o.homeKey, pl.src); err != nil {
+		return nil, "", none, none, fmt.Errorf("this tile's copy of your home could not be mounted, and your real home is not opened on %s: %w", pl.src.Tile, err)
+	}
+	f, rel, err := m.copies.acquire(m, dir, homeDir, pl.src)
+	if err != nil {
+		return nil, "", none, none, fmt.Errorf("this tile's copy of your home could not be mounted, and your real home is not opened on %s: %w", pl.src.Tile, err)
+	}
+	return &sandbox.Bind{Src: homeDir, Dst: homeDir, Mount: f}, dir, func() { f.Close() }, func() { f.Close(); rel() }, nil
+}
+
+// homeNote is what a session on the tile's copy says first, once per
+// layer: what changed, why, and how to get the old behaviour there.
+func (m *Manager) homeNote(o openOpts) (lines []string, ok bool) {
+	if o.home.mode != HomeCopy || o.launch == nil || o.launch.homeCopy == "" || !m.copies.tell(o.launch.homeCopy) {
+		return nil, false
+	}
+	tile := o.home.src.Tile
+	lines = []string{
+		"Your home here is this tile's copy: what you write under ~ on " + tile + " stays on " + tile + ", and your real home is not changed. Everything in your home can still be read here.",
+		"Why: " + o.home.why + ". Code in a tile that isn't only yours could otherwise leave a file in your home that runs later on your own tiles.",
+	}
+	switch {
+	case o.home.trust != nil && o.home.trust.Allowed:
+		lines = append(lines, "To have your real home here, as before: trust this tile's source — the home line in the window's status bar asks. New sessions then use your real home. More: "+HomeDocs)
+	default:
+		lines = append(lines, "More: "+HomeDocs)
+	}
+	return lines, true
+}
+
+// homeNotice is the notice an agent session logs about its home: a
+// notice's text, plus what a client's header shows.
+type homeNotice struct {
+	Text string       `json:"text"`
+	Home *SessionHome `json:"home"`
+}
+
+// sayHome says the copy's note in a new session: a shell's first lines, an
+// agent session's notice.
+func (s *Session) sayHome(m *Manager, o openOpts) {
+	lines, ok := m.homeNote(o)
+	if !ok {
+		return
+	}
+	s.home.told = true
+	if s.kind == KindAgent {
+		s.logEvent(m, agent.New(EvNotice, homeNotice{Text: strings.Join(lines, " "), Home: o.home.view(m, o.origin != "")}))
+		return
+	}
+	for _, l := range lines {
+		s.hub.Output([]byte(greyLine("[xbin] " + l)))
+	}
+}
+
+// endForHome ends s, saying why in it first.
+func (m *Manager) endForHome(s *Session, why string) {
+	if s.agent != nil {
+		s.logEvent(m, agent.New(EvNotice, noticeData{Text: why}))
+		s.agent.logf(why)
+	} else {
+		s.hub.Output([]byte("\r\n" + greyLine("[xbin] "+why)))
+	}
+	slog.Info("session ended: its home", "id", s.ID, "tile", m.tileOf(s), "kind", s.kind)
+	s.kill()
+}
+
+// claimEnd claims s for ending for its home: false when a sweep already
+// did.
+func (s *Session) claimEnd() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.homeEnding {
+		return false
+	}
+	s.homeEnding = true
+	return true
+}
+
+// HomeSweep judges the running sessions that have their person's real home
+// again — after people, their access, a tile's owner or the tiles
+// themselves changed, a trust was revoked or went void, or trusting was
+// switched off: one whose tile now needs the person's trust and has not
+// got it is ended (the next one there starts on the tile's copy). It
+// answers how many it ended. Sessions on a copy are left alone.
+func (m *Manager) HomeSweep() int {
+	if !m.Isolate || m.SigninSource == nil {
+		return 0
+	}
+	n := 0
+	for _, s := range m.sorted() {
+		if !s.realHome() {
+			continue
+		}
+		user := s.home.plan.user
+		tile, ok := m.TileOf(s.Cwd) // judged afresh, on the tile as the registry has it now
+		var src signins.Source
+		if ok {
+			src, ok = m.SigninSource(user, tile)
+		}
+		why := ""
+		switch {
+		case !ok:
+			why = s.Cwd + " is no longer a registered tile, so this session — which had your real home — was ended."
+		default:
+			if user == "" { // the root token's (homePlanFor)
+				src.Admin, src.NotOwn = true, src.Owner != ""
+			}
+			if !src.NeedsTrust() || (m.Signins != nil && m.Signins.Trusts(user, src)) {
+				continue
+			}
+			why = src.Tile + " isn't only yours — " + sourceWords(src) + " — and you haven't said you trust its source as it is now, so this session — which had your real home — was ended. A new one there starts on this tile's copy of your home."
+		}
+		if s.claimEnd() {
+			m.endForHome(s, why)
+			n++
+		}
+	}
+	return n
+}
+
+// historyHome is what a session's history entry records of its home: the
+// copy, or nothing.
+func (s *Session) historyHome() string {
+	if s.home.plan.guarded && s.home.plan.mode == HomeCopy {
+		return HomeCopy
+	}
+	return ""
+}
+
+// homeRow is s's home for its row.
+func (s *Session) homeRow(m *Manager) *SessionHome {
+	return s.home.plan.view(m, s.origin != "")
+}

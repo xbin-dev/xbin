@@ -19,6 +19,7 @@ func (m *Manager) openOptsFor(p auth.Principal, tile, cwd, netMode, gpuMode stri
 		api: apiAccess, restricted: !p.IsAdmin(),
 		netGrant: m.termNetFor(p, tile), // the tile's org's network sets (D54)
 	}
+	o.home = m.homePlanFor(p, tile, false)    // their real home, or this tile's copy of it (home.go, D245)
 	o.noLLM = !p.IsAdmin() && !p.CanTermAPI() // no tile API token in their terminals (D17): no LLM key either
 	asked := o.net
 	o.api, o.net = clampTermScopes(p, o.api, o.net, o.netGrant)

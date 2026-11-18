@@ -782,7 +782,7 @@ func (m *Manager) EndSigninSessionsOn(user, tile, why string) int {
 			n++
 		}
 	}
-	return n
+	return n + m.HomeSweep() // …and the ones that had their real home there (home.go)
 }
 
 // SigninSweep judges the running sessions that carry a saved sign-in
@@ -799,10 +799,13 @@ func (m *Manager) SigninSweep() int {
 	off := m.SigninsOff != nil && m.SigninsOff()
 	m.offSeen.Store(off)
 	m.trustOffSeen.Store(m.SigninTrustOff != nil && m.SigninTrustOff())
+	// the sessions that have their person's real home on a tile that now
+	// needs their trust end with them (home.go): the same events, the same
+	// answers
+	n := m.HomeSweep()
 	if m.SigninSource == nil && !off {
-		return 0
+		return n
 	}
-	n := 0
 	for _, s := range m.sorted() {
 		s.mu.Lock()
 		ss := s.sig()
