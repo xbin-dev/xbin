@@ -544,6 +544,20 @@ The review's findings (2026-11-18), each with its test and a red run:
   it in a leaf of its own needs a cgroup that outlives each session and is
   shared by several (the leaf is per session today) — not simple, so it
   is a documented residual (docs/agent-signins.md, "Admins").
+- **Two walks over "who can change a tile's code"** since D246 was
+  merged: this rule's (`broker.codeWritersAbove`: a tile's writers and
+  those of every tile it lies IN) and `access.set`'s
+  (`broker/accessreach.go`: a raise on T reaches T, every tile nested in
+  T, a tile T lies inside — whose build and pages may take in files
+  beneath it — and the tiles that build or load T's code). They agree on
+  the direction this rule has (an ancestor's writers change a nested
+  tile); accessreach is WIDER: for it, a writer of a tile nested in T,
+  or of a tile T builds with, also reaches T's code. This rule does not
+  count those as T's editors yet. Not refactored here (the other
+  package's); one shared walk is the follow-up. A person given `write`
+  through an approved `access.set` line is seen like any other new
+  editor (`TestAccessSetIsSeenByThePastRecord`): the apply fires
+  OnPeopleChanged, where trusts are revalidated and the record written.
 - A copy stamped fuse-overlayfs keeps the non-root lockout after the
   kernel is upgraded (the re-review's item 7). Decided: **not migrated**
   — the two overlays keep whiteouts and opaque directories differently
