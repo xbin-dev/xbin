@@ -280,7 +280,7 @@ async function signinChecks({ page, S, check, refresh, sentTo, armed, text, shot
       await page.waitForFunction((x) => { const sh = document.querySelector('bx-agent-dock').shadowRoot.querySelector('bx-agent-approve'); return !sh || !sh.request || sh.request.id !== x; }, id);
       if (await page.$(`${SHEET} [role="dialog"]`)) { await page.keyboard.press('Escape'); await page.waitForFunction(() => !document.querySelector('bx-agent-dock').shadowRoot.querySelector('bx-agent-approve')); }
       const sentBody = JSON.stringify(sentTo(new RegExp(`${id}/approve$`)).map((c) => c.body));
-      check(sentBody === (both ? '[{"grant":"once","signin":true,"trust":true}]' : '[{"grant":"once","signin":true}]'), `[${width}] ${both ? 'both ticked: the approval carries both' : 'the sign-in ticked, the trust line not: no trust is sent'} (${sentBody})`);
+      check(sentBody === (both ? '[{"grant":"once","signin":true,"trust":true,"shown":"signin+home"}]' : '[{"grant":"once","signin":true}]'), `[${width}] ${both ? 'both ticked: the approval carries both, and what the trust line showed' : 'the sign-in ticked, the trust line not: no trust is sent'} (${sentBody})`);
       S.requests = S.requests.filter((r) => r.id !== id); await refresh();
     }
 
