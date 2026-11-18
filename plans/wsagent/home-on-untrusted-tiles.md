@@ -340,6 +340,24 @@ another tile's, and the tile's backend never see it.
 - **flock / fcntl locks**: per overlay — shared by all the person's
   sessions on that tile (one superblock), not with sessions on the real
   home.
+- **the lower layer changes under a mounted overlay** — it is the
+  person's real home, which their sessions on their own tiles write. The
+  kernel calls that undefined, and in practice it is stale names: the
+  overlay keeps every name it has looked up (a file since removed stays
+  readable, one since made stays "not there", one replaced by a rename
+  keeps its old content) for as long as the hold lives — and a hold
+  lives as long as any session on that copy, a moment longer than the
+  last one's DELETE. `make integration` found it (`test/llm`
+  `TestSessionsOnConnector`: a login removed from the real home was
+  still seen by the next session). So the hold drops the unused names
+  before it hands out each clone (`sandbox.holdRefresh`: a reconfigure
+  of the overlay's superblock that changes nothing —
+  `reconfigure_super` → `shrink_dcache_sb`): a session that starts sees
+  the real home as it is now, and the open ones do from then on, for
+  what they don't hold open. Best effort (a kernel that refuses serves
+  the clone as before); fuse-overlayfs keeps its own table, so on the
+  fallback a change is seen once every session on the copy has closed.
+  `TestHomeCopySeesTheRealHomeAsItIsNow`, red without the refresh.
 - **teardown**: no host mounts. A session's clone goes with its mount
   namespace; the hold with its last session.
 - **two sessions at once**: one hold, two clones of one mount. A start

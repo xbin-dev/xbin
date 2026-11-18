@@ -388,6 +388,14 @@ What to know:
 - A file your session changes is copied to the tile's copy first, whole
   (a large database in `~`, once per tile). A program that had it open
   before the change keeps reading the old one.
+- **Your real home can change while a session on a tile's copy is open**
+  (you sign a coding agent in or out on your own tile, save a git
+  setting, add a key). A session **started** on that tile afterwards
+  sees your home as it is now, and from that moment so do the ones
+  already open there — for everything they don't hold open. Until a new
+  session starts, an open one may keep seeing a file as it was when it
+  first looked. (On the fuse-overlayfs fallback: once every session on
+  that tile's copy has closed.)
 - File locks and sockets in `~` are shared by your sessions on the same
   tile, not with your sessions elsewhere.
 - A copy is mounted with the kernel's overlay filesystem, so every user

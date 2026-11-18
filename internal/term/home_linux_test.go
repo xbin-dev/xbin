@@ -1367,3 +1367,67 @@ func TestHomeCopyNonRootUser(t *testing.T) {
 		t.Fatalf("her real home changed:\n%s\n---\n%s", before, after)
 	}
 }
+
+// A person's real home changes while a session on a tile's copy of it is
+// open: they work on their own tile in another tab — sign a coding agent
+// in or out, change a git setting (saved by a rename), add a key. A
+// session started on the copy afterwards sees the home as it is NOW, also
+// while the first one is still open and the copy's mount is the same one:
+// the hold drops the names its overlay has looked up before it hands out a
+// clone (sandbox.holdRefresh). The open session sees it from then on too.
+// (The fuse-overlayfs fallback keeps its own table: there it is seen once
+// every session on the copy has closed — the documented limit.)
+func TestHomeCopySeesTheRealHomeAsItIsNow(t *testing.T) {
+	h := newHomeLive(t)
+	home := h.seedHome(t, "alice")
+	const look = `cat ~/.gitconfig; cat ~/notes/a.txt 2>&1; cat ~/.fakeacp/credentials 2>&1; ls ~/notes`
+	first := h.mustOpen(t, "alice", "apps/bob")
+	out, _ := first.run(look)
+	if !strings.Contains(out, "alice-REAL") || !strings.Contains(out, "a note") || !strings.Contains(out, "credentials: No such file") {
+		t.Fatalf("the first session's look at her home:\n%s", out)
+	}
+	// meanwhile, in her real home: a setting saved by a rename, a file removed, a login made
+	tmp := filepath.Join(home, ".gitconfig.new")
+	if err := os.WriteFile(tmp, []byte("[user]\n\tname = alice-CHANGED\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(tmp, filepath.Join(home, ".gitconfig")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(home, "notes", "a.txt")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(home, ".fakeacp"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".fakeacp", "credentials"), []byte("LOGIN-MADE-ELSEWHERE\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "notes", "b.txt"), []byte("another\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	now := func(who string, lt *liveTerm) {
+		t.Helper()
+		out, _ := lt.run(look)
+		if !strings.Contains(out, "alice-CHANGED") || strings.Contains(out, "alice-REAL") || strings.Contains(out, "a note") ||
+			!strings.Contains(out, "a.txt: No such file") || !strings.Contains(out, "LOGIN-MADE-ELSEWHERE") || !strings.Contains(out, "b.txt") {
+			t.Errorf("%s does not see her home as it is now:\n%s", who, out)
+		}
+	}
+	second := h.mustOpen(t, "alice", "apps/bob") // the same copy, the same mount: the first session holds it
+	if h.m.copies.prefer == sandbox.HoldFuse {
+		out, _ := second.run(look)
+		t.Logf("the fuse-overlayfs fallback, a session started while another is open (the documented limit):\n%s", out)
+	} else {
+		now("a session started after the change, beside an open one", second)
+		now("the session that was open, from then on", first)
+	}
+	first.exit(h.m)
+	second.exit(h.m)
+	h.idle(t, "alice")
+	// every session closed: the next one mounts anew, in both flavours
+	third := h.mustOpen(t, "alice", "apps/bob")
+	now("a session started once the others closed", third)
+	third.exit(h.m)
+	h.idle(t, "alice")
+}
