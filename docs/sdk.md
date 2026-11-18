@@ -1568,6 +1568,9 @@ const res = await xbin.dialog({
 if (res.button === 'del' && res.values.confirm === 'aurora') { … }
 // spec.error (plain text) renders as an alert box — re-open with it set to
 // say why the last submit failed: xbin.dialog({ ...spec, error: 'Name taken' })
+// A button with `armed: '<key>'` answers only to the person's own click, a
+// moment after the dialog appears — never Enter, never a scripted click (for
+// a choice that widens what something may do).
 
 // A floating window running YOUR OWN UI: it frames a sub-path of this component
 // (a normal tile document), so it has its own xbin client and talks to your

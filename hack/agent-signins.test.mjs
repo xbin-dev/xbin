@@ -261,6 +261,19 @@ test('which home a session mounts (D245): the words for "yours" and for this til
   assert.equal(homeWords({ mode: 'copy', why: 'x' }).trust, '');
   // a session that started on the copy and stays on it
   assert.match(homeWords({ mode: 'copy', kept: true, trust }).about.join(' '), /started on this tile's copy of your home and stays on it/);
+  // an admin's session on the copy is a member's, and is told so — a member is not
+  const conf = homeWords({ mode: 'copy', why: 'x', confined: true, trust });
+  assert.match(conf.about.join(' '), /This session is confined like a member's until you trust this tile/);
+  assert.match(conf.title, /confined like a member's until you trust this tile/);
+  assert.doesNotMatch(homeWords({ mode: 'copy', why: 'x', trust }).about.join(' '), /confined/);
+  // a tile that is only theirs now, which someone else could change before: named, with the day
+  const past = { tile: 'apps/mine', ownerKind: 'you', owner: 'alice', past: ['mallory', 'org:sales'], pastUntil: Date.UTC(2026, 10, 17, 12), names: { mallory: 'Mal' }, means: 2, basis: 'tb2_x', allowed: true };
+  assert.equal(trustWords(past).whose, "This tile is yours. mallory (Mal) and org:sales could change this tile's code until 2026-11-17; trusting it means you trust what is in it.");
+  assert.match(homeWords({ mode: 'copy', why: "apps/mine wasn't always only yours — mallory could change it until 2026-11-17", trust: past }).about.join(' '), /mallory \(Mal\) and org:sales could change this tile's code until 2026-11-17/);
+  const crowd = trustWords({ ownerKind: 'you', editors: ['a', 'b', 'c', 'd'], past: ['p', 'q', 'r', 's', 't'], pastUntil: 1, allowed: true });
+  assert.equal(crowd.more, 3); // one editor and two who could before are not shown: "show all" first
+  assert.equal(crowd.showAll, 'Show all 9');
+  assert.equal(trustWords({ ownerKind: 'you', editors: ['a', 'b', 'c', 'd'], past: ['p', 'q', 'r', 's', 't'], pastUntil: 1, allowed: true }, 'x', '', true).more, 0);
 
   assert.equal(fmtBytes(-1), '');
   assert.equal(fmtBytes(512), '512 B');
@@ -272,7 +285,7 @@ test('which home a session mounts (D245): the words for "yours" and for this til
   assert.match(kept.confirm, /Your real home is not touched/);
   assert.equal(homeCopyWords({ tile: 'apps/crm', bytes: 1, sessions: 2 }).state, 'in use by 2 sessions');
   assert.match(homeCopyWords({ tile: 'apps/crm', bytes: 1, sessions: 2 }).confirm, /Your 2 sessions on it will be ended/);
-  assert.match(homeCopyWords({ tile: 'apps/gone', gone: true }).state, /its tile is gone/);
+  assert.match(homeCopyWords({ tile: 'apps/gone', gone: true }).state, /its tile was deleted or made again — this copy is not used any more/);
 });
 
 test('forgetting a copy is one call: DELETE /agent/signins/homes/<id>', async () => {

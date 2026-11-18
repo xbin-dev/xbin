@@ -74,7 +74,9 @@ function homeChip(f, cur) {
 // aboutHome(f): the copy explained, as it stands now for this tile (GET
 // /agent/signins?tile=): why, whose tile it is and who can change it, what
 // trusting means — and the two acts, each the person's own click in xbin's
-// dialog. Trusting merges nothing: there is no "copy it over".
+// dialog; the one that trusts is an armed button (bx-dialog's `armed`: not
+// Enter, not a script's click, not before the person could read it).
+// Trusting merges nothing: there is no "copy it over".
 export async function aboutHome(f) {
   const api = signinsApi();
   let view;
@@ -89,7 +91,8 @@ export async function aboutHome(f) {
   const r = await f._ask({ title: w.long, message: [...w.about, `More: ${w.docs}`].join('\n\n'), buttons: [
     { label: 'Close', value: null },
     ...(home.copy ? [{ label: w.forget, value: 'forget', danger: true }] : []),
-    ...(w.trust ? [{ label: w.trust, value: 'trust' }] : []),
+    // the person's deliberate click, as on the sign-in card: armed a moment after it shows, for the question as shown (its basis)
+    ...(w.trust ? [{ label: w.trust, value: 'trust', armed: home.trust.basis }] : []),
   ] });
   if (r?.button === 'forget') return forgetHome(f, api, home.copy);
   if (r?.button !== 'trust') return;

@@ -142,16 +142,18 @@ export function namesWords(names = [], more = 0) {
 /**
  * trustWords(trust, harness, without, all): the words of "I trust this
  * tile's source" (D230) — xbind's question (a row's `trust`: {tile, name?,
- * basis, ownerKind, owner?, ownerName?, admin?, editors?, names?, allowed,
- * forbidden?}), for the tile's card and for the trust line of a start's
+ * basis, ownerKind, owner?, ownerName?, admin?, editors?, names?, past?,
+ * pastUntil?, means, allowed, forbidden?}), for the tile's card and for the trust line of a start's
  * approval. People are named by their ACCOUNT ID — what xbind enforces —
  * with the display name beside it, never instead: a display name is its
  * bearer's to set.
  *
  *   title    "Use your Claude Code sign-in on this tile?"
- *   whose    whose tile it is and who can change it: three of them and
- *            "N more" — everyone with `all` (the person must be able to
- *            see everyone they trust: more > 0 means "show all" first)
+ *   whose    whose tile it is, who can change it, and who could before
+ *            and can't now (`past`, until `pastUntil`: what they left in
+ *            it is still there — D245): three of each and "N more" —
+ *            everyone with `all` (the person must be able to see everyone
+ *            they trust: more > 0 means "show all" first)
  *   more     how many are not shown
  *   risk     what trusting means, in two sentences — two things: the
  *            sign-in is used here, and the tile's code can change the
@@ -172,11 +174,15 @@ export function trustWords(trust, harness = 'coding agent', without = '', all = 
   const shown = all ? everyone : everyone.slice(0, 3);
   const eds = namesWords(shown, everyone.length - shown.length);
   const who = eds ? `${eds} can ${t.ownerKind === 'you' || t.admin ? '' : 'also '}change it.` : '';
+  const before = (t.past || []).map((id) => beside(id, (t.names || {})[id]));
+  const beforeShown = all ? before : before.slice(0, 3);
+  const until = t.pastUntil ? ` until ${new Date(t.pastUntil).toISOString().slice(0, 10)}` : ' before';
+  const was = before.length ? `${namesWords(beforeShown, before.length - beforeShown.length)} could change this tile's code${until}; trusting it means you trust what is in it.` : '';
   return {
     title: `Use your ${harness} sign-in on this tile?`,
-    whose: [whose, who].filter(Boolean).join(' '),
-    more: everyone.length - shown.length,
-    showAll: `Show all ${everyone.length}`,
+    whose: [whose, who, was].filter(Boolean).join(' '),
+    more: everyone.length - shown.length + before.length - beforeShown.length,
+    showAll: `Show all ${everyone.length + before.length}`,
     risk: `Trusting means your ${harness} sign-in is used here and this tile's code can change your home. People who can change this tile could read it and use your ${harness} account.`,
     trust: 'Trust this tile — use my sign-in',
     without: 'Start without my sign-in',
@@ -187,6 +193,9 @@ export function trustWords(trust, harness = 'coding agent', without = '', all = 
     forbidden: t.allowed === false ? `${t.forbidden || "Trusting a tile's source is switched off for this workspace"}.` : '',
   };
 }
+
+/** CONFINED: what an admin is told about a session on a tile's copy of their home (D245): it is a member's. */
+export const CONFINED = "This session is confined like a member's until you trust this tile: it sees the workspace read-only through the tiles you may read, and can't mount or open new namespaces.";
 
 /** HOME_DOCS: where the home rule is explained (D245). */
 export const HOME_DOCS = '/docs/agent-signins.md#your-home-on-a-tile-that-isnt-only-yours';
@@ -204,7 +213,7 @@ export function fmtBytes(n) {
 /**
  * homeWords(home): the words for which home a session mounts (D245) — a
  * session row's `home`, or GET /agent/signins?tile='s ({mode: own | copy,
- * why?, kept?, unsandboxed?, trust?, docs, copy?}). On a tile whose source
+ * why?, kept?, confined?, unsandboxed?, trust?, docs, copy?}). On a tile whose source
  * isn't only the person's and that they have not trusted, their sessions
  * read their real home and write to a copy kept for that tile.
  *
@@ -237,6 +246,8 @@ export function homeWords(home) {
     `Why: ${h.kept ? 'this session started on this tile\'s copy of your home and stays on it — a new session is judged anew' : (h.why || 'this tile isn\'t only yours, and you haven\'t said you trust its source')}. Code in a tile that isn't only yours could otherwise leave a file in your home — a shell profile, a git setting, a coding agent's hook — that runs later on your own tiles.`,
   ];
   if (whose) about.push(whose);
+  // an admin's (the root token's) session on the copy: it has a member's sandbox, not an admin's
+  if (h.confined) about.push(CONFINED);
   if (t && t.allowed) {
     about.push("Trusting this tile's source means two things: xbin uses your saved coding-agent sign-in here, and this tile's code can change your home. New sessions on this tile then have your real home; this one stays on the copy. Nothing this tile wrote to its copy is copied into your home.");
   } else if (t) {
@@ -244,7 +255,7 @@ export function homeWords(home) {
   }
   return {
     text: "home: this tile's copy", long: "home: this tile's copy (changes stay on this tile)", tone: 'warn', docs,
-    title: `What you write under ~ here stays on this tile; your real home is read, not changed. ${h.why ? `${h.why}.` : ''}`.trim(),
+    title: `What you write under ~ here stays on this tile; your real home is read, not changed. ${h.why ? `${h.why}.` : ''}${h.confined ? ` ${CONFINED}` : ''}`.trim(),
     about,
     trust: t && t.allowed ? "I trust this tile's source" : '',
     forget: 'Forget what this tile wrote to my home',
@@ -255,11 +266,15 @@ export function homeWords(home) {
 /**
  * homeCopyWords(copy): one row of the list of copies (GET /agent/signins →
  * homes: {id, tile, name?, created, bytes, sessions, gone?, unused}).
+ * `gone`: the tile it was kept for is not there any more — deleted (xbind
+ * removes the copy at its next sweep) or made again at its path, as after
+ * a restore from a backup (kept until the person forgets it: xbind never
+ * deletes on a doubt).
  */
 export function homeCopyWords(copy) {
   const c = copy || {};
   const size = fmtBytes(c.bytes);
-  const state = c.gone ? 'its tile is gone — removed at the next sweep'
+  const state = c.gone ? 'its tile was deleted or made again — this copy is not used any more'
     : c.unused ? 'kept, not used while you trust this tile'
       : c.sessions > 0 ? `in use by ${c.sessions} session${c.sessions === 1 ? '' : 's'}` : 'used by your sessions on this tile';
   return {

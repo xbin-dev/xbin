@@ -9,7 +9,11 @@
 // that means; (b) the chip opens xbin's dialog — why, whose tile it is and
 // who can change it (everyone, by account id), what trusting means (two
 // things) and that nothing is copied over — with "I trust this tile's
-// source" and "Forget what this tile wrote to my home"; (c) what the shell
+// source" and "Forget what this tile wrote to my home" — and, for the
+// admin who runs this pass, that the session is confined like a member's
+// until they trust the tile; the button that trusts is ARMED (as the
+// sign-in card's): not a script's click, not Enter, not as it appears —
+// the person's own click a moment later; (c) what the shell
 // writes under ~ is in the copy and not in the real home; (d) trusting
 // gives a NEW terminal the real home ("home: yours", a link to the docs),
 // the open one stays on the copy, and the list says the copy is kept, not
@@ -82,6 +86,10 @@ async function termHome(browser) {
   const labels = dlg.buttons.map((b) => b.label);
   check(labels.includes("I trust this tile's source") && labels.includes('Forget what this tile wrote to my home') && !labels.some((l) => /copy.*over|merge|bring/i.test(l)),
     `the dialog's choices: ${JSON.stringify(labels)} — nothing that copies the copy over`);
+  check(row.home.confined === true && /confined like a member's until you trust this tile/.test(msg) && /confined like a member's/.test(h.title),
+    `an admin's session on the copy is a member's, and says so (row ${JSON.stringify(row.home.confined)}; bar "${h.title}")`);
+  const armedKey = (dlg.buttons.find((b) => b.value === 'trust') || {}).armed;
+  check(!!armedKey && armedKey === row.home.trust.basis, `"I trust this tile's source" is an armed button, for the question as shown (${armedKey})`);
   await shotEl(page, `bx-frame[src="${TILE}"] bx-dialog`, 'term-home-dialog');
 
   // ---- (c) a write lands in the copy, not in the real home ----
@@ -90,7 +98,22 @@ async function termHome(browser) {
     `the copy is listed, in use (${JSON.stringify(before.homes)})`);
 
   // ---- (d) trust: a new terminal has the real home; this one stays on the copy ----
-  await fr(page, TILE, (f) => f.answerDialog('trust'));
+  // only the person's own click on the armed button trusts: not a script's, not Enter, not as the dialog appears
+  const TRUST = `bx-frame[src="${TILE}"] bx-dialog button[data-armed]`;
+  await fr(page, TILE, (f) => f.answerDialog(null));
+  await fr(page, TILE, (f) => { f.aboutHome(); });
+  await page.locator(TRUST).waitFor({ timeout: 15000 });
+  const early = await page.locator(TRUST).getAttribute('aria-disabled');
+  await page.locator(TRUST).click({ force: true }); // a real click, before it is armed
+  check(early === 'true' && !!(await fr(page, TILE, (f) => f.dialog)) && ((await here()).trusted || []).length === 0, `the trust button is not armed as it appears (aria-disabled ${early}): an early click trusts nothing`);
+  await page.locator(`${TRUST}[aria-disabled="false"]`).waitFor({ timeout: 10000 });
+  await page.locator(TRUST).evaluate((b) => b.click()); // a script's click
+  await page.locator(TRUST).focus();
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(300);
+  dlg = await fr(page, TILE, (f) => f.dialog);
+  check(!!dlg && /reads everything in your real home/.test(dlg.message || '') && ((await here()).trusted || []).length === 0, 'a script\'s click and Enter on the armed button trust nothing: the dialog is still asking');
+  await page.locator(TRUST).click(); // the person's
   await waitFor(page, (t, tile) => { const d = t.frameFor(tile)?.testApi().dialog; return !!d && /New sessions on this tile have your real home/.test(d.message || ''); }, TILE, { timeout: 15000, label: 'trusted: the dialog says what happens now' });
   await fr(page, TILE, (f) => f.answerDialog('ok'));
   let v = await here();
