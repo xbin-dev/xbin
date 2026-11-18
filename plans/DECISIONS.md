@@ -5979,3 +5979,47 @@ here: cut from the old end, never reword.
     only Responses); Anthropic's wire (unchanged: not relayed); a control
     on `/xbin/llm`'s provider form (the row says "translating"; the
     setting is the API's and `bx`'s).
+
+- **D246 — A person's access as a change, one read for a tile, and a
+  context budget of a million tokens (2026-11-18; issue #51; the owner's
+  three picks from `plans/wsagent/real-model-feedback-2026-11-17.md` §5;
+  spec `plans/wsagent/access-and-status.md`).**
+  - **`access.set {tile, user, level}` applies as `PUT /access` — the
+    tile's access dialog's own call — through `handleAPI`, as the
+    approver with their rights read again at Apply.** No parallel writer:
+    the handler's `accessCheck` and the users store decide. Personal
+    exactly when the person is the tile's user-owner — the branch of the
+    by-hand rule that needs no admin right (D88's rule for bindings);
+    every other by-hand path is an admin's right, so an admin's line, and
+    a person with none gets Ask an admin. A raise to terminal, a system
+    component and one's own level are warned (start unticked); one's own
+    level is blocked for anyone but a workspace admin, and never personal.
+    It never waits. The workspace agent itself and tiles that hold
+    `xbin`/`cap:*`/`gpu:*`/`code` are refused as `org.share` refuses them.
+  - **The agent learns applied or failed, never the access list** — the
+    admin-line redaction, here unconditional (an admin's agent reads
+    grants and bindings when opted in, never `GET /access`), and the line
+    it reads is written from its own arguments: xbind's line holds the
+    before.
+  - **Who may resolve a name is who already sees accounts.** Workspace and
+    org admins read every account's id and name (`GET /users`,
+    `/users-directory`); everyone else sees none, so their lookups answer
+    alike for every name and their lines carry the name as typed — an
+    admin's review resolves it, or (their own tile) the by-hand route's
+    own answer at Apply. Exact id, else exact display name; two by name is
+    "ask which", never the list.
+  - **A client never applies a kind it doesn't know** (`knows` on approve):
+    an older app ticks any unblocked line of a non-plan set.
+  - **`GET /delegate/tile` is the union of reads the agent makes today,
+    each under its own gate** — map, component, status, logs (terminal),
+    the person's own bindings and grants views (the tiles they write, own
+    or whose org they admin), cron where a terminal on the tile would read
+    it, their own sessions. New surface in one place, no new reach: a
+    test compares it with those reads per agent level. Not the template
+    (git history, never read for an agent: D78).
+  - **The budget: `min(setting, max(60 % of the window, window − 64 000))`,
+    the setting 1 000 000 by default**, a workspace setting the host may
+    preset as a ceiling. The fixed margin covers one step's growth between
+    the size the provider reported and the next call; below a 160 000-token
+    window today's 60 % stays. Unknown window: 32 000, as before. It is not
+    a spend limit: metering and quotas are.
