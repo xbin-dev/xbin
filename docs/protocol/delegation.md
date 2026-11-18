@@ -362,7 +362,7 @@ replaces, so it reaches nothing those don't (D246):
 {tile, title, kind, runtime, orgs, level, agent, agentRequested?, mcp?,
  owner?: {kind: user | org | workspace, id?, name?},
  backend: {state, error?, restarts?, retry?: {attempt, of, at},
-           flag?: "crash-loop" | "retrying" | "failed", words},
+           flag?: "crash-loop" | "retrying" | "failed", lifecycle?, words},
  report?: {level, message}, alerts?: [string],
  wiring, unmet?, slots: [{slot, kind, service?, required, multi?, bound?}],
  uses: [{target, role, granted?, pending?}],
@@ -1315,7 +1315,7 @@ A change set:
  state: "proposed" | "applying" | "applied" | "partial" | "rejected" | "expired" | "withdrawn",
  created, decided?, expires, withdrawnBy?,
  items: [{n, kind, args, why?, line, before?, after?, effects?, warnings?,
-          blocked?, inverse?, result?, error?}]}
+          blocked?, power?, inverse?, result?, error?}]}
 ```
 
 - `line`, `before`, `after`, `effects` and `warnings` are **xbind's**: the
@@ -1379,21 +1379,48 @@ escaped (`\u202e`): a name can't pass for another account's id.
 - **Warned**, so it starts unticked — a personal line too: write or
   terminal reached (`WRITE: …`, `TERMINAL: …` — a tile's writers change
   its code and every nested tile's: a terminal on it binds its whole
-  directory read-write, nested tiles included), a system component
-  (`SYSTEM COMPONENT: …`) and the person's own level (`YOUR OWN ACCESS:
-  …`). A line that reaches write lists what the level brings: the tiles
-  inside it by name (five, and how many more), the tiles its code reaches
-  through grants and bindings (named where the person may read them,
-  counted otherwise), the networks its tiles are bound to, the LLM
-  connector, the tiles with vault secrets.
-- **Refused** as no change at all (`400`): a raise on a tile whose subtree
-  — or a tile it reaches through its `code:` and call grants and its
-  bindings, followed up to 64 tiles, each once — holds the admin API, a
-  host capability, a device, all source, the host's network or a call to
-  a system component; past 64 tiles counts as power. Asked only once the
-  person is known to manage the tile's access (anyone else reads the
-  403 line, the same whatever the tile holds); the holders are named to
-  a workspace admin. The same holds for `org.share`. One's own level — by id, or
+  directory read-write, nested tiles included), a tile its code calls
+  that holds power (`REACHES POWER: …` — the callee's API mediates it),
+  a system component (`SYSTEM COMPONENT: …`) and the person's own level
+  (`YOUR OWN ACCESS: …`). A line that reaches write lists what the level
+  brings: the tiles inside it by name (five, and how many more), the caps
+  below power its tiles hold (`cap:open-links`), the tiles its code calls
+  or reads through grants, bindings and people's personal binds — named,
+  with what each holds, where the person may read them; counted
+  otherwise —, the networks its tiles are bound to, the LLM connector,
+  the tiles with vault secrets.
+- **The power rule** — a change that would let someone run or change
+  code that holds power is an admin's, by hand: a raise to write or
+  terminal is **blocked** (`power: true`, "xbin refuses this one: …")
+  when power is held by the tile itself, a tile nested in it, a tile it
+  lies in, or a tile that builds or loads its code — its backend's build
+  takes a module of the tile's subtree (a `deps` entry, a `replace`, a
+  `v0.0.0` or dotless require; transitively, as the build's own `go.work`
+  has it), its manifest's `deps` reach the subtree (transitively), or its
+  pages' import map points into it. A `code:` grant is read-only and ties
+  nothing; a tile its code merely calls is warned (above). Power is the
+  admin API (`xbin`, `xbin:*`), a device (`gpu:*`), all source (`code`),
+  the host's network, and these caps — the list is explicit, and a cap
+  it doesn't name counts as power:
+
+  | cap | | why |
+  |---|---|---|
+  | `cap:net-admin` | power | a network provider: its dataplane carries other tiles' traffic |
+  | `cap:containers` | power | user-namespace capabilities and a minimal seccomp floor face the host's kernel |
+  | `cap:sandboxes` | power | its backend drives xbind's sandboxes on this host |
+  | `cap:open-links` | listed only | its pages may open windows that leave their sandbox |
+
+  `org.share` takes the same rule for a share it raises (any level);
+  lowering or removing a share is a line like any other. A read raise, a
+  lowering and an exclusion are never blocked by it. The rule is asked
+  only once the person is known to manage the tile's access (anyone else
+  reads the 403 line, the same whatever the tile holds); the holders are
+  named in xbin's review to a workspace admin and, to anyone else, where
+  they see the holder's grants (`GET /grants`' rows), counted otherwise.
+  More than 64 tiles holding power, whose builds the rule would ask, is
+  blocked (fail closed); the subtree and the other walks are linear and
+  unbounded.
+- **Whose level**: one's own level — by id, or
   by one's own display name — is **blocked** for anyone but a workspace
   admin (not "needs an admin": it is never asked of one), and an admin's
   line for them; a line an admin applies for someone else that turns out
@@ -1401,9 +1428,11 @@ escaped (`\u202e`): a name can't pass for another account's id.
   blocked there too. Ids are compared as the store keys them (case and
   the space around them aside), never by Unicode case folding.
 - **Ask an admin is no oracle**: a name the admin's review can't resolve
-  (no account, or several), or a line the store refuses, comes back to
-  the asker as a line the admin left out (`rejected`) — the same as one
-  they chose not to apply.
+  (no account, or several), a line the power rule blocks for the admin
+  (they read "xbin refuses this one: …": not applicable, never tickable),
+  or a line the store refuses comes back to the asker as a line the admin
+  left out (`rejected`) — the same as one they chose not to apply; the
+  ask itself succeeds either way.
 - **Held to the conversation** as a plan's lines are (§Plans: the tile
   readable, in scope, not `"off"`, its orgs letting the agent in) — in
   `admin_propose` sets too.
@@ -1412,7 +1441,13 @@ escaped (`\u202e`): a name can't pass for another account's id.
   `result`, and a line written from its arguments ("Set the access of
   “Dave” on apps/invoices to read") — never xbind's line, the account,
   the level before or after, the effects, the warnings, `basis`,
-  `inverse` or `error`; a blocked line the one fixed sentence.
+  `inverse` or `error`; a blocked line the one fixed sentence — and one
+  the power rule blocks, of either kind, "this change needs an admin to
+  make it by hand: the tile, or code tied to it, holds workspace powers"
+  (`power: true`), naming nothing, dry run included; a line about a tile
+  outside the conversation's scope reads as that first. An admin who
+  lets their agent read admin state reads an `org.share` line's refusal
+  as xbin's review says it to them, as `GET /grants` would.
 
 `POST /delegate/accounts/lookup {name}` answers the agent whether an
 account of that name exists, and nothing else, so a line can name the

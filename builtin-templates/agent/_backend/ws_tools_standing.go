@@ -44,11 +44,7 @@ func wsStatusTool(ctx context.Context, ag *Agent, s *wsSession, c coordCall) (st
 func wsTileViewWords(ag *Agent, s *wsSession, t wsTile, st wsTileView) string {
 	var b strings.Builder
 	f := func(v string) string { return clip(wsPlain(v), 80) } // one field the tile wrote
-	what := st.Kind
-	if st.Runtime != "" && st.Kind == "app" {
-		what += " (" + f(st.Runtime) + ")"
-	}
-	fmt.Fprintf(&b, "%s: %s", st.Tile, orStr(what, "a tile"))
+	fmt.Fprintf(&b, "%s: %s", st.Tile, orStr(map[string]string{"app": "app", "page": "page"}[st.Kind], "a tile"))
 	if orgs := without(st.Orgs, wsNoOrg); len(orgs) > 0 {
 		fmt.Fprintf(&b, ", org %s", strings.Join(orgs, ", "))
 	}
@@ -75,15 +71,33 @@ func wsTileViewWords(ag *Agent, s *wsSession, t wsTile, st wsTileView) string {
 		}
 	}
 	if be := st.Backend; be != nil {
-		switch be.Flag {
-		case "crash-loop":
-			b.WriteString("Backend: BROKEN — " + wsPlain(be.Words) + ". Calls to it fail until its code is fixed; the log below says why.\n")
-		case "retrying":
-			b.WriteString("Backend: BROKEN — " + wsPlain(be.Words) + ". The log below says why.\n")
-		case "failed":
-			b.WriteString("Backend: BROKEN — " + wsPlain(be.Words) + ".\n")
+		// xbind's own words from its own fields; what the backend or its
+		// build printed (the error, which a tile's source steers: a compiler
+		// quotes an import path in full) is in the frame below
+		said := map[bool]string{true: " What it printed is in the frame below.", false: ""}[be.Error != ""]
+		switch {
+		case be.Flag == "crash-loop":
+			b.WriteString("Backend: BROKEN — it keeps exiting (a crash loop). Calls to it fail until its code is fixed." + said + "\n")
+		case be.Flag == "retrying":
+			fmt.Fprintf(&b, "Backend: BROKEN — it crashes on start; xbin starts it again by itself")
+			if r := be.Retry; r != nil {
+				fmt.Fprintf(&b, " (attempt %d of %d)", r.Attempt, r.Of)
+			}
+			b.WriteString("." + said + "\n")
+		case be.Flag == "failed":
+			if strings.HasPrefix(be.Error, "build failed") {
+				b.WriteString("Backend: BROKEN — the backend failed to build; it stays failed until its code is saved, it is restarted or deployed." + said + "\n")
+			} else {
+				b.WriteString("Backend: BROKEN — it failed; it stays failed until its code is saved, it is restarted or deployed." + said + "\n")
+			}
+		case be.Lifecycle != "":
+			fmt.Fprintf(&b, "Backend: the tile is %s — its backend doesn't run until it is enabled again.\n", orStr(wsLifecycleWord(be.Lifecycle), "not enabled"))
 		default:
-			b.WriteString("Backend: " + wsPlain(be.Words) + ".\n")
+			fmt.Fprintf(&b, "Backend: %s", orStr(wsStateWord(be.State), "in no state xbin names"))
+			if be.Restarts > 0 {
+				fmt.Fprintf(&b, "; it exited %d time(s) since it last started cleanly", be.Restarts)
+			}
+			b.WriteString("." + said + "\n")
 			if be.State == "idle" {
 				// (three real conversations read "idle … xbin flags nothing" of a tile that crashed on every call
 				// as "healthy", or as "down": the feedback run, 2026-11-17)
@@ -91,8 +105,8 @@ func wsTileViewWords(ag *Agent, s *wsSession, t wsTile, st wsTileView) string {
 			}
 		}
 	}
-	for _, a := range st.Alerts {
-		fmt.Fprintf(&b, "xbin flags: %s\n", clip(wsPlain(a), 200))
+	if len(st.Alerts) > 0 {
+		fmt.Fprintf(&b, "xbin flags %d thing(s) about it: in the frame below.\n", len(st.Alerts))
 	}
 	// what its wiring lacks, in xbind's counts; which slot and which use are in the frame below
 	switch {
@@ -177,6 +191,33 @@ func wsTileViewWords(ag *Agent, s *wsSession, t wsTile, st wsTileView) string {
 	return b.String()
 }
 
+// wsBackendErrLines is how much of a backend's error tile_status shows: a
+// build's output ends with the errors that matter.
+const wsBackendErrLines = 20
+
+// wsStateWord is a backend state xbind names, in xbind's words ("" for one
+// it doesn't: a field the read carries is never said as xbind's sentence).
+func wsStateWord(s string) string {
+	switch s {
+	case "healthy":
+		return "running (healthy)"
+	case "idle", "starting", "building", "failed":
+		return s
+	case "static":
+		return "a page with no backend: nothing runs"
+	}
+	return ""
+}
+
+// wsLifecycleWord is a tile's lifecycle state xbind names ("" another).
+func wsLifecycleWord(s string) string {
+	switch s {
+	case "disabled", "offloaded", "offloaded-full":
+		return s
+	}
+	return ""
+}
+
 // wsGrantName: a use's target and role of the shape xbind takes in a
 // grant — a tile's path (or code:/res: of one, an instance after #) and a
 // role's name — the only values a suggested line is built from.
@@ -189,6 +230,22 @@ func wsTileDeclared(st wsTileView, t wsTile, f func(string) string) string {
 	var b strings.Builder
 	if st.Title != "" && st.Title != st.Tile {
 		b.WriteString("title: " + f(st.Title) + "\n")
+	}
+	if st.Runtime != "" {
+		b.WriteString("runtime: " + f(st.Runtime) + "\n")
+	}
+	if be := st.Backend; be != nil && be.Error != "" {
+		lines := strings.Split(strings.TrimRight(be.Error, "\n"), "\n")
+		if len(lines) > wsBackendErrLines {
+			lines = lines[len(lines)-wsBackendErrLines:]
+		}
+		fmt.Fprintf(&b, "what its backend or its build printed (its last %d lines at most):\n", wsBackendErrLines)
+		for _, l := range lines {
+			b.WriteString("  > " + clip(wsPlain(l), 200) + "\n") // each a line of its output, never one of xbind's
+		}
+	}
+	for _, a := range st.Alerts {
+		b.WriteString("xbin flags: " + clip(wsPlain(a), 200) + "\n")
 	}
 	for _, sl := range st.Slots {
 		p := "slot " + f(sl.Slot) + " (" + strings.TrimSpace(f(sl.Kind)+" "+f(sl.Service))

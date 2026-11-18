@@ -181,6 +181,11 @@ type Broker struct {
 	// WakeBackends, if set, starts the always-on backends that can run now
 	// (after an unseal or an enable; runner.WakeAlwaysOn).
 	WakeBackends func()
+	// BuildsWith lists the other tiles whose code a tile's backend build
+	// takes (the runner's, D166) — the power rule of an access line asks it
+	// of the tiles that hold power (accessreach.go). nil: only the
+	// manifests' deps are read.
+	BuildsWith func(c *registry.Component) []string
 	// HoldTermEnv, if set, takes a component's persistent terminal layer out
 	// of use — its sessions killed, the layer held so none mounts it — until
 	// release; a restore swaps a rebuilt layer in meanwhile. Wired to

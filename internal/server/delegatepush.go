@@ -383,13 +383,16 @@ func (s *Server) setPush(cs delegation.ChangeSet) AgentPush {
 	body := fmt.Sprintf("Your workspace agent proposes %s. Nothing is applied until you approve.", plural(n, "admin change", "admin changes"))
 	switch {
 	case cs.From != "":
+		// the asker's id first and apart, the display name after it, quoted
+		// and escaped (delegation.AccountWords): a display name can't pass
+		// for another account's id where an admin decides on it
 		who := cs.From
 		if s.Auth != nil && s.Auth.Users != nil {
-			if u, ok := s.Auth.Users.Get(cs.From); ok && u.Name != "" {
-				who = u.Name
+			if u, ok := s.Auth.Users.Get(cs.From); ok {
+				who = delegation.AccountWords(cs.From, u.Name)
 			}
 		}
-		title = quotedTileName(who, cs.From) + " asks for an admin's changes"
+		title = who + " asks for an admin's changes"
 		body = fmt.Sprintf("%s wait for an admin. Nothing is applied until an admin approves.", plural(n, "change", "changes"))
 	case cs.Plan:
 		title = "A plan to review"

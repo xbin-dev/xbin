@@ -555,12 +555,15 @@ func (b *Broker) previewOrgShare(p auth.Principal, op delegation.ChangeOp) (dele
 	// store would refuse (SetOrgTile: the level, the org)
 	_, tileOK := b.Reg.Component(a.Tile)
 	why := b.accessCheck(p, a.Tile, a.Org)
-	// a share of a tile whose subtree, or what it reaches, holds power is an
-	// admin's on the Access page (accessreach.go) — said only to a person
-	// who manages the tile's access
-	reach := b.accessReachOf(a.Tile)
-	if why == nil && tileOK && a.Level != "" && reach.holdsPower() {
-		return delegation.ChangePreview{}, b.accessPowerRefusal(p, a.Tile, reach)
+	// a share that RAISES the org's level on code that holds power is an
+	// admin's, by hand on the Access page (accessreach.go) — said only to a
+	// person who manages the tile's access; lowering or removing one is a
+	// line like any other
+	raise := users.LevelRank(a.Level) > users.LevelRank(before)
+	writes := a.Level == users.LevelWrite || a.Level == users.LevelTerminal
+	var reach accessReach
+	if why == nil && tileOK && (raise || writes) {
+		reach = b.accessReachOf(a.Tile)
 	}
 	switch {
 	case why != nil:
@@ -586,11 +589,18 @@ func (b *Broker) previewOrgShare(p auth.Principal, op delegation.ChangeOp) (dele
 		case users.LevelWrite:
 			pv.Warnings = append(pv.Warnings, "write level lets them change "+a.Tile+"'s code — and every tile inside it")
 		}
-		if a.Level == users.LevelWrite || a.Level == users.LevelTerminal {
-			pv.Effects = append(pv.Effects, reach.effects(p, a.Tile)...)
+		if writes && why == nil && tileOK {
+			eff, near := reach.effects(p, a.Tile)
+			pv.Effects = append(pv.Effects, eff...)
+			if near {
+				pv.Warnings = append(pv.Warnings, fmt.Sprintf(accessWarnNear, a.Tile))
+			}
 		}
 	}
 	pv.Inverse = &delegation.ChangeOp{Kind: ChangeOrgShare, Args: mustJSON(map[string]string{"org": a.Org, "tile": a.Tile, "level": before})}
+	if pv.Blocked == "" && raise && reach.holdsPower() {
+		pv.Blocked, pv.Power = b.accessPowerRefusal(p, a.Tile, reach), true
+	}
 	return pv, nil
 }
 

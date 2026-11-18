@@ -75,6 +75,12 @@ func (s *Server) registerPlanAPI() {
 // line: the reason is the person's to read, on xbin's review.
 const lineBlockedForAgent = "xbin can't apply this line as proposed: your person sees why on xbin's review"
 
+// linePowerForAgent is all an agent reads of the power rule's refusal
+// (ChangeItem.Power; the broker's accessreach.go): no holder, no grant, no
+// tile beyond the line's own — those are shown in xbin's own review, to a
+// person who may see them.
+const linePowerForAgent = "this change needs an admin to make it by hand: the tile, or code tied to it, holds workspace powers"
+
 // lineHeldForAgent is all an agent is told of why a waiting line is not
 // applied though its tile declares something: that it does. What the tile
 // declared — its kind, service and role, words its coding agent wrote —
@@ -151,6 +157,9 @@ func (s *Server) setFor(a delegateActor, cs delegation.ChangeSet) delegation.Cha
 			Needs: it.Needs, Deferred: it.Deferred, Result: it.Result, Out: it.Out, Of: it.Of, Later: it.Later, Wait: it.Wait}
 		if it.Blocked != "" {
 			red.Blocked = lineBlockedForAgent
+		}
+		if it.Power {
+			red.Blocked, red.Power = linePowerForAgent, true
 		}
 		cs.Items[i] = red
 	}
@@ -445,7 +454,7 @@ func (s *Server) describePlan(person auth.Principal, a planAgent, ops []delegati
 			return nil, fmt.Errorf("line %d (%s): %w", n, op.Kind, err)
 		}
 		it := delegation.ChangeItem{ChangeOp: op, Line: pv.Line, Before: pv.Before, After: pv.After, BeforeText: pv.BeforeText, AfterText: pv.AfterText,
-			Effects: pv.Effects, Warnings: pv.Warnings, Blocked: pv.Blocked, Inverse: pv.Inverse, Basis: changeBasis(pv),
+			Effects: pv.Effects, Warnings: pv.Warnings, Blocked: pv.Blocked, Power: pv.Power, Inverse: pv.Inverse, Basis: changeBasis(pv),
 			Admin: pv.Admin, Needs: pv.Uses, Deferred: pv.Deferred, Start: pv.Start, UndoByHand: pv.UndoByHand, Pin: pv.Pin}
 		if pv.Waits != nil {
 			it.Wait = &delegation.ItemWait{PlanWait: *pv.Waits}
@@ -852,10 +861,12 @@ func (s *Server) askDecided(done delegation.ChangeSet) {
 			}
 			mine := &c.Items[it.Of-1]
 			mine.Result, mine.Error = it.Result, it.Error
-			if it.Kind == delegation.KindAccessSet && (it.Result == delegation.ItemBlocked || it.Result == delegation.ItemFailed) {
+			if (it.Kind == delegation.KindAccessSet || it.Power) && (it.Result == delegation.ItemBlocked || it.Result == delegation.ItemFailed) {
 				// the admin's review resolved the name — no such account, or
-				// several — or the store refused it: the asker learns no more
-				// of the workspace's accounts than of a line left out
+				// several — weighed the account's level against the power
+				// rule, or the store refused it: the asker learns no more of
+				// the workspace's accounts, levels or powers than of a line
+				// left out
 				mine.Result, mine.Error = delegation.ItemRejected, ""
 			}
 			if it.Result == delegation.ItemWaiting { // an admin approved it, and it waits: where it stands is theirs to read

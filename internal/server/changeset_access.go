@@ -37,6 +37,9 @@ func accessForAgent(it delegation.ChangeItem) delegation.ChangeItem {
 	if it.Blocked != "" {
 		red.Blocked = lineBlockedForAgent
 	}
+	if it.Power {
+		red.Blocked, red.Power = linePowerForAgent, true
+	}
 	return red
 }
 

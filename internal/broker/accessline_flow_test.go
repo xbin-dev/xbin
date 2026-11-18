@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/xbin-dev/xbin/internal/delegation"
+	"github.com/xbin-dev/xbin/internal/registry"
 	"github.com/xbin-dev/xbin/internal/users"
 )
 
@@ -354,5 +355,84 @@ func TestAdminProposeHoldsAccessLines(t *testing.T) {
 	w.srv.AgentPolicy, w.b.AgentPolicy = deny, deny
 	if it := propose(agentOf("bob"), "apps/pg"); !strings.Contains(it.Blocked, "fin keeps agents out") {
 		t.Errorf("a tile its org's rules keep the agent from: %q", it.Blocked)
+	}
+}
+
+// covers D246 (second review, 2) — the power rule's refusal is a line, held
+// to the conversation first: of a raise on code that holds power the agent
+// reads one fixed sentence that names nothing — dry run included —, a tile
+// outside its scope reads as that, and the holders are xbin's review's
+// (and an opted-in admin's agent's, as GET /grants would show them).
+func TestPowerRefusalNamesNothingToTheAgent(t *testing.T) {
+	w := accessWorld(t)
+	w.grantsAdd(t, registry.Grant{From: "apps/x", Target: "cap:containers", Role: "use"})
+	const fixed = "this change needs an admin to make it by hand: the tile, or code tied to it, holds workspace powers"
+	lines := `[{"kind":"access.set","args":{"tile":"apps/x","user":"carol","level":"write"}},{"kind":"org.share","args":{"org":"fin","tile":"apps/x","level":"terminal"}}]`
+	for _, dry := range []bool{false, true} {
+		code, body := w.do("POST", "/delegate/plans", fmt.Sprintf(`{"title":"t","dryRun":%v,"items":%s}`, dry, lines), agentOf("bob"))
+		if code != 200 || strings.Count(body, fixed) != 2 || strings.Contains(body, "cap:containers") || strings.Contains(body, "held by") {
+			t.Fatalf("the agent's plan (dry run %v): %d %s", dry, code, body)
+		}
+		if dry {
+			continue
+		}
+		var cs delegation.ChangeSet
+		_ = json.Unmarshal([]byte(body), &cs)
+		_, bob := w.session("bob")
+		if _, mine := w.do("GET", "/delegate/changesets/"+cs.ID, "", bob); !strings.Contains(mine, "cap:containers — a container host") || !strings.Contains(mine, "held by apps/x") {
+			t.Errorf("bob's own review doesn't name the holder: %s", mine)
+		}
+	}
+	// outside the conversation's scope: that, and nothing of the power
+	code, body := w.do("POST", "/delegate/plans", `{"title":"t","dryRun":true,"items":`+lines+`}`, w.scoped(t, "bob", "apps/pu"))
+	if code != 200 || strings.Contains(body, fixed) || strings.Contains(body, "power") || !strings.Contains(body, "can't apply this line") {
+		t.Errorf("a tile outside the conversation's scope: %d %s", code, body)
+	}
+	// an admin who lets their agent read admin state: the org's share reads as GET /grants would show it
+	_, bob := w.session("bob")
+	if code, body := w.do("PUT", "/delegate/state", `{"adminChanges":true}`, bob); code != 200 {
+		t.Fatalf("opt in: %d %s", code, body)
+	}
+	code, body = w.do("POST", "/delegate/plans", `{"title":"t","dryRun":true,"items":`+lines+`}`, agentOf("bob"))
+	if code != 200 || strings.Count(body, fixed) != 1 || !strings.Contains(body, "held by apps/x") {
+		t.Errorf("an opted-in admin's agent: %d %s", code, body)
+	}
+}
+
+// covers D246 (second review, 3) — Ask an admin on code that holds power:
+// whether the account exists, and at what level, never shows in the ask's
+// outcome — the ask succeeds, the admin's copy reads "xbin refuses this
+// one" (not applicable), and the asker's line comes back as one left out.
+func TestAskAnAdminOnPowerTellsNothing(t *testing.T) {
+	w := accessWorld(t)
+	w.grantsAdd(t, registry.Grant{From: "apps/pu", Target: "cap:containers", Role: "use"})
+	_, alice := w.session("alice")
+	var results []string
+	for _, user := range []string{"carol", "zed"} {
+		cs := w.plan(t, "alice", `[{"kind":"access.set","args":{"tile":"apps/pu","user":"`+user+`","level":"write"}}]`)
+		code, body := w.do("POST", "/delegate/changesets/"+cs.ID+"/ask", "", alice)
+		if code != 200 {
+			t.Fatalf("ask about %s: %d %s", user, code, body)
+		}
+		var asked delegation.ChangeSet
+		sets, _ := w.store.ChangeSets("bob")
+		for _, o := range sets {
+			if o.From == "alice" && o.AskOf == cs.ID {
+				asked = o
+			}
+		}
+		if len(asked.Items) != 1 || asked.Items[0].Blocked == "" {
+			t.Fatalf("bob's copy about %s: %+v", user, asked.Items)
+		}
+		if user == "carol" && (!asked.Items[0].Power || !strings.HasPrefix(asked.Items[0].Blocked, "xbin refuses this one")) {
+			t.Errorf("bob's copy about carol: %+v", asked.Items[0])
+		}
+		_, bob := w.session("bob")
+		w.approve(t, asked.ID, `{"items":[1],"knows":["access.set"]}`, bob)
+		mine := w.set(t, "alice", cs.ID)
+		results = append(results, mine.Items[0].Result+"|"+mine.Items[0].Error+"|"+mine.Items[0].Blocked)
+	}
+	if results[0] != results[1] || !strings.HasPrefix(results[0], delegation.ItemRejected+"|") {
+		t.Errorf("an existing account and none read apart to the asker: %q", results)
 	}
 }

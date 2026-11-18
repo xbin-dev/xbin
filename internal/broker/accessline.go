@@ -32,12 +32,15 @@ package broker
 //     name. For anyone else the name is used as an id, as typed, and
 //     nothing is said of whether it is one before the by-hand route says
 //     so at Apply;
-//   - refused as no change at all: the workspace agent itself, a raise on a
-//     tile whose subtree — or a tile it reaches through grants and bindings
-//     — holds power (accessreach.go), asked only of a person who manages the
-//     tile's access (anyone else reads the 403 line), a tile an earlier line
-//     of the plan creates (a person's access is set on a tile that exists:
-//     it never waits).
+//   - a raise to write or terminal on code that holds power — the tile, a
+//     tile inside it, one it lies in, one that builds or loads its code —
+//     is BLOCKED by the power rule (accessreach.go: Power; an admin makes
+//     it by hand); power its code merely calls is warned and listed. Asked
+//     only of a person who manages the tile's access (anyone else reads the
+//     403 line);
+//   - refused as no change at all: the workspace agent itself, a tile an
+//     earlier line of the plan creates (a person's access is set on a tile
+//     that exists: it never waits).
 
 import (
 	"errors"
@@ -59,6 +62,7 @@ const ChangeAccessSet = delegation.KindAccessSet
 const (
 	accessWarnTerminal = "TERMINAL: %s can run code in %s and change it — and every tile inside it — and with it everything those tiles can reach"
 	accessWarnWrite    = "WRITE: %s can change %s's code — and every tile inside it; that code runs with everything those tiles can reach"
+	accessWarnNear     = "REACHES POWER: %s's code can call tiles that hold power over the workspace or the host — what they let it do is theirs to say (the effects name them)"
 	accessWarnUnknown  = "ENTRY REMOVED: what %s has on %s afterwards is what their orgs and the workspace defaults give — xbin can't show it here, and it may be more than now (up to terminal)"
 	accessWarnSystem   = "SYSTEM COMPONENT: %s is part of xbin itself; access to it changes what %s can do in xbin"
 	accessWarnSelf     = "YOUR OWN ACCESS: this changes what you yourself can do on %s"
@@ -249,10 +253,6 @@ func (b *Broker) previewAccess(p auth.Principal, op delegation.ChangeOp, planned
 	if known {
 		raise = users.LevelRank(after) > users.LevelRank(before)
 	}
-	reach := b.accessReachOf(a.Tile)
-	if raise && reach.holdsPower() {
-		return delegation.ChangePreview{}, b.accessPowerRefusal(p, a.Tile, reach)
-	}
 	// personal: the tile's user-owner, about someone else — what the by-hand
 	// rule lets them do with no admin right
 	pv.Admin = self || b.approverSelf(p, a.Tile) == ""
@@ -304,7 +304,7 @@ func (b *Broker) previewAccess(p auth.Principal, op delegation.ChangeOp, planned
 	// reach either
 	reaches := func(l string) bool {
 		if !known {
-			return a.Level == l || a.Level == "" && l == users.LevelTerminal
+			return a.Level == "" || users.LevelRank(a.Level) >= users.LevelRank(l)
 		}
 		return users.LevelRank(after) >= users.LevelRank(l) && (raise || before == after && users.LevelRank(a.Level) >= users.LevelRank(l))
 	}
@@ -317,14 +317,31 @@ func (b *Broker) previewAccess(p auth.Principal, op delegation.ChangeOp, planned
 	if !known && a.Level == "" {
 		pv.Warnings = append(pv.Warnings, fmt.Sprintf(accessWarnUnknown, whoShort, a.Tile))
 	}
-	if reaches(users.LevelWrite) {
-		pv.Effects = append(pv.Effects, reach.effects(p, a.Tile)...)
-	}
 	if util.SealedPath(a.Tile) {
 		pv.Warnings = append(pv.Warnings, fmt.Sprintf(accessWarnSystem, a.Tile, whoShort))
 	}
 	if self {
 		pv.Warnings = append(pv.Warnings, fmt.Sprintf(accessWarnSelf, a.Tile))
+	}
+	if !reaches(users.LevelWrite) {
+		return pv, nil
+	}
+	// write or terminal: what it brings, and the power rule (accessreach.go)
+	// — a raise to either on code that holds power is an admin's, by hand;
+	// for an account nothing was resolved for, any entry of write or
+	// terminal, or a removal, may be one
+	reach := b.accessReachOf(a.Tile)
+	eff, near := reach.effects(p, a.Tile)
+	pv.Effects = append(pv.Effects, eff...)
+	if near {
+		pv.Warnings = append(pv.Warnings, fmt.Sprintf(accessWarnNear, a.Tile))
+	}
+	raisesToWrite := raise
+	if !known {
+		raisesToWrite = a.Level != users.LevelRead
+	}
+	if raisesToWrite && reach.holdsPower() {
+		pv.Blocked, pv.Power = b.accessPowerRefusal(p, a.Tile, reach), true
 	}
 	return pv, nil
 }

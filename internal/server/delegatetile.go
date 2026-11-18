@@ -52,8 +52,9 @@ type TileBackendRow struct {
 	Retry      *TileStartRetry `json:"retry,omitempty"`
 	UptimeSec  int64           `json:"uptimeSec,omitempty"`
 	LastReqSec int64           `json:"lastReqSec,omitempty"`
-	Flag       string          `json:"flag,omitempty"`  // "crash-loop" | "retrying" | "failed" | ""
-	Words      string          `json:"words,omitempty"` // xbind's sentence for it
+	Flag       string          `json:"flag,omitempty"`      // "crash-loop" | "retrying" | "failed" | ""
+	Lifecycle  string          `json:"lifecycle,omitempty"` // the tile's lifecycle when it isn't enabled: its backend doesn't run
+	Words      string          `json:"words,omitempty"`     // xbind's sentence for it
 }
 
 // TileStartRetry is a failed start's pending retry (the runner's StartRetry).
@@ -286,6 +287,7 @@ func levelOf(person auth.Principal, tile string) string {
 func backendWords(row *TileBackendRow, lifecycle string) {
 	switch {
 	case lifecycle != "" && lifecycle != string(registry.StateEnabled):
+		row.Lifecycle = lifecycle
 		row.Words = "the tile is " + lifecycle + ": its backend doesn't run until it is enabled again"
 	case strings.Contains(row.Error, "crash-looping"):
 		row.Flag, row.Words = "crash-loop", "keeps exiting: "+row.Error

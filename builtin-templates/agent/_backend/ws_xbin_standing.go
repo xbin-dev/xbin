@@ -99,8 +99,9 @@ type wsTileViewBackend struct {
 		Of      int    `json:"of"`
 		At      string `json:"at"`
 	} `json:"retry"`
-	Flag  string `json:"flag"`
-	Words string `json:"words"`
+	Flag      string `json:"flag"`
+	Lifecycle string `json:"lifecycle"` // the tile isn't enabled: disabled, offloaded…
+	Words     string `json:"words"`
 }
 
 // wsAccount is POST /delegate/accounts/lookup's answer.

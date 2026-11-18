@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/xbin-dev/xbin/internal/delegation"
+	"github.com/xbin-dev/xbin/internal/users"
 )
 
 // The workspace agent's notifications (D241; delegatepush.go) and the
@@ -315,5 +316,19 @@ func TestDelegateDecidedWhereIsThePersons(t *testing.T) {
 	agents := w.do(w.full, "GET", "/api/xbin/delegate/requests/"+a.ID, "", bob)
 	if agents.Code != 200 || strings.Contains(agents.Body.String(), "decidedFrom") || strings.Contains(agents.Body.String(), "decidedDevice") {
 		t.Fatalf("the agent reads where its person decided: %d %s", agents.Code, agents.Body.String())
+	}
+}
+
+// covers D246 (second review, 5) — an admin's push for another person's ask
+// names the asker by id first and apart, the display name after it, quoted
+// and escaped: "mallory — “Dave Rossi (dave)”", never the name alone.
+func TestDelegatePushAskNamesTheIDFirst(t *testing.T) {
+	w, _ := pushWorld(t)
+	if _, err := w.s.Auth.Users.Upsert(users.User{ID: "mallory", Name: "Dave Rossi (dave)\u202e", Role: users.RoleUser}, "password1"); err != nil {
+		t.Fatal(err)
+	}
+	p := w.s.setPush(delegation.ChangeSet{ID: "x", User: "bob", From: "mallory", Plan: true, Items: []delegation.ChangeItem{{ChangeOp: delegation.ChangeOp{Kind: "grant.add"}}}})
+	if p.Title != `mallory — “Dave Rossi (dave)\u202e” asks for an admin's changes` {
+		t.Errorf("the ask's title: %q", p.Title)
 	}
 }

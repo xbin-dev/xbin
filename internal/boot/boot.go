@@ -714,6 +714,7 @@ func (st *State) stepProxy() error {
 	brk.Sealed = broker.SealedHooks{DataFormat: st.Sealed.DataFormat, RestoreRefusal: st.Sealed.RestoreRefusal} // backups of sealed components (D227)
 	brk.StopBackend = run.Stop                                                                                  // lifecycle: disabling stops the backend now
 	brk.WakeBackends = run.WakeAlwaysOn
+	brk.BuildsWith = run.BuildsWith // whose code a tile's build takes: an access line's power rule (D246)
 	// A component may spawn only if enabled AND its encrypted tile state is
 	// currently accessible (vault unsealed + mounts up) — see plans/vault-data.md
 	// — and its primary isn't paused by its partition mode (pending or

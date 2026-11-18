@@ -21,11 +21,20 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   component and your own access are warned and start unticked, and your
   own access is blocked unless you are a workspace admin. Write is warned
   like terminal (a tile's writers change every tile inside it), and a
-  line that reaches write lists the nested tiles, what its code reaches,
-  its networks, the LLM connector and its vault secrets; whether it is a
+  line that reaches write lists the nested tiles, the tiles its code
+  calls (with the power they hold — warned, the callee's to mediate), its
+  networks, the LLM connector and its vault secrets; whether it is a
   raise follows the person's effective level (removing an exclusion can
-  raise it); a raise on a tile whose subtree or reach holds power over the
-  workspace or the host is refused (`org.share` too). xbind writes the
+  raise it). **The power rule**: a raise to write or terminal is blocked
+  (`power: true` on the line, "xbin refuses this one") when power is held
+  by code its writers change — the tile, a tile inside it or one it lies
+  in, a tile whose build, `deps` or pages' import map take its code — and
+  an admin makes it by hand; `org.share` raises take the same rule, and
+  lowering or removing a share is a line. What counts as power is now an
+  explicit list: the admin API, devices, all source, the host's network,
+  `cap:net-admin`, `cap:containers`, `cap:sandboxes` (and any cap xbin
+  doesn't name); `cap:open-links` is listed, not power. The agent reads
+  one fixed sentence of a blocked raise, naming nothing. xbind writes the
   line with the account id first and the display name after it
   (`dave — “Dave Rossi”`), the effective level before and after and where
   it comes from; the agent reads only its arguments and whether it was
@@ -47,7 +56,11 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   agent read admin state (`GET /bindings`, `GET /grants`), otherwise
   `unmet: true` alone when something it needs is missing; a bound tile
   the conversation can't see is `"another tile"`; logs and jobs at
-  terminal level. The agent's `tile_status` is this read; `tile_agent_status` is
+  terminal level. The backend row carries `lifecycle` when the tile isn't
+  enabled (additive); `tile_status` keeps what a tile, its backend or its
+  build printed (the last 20 lines of an error) inside its untrusted
+  frame. An admin's notification for another person's ask names them by
+  account id first, the display name after it. The agent's `tile_status` is this read; `tile_agent_status` is
   folded into `tile_agent_result` (D246;
   [protocol/delegation.md §Where a tile stands](/docs/protocol/delegation.md)).
 - resources: `GET /cron/jobs`'s main rows carry `next`, and `lastRun` /

@@ -315,9 +315,9 @@ func TestAccessLineSystemComponent(t *testing.T) {
 	if err != nil || !hasWarning(pv, "SYSTEM COMPONENT") || !pv.Admin || pv.Blocked != "" {
 		t.Fatalf("a system component's line: %v %+v", err, pv)
 	}
-	// it holds a capability: nobody is given it by a change set (as an org's share)
-	if _, err := b.PreviewChange(bob, accessOp("xbin/fix", "dave", "read")); err == nil || !strings.Contains(err.Error(), "holds power") || !strings.Contains(err.Error(), "cap:open-links (xbin/fix)") {
-		t.Errorf("read on a system component that holds a capability: %v", err)
+	// it holds cap:open-links, which is no power (accessreach.go): read there is a line, warned as a system component's
+	if pv, err := b.PreviewChange(bob, accessOp("xbin/fix", "dave", "read")); err != nil || pv.Power || pv.Blocked != "" || !hasWarning(pv, "SYSTEM COMPONENT") {
+		t.Errorf("read on a system component that holds cap:open-links: %v %+v", err, pv)
 	}
 	if got := sealedEntryOK("xbin/fix", "write"); !strings.Contains(got, "read or none") {
 		t.Errorf("write on a system component: %q", got)

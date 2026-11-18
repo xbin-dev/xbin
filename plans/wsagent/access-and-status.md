@@ -388,6 +388,88 @@ test shown red without its rule.
   `TestAdminProposeHoldsAccessLines` (scope, `off`, org rule) — red with
   `holdAccessLines` off.
 
+## After the second review (2026-11-18)
+
+1. **The power rule, restated** (`accessreach.go`). Refused — a blocked
+   line, `power: true`, "xbin refuses this one" — is a raise to write or
+   terminal (an `org.share` raise at any level, as before for real power)
+   when power is held by code the raise lets someone change: the tile, a
+   tile nested in it, a tile it lies in, a tile whose backend build takes
+   a module of its subtree (the runner's `BuildsWith`: the D166 build
+   `go.work`, transitively), whose manifest `deps` reach it
+   (transitively), or whose pages' import map (the workspace's or its
+   scope's) points into it. `code:` grants are read-only (docs/auth.md),
+   so none ties code. Power a tile's code merely calls (a call or `code:`
+   grant, a binding, a personal bind) is warned (`REACHES POWER`) and
+   listed with what the callee holds — the callee's API mediates it. A
+   read raise, a lowering and an exclusion are never refused; `org.share`
+   lowers and removes freely. The subtree, ancestor, deps and callee walks
+   are linear and unbounded; only the build question is bounded — 64 tiles
+   holding power — and fails closed past it (300 nested tiles: no
+   refusal). What counts as power is explicit (`capClasses`;
+   `TestEveryCapIsClassified` fails on a cap the code or docs name without
+   a row):
+
+   | target | weighed | why |
+   |---|---|---|
+   | `xbin`, `xbin:*` | power | the admin API |
+   | `gpu:*` | power | a device of the host |
+   | `code` | power | every tile's source |
+   | the host's network | power | `host`, or a set/org/personal network that says host |
+   | `cap:net-admin` | power | its dataplane carries other tiles' traffic |
+   | `cap:containers` | power | user-namespace caps, a minimal seccomp floor facing the host's kernel |
+   | `cap:sandboxes` | power | drives xbind's sandboxes on the host |
+   | `cap:open-links` | listed | its pages may open windows that leave their sandbox |
+   | any other `cap:` | power | fail closed |
+
+   Residual: a page's own `<script src="/c/T/…">` or `import()` of another
+   tile's file is not a registry fact — whether the static plane serves it
+   to the page is the asset gate's (strict asset gating) — so it isn't an
+   edge here. Personal binds (`personalbind.go`) are http-slot calls from a
+   person's partition to a user-owned unpartitioned provider: never the
+   host's network, never code that runs in another tile — only calls,
+   listed and warned.
+2. **No leak through the agent.** The refusal is a blocked line, not a
+   preview error: `describePlan` holds the conversation first (scope, the
+   tile readable, `off`, org rules), then the agent reads "this change
+   needs an admin to make it by hand: the tile, or code tied to it, holds
+   workspace powers" — dry run included; the holders are named in xbin's
+   review (an admin: all; anyone else: the holders whose grants they see,
+   the rest counted), and to an opted-in admin's agent for `org.share` as
+   `GET /grants` would.
+3. **Ask an admin on power.** No admin's description fails any more: the
+   ask succeeds, the admin's copy reads "xbin refuses this one: …" (not
+   applicable), and the asker's line comes back `rejected` whether the
+   account exists or not, at whatever level.
+4. **The backend's error** (a build failure's compiler output, which a
+   tile's source steers) is inside `tile_status`'s untrusted frame — its
+   last 20 lines, each marked `>` and through `wsPlain` — with alerts and
+   the runtime; outside, xbind's own sentence from its own fields ("the
+   backend failed to build", a lifecycle the row now carries).
+5. **The ask's notification** names the asker by id first
+   (`AccountWords`); no other delegation, push or audit path puts a
+   display name alone in front of a person who decides (the web and iOS
+   ask headings use the id).
+6. **"Unticked by default" is a client default**, not a server rule: the
+   web review and the app (`warnedStartUnticked`) start a warned line
+   unticked; the server applies exactly the line numbers an approve call
+   names, re-describes each at Apply (stale, blocked and power lines are
+   never applied), and `knows` keeps a client that can't show a newer kind
+   from applying it. A client that ticks everything gets what it names.
+
+Red, each with its rule taken out: nested, ancestor, build, deps, import
+map (`TestAccessLinePowerRule`); calls refused again and `cap:open-links`
+as power (`TestAccessLinePowerRule`, `TestOrgShareLowersOnPowerTiles`);
+the old `org.share` condition (`TestOrgShareLowersOnPowerTiles`); a bound
+on the subtree (`TestAccessLinePowerRuleScales`); a cap row dropped
+(`TestEveryCapIsClassified`); the agent's sentence, and an error instead of
+a line (`TestPowerRefusalNamesNothingToTheAgent`,
+`TestAskAnAdminOnPowerTellsNothing` — 409 "lists are full"); the asker's
+mapping (`TestAskAnAdminOnPowerTellsNothing`); the boot wiring
+(`TestBuildsWithWired`); the backend words outside, the line window,
+alerts outside (`TestWsTileStatusFramesTheBackendError`); the push title
+(`TestDelegatePushAskNamesTheIDFirst`).
+
 ## Not done
 
 - A person's access through an org (`org.share` exists); a person's

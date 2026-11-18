@@ -6045,3 +6045,16 @@ here: cut from the old end, never reword.
     gate: the one part no delegate read gives — said, not hidden. What a
     tile wrote reaches the model framed as data, one field a line; a new
     job name is a short label.
+  - **After the second review: power is what code holds, not what it can
+    call.** A raise to write or terminal is refused (a blocked line,
+    `power`) only where the raised people would change code that holds
+    power: the tile, its nested tiles, a tile it lies in, and a tile that
+    builds or loads its code (the runner's build go.work, deps, import
+    maps). A callee's power is the callee's API's to mediate: warned and
+    listed. Power is an explicit list (the admin API, devices, all source,
+    the host's network, cap:net-admin, cap:containers, cap:sandboxes, any
+    unnamed cap); cap:open-links is listed only. The refusal is a line, so
+    the conversation's scope is held first and the agent reads one
+    sentence naming nothing; an admin's copy of an ask reads it as "xbin
+    refuses this one", and the asker's outcome stays one. Unticked is a
+    client default; the server applies what an approve names.
