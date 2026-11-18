@@ -49,6 +49,13 @@ test('done, an old CLI, and the echoed command', () => {
   assert.ok(!echo.url && !echo.code && !echo.done && !echo.failed, 'the typed line says nothing');
 });
 
+test('a line that says a code was malformed is not the failure', () => {
+  const st = scanSignin({ ...spec, fail: 'OAuth error' }, 'Paste code here if prompted >\nOAuth error: Invalid code. Please make sure the full code was copied\nPress Enter to retry.\n');
+  assert.deepEqual([st.invalid, st.failed], [1, '']);
+  const no = scanSignin({ ...spec, fail: 'OAuth error' }, 'OAuth error: Request failed with status code 400\n');
+  assert.deepEqual([no.invalid, no.failed], [0, 'OAuth error: Request failed with status code 400']);
+});
+
 test('only an https URL on the provider\'s hosts is offered', () => {
   for (const u of ['https://claude.ai/oauth/authorize?code=true', 'https://claude.com/cai/oauth/authorize?x=1']) {
     assert.ok(allowedURL(spec, u), u);

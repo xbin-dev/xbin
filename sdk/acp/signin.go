@@ -9,6 +9,7 @@ package acp
 // sign-in), tested against the same captures (testdata/signin).
 
 import (
+	"bytes"
 	"net/url"
 	"regexp"
 	"strings"
@@ -46,9 +47,14 @@ type Signin struct {
 	// The markers, each a substring of one line of output: Code — the CLI
 	// asks for the code the sign-in page shows; Invalid — it refused a code
 	// as malformed and waits for another; Done — it signed in; Fail — it
-	// gave up (that line says why, and the CLI exits).
+	// gave up (that line says why, and the CLI exits). A line that holds
+	// Invalid is never the Fail line (Claude Code's setup-token says a
+	// malformed code as "OAuth error: Invalid code…"). Retry — after an
+	// Invalid the CLI waits for Enter before it asks again ("" when it asks
+	// again by itself): the same page, the same code.
 	Code    string `json:"code"`
 	Invalid string `json:"invalid,omitempty"`
+	Retry   string `json:"retry,omitempty"`
 	Done    string `json:"done"`
 	Fail    string `json:"fail"`
 	// Token is a regular expression (RE2) a credential the CLI prints
@@ -64,7 +70,9 @@ type SigninState struct {
 	URL     string // the sign-in page ("" until printed); an https URL on Hosts
 	Link    bool   // URL is an OSC 8 link's target: whole as printed (text may still be arriving)
 	Code    bool   // the CLI asked for the code
+	Prompts int    // lines that asked for it (a retry asks again)
 	Invalid int    // codes it refused as malformed
+	Retry   int    // lines that said it waits for Enter to ask again
 	Done    bool   // it said it signed in
 	Failed  string // the line that said it failed ("" while none did)
 	Last    string // the last line of text: what to show when it ends saying none of these
@@ -99,9 +107,54 @@ var claudeSignin = &Signin{
 var claudeSetupToken = &Signin{
 	Command: "claude setup-token", Argv: []string{"claude", "setup-token"}, TTY: true,
 	URL: claudeSignin.URL, Hosts: claudeSignin.Hosts,
-	Code: claudeSignin.Code, Invalid: claudeSignin.Invalid, Fail: "OAuth error",
+	Code: claudeSignin.Code, Invalid: claudeSignin.Invalid, Retry: "to retry", Fail: "OAuth error",
 	Token: `sk-ant-oat01-[A-Za-z0-9_-]{20,}`,
 }
+
+// Typed is what types code into the sign-in and submits it: the writes to
+// make, one after another. Over pipes it is one line. On a terminal the
+// code and Enter are separate writes, and the code goes in as a bracketed
+// paste where the CLI turned that on (PasteMode): a full-screen CLI (Ink)
+// takes a long chunk as a paste, Enter included — Claude Code's setup-token
+// then shows the code and waits for an Enter that never comes. code is
+// CleanCode's: it holds no control character.
+func (s Signin) Typed(code string, bracketed bool) [][]byte {
+	switch {
+	case !s.TTY:
+		return [][]byte{[]byte(code + "\n")}
+	case bracketed:
+		return [][]byte{[]byte("\x1b[200~" + code + "\x1b[201~"), []byte("\r")}
+	}
+	return [][]byte{[]byte(code), []byte("\r")}
+}
+
+// PasteMode follows a terminal program's bracketed-paste switch (DECSET
+// 2004) through its output as it is read, however the reads cut it and
+// however much of the output is kept.
+type PasteMode struct {
+	on   bool
+	tail []byte // the end of the last read: a switch may be cut across reads
+}
+
+const pasteOn, pasteOff = "\x1b[?2004h", "\x1b[?2004l"
+
+// Feed takes the next bytes of output.
+func (p *PasteMode) Feed(b []byte) {
+	buf := append(p.tail, b...)
+	on, off := bytes.LastIndex(buf, []byte(pasteOn)), bytes.LastIndex(buf, []byte(pasteOff))
+	if on > off {
+		p.on = true
+	} else if off > on {
+		p.on = false
+	}
+	if keep := len(pasteOn) - 1; len(buf) > keep {
+		buf = buf[len(buf)-keep:]
+	}
+	p.tail = append(p.tail[:0:0], buf...)
+}
+
+// On reports whether the program last turned bracketed paste on.
+func (p *PasteMode) On() bool { return p.on }
 
 // Allowed reports whether u may be offered as the sign-in page: https, no
 // user part, on one of Hosts exactly, matching URL whole.
@@ -144,14 +197,20 @@ func (s Signin) Scan(out []byte) SigninState {
 	for _, l := range lines {
 		if s.Code != "" && strings.Contains(l, s.Code) {
 			st.Code = true
+			st.Prompts++
 		}
+		bad := 0
 		if s.Invalid != "" {
-			st.Invalid += strings.Count(l, s.Invalid)
+			bad = strings.Count(l, s.Invalid)
+			st.Invalid += bad
+		}
+		if s.Retry != "" && strings.Contains(l, s.Retry) {
+			st.Retry++
 		}
 		if s.Done != "" && strings.Contains(l, s.Done) {
 			st.Done = true
 		}
-		if s.Fail != "" && st.Failed == "" {
+		if s.Fail != "" && st.Failed == "" && bad == 0 {
 			if i := strings.Index(l, s.Fail); i >= 0 {
 				st.Failed = strings.TrimSpace(l[i:])
 			}

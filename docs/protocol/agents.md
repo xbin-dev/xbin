@@ -128,7 +128,8 @@ GET    /agent/providers?cwd=<tile>
                                    a sign-in a client drives for a person
                                    without showing a terminal: {command,
                                    argv, env?, tty, fallback?, url, hosts,
-                                   code, invalid?, done, fail} — run command
+                                   code, invalid?, retry?, done, fail} — run
+                                   command
                                    in a terminal session on the tile (or
                                    argv+env over pipes when tty is false),
                                    offer the first https URL with no user
@@ -141,8 +142,15 @@ GET    /agent/providers?cwd=<tile>
                                    first, else the text, rejoined where the
                                    CLI broke it over full-width lines —
                                    write the person's code and Enter once a
-                                   line holds code, and read invalid (code
-                                   refused as malformed, asked again), done
+                                   line holds code (on a terminal: the code,
+                                   then Enter in a write of its own, the
+                                   code as a bracketed paste where the CLI
+                                   turned that on — a full-screen CLI takes
+                                   a long chunk, its Enter included, as a
+                                   paste), and read invalid (code refused as
+                                   malformed, asked again — after an Enter
+                                   where a line holds retry; such a line is
+                                   never the fail line), done
                                    (signed in), fail (gave up; that line
                                    says why). A run that ends without a URL
                                    is a CLI too old for command: fallback is

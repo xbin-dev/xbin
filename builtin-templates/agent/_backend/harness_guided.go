@@ -74,6 +74,7 @@ type hGuided struct {
 	mu     sync.Mutex // one request at a time drives it; the rest below under it
 	off    int64
 	out    []byte
+	paste  acp.PasteMode // the CLI's bracketed-paste switch, as read
 	st     acp.SigninState
 	state  string // the exec's: running | exited | killed | lost
 	exit   *int
@@ -434,6 +435,7 @@ func (g *hGuided) read(ctx context.Context, dl time.Time) error {
 		return err
 	}
 	if b, err := base64.StdEncoding.DecodeString(ch.Data); err == nil && len(b) > 0 {
+		g.paste.Feed(b)
 		g.out = append(g.out, b...)
 		if len(g.out) > gsOutMax {
 			g.out = append([]byte(nil), g.out[len(g.out)-gsOutMax:]...)
@@ -471,14 +473,15 @@ func (e *Engine) guidedCode(run *Run, by, code, ref, gate string) (*gsAnswer, *g
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), gsCodeFor+sbxSlack)
 	defer cancel()
-	invalid := g.st.Invalid
-	enter := "\n"
-	if g.spec.TTY {
-		enter = "\r"
-	}
-	if err := g.conn.ExecStdin(ctx, g.box, g.exec, []byte(code+enter), false); err != nil {
-		go e.endGuided(g)
-		return nil, nil, &hAuthErr{502, fmt.Sprintf("couldn't hand %s the code: %v", g.prov.Name, err)}
+	invalid, retry := g.st.Invalid, g.st.Retry
+	// the code and Enter as the sign-in reads them (acp.Signin.Typed): on a
+	// terminal apart, the code a bracketed paste where the CLI turned that
+	// on — in one write Ink takes the Enter as part of a paste and waits
+	for _, w := range g.spec.Typed(code, g.paste.On()) {
+		if err := g.conn.ExecStdin(ctx, g.box, g.exec, w, false); err != nil {
+			go e.endGuided(g)
+			return nil, nil, &hAuthErr{502, fmt.Sprintf("couldn't hand %s the code: %v", g.prov.Name, err)}
+		}
 	}
 	dl := time.Now().Add(gsCodeFor)
 	for {
@@ -493,6 +496,10 @@ func (e *Engine) guidedCode(run *Run, by, code, ref, gate string) (*gsAnswer, *g
 			go e.endGuided(g)
 			return &gsAnswer{Done: true}, &gsResult{}, nil
 		case st.Invalid > invalid:
+			if err := g.again(ctx, dl, retry); err != nil {
+				go e.endGuided(g)
+				return nil, nil, err
+			}
 			return nil, nil, &hAuthErr{409, fmt.Sprintf("%s says that isn't the whole code — copy it again from the sign-in page and paste it", g.prov.Name)}
 		case st.Failed != "":
 			go e.endGuided(g)
@@ -516,6 +523,39 @@ func (e *Engine) guidedCode(run *Run, by, code, ref, gate string) (*gsAnswer, *g
 			return nil, nil, &hAuthErr{502, fmt.Sprintf("reading %s's sign-in: %v", g.prov.Name, err)}
 		}
 	}
+}
+
+// again brings a CLI that waits for Enter after a malformed code (the
+// spec's Retry: Claude Code's setup-token) back to its code prompt (g.mu
+// held): it waits for the line that says so (more of them than retry, the
+// count before the code went in), presses Enter, and waits for the prompt.
+// Nothing to do for a CLI that asks again by itself.
+func (g *hGuided) again(ctx context.Context, dl time.Time, retry int) error {
+	if g.spec.Retry == "" {
+		return nil
+	}
+	wait := func(more func() bool) error {
+		for !more() {
+			if g.state != "running" {
+				return &hAuthErr{502, g.prov.Name + "'s sign-in ended on that code — start it again"}
+			}
+			if err := g.read(ctx, dl); err != nil {
+				if errors.Is(err, context.DeadlineExceeded) {
+					return &hAuthErr{504, g.prov.Name + " didn't ask for the code again — start the sign-in again"}
+				}
+				return &hAuthErr{502, fmt.Sprintf("reading %s's sign-in: %v", g.prov.Name, err)}
+			}
+		}
+		return nil
+	}
+	if err := wait(func() bool { return g.st.Retry > retry }); err != nil {
+		return err
+	}
+	prompts := g.st.Prompts
+	if err := g.conn.ExecStdin(ctx, g.box, g.exec, []byte("\r"), false); err != nil {
+		return &hAuthErr{502, fmt.Sprintf("couldn't ask %s for the code again: %v", g.prov.Name, err)}
+	}
+	return wait(func() bool { return g.st.Prompts > prompts })
 }
 
 // guidedBody is POST …/authenticate's for method guided.
