@@ -37,7 +37,58 @@ workspace — except workspace-owned for a workspace admin — or someone else
 who is not an admin can change its code) and the person has not said "I
 trust this tile's source" for the tile as it stands
 (`signins.Store.Trusts`). The same answer, the same basis, the same voiding
-as the sign-in's: one trust per (person, tile identity).
+as the sign-in's: one trust per (person, tile identity). A trust that is
+not usable — an admin or the host switched trusting off — gives the copy;
+the rule looks at the host's switch at every judgement (`signinTrustOff`),
+and the first time it is seen off the real-home sessions on a trust end.
+
+**The condition is sticky** (`signins/past.go`). "Only yours now" forgot
+the past: someone holds write, leaves a hook, loses write, and the tile
+asked nothing. xbind keeps, per tile identity, in `data/signins/tiles.json`
+(never in the tile), every party it has seen able to change the tile's
+code — an owner that is a person or an org, the non-admin people with
+write — and when each was last seen able to. A tile with a party that no
+longer can (`Source.Past`) needs each person's answer; the card names them
+with the day. Written when observed: at the events the sweep runs on
+(`broker.ObserveTileParties`, before the trusts are revalidated) and at
+every judgement of a tile (`SigninSource` — a session's start is the
+backstop). A tile only ever one party's gets no record (it is remembered
+in memory until a second party appears or the one leaves), so a
+one-person install writes no file (tested on a booted daemon). A
+workspace-owned tile keeps an admin's exemption only while the record
+shows no non-admin who could change it. **Unknown to xbind, and said so in
+the docs:** who could change a tile before this record began, and changes
+made to the workspace's files while xbind was not running.
+
+**What an answer means is versioned** (`signins.TrustMeans` = 2, the
+basis prefix `tb2_`, `Trust.Means`): an answer given before D245 was for
+the sign-in only. It is void (`VoidMeans`) and asked again with the words
+as they are; a card or a stored approval's preview drawn before gets the
+existing 409 and is drawn again.
+
+**A session on the copy is confined like a member's, whoever opened it**
+(`homePlan.confines`, `setHome` — review H1). An admin's sandbox keeps
+CAP_SYS_ADMIN in its user namespace; the mount guard refuses only
+`umount2`, `move_mount`, `open_tree` and `MS_MOVE`. So the tile's code in
+an admin's copy session could bind the workspace root again without its
+masks, remount it read-write and write `homes/<admin>/.bashrc` — or
+remount the read-only workspace read-write and edit the admin's own tile.
+The copy protected nothing for the people with the most to lose. Now a
+copy session is always the restricted tier (D18: capabilities dropped, no
+nested user/mount namespace), with the restricted view of the workspace
+(D40), a member's cgroup leaf, and no host network; `home.confined` says
+so to an admin, as do the session's first lines and the home dialog.
+Trusting the tile gives new sessions there the admin's sandbox back. What
+else an unrestricted session has, checked: the whole-workspace view (now
+the allow-list view), the masks (the view binds no `homes`, `data`,
+`.xbin`), devices (none differ by tier; GPU binds are the same request a
+member can make), the admin pass (it is about attaching: a copy session
+may be attached to by an admin, which is why a terminal token of a copy
+session never opens a real-home one — below), host networking (refused
+for an admin's confined session). A VM session's guest has only what is
+shared into it — the clone — whatever its tier. (Where the kernel has
+Landlock the read guard also happens to refuse a session's mounts; the
+rule does not rest on it, and the test runs with and without.)
 
 Who the session is for:
 
@@ -46,7 +97,8 @@ Who the session is for:
 | the person (browser, app, device) | the rule, for them |
 | their workspace agent (a delegate start, approved or by preference) | the rule, for the person. Trust is only ever the person's own answer (the approval's trust line records it before the open) |
 | the root token (`homes/owner`) | the rule, as a workspace admin with no account: a workspace-owned tile nobody else can change is its own. It cannot keep a trust answer (answers are an account's), so on every other tile it gets the copy |
-| a terminal's token (`bx agent` inside a shell: the only tile credential that can open a session, and only on its own tile) | never more than the sessions it came from: **own** only when the rule says so now AND a live session of that person on that tile already has the real home; else copy |
+| a terminal's token (`bx agent` inside a shell: the only tile credential that can open a session, and only on its own tile) | never more than the session it came from: **own** only when the rule says so now AND the session the token was minted for (`auth.Principal.TermRef`, a hash of the token) is that person's, on that tile, with the real home; else copy. Not "some session of theirs there": an admin may be attached to a copy session, and its token would open a real-home session they drive |
+| a terminal token of the root token's shell (no account) | the root token's: the row above, with `homes/owner` — a one-person install's `bx agent` in a shell keeps the real home |
 | any other component credential, view-as | they open no session (the gates refuse); the rule answers copy for them all the same |
 | an admin attaching to / driving another person's session | a session with its person's REAL home is its person's alone: no admin pass (`adminPass`, `mayReattach`) — an admin typing there would be writing that home. A session on the tile's copy keeps today's admin pass. Ending a session is always allowed |
 
@@ -107,8 +159,20 @@ the bind is made from the plan and nothing else.
 xbind already overlays a base rootfs for every sandbox, inside the
 sandbox's own namespaces (`internal/sandbox/init_linux.go` `mountRoot`:
 fuse-overlayfs when xbind has one, else the kernel's overlayfs). The home
-copy uses the same two, chosen the same way (`sandbox.FuseOverlayfs()`),
-but it cannot be mounted per session: several sessions of one person on
+copy uses the same two, **the kernel's first** (`homeCopies.startHold`;
+review L5): a FUSE mount is served to one kuid without `allow_other`, and
+with it only to processes in the mounting user namespace or below
+(`fuse_allow_current_process`) — sessions are siblings of the hold, so
+with fuse-overlayfs a non-root process in a session got EACCES on the
+whole home, in both settings (checked on this kernel). The kernel's
+overlay is a filesystem like any other: every uid of the session's
+mapping uses it. fuse-overlayfs is the fallback where the kernel can't
+mount an overlay in a user namespace (before 5.11), with that limit
+documented; a layer is only ever mounted by the flavour that wrote it
+(its stamp, written after the first successful mount). The price of the
+kernel flavour: no `redirect_dir` in a user namespace, so a directory that
+exists in the real home can't be renamed in place (EXDEV; `mv` copies).
+It cannot be mounted per session: several sessions of one person on
 one tile share one upper, and two overlay mounts over one upper is unsafe
 (two fuse-overlayfs each with its own cache; the kernel calls it undefined).
 
@@ -187,11 +251,28 @@ another tile's, and the tile's backend never see it.
 - **Forget** ("Forget what this tile wrote to my home", `DELETE
   /agent/signins/homes/{id}`): the person's sessions on that copy are
   ended, the hold stopped, the layer removed by a confined run
-  (`confine.RemoveAll`: its files may be other sub-uids').
-- **Deleted with the tile**: at every rescan and at boot, a layer whose
-  tile directory is gone or has another identity is removed. A tile that
-  is merely unregistered keeps its layers (its directory is still that
-  directory).
+  (`confine.RemoveAll`: its files may be other sub-uids'). **Forget ends
+  the sessions first, and waits** (review L6b): it takes the layer's lock
+  (a start that holds it finishes first), marks the layer as being
+  forgotten (new starts are refused), ends the listed sessions, and waits
+  up to 20 s for the hold to have no session — a session that was
+  starting ends itself as it registers (`registered`). If one does not
+  come up in time, forget fails and NOTHING is removed. Ending rather than
+  refusing: "forget" is the person's way out of a copy a tile filled, and
+  a refusal while a session of theirs runs there would make them hunt for
+  it first.
+- **Deleted with the tile — only on a positive answer** (review L4): at
+  every rescan and at boot, a layer is removed when its tile's path is
+  positively not there (`tileAbsent`: ENOENT on the directory, below real
+  directories; a symlink on the way, or any other error, is "don't
+  know"). Another identity at the path, or an identity that could not be
+  read (EMFILE, EACCES), removes nothing: the layer is an **orphan** —
+  never mounted again (its id is the old identity's), listed as not used,
+  forgotten by its person. That is also the answer for a workspace
+  **restored from a backup**: every tile gets another identity (inode,
+  birth time), so every copy is an orphan and every trust is void
+  (asked again); nothing of a person's is deleted on the strength of an
+  inode number. A tile that is merely unregistered keeps its layers.
 - **Deleted with the account** (`OnUserSignedOut(deleted)`), and the
   holds ended.
 - **Quota**: homes have no quota or limit in xbind today (checked: none in
@@ -345,12 +426,63 @@ Firecracker guest on the copy). In a browser: the UI harness pass
 Red runs: fifteen mutations, each removing one rule, each failing the
 tests named for it (the change's report lists them).
 
+The review's findings (2026-11-18), each with its test and a red run:
+
+| Finding | Rule | Tests |
+|---|---|---|
+| H1 an admin's copy session could mount its way to the real home | a copy session is confined (`setHome`) | `TestHomeCopyConfinesAdmins`; under isolation `TestHomeCopyAdminIsConfined` — the two mount attacks, an admin and the root token, with and without the Landlock guard: the real home and the own tile byte-identical; red: the real home IS written |
+| M1 `bx agent` in the root token's shell got a copy | `rootHome` | `TestHomeTerminalToken`, `TestHomeCopyBxAgentInAShell` |
+| M2 a session being opened is invisible to a sweep | `Manager.judged`, `registered` | `TestHomeJudgedAgainAtRegistration`, `TestHomeCopyStartInFlight` (a start held before its registration) |
+| L1 any real-home session vouched for a terminal token | `minterHasRealHome` | `TestHomeTerminalToken`, `TestHomeCopyBxAgentInAShell` |
+| L2 a pre-D245 trust also opened the home | `TrustMeans`, `VoidMeans` | `TestTrustCoversThePastAndWhatItMeans` |
+| L3 the home dialog's trust button was not armed | bx-dialog `armed` | the `termHome` harness pass: an early click, a script's click and Enter trust nothing |
+| L4 a copy deleted on a transient error | `tileAbsent` | `TestHomeLayerStore`, `TestHomeCopyTrustAndForget` |
+| L5 non-root processes refused their home | kernel overlay first | `TestHomeCopyNonRootUser` (sub-uid mapping), `TestHomeLayerStore` |
+| L6a the host's switch | `signinTrustOff` in `homePlanFor` | `TestHomeTrustSwitchedOffByTheHost` |
+| L6b forget under a start | the lock, the wait | `TestHomeForgetDuringAStart`, `TestHomeCopyCycles` |
+| sticky past | `signins.Past` | `TestPastRemembersWhoCouldChangeATile`, `TestHomeRuleRemembersPastEditors`, `TestHomeCopyRoutes` (a one-person install records nothing) |
+
 ## 11. Not done, known
 
 - Reads are open (§9).
-- The hold's process and its fuse-overlayfs are xbind's children, outside
-  the session's cgroup leaf: their memory is not counted against a tile's
-  limit.
+- **OPEN follow-up (not built): a nested user + mount namespace after the
+  root is built**, for every terminal and agent session. Today a session's
+  processes are root in the user namespace that OWNS its mount namespace,
+  so whatever keeps CAP_SYS_ADMIN there can rearrange the mounts the
+  sandbox made (the guard is a seccomp block-list of four calls). Entering
+  a child user namespace (and a mount namespace owned by it) once the root
+  is built would make every mount the init made *locked* for the workload:
+  it could keep mounting inside its own tree (tmpfs, overlays, bind mounts
+  of what it sees) but could not remount, unmask or move anything it
+  inherited, by the kernel's own rule rather than a filter. That would let
+  an admin's copy session keep `mount` — and would harden the real-home
+  session too. It needs: the uid/gid mapping composed through two levels
+  (sub-uid ranges), apt and the file capabilities checked inside the
+  nested namespace, the D18 ucount pin moved one level down, containers
+  (`s.Containers`) and VM sandboxes re-checked.
+- **An admin's REAL-home session on a tile runs that tile's code with the
+  admin's sandbox powers** — CAP_SYS_ADMIN in the session's user
+  namespace: the workspace can be remounted read-write, masks peeled where
+  Landlock is not there. Pre-existing and by design (an admin's terminal
+  is a dev sandbox, not a boundary against the tile they chose to work
+  on); what is new is that it is now gated by the trust answer on tiles
+  that aren't the admin's own.
+- The hold's process — and on the fallback its fuse-overlayfs — are
+  xbind's children, outside the session's cgroup leaf (review L6c): their
+  memory and CPU are not counted against a tile's limit. Kept: the kernel
+  flavour's hold is one idle process (it serves a clone per session start
+  and nothing else; the file operations run in the sessions' own tasks, in
+  their cgroups); the fallback's fuse-overlayfs does only what the
+  sessions' file operations ask and keeps a bounded inode cache. Putting
+  it in a leaf of its own needs a cgroup that outlives each session and is
+  shared by several (the leaf is per session today) — not simple, so it
+  is a documented residual (docs/agent-signins.md, "Admins").
+- On the fuse-overlayfs fallback (a kernel before 5.11) only root in a
+  session can use the home on a copy (§4). Not fixable from outside the
+  kernel short of nesting the sessions' user namespaces under the hold's.
+- An admin's confined session is refused host networking also where the
+  owner's network sets grant `host` to members (`TermNet.HostOK` folds the
+  two together).
 - `HomeLogin` — the launcher's in-memory hint "this coding agent is signed
   in on its own in your home" — is kept per home, not per (home, tile): a
   login made on a tile's copy can read as "signed in" elsewhere until a

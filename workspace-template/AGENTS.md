@@ -47,7 +47,7 @@ tile deployments (see §Tile deployments) — and **no JS build step — ever**
 | `XBIN_URL` | xbind, e.g. `http://127.0.0.1:8642` |
 | `XBIN_TOKEN` | this terminal's **tile-scoped** token — acts as THIS component, never the owner; `bx` and curl use it |
 | `XBIN_DEPLOYMENT` | set only when this terminal targets a non-primary tile deployment (e.g. `dev`): your API calls and per-deployment `bx` reads reach it; unset = the primary |
-| `HOME` | `<workspace>/homes/<user>` — per-user, contained, persistent; seeded `.zshrc`/`.bashrc` (not the host home). On a tile that isn't only its person's and that they haven't trusted it is that tile's copy of their home: readable as ever, and what is written under `~` stays on that tile (`/docs/agent-signins.md`, "Your home on a tile that isn't only yours") |
+| `HOME` | `<workspace>/homes/<user>` — per-user, contained, persistent; seeded `.zshrc`/`.bashrc` (not the host home). On a tile that isn't only its person's and that they haven't trusted it is that tile's copy of their home: readable as ever, and what is written under `~` stays on that tile — and the session is a member's sandbox, for a workspace admin too (no `mount`, no host network) (`/docs/agent-signins.md`, "Your home on a tile that isn't only yours") |
 
 Your API identity is **this component** (docs/overview/09-terminals.md):
 `XBIN_TOKEN` is a per-session token resolving to this tile's element

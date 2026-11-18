@@ -20,7 +20,11 @@ trusted**, your sessions mount *this tile's copy* of your home:
 
 A tile "isn't only yours" when it is owned by another person, an org, or
 the workspace (unless you are a workspace admin), or when someone else who
-isn't a workspace admin can change its code. That is the rule a saved
+isn't a workspace admin can change its code — **or could before**: from
+this release xbind remembers, per tile, who it has seen able to change
+the code, and a tile someone else could change keeps asking for your
+trust after they lose that access (what they left is still there). It
+can't know who could change a tile before this release. That is the rule a saved
 coding-agent sign-in already follows, and the same answer — **"I trust
 this tile's source"** — switches both: trusting a tile now means *your
 sign-in is used there* and *that tile's code can change your home*.
@@ -40,13 +44,29 @@ Also:
 - A session that has a person's **real** home is that person's alone: a
   workspace admin can no longer attach to, or drive, someone else's such
   session (they can still end it). Sessions on a copy keep the admin pass.
+- **A workspace admin's session on a copy is confined like a member's**
+  until they trust the tile (the root token's too): the restricted
+  sandbox — no mounts, no new namespaces, the workspace seen read-only
+  through the tiles they may read, a member's resource limits, no host
+  network. An admin's sandbox can mount, and could mount its way around
+  the copy. The session's first lines and the home dialog say so.
+- **Every "I trust this tile's source" given before this release is
+  void** and asked again: it was given for the sign-in only, and now also
+  lets the tile's code change your home. A card or approval that was open
+  across the upgrade is refused (409) and drawn again with the new words.
 - A session opened with a terminal's own token (`bx agent` inside a shell)
-  has the real home only when a session of that person on that tile
-  already does.
+  has the real home only when **that terminal** has it. In the root
+  token's terminal it is the root token's.
 - Stopping to trust a tile (or the trust going void) now also ends your
   sessions there that have your real home.
 - Under `--isolate`, a copy that can't be mounted **fails the session**
   with the reason; the real home is never mounted in its place.
+- A copy is deleted by xbind only when its tile's directory is gone (or
+  the account is). After a **restore from a backup** every tile has
+  another identity: trust answers are asked again, sessions start new
+  copies, and the old copies stay listed ("its tile was deleted or made
+  again — this copy is not used any more") until their people forget
+  them — nothing is deleted on a doubt.
 
 ## Who's affected
 
@@ -62,13 +82,23 @@ Also:
   starts on an empty copy over your real home.
 - **Admins** who attach to other people's terminals to help: possible on
   tiles where that person works on a copy, refused where the session has
-  their real home.
+  their real home. **Admins working on a person's or an org's tile**: the
+  terminal there is a member's until you trust the tile — `mount`,
+  `unshare`, host networking and the whole-workspace view are gone in
+  that session. Tiles the workspace owns are unaffected (unless a
+  non-admin could change one since this release).
+- **People who had trusted tiles**: asked once more per tile; until then
+  those tiles' sessions start without the saved sign-in and on a copy.
 - **Workspaces without sandboxes** (no `--isolate`): no change, and no
   protection — every session runs as xbind's own user with the real home.
-- **Hosts**: the copy is an overlay mounted inside sandboxes —
-  fuse-overlayfs where xbind has one (it ships beside `xbind`), else the
-  kernel's overlayfs (Linux 5.11+). It needs `open_tree`/`move_mount`
-  (Linux 5.2+). Copies are kept in `data/home-copies/`.
+- **Hosts**: the copy is an overlay mounted inside sandboxes — the
+  kernel's overlayfs (Linux 5.11+), so every user in a session can use
+  its home; on an older kernel fuse-overlayfs (it ships beside `xbind`),
+  where only root in the session can (a non-root process gets
+  "permission denied" on `~`). It needs `open_tree`/`move_mount` (Linux
+  5.2+). On the kernel's overlay a directory that exists in the real home
+  can't be renamed in place. Copies are kept in `data/home-copies/`; who
+  could change each tile, in `data/signins/tiles.json`.
 
 ## How to migrate
 

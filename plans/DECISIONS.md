@@ -5998,10 +5998,31 @@ here: cut from the old end, never reword.
   - **One overlay mount per (person, tile), held in a namespace of its
     own** and handed to each session as a detached clone
     (`open_tree`/`move_mount`), because two overlay mounts over one upper
-    are unsafe and nothing may be mounted on the host: fuse-overlayfs
-    (mounted without `allow_other`, so sibling sandboxes may use it) where
-    xbind has one, else the kernel's overlayfs — the root's own choice.
+    are unsafe and nothing may be mounted on the host: the kernel's
+    overlayfs, and fuse-overlayfs only where the kernel can't (a FUSE
+    mount held in another user namespace serves one kuid: non-root
+    processes in a session were refused their home — the review's L5).
     A copy that cannot be mounted fails the session (D78).
+  - **The review of 2026-11-18** (all in the plan, each with a test shown
+    red): **a session on the copy is confined like a member's, whoever
+    opened it** — an admin's sandbox keeps CAP_SYS_ADMIN and could bind
+    the workspace again without its masks and write the real home; trust
+    the tile for the admin's sandbox. The condition is **sticky**: xbind
+    records per tile identity who could change its code
+    (`data/signins/tiles.json`), and a tile someone else could change
+    before asks until the person answers; history before the record is
+    unknown; a one-person install records nothing. **What a trust means
+    is versioned**: answers from before D245 are void and asked again. A
+    terminal token gets the real home only when the session it was minted
+    for has it; the root token's shells' tokens are the root token's. A
+    session is judged again when it registers (a start in flight is
+    invisible to a sweep). A copy is deleted without its person's click
+    only when its tile's directory is positively gone — a restored
+    workspace leaves orphans, listed and forgettable. Forget ends the
+    sessions on a copy and waits for a start in flight.
+  - **Open follow-up:** a nested user + mount namespace after the root is
+    built, so that an admin's session could keep `mount` without being
+    able to rearrange the sandbox's own mounts (the plan's §11).
   - **Rejected:** a host-level FUSE mount like the resources' gocryptfs
     (fuse-overlayfs would run as xbind on sandbox-written data, and leaks
     mounts); a mount per session (unsafe on a shared upper) or an
@@ -6011,3 +6032,5 @@ here: cut from the old end, never reword.
     complete — what it would take is in the plan).
   - **Kept open:** untrusted code still READS the home. An admin no
     longer attaches to another person's session that has their real home.
+    An admin's REAL-home session on a tile runs that tile's code with the
+    admin's sandbox powers — by design, now behind the trust answer.

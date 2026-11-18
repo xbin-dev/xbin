@@ -107,7 +107,6 @@ const TrustMeans = 2
 // carries another basis, and its answer is refused the same way.
 func (s Source) Basis() string {
 	h := sha256.New()
-	fmt.Fprintf(h, "means:%d\n", TrustMeans)
 	for _, part := range []string{s.ID, s.Tile, s.Owner, strconv.FormatBool(s.NotOwn)} {
 		fmt.Fprintf(h, "%d:%s\n", len(part), part)
 	}

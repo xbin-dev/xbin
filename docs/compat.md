@@ -440,16 +440,26 @@ differently.
   `~` goes to `data/home-copies/<user>/<tile>/`, empty at first. A
   security fix (the changelog entry is marked BREAKING, with
   [changes/2026-11-18-home-on-untrusted-tiles.md](changes/2026-11-18-home-on-untrusted-tiles.md)).
-- **Who sees no change:** sessions on a person's own tiles and on tiles
-  they trusted; a workspace admin on workspace-owned tiles nobody else can
-  change — so a one-person workspace entirely — and every workspace
-  without `--isolate`.
+- **Who sees no change:** sessions on a person's own tiles; a workspace
+  admin on workspace-owned tiles nobody else can change — so a one-person
+  workspace entirely, `bx agent` in the root token's shell included — and
+  every workspace without `--isolate`.
+- **Trust answers given before this release are void** (one question
+  per tile, again): they were given for the sign-in only. Nothing is
+  deleted; the list shows them as "asked again".
+- **Additive state:** `data/signins/tiles.json` (who could change each
+  tile's code, from this release on; none in a one-person workspace).
+  An older xbind ignores it.
+- **A restored backup** keeps every copy: tiles get another identity, so
+  the copies are listed as not used and are their people's to forget;
+  xbind deletes a copy by itself only when the tile's directory is gone.
 - **Additive API:** session rows gain `home`, `GET /agent/signins` gains
   `home` and `homes`, one new route (`DELETE /agent/signins/homes/<id>`).
   An older page ignores them.
 - **Narrowed, on purpose:** an admin's attach to another person's session
   is refused when that session has the person's real home; a session whose
-  copy cannot be mounted does not start.
+  copy cannot be mounted does not start; an admin's session on a tile they
+  have not trusted (a person's, an org's) is a member's sandbox.
 - **Downgrading** an xbind: it knows nothing of `data/home-copies/`,
   mounts the real home read-write on every tile again (the old exposure),
   and leaves the copies untouched for the next upgrade.

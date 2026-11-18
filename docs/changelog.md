@@ -24,8 +24,17 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   source" now means two things — your sign-in is used there, and that
   tile's code can change your home — and gives new sessions on the tile
   your real home; a trust that stops holding ends the sessions that had
-  it. Session rows carry `home: {mode: own | copy, why?, kept?, trust?,
-  docs}`; the window's status bar says `home: yours` or `home: this tile's
+  it. **A session on a copy is confined like a member's, a workspace
+  admin's too** (no mounts or new namespaces, the restricted view, no
+  host network — `home.confined`) until they trust the tile. **Trust
+  answers given before this release are void and asked again** (they
+  were for the sign-in only; the basis is now `tb2_…`, and the question
+  carries `means`), and a tile someone else *could* change before keeps
+  asking after they lose access (`trust.past`, `pastUntil`; xbind's
+  record starts with this release). Session rows carry `home: {mode: own
+  | copy, why?, kept?, confined?, trust?, docs}`; a dialog button may be
+  `armed` (`xbin.dialog`: the person's deliberate click only — the home
+  dialog's "I trust this tile's source" is); the window's status bar says `home: yours` or `home: this tile's
   copy (changes stay on this tile)`; `GET /agent/signins` gains `home`
   (with `?tile=`) and `homes`, and `DELETE /agent/signins/homes/<id>` is
   "forget what this tile wrote to my home". A workspace admin can no

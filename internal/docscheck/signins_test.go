@@ -58,9 +58,19 @@ func TestSigninDocsSayTheLimits(t *testing.T) {
 		"no sandboxes, no protection":                  "nothing here protects it",
 		"an admin can't type into a real-home session": "admin can't attach to, or drive, your session when it has your own home",
 		"…with the exact attack":                       "`~/.claude/settings.json` hooks, `~/.gitconfig`",
-		"nothing but the person answers":               "nothing but you answers it",
-		"the migration":                                "get the question instead",
-		"the owner accepted the risk":                  "accepted the risk",
+		// the review of D245
+		"an admin's copy session is a member's":    "**confined like a member's until you trust that tile**",
+		"who could change a tile before":           "**someone else could change its code before, and can't now**",
+		"…and what xbind can't know":               "**What xbind can't know:**",
+		"an old answer is void":                    "**what trusting meant when you gave it**",
+		"a terminal's token: that terminal's home": "**only when that terminal has it**",
+		"nothing is deleted on a doubt":            "xbind never deletes a copy on a doubt",
+		"a restore from a backup":                  "**restored from a backup**",
+		"the fallback's limit":                     "**only root in the session can use the home**",
+		"the trust button is a deliberate click":   "not Enter, not a script",
+		"nothing but the person answers":           "nothing but you answers it",
+		"the migration":                            "get the question instead",
+		"the owner accepted the risk":              "accepted the risk",
 	} {
 		if !strings.Contains(guide, want) {
 			t.Errorf("docs/agent-signins.md doesn't say %s (%q)", what, want)

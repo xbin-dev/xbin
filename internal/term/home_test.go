@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -835,6 +836,17 @@ func TestHomeCopyConfinesAdmins(t *testing.T) {
 			t.Errorf("%s on bob's tile: the row does not say it is confined: %+v", name, v)
 		}
 	}
+	// the host's own network stack is an admin's: a confined session asked
+	// onto it is offline (where a member's lands), told, and not offered it
+	hostOf := func(o openOpts) bool {
+		return slices.ContainsFunc(o.scopes, func(s Scope) bool { return s.ID == NetHost })
+	}
+	if o := m.openOptsFor(root, "apps/ws", "apps/ws", NetHost, "", true); !o.netHost || o.net != NetHost || !hostOf(o) {
+		t.Errorf("an admin on their own tile lost the host network: net %q host %v", o.net, o.netHost)
+	}
+	if o := m.openOptsFor(root, "apps/bob", "apps/bob", NetHost, "", true); o.netHost || o.net != NetNone || hostOf(o) || !strings.Contains(o.netNote, "confined like a member's — trust this tile for an admin's — running as offline") {
+		t.Errorf("an admin's confined session on the host's network: net %q host %v scopes %+v note %q", o.net, o.netHost, o.scopes, o.netNote)
+	}
 	// a member is restricted everywhere, and "confined" is not said to them
 	if o := open(alice, "apps/bob"); !o.restricted || o.home.view(m, false).Confined {
 		t.Errorf("a member on bob's tile: restricted %v view %+v", o.restricted, o.home.view(m, false))
@@ -978,7 +990,7 @@ func TestHomeForgetDuringAStart(t *testing.T) {
 		t.Fatalf("the start: %v", b.err)
 	}
 	// it doesn't register in time: forget fails, and NOTHING was removed — its hold runs, its layer is there
-	if err := <-forgot; err == nil || !strings.Contains(err.Error(), "nothing was removed") {
+	if err := <-forgot; err == nil || !strings.Contains(err.Error(), "still starting or ending — nothing was removed") {
 		t.Fatalf("forget with a start in flight: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "meta.json")); err != nil {

@@ -92,7 +92,7 @@ it holds credentials.
 
 **Read-write on your own tiles — a copy elsewhere (D245).** On a tile whose
 source isn't only yours (someone else owns it, or someone else who isn't an
-admin can change it) and that you have not trusted, the bind at
+admin can change it or could before) and that you have not trusted, the bind at
 `homes/<you>/` is not your home but a copy-on-write view of it: the
 session reads your real home, and what it writes under `~` goes to a layer
 kept for you on that tile and never reaches the real home. So a hook or a

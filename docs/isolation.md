@@ -430,10 +430,13 @@ and writes to a copy-on-write layer kept for you on that tile
 (`data/home-copies/<user>/<tile>/`, mounted in no sandbox but through its
 overlay), so the tile's code can't leave a file in your home that runs
 later on your own tiles. The overlay is mounted once per person and tile
-in a namespace of its own and attached to each session's sandbox
-(fuse-overlayfs where xbind has one, else the kernel's overlayfs); nothing
-is mounted on the host, and a copy that can't be mounted fails the session
-rather than opening the real home. The session's row and status bar say
+in a namespace of its own and attached to each session's sandbox (the
+kernel's overlayfs; fuse-overlayfs on a kernel before 5.11, where only
+root in the session can use the home); nothing is mounted on the host,
+and a copy that can't be mounted fails the session rather than opening
+the real home. A session on a copy runs in the restricted tier whoever
+opened it — an admin's too: with an admin sandbox's CAP_SYS_ADMIN the
+tile's code could mount its way around the copy. The session's row and status bar say
 `home: yours` or `home: this tile's copy`. The rule, trusting a tile and
 forgetting a copy: [agent-signins.md](agent-signins.md#your-home-on-a-tile-that-isnt-only-yours).
 
