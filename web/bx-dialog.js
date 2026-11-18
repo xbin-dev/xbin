@@ -12,8 +12,15 @@
  *                          // submit failed — re-open the dialog with it set)
  *     fields?: [{ name, label?, type?, value?, placeholder?, options? }],
  *              // type: text|password|number|textarea|select|checkbox (default text)
- *     buttons?: [{ label, value, primary?, danger? }],   // default Cancel/OK
+ *     buttons?: [{ label, value, primary?, danger?, armed? }],   // default Cancel/OK
  *   }
+ *
+ * A button with `armed` (a string: a key of what it stands for) is one
+ * that widens what something may do — "I trust this tile's source" in the
+ * home dialog (D245). It answers only to the person's own click, a moment
+ * after it appears, while nothing covers it — never to Enter, a script's
+ * click or the form's submit (/vendor/agent-armed.js, as the sign-in
+ * card's and the approval sheet's).
  *
  * Fires `bx-dialog-resolve` (bubbles, composed) once with
  *   { button, values }  — button = the clicked button's value, or null if
@@ -23,6 +30,7 @@
 import { LitElement, html, css, nothing } from 'lit';
 import { scrollCss } from '/vendor/scroll-css.js';
 import '/vendor/bx-icons.js';
+import { ArmedButtons } from '/vendor/agent-armed.js';
 
 export class BxDialog extends LitElement {
   static properties = {
@@ -79,7 +87,10 @@ export class BxDialog extends LitElement {
     button.primary { background: var(--bx-accent, #8C9BFF); border-color: var(--bx-accent, #8C9BFF); color: var(--bx-accent-ink, #0B0C12); }
     button.primary:hover { background: var(--bx-accent-hover, #A9B4FF); border-color: var(--bx-accent-hover, #A9B4FF); }
     button.danger { color: var(--bx-danger, #FF7A7A); border-color: var(--bx-danger, #FF7A7A); }
+    button[aria-disabled="true"] { opacity: 0.55; cursor: default; }
   `];
+
+  #armed = new ArmedButtons(this); // buttons that widen: the person's deliberate click
 
   #onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); this.#resolve(null); } };
 
@@ -134,8 +145,10 @@ export class BxDialog extends LitElement {
     const submit = (e) => {
       e.preventDefault();
       const b = buttons.find((x) => x.primary) ?? buttons[buttons.length - 1];
+      if (b.armed != null) return; // Enter never answers for a button that widens
       this.#resolve(b.value);
     };
+    const click = (b) => (e) => { if (b.armed != null && !this.#armed.may(e)) return; this.#resolve(b.value); };
     return html`
       <div class="backdrop" @click=${() => this.#resolve(null)}></div>
       <div class="box" role="dialog" aria-modal="true">
@@ -148,7 +161,8 @@ export class BxDialog extends LitElement {
           <div class="btns">
             ${buttons.map((b) => html`
               <button type="button" class=${b.primary ? 'primary' : b.danger ? 'danger' : ''}
-                      @click=${() => this.#resolve(b.value)}>${b.label}</button>`)}
+                      data-armed=${b.armed ?? nothing} aria-disabled=${b.armed != null ? 'true' : nothing}
+                      @click=${click(b)} @keydown=${b.armed != null ? this.#armed.key : nothing}>${b.label}</button>`)}
           </div>
         </form>
       </div>`;

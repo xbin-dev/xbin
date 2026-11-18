@@ -66,7 +66,7 @@ test('a tile agent start: the mode leads, and one that never asks is the danger 
   const asked = s({ model: '', provider: 'claude', signIn: 'own', signInId: 'si_1a2b', signInTrust: line });
   assert.deepEqual(W.sessionRows(asked).signin, { offer: true, id: 'si_1a2b', name: 'Claude Code', without: 'own', trust: line });
   assert.equal(W.sessionRows(s({ model: '', provider: 'claude', signIn: 'own', signInId: 'si_1a2b', signInTrust: 'yes' })).signin.trust, null, 'only xbind\'s object is a trust question');
-  assert.deepEqual(W.approveBody(asked, 'once', '', { signin: true, trust: true }), { grant: 'once', signin: true, trust: true });
+  assert.deepEqual(W.approveBody(asked, 'once', '', { signin: true, trust: true }), { grant: 'once', signin: true, trust: true, shown: 'signin+home' });
   assert.deepEqual(W.approveBody(asked, 'once', '', { signin: true }), { grant: 'once', signin: true }, 'the trust line unticked');
   assert.deepEqual(W.approveBody(asked, 'once', '', { trust: true }), { grant: 'once' }, 'the trust line alone is nothing: it goes with the sign-in');
   assert.deepEqual(W.approveBody(asked, 'once', '', null), { grant: 'once' });

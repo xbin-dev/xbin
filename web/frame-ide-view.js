@@ -507,7 +507,9 @@ export function ideTestApi(f) {
     sessionRef: (i = f._active) => (f._sessions[i] ? refOf(f._sessions[i]) : null),
     get status() {
       const el = f.renderRoot?.querySelector('.status');
-      return { folded: !!el?.querySelector('button.fold'), pickers: [...(el?.querySelectorAll('select.scope, button.vm') ?? [])].map((x) => x.className) };
+      const home = el?.querySelector('.home'); // the session in view's home (D245): yours, or this tile's copy
+      return { folded: !!el?.querySelector('button.fold'), pickers: [...(el?.querySelectorAll('select.scope, button.vm') ?? [])].map((x) => x.className),
+        home: home ? { mode: home.dataset.home, text: home.textContent.trim(), title: home.title, link: home.getAttribute('href') || '' } : null };
     },
   };
 }

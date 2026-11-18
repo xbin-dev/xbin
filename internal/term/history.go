@@ -81,6 +81,10 @@ type HistoryMeta struct {
 	// alone: an admin viewing as them reads neither it nor its first prompt
 	// (ErrSigninHistory), as with the live session.
 	Signin bool `json:"signin,omitempty"`
+	// Home is "copy" for a session that ran on its tile's copy of the
+	// person's home (D245, home.go): its coding agent's own session files
+	// are in that copy, so a resume stays on it. Absent: the real home.
+	Home string `json:"home,omitempty"`
 }
 
 // ErrSigninHistory refuses an admin viewing as a person on a past session
@@ -144,7 +148,7 @@ func (m *Manager) saveHistory(s *Session) {
 		Created: born.UTC().Format(time.RFC3339), Ended: time.Now().UTC().Format(time.RFC3339),
 		Turns: turns, Preview: firstPrompt(evs), ACPSessionID: acpID, Loadable: loadable && acpID != "",
 		Deployment: s.target.Deployment, Origin: originOf(s.origin), Agent: s.origin,
-		Signin: s.carriesSignin(),
+		Signin: s.carriesSignin(), Home: s.historyHome(),
 	}, Events: evs}
 	dir := m.sessionHistoryDir(s)
 	if err := os.MkdirAll(dir, 0o755); err != nil {

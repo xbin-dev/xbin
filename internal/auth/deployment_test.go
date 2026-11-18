@@ -281,7 +281,7 @@ func TestPrincipalDeploymentZeroValue(t *testing.T) {
 			want Principal
 		}{
 			{"instance token (RegisterInstance)", dlBearer(inst), Principal{Component: "apps/x", Via: "instance"}},
-			{"terminal token (MintTerminal), owner-opened", dlBearer(ownerTerm), Principal{Component: "apps/x", Via: "terminal"}},
+			{"terminal token (MintTerminal), owner-opened", dlBearer(ownerTerm), Principal{Component: "apps/x", Via: "terminal", TermRef: TerminalRef(ownerTerm)}},
 			{"frame token, owner-bound", dlFrame(a.MintFrameToken("apps/x", "", time.Minute)),
 				Principal{Component: "apps/x", Via: "frame", Gen: a.ownerGen()}},
 		}

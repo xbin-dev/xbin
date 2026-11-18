@@ -64,8 +64,14 @@ type SessionInfo struct {
 	// settled it (signin.go, D230): {source: saved | home | connector |
 	// none, id?, name?, why?} — why a saved sign-in of the person's isn't
 	// used. Absent before, for a shell, and where xbind keeps no sign-ins.
-	Signin   *SessionSignin `json:"signin,omitempty"`
-	personal bool           // a person's session on a partitioned tile (Personal)
+	Signin *SessionSignin `json:"signin,omitempty"`
+	// Home is which home the session mounts, fixed at its start (home.go,
+	// D245): {mode: own | copy, why?, kept?, unsandboxed?, trust?, docs} —
+	// "home: yours", or "home: this tile's copy (changes stay on this
+	// tile)" on a tile whose source its person has not trusted. Absent
+	// where xbind decides nothing (no rule wired).
+	Home     *SessionHome `json:"home,omitempty"`
+	personal bool         // a person's session on a partitioned tile (Personal)
 }
 
 // Personal reports a person's session on a partitioned tile — in their
@@ -205,6 +211,14 @@ func (s *Session) mayReattach(p auth.Principal, partitioned bool) string {
 	tile := s.onTileOrCwd()
 	if partitioned && p.ReadOnly() {
 		return viewAsRefusal(tile)
+	}
+	if s.realHome() && s.homeKey != HomeKey(p) {
+		// it has its person's real home: typing there is writing that home
+		// (home.go) — on any tile, an admin too
+		if p.IsAdmin() {
+			return realHomeRefusal
+		}
+		return "session belongs to another user"
 	}
 	if p.IsAdmin() && (!partitioned || s.homeKey == HomeKey(p)) {
 		return ""

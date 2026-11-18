@@ -46,17 +46,31 @@ public struct TermDirectoryEntry: Equatable, Sendable, Identifiable {
     /// Who started it: "agent" for a tile agent the person's workspace agent
     /// started for them (docs/protocol/delegation.md), "" for their own.
     public var origin: String
+    /// Which home the session mounts, fixed at its start (D245): "own" —
+    /// the person's real home — or "copy": on a tile whose source they have
+    /// not trusted, a copy that keeps what the session writes under `~` on
+    /// that tile. "" on an xbind that doesn't say.
+    public var home: String
 
     public init(id: String, cwd: String, net: String = "", label: String = "", scopes: [TermScope] = [], gpu: String = "none",
                 api: Bool = true, name: String = "", created: Date? = nil, lastActive: Date? = nil, clients: Int = 0,
                 envHeld: Bool = false, kind: Kind = .shell, vm: Bool = false, provider: String = "", mode: String = "",
                 model: String = "", status: String = "", pending: Int = 0, questions: Int = 0, deployment: String = "",
-                purpose: String = "", origin: String = "") {
+                purpose: String = "", origin: String = "", home: String = "") {
         self.id = id; self.cwd = cwd; self.net = net; self.label = label; self.scopes = scopes; self.gpu = gpu
         self.api = api; self.name = name; self.created = created; self.lastActive = lastActive; self.clients = clients
         self.envHeld = envHeld; self.kind = kind; self.vm = vm; self.provider = provider; self.mode = mode
         self.model = model; self.status = status; self.pending = pending; self.questions = questions
-        self.deployment = deployment; self.purpose = purpose; self.origin = origin
+        self.deployment = deployment; self.purpose = purpose; self.origin = origin; self.home = home
+    }
+
+    /// The session's home is this tile's copy (``SessionHomeWords``).
+    public var homeIsCopy: Bool { home == "copy" }
+
+    /// The row's second line: the status and, on a tile's copy of the
+    /// home, that — a session with the person's own home says nothing more.
+    public var statusLine: String {
+        homeIsCopy ? "\(statusText) · \(SessionHomeWords.copyShort)" : statusText
     }
 
     /// Started by the person's workspace agent.
@@ -186,8 +200,11 @@ public enum TermDirectory {
 
         enum K: String, CodingKey {
             case id, cwd, net, label, scopes, gpu, api, name, created, lastActive, clients, envHeld, kind, vm
-            case provider, mode, model, status, pending, questions, deployment, purpose, origin
+            case provider, mode, model, status, pending, questions, deployment, purpose, origin, home
         }
+
+        /// `home: {mode, …}` — only the mode is read here.
+        struct Home: Decodable { var mode: String? }
 
         init(from decoder: any Decoder) throws {
             let c = try decoder.container(keyedBy: K.self)
@@ -204,7 +221,8 @@ public enum TermDirectory {
                 clients: i(.clients), envHeld: b(.envHeld) ?? false,
                 kind: TermDirectoryEntry.Kind(rawValue: s(.kind)) ?? .shell, vm: b(.vm) ?? false,
                 provider: s(.provider), mode: s(.mode), model: s(.model), status: s(.status), pending: i(.pending),
-                questions: i(.questions), deployment: s(.deployment), purpose: s(.purpose), origin: s(.origin))
+                questions: i(.questions), deployment: s(.deployment), purpose: s(.purpose), origin: s(.origin),
+                home: (((try? c.decodeIfPresent(Home.self, forKey: .home)) ?? nil)?.mode).flatMap { SessionHomeWords.known($0) } ?? "")
         }
     }
 
@@ -309,5 +327,38 @@ public struct TermVMChoice: Equatable, Sendable {
         else if let vm, vm.emulated { note = vm.note.isEmpty ? "Emulated (no KVM): slower." : vm.note }
         else { note = "" }
         if session?.net == "host" { available = false; if note.isEmpty { note = "A VM can't use the host network." } }
+    }
+}
+
+/// The words for which home a session mounts (D245, docs/agent-signins.md
+/// "Your home on a tile that isn't only yours"). On a tile whose source a
+/// person has not trusted, their sessions read their real home and write
+/// to a copy kept for that tile. Whether to trust a tile is decided on the
+/// web, where xbin shows whose tile it is and who can change it: the app
+/// says so and never asks.
+public enum SessionHomeWords {
+    /// A session with the person's real home.
+    public static let own = "home: yours"
+    /// A session on the tile's copy of it — the full line.
+    public static let copy = "home: this tile's copy (changes stay on this tile)"
+    /// The same, for a row's second line.
+    public static let copyShort = "home: this tile's copy"
+    /// Under a session on a copy: what it means, in one sentence.
+    public static let copyMeans = "This session reads your home, and what it writes there stays on this tile — your real home is not changed."
+    /// Where the trust question is answered.
+    public static let trustOnWeb = "To have your real home on this tile, say you trust this tile's source — xbin asks on the web, in the tile's window. Trusting means two things: your saved sign-in is used here, and this tile's code can change your home."
+
+    /// The line for a mode ("" for one this build doesn't know).
+    public static func line(_ mode: String) -> String {
+        switch mode {
+        case "own": return own
+        case "copy": return copy
+        default: return ""
+        }
+    }
+
+    /// `mode` when it is one of the two, else nil.
+    public static func known(_ mode: String) -> String? {
+        mode == "own" || mode == "copy" ? mode : nil
     }
 }

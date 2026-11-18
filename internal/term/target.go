@@ -253,6 +253,7 @@ func (m *Manager) DeploymentOf(id string) string {
 // row is s's directory row with its echo.
 func (m *Manager) row(s *Session) SessionInfo {
 	si := s.info()
+	si.Home = s.homeRow(m) // which home it mounts (home.go)
 	si.Deployment = m.echoOf(s)
 	return si
 }

@@ -60,3 +60,21 @@ func (*Factory) Close() error { return nil }
 
 // AcceptFrom is unsupported off Linux.
 func AcceptFrom(*os.File) (net.Conn, error) { return nil, ErrUnsupported }
+
+// Hold is one overlay mount held in a namespace of its own; Linux-only.
+type Hold struct{}
+
+// StartHold is unsupported off Linux.
+func StartHold(HoldSpec, int, int) (*Hold, error) { return nil, ErrUnsupported }
+
+// Flavour is "" off Linux.
+func (*Hold) Flavour() string { return "" }
+
+// Done never closes off Linux (there is no hold).
+func (*Hold) Done() <-chan struct{} { return nil }
+
+// Mount is unsupported off Linux.
+func (*Hold) Mount() (*os.File, error) { return nil, ErrUnsupported }
+
+// Close is a no-op off Linux.
+func (*Hold) Close() {}

@@ -28,6 +28,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/registry"
 	"github.com/xbin-dev/xbin/internal/resenc"
 	"github.com/xbin-dev/xbin/internal/server"
+	"github.com/xbin-dev/xbin/internal/signins"
 	"github.com/xbin-dev/xbin/internal/users"
 	"github.com/xbin-dev/xbin/internal/util"
 	"github.com/xbin-dev/xbin/internal/vault"
@@ -47,14 +48,17 @@ type Broker struct {
 	resUsageC sync.Map // resource id → *resUsageEntry (walk-heavy sizes, TTL-cached)
 	kv        *kvStore
 	cron      *cronRunner
-	bus       *busSubs              // bus push subscriptions (bussubs.go)
-	uids      *uidAllocator         // nil = tier 1
-	barrier   *vault.Barrier        // vault encryption-at-rest barrier
-	resenc    *resenc.Manager       // per-resource gocryptfs mounts (filesystem/sqlite)
-	tiles     *builtins.Set         // embedded optional tile catalog (nil = none)
-	templates *builtins.TemplateSet // embedded builtin template catalog (nil = none)
-	updater   *builtins.Updater     // builtin update tracking (nil = none)
-	Users     *users.Store          // human users (nil = single-user/root-only)
+	bus       *busSubs       // bus push subscriptions (bussubs.go)
+	uids      *uidAllocator  // nil = tier 1
+	barrier   *vault.Barrier // vault encryption-at-rest barrier
+	// SigninPast is the record of who could change each tile's code before
+	// (signins/past.go, D245; boot installs it). nil: nothing is remembered.
+	SigninPast *signins.Past
+	resenc     *resenc.Manager       // per-resource gocryptfs mounts (filesystem/sqlite)
+	tiles      *builtins.Set         // embedded optional tile catalog (nil = none)
+	templates  *builtins.TemplateSet // embedded builtin template catalog (nil = none)
+	updater    *builtins.Updater     // builtin update tracking (nil = none)
+	Users      *users.Store          // human users (nil = single-user/root-only)
 	// OnPeopleChanged, if set, is called after people, their access or
 	// their orgs changed (usersEvent): boot wires the server's
 	// SweepDelegation.

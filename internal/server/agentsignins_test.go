@@ -276,8 +276,12 @@ func TestSigninsRoutes(t *testing.T) {
 	} {
 		for _, try := range [][3]string{{"GET", "", ""}, {"GET", "/uses", ""}, {"POST", "", `{"harness":"claude","secret":"` + fakeSigninKey + `"}`},
 			{"PUT", "/" + tok.ID, `{"default":true}`}, {"DELETE", "/" + tok.ID, ""}, {"POST", "/guided", `{"harness":"claude"}`}} {
-			if c := bearer(cred, try[0], try[1], try[2]); c != 403 {
-				t.Errorf("%s, %s %s: %d", name, try[0], try[1], c)
+			want := 403
+			if name == "the root token" && try[0] == "GET" && try[1] == "" {
+				want = 200 // its own trusted tiles, home and copies — never a sign-in (signinsroot.go: the seam)
+			}
+			if c := bearer(cred, try[0], try[1], try[2]); c != want {
+				t.Errorf("%s, %s %s: %d, want %d", name, try[0], try[1], c, want)
 			}
 		}
 	}
@@ -585,11 +589,11 @@ func TestSigninsTrustRoutes(t *testing.T) {
 		if hr := here(q); hr != nil && hr.Trust != nil {
 			basis = hr.Trust.Basis
 		}
-		return do(sid, "POST", "/trust", `{"tile":"`+tile+`","basis":"`+basis+`"}`)
+		return do(sid, "POST", "/trust", `{"tile":"`+tile+`","basis":"`+basis+`","shown":"signin+home"}`)
 	}
 	// asked: whose tile it is, who can change it, and what a session runs on without
 	v := view(alice)
-	if hr := here(v); hr == nil || hr.Inject || hr.Trust == nil || hr.Trust.OwnerKind != "person" || hr.Trust.Owner != "bob" || !strings.HasPrefix(hr.Trust.Basis, "tb_") ||
+	if hr := here(v); hr == nil || hr.Inject || hr.Trust == nil || hr.Trust.OwnerKind != "person" || hr.Trust.Owner != "bob" || !strings.HasPrefix(hr.Trust.Basis, "tb2_") || hr.Trust.Means != 2 ||
 		len(hr.Trust.Editors) != 1 || hr.Trust.Editors[0] != "carol" || !hr.Trust.Allowed || hr.Without != "none" || len(v.Trusted) != 0 || !v.Policy.Trust.Allowed {
 		t.Fatalf("before her answer: %+v (trust %+v)", hr, hr.Trust)
 	}
@@ -610,8 +614,12 @@ func TestSigninsTrustRoutes(t *testing.T) {
 		"a workspace terminal's token": s.Auth.MintTerminal("", "alice"),
 		"the root token":               s.Auth.OwnerTokenValue(),
 	} {
-		if c := bearer(cred, "POST", "/trust", `{"tile":"apps/x","basis":"`+here(v).Trust.Basis+`"}`); c != 403 {
-			t.Errorf("%s trusted the tile: %d", name, c)
+		want := 403
+		if name == "the root token" {
+			want = 201 // its OWN answer, kept under the key of its home — never hers (asserted below)
+		}
+		if c := bearer(cred, "POST", "/trust", `{"tile":"apps/x","basis":"`+here(v).Trust.Basis+`","shown":"signin+home"}`); c != want {
+			t.Errorf("%s trusted the tile: %d, want %d", name, c, want)
 		}
 	}
 	for name, p := range map[string]auth.Principal{
@@ -664,7 +672,7 @@ func TestSigninsTrustRoutes(t *testing.T) {
 	if c, b := answer(sub, "apps/x/src"); c != 201 || !strings.Contains(b, `"tile":"apps/x"`) {
 		t.Fatalf("carol trusting from a directory inside the tile: %d %s", c, b)
 	}
-	if c, _ := do(sub, "POST", "/trust", `{"tile":"apps/y/src","basis":"tb_x"}`); c != 404 {
+	if c, _ := do(sub, "POST", "/trust", `{"tile":"apps/y/src","basis":"tb_x","shown":"signin+home"}`); c != 404 {
 		t.Fatalf("carol trusting a tile she has no access to: %d", c)
 	}
 	s.Term.TileAt = nil
@@ -673,7 +681,7 @@ func TestSigninsTrustRoutes(t *testing.T) {
 	// comes back for the card to draw again, and nothing is recorded
 	stale := here(view(alice)).Trust.Basis
 	others = []string{"carol", "dave"}
-	if c, b := do(alice, "POST", "/trust", `{"tile":"apps/x","basis":"`+stale+`"}`); c != 409 || !strings.Contains(b, `"changed":true`) || !strings.Contains(b, "look again") ||
+	if c, b := do(alice, "POST", "/trust", `{"tile":"apps/x","basis":"`+stale+`","shown":"signin+home"}`); c != 409 || !strings.Contains(b, `"changed":true`) || !strings.Contains(b, "look again") ||
 		!strings.Contains(b, `"editors":["carol","dave"]`) || strings.Contains(b, stale) || len(s.Signins.Trusted("alice")) != 0 {
 		t.Fatalf("an answer to a question that changed: %d %s", c, b)
 	}

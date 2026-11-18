@@ -64,6 +64,7 @@ func (s *Server) registerAgentSigninsAPI() {
 	s.RegisterAPI("PUT /agent/signins/policy", s.apiSigninsPolicyPut)
 	s.RegisterAPI("POST /agent/signins/trust", s.apiSigninsTrust)
 	s.RegisterAPI("DELETE /agent/signins/trust/{id}", s.apiSigninsUntrust)
+	s.RegisterAPI("DELETE /agent/signins/homes/{id}", s.apiSigninsHomeForget) // signinshome.go (D245)
 }
 
 // signinsAvail is whether sign-ins are kept here, and why not.
@@ -170,20 +171,37 @@ type signinsView struct {
 	Flows      []signins.Flow  `json:"flows"`
 	// Trusted: the tiles whose source the caller said they trust.
 	Trusted []trustRow `json:"trusted"`
+	// Homes: the copies kept of the caller's home, one per tile whose
+	// source they had not trusted when a session of theirs ran there
+	// (signinshome.go, D245). Home, with ?tile=: which home a session of
+	// theirs on that tile would mount now.
+	Homes []homeCopyRow `json:"homes"`
+	Home  *homeHere     `json:"home,omitempty"`
 	// Admin: the caller may see who has sign-ins and set the switch.
 	Admin bool `json:"admin,omitempty"`
+	// Kept, for admins: the copies of homes kept from accounts that no
+	// longer exist (xbind removes no copy on its own) — theirs to forget
+	// (DELETE /agent/signins/homes/{id}?of=<user>).
+	Kept []keptHomeRow `json:"kept,omitempty"`
 }
 
 func (s *Server) signinsViewFor(r *http.Request, user string) (signinsView, error) {
 	av := s.signinsAvail()
 	out := signinsView{Available: av.OK, Why: av.Why, Unisolated: av.Unisolated, Vault: s.Signins.VaultState(),
-		Policy: s.Signins.Policy(), Harnesses: []signinHarness{}, Flows: []signins.Flow{}, Trusted: s.trustedRows(user), Admin: s.settingsAdmin(r)}
+		Policy: s.Signins.Policy(), Harnesses: []signinHarness{}, Flows: []signins.Flow{}, Trusted: s.trustedRows(user), Homes: []homeCopyRow{}, Admin: s.settingsAdmin(r)}
 	all, notice, err := s.Signins.List(user)
 	if err != nil {
 		return out, err
 	}
 	out.Notice = notice
 	tile := strings.Trim(r.URL.Query().Get("tile"), "/")
+	out.Homes = s.homeCopyRows(auth.PrincipalOf(r))
+	if out.Admin {
+		out.Kept = s.keptHomeRows()
+	}
+	if p := auth.PrincipalOf(r); tile != "" && s.Term != nil && p.CanTerminalTile(s.sessionTile(tile)) {
+		out.Home = s.homeHereFor(p, s.sessionTile(tile), out.Homes) // the tile the path lies in, as for a session there
+	}
 	for _, prov := range agent.Providers() {
 		if len(prov.Keys) == 0 {
 			continue // it takes no credential xbind could keep
@@ -212,7 +230,7 @@ func (s *Server) signinsViewFor(r *http.Request, user string) (signinsView, erro
 }
 
 func (s *Server) apiSigninsGet(w http.ResponseWriter, r *http.Request) {
-	user := s.signinsPerson(w, r)
+	user := s.signinsTruster(w, r, false) // (the root token: its trusted tiles, its home and copies — signinsroot.go)
 	if user == "" {
 		return
 	}

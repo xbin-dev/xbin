@@ -15,6 +15,7 @@ import { launcherItems, openHistory, resumeHistory, notOffered } from '/vendor/f
 import { deployTestApi, hasLayout } from '/vendor/frame-deploy.js';
 import { legacyOf } from '/vendor/frame-ide.js';
 import { ideLayout, ideTestApi } from '/vendor/frame-ide-view.js';
+import { aboutHome } from '/vendor/frame-status.js';
 
 // The layouts open(layout) takes (the shell's tile menu): 'deployments'
 // once the tile's deployments state has loaded (frame-deploy.js hasLayout);
@@ -61,6 +62,7 @@ export function testApi(f) {
     closeTab(i) { f._closeTerm(i | 0); },
     get dialog() { return f._dialog?.spec ?? null; },
     answerDialog(button, values = {}) { f._dialogDone({ detail: { button, values } }); },
+    aboutHome() { return aboutHome(f); }, // the status bar's "home: this tile's copy" chip, clicked (D245)
     // the <bx-agent> testApi for session tab i (default: the one in view); null for a shell tab
     agent(i = f._active) {
       const t = f._sessions[i];

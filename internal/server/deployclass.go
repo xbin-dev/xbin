@@ -354,6 +354,7 @@ var routeClasses = map[string]RouteClass{
 	"PUT /agent/signins/policy":                PrimaryOnly, // saved coding-agent sign-ins (D230): people's and admins', never tile code
 	"POST /agent/signins/trust":                PrimaryOnly, // saved coding-agent sign-ins (D230): people's and admins', never tile code
 	"DELETE /agent/signins/trust/{id}":         PrimaryOnly, // saved coding-agent sign-ins (D230): people's and admins', never tile code
+	"DELETE /agent/signins/homes/{id}":         PrimaryOnly, // the copies of a person's home (D245): the person's, never tile code
 	"PUT /workspace-settings":                  PrimaryOnly,
 	"GET /push/config":                         PrimaryOnly,
 	"PUT /push/config":                         PrimaryOnly,

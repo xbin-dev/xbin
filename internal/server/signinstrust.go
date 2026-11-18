@@ -80,9 +80,12 @@ func (s *Server) withoutSignin(p auth.Principal, tile string, prov agent.Provide
 
 // approveTicks is signinTicks for a request's approval: it answers the
 // refusal itself (ok false).
-func (s *Server) approveTicks(w http.ResponseWriter, user, id string, use, trust bool) (basis string, ok bool) {
+func (s *Server) approveTicks(w http.ResponseWriter, user, id string, use, trust bool, shown string) (basis string, ok bool) {
 	if !use && !trust {
 		return "", true
+	}
+	if trust && !s.trustShown(w, shown) { // the sheet said what trusting means, or it is an old page's
+		return "", false
 	}
 	cur, _ := s.Delegation.Request(user, id)
 	basis, status, why := s.signinTicks(user, cur.Preview, use, trust)
@@ -190,7 +193,7 @@ func (s *Server) signinTicks(user string, preview map[string]any, use, trust boo
 // it). → 201 {trust}. 409 when the tile is theirs alone (nothing to
 // trust); 403 when the workspace doesn't let people trust.
 func (s *Server) apiSigninsTrust(w http.ResponseWriter, r *http.Request) {
-	user := s.signinsWritable(w, r)
+	user := s.signinsTruster(w, r, true)
 	if user == "" {
 		return
 	}
@@ -198,13 +201,27 @@ func (s *Server) apiSigninsTrust(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Tile  string `json:"tile"`
 		Basis string `json:"basis"` // the question's token (here.trust.basis): what the card showed
+		Shown string `json:"shown"` // what the card said trusting means (signins.TrustShown)
 	}
 	if err := DecodeJSON(r, &body); err != nil || strings.Trim(body.Tile, "/") == "" || body.Basis == "" {
-		WriteError(w, http.StatusBadRequest, "need {tile, basis}: the basis of the question you were shown (GET /agent/signins?tile= → here.trust.basis)", agentSigninsDocs)
+		WriteError(w, http.StatusBadRequest, "need {tile, basis, shown}: the basis of the question you were shown (GET /agent/signins?tile= → here.trust.basis), and what it said trusting means", agentSigninsDocs)
 		return
 	}
 	if p := auth.PrincipalOf(r); !p.CanTerminalTile(s.sessionTile(body.Tile)) { // the level of the tile the path lies in
 		WriteError(w, http.StatusNotFound, "no such tile", agentSigninsDocs)
+		return
+	}
+	if body.Shown != signins.TrustShown {
+		// a page from before trusting meant the home too (or a client that
+		// doesn't say what it showed): refused like an answer for a tile
+		// that changed, with the question as it stands — and told to reload
+		src, err := s.tileSource(user, body.Tile)
+		if err != nil {
+			writeSigninsErr(w, err)
+			return
+		}
+		WriteJSON(w, http.StatusConflict, map[string]any{"error": trustNotShown, "changed": true, "reload": true,
+			"trust": s.Term.SigninQuestion(src, s.Signins.Policy().Trust), "docs": agentSigninsDocs})
 		return
 	}
 	t, src, err := s.trustTile(user, body.Tile, "card", body.Basis)
@@ -226,7 +243,7 @@ func (s *Server) apiSigninsTrust(w http.ResponseWriter, r *http.Request) {
 // longer trusts that tile's source. Their sessions running there on a saved
 // sign-in are ended → {ok, ended}.
 func (s *Server) apiSigninsUntrust(w http.ResponseWriter, r *http.Request) {
-	user := s.signinsPerson(w, r)
+	user := s.signinsTruster(w, r, false)
 	if user == "" {
 		return
 	}
@@ -274,4 +291,26 @@ func (s *Server) approvalTrust(out map[string]any, user string, req delegation.R
 	} else {
 		out["trust"] = t.ID
 	}
+}
+
+// trustNotShown is the refusal of a trust answer that doesn't say what its
+// page showed (signins.TrustShown): the page is older than what trusting
+// means now.
+const trustNotShown = "xbin was updated since this page was loaded: trusting a tile's source now means two things — your saved sign-in is used there, and that tile's code can change your home. Reload this page and answer again."
+
+// signinTickBody is the sign-in part of a start's approval: its two lines,
+// ticked, and — with the trust line — what the sheet said trusting means.
+type signinTickBody struct {
+	Signin, Trust bool
+	Shown         string
+}
+
+// trustShown holds a ticked trust line (an approval's, a plan's) to what
+// its page said trusting means; it answers the refusal itself.
+func (s *Server) trustShown(w http.ResponseWriter, shown string) bool {
+	if shown == signins.TrustShown {
+		return true
+	}
+	WriteJSON(w, http.StatusConflict, map[string]any{"error": trustNotShown, "changed": true, "reload": true, "docs": agentSigninsDocs})
+	return false
 }

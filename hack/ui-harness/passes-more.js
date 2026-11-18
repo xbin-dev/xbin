@@ -16,6 +16,7 @@ function register(P) {
   P.deviceTheme = require('./passes/devicetheme').deviceTheme; // D188: this browser's Light or Dark over the person's theme
   P.focusAnchor = require('./passes/focusanchor').focusAnchor; // D191: the focused tile holds its place — Document mode, the last tile, a phone's canvas
   P.blocks = require('./passes/blocks').blocks; // D192: headings and text on a screen, no tile — canvas, Document mode, an org screen's draft
+  P.termHome = require('./passes/termhome').termHome; // D245: which home a terminal mounts — yours, or this tile's copy (HARNESS_ISOLATE=1 for the copy)
   P.richCopy = require('./passes/richcopy').richCopy; // D199/#26: copy with formatting — a right-click, xbin.copy, the agent's Copy; a coloured fence
   P.tiled = require('./passes/tiled').tiled; // D193: Tiled — one tile fills the screen, splits, dividers, swaps, a phone, an org screen's draft
   P.ideMove = require('./passes/idemove').ideMove; // D202: a session's element survives moves between panes and in the DOM; the dock's logs mount once; narrow folds

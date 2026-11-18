@@ -5979,6 +5979,75 @@ here: cut from the old end, never reword.
     only Responses); Anthropic's wire (unchanged: not relayed); a control
     on `/xbin/llm`'s provider form (the row says "translating"; the
     setting is the API's and `bx`'s).
+- **D245 — A person's home is copy-on-write on a tile they have not
+  trusted (2026-11-18, the owner's "Copy-on-write home";
+  `plans/wsagent/home-on-untrusted-tiles.md`).** A person's one home was
+  mounted read-write into every session they ran, so code in a tile
+  someone else controls could plant `~/.claude/settings.json`,
+  `~/.gitconfig` or `~/.bashrc` that ran later, on the person's own tile,
+  beside their saved sign-in (residual 10 of the sign-in store's threat
+  table; in every release so far).
+  - **The rule is the sign-in's.** Where a tile's source needs the
+    person's trust (`signins.Source.NeedsTrust`) and has not got it, the
+    session's home is a copy: reads come from the real home, writes go to
+    a layer per (person, tile identity) under `data/home-copies/`. One
+    function decides for every session, on the resolved tile; fixed at
+    the start and shown; a restart or resume never widens; a trust that
+    stops holding ends the sessions that have the real home there.
+    Trusting merges nothing back.
+  - **One overlay mount per (person, tile), held in a namespace of its
+    own** and handed to each session as a detached clone
+    (`open_tree`/`move_mount`), because two overlay mounts over one upper
+    are unsafe and nothing may be mounted on the host: the kernel's
+    overlayfs, and fuse-overlayfs only where the kernel can't (a FUSE
+    mount held in another user namespace serves one kuid: non-root
+    processes in a session were refused their home — the review's L5).
+    A copy that cannot be mounted fails the session (D78).
+  - **The review of 2026-11-18** (all in the plan, each with a test shown
+    red): **a session on the copy is confined like a member's, whoever
+    opened it** — an admin's sandbox keeps CAP_SYS_ADMIN and could bind
+    the workspace again without its masks and write the real home; trust
+    the tile for the admin's sandbox. The condition is **sticky**: xbind
+    records per tile identity who could change its code
+    (`data/signins/tiles.json`), and a tile someone else could change
+    before asks until the person answers; history before the record is
+    unknown; a one-person install records nothing. **What a trust means
+    is versioned**: answers from before D245 are void and asked again. A
+    terminal token gets the real home only when the session it was minted
+    for has it; the root token's shells' tokens are the root token's. A
+    session is judged again when it registers (a start in flight is
+    invisible to a sweep). A copy is deleted without its person's click
+    only when its tile's directory is positively gone — a restored
+    workspace leaves orphans, listed and forgettable. Forget ends the
+    sessions on a copy and waits for a start in flight.
+  - **The re-review of the same day:** xbind NEVER removes a copy on its
+    own (the owner: "homes - must not remove old ones") — a copy follows
+    its tile by identity, a gone tile's and a deleted account's are kept
+    and listed (to the person; to admins), only "forget" removes one, and
+    the sweep only reads, off the watch loop. The root token keeps trust
+    answers of its own (one seam, to delete when the token becomes
+    onboarding-only: `signins/roottoken.go`, `term.homeUser`,
+    `server/signinsroot.go`). The record of past editors covers tiles
+    nested in a tile someone can write, former workspace admins
+    (workspace-wide), a changed identity (carried over) and a full
+    record ("and others"); one account records nothing. A trust answer
+    says what its page showed (`shown`), so a page from before cannot
+    answer for more than it said. An agent session is judged before its
+    driver starts. A fuse-stamped copy is not converted (forget + new).
+  - **Open follow-up:** a nested user + mount namespace after the root is
+    built, so that an admin's session could keep `mount` without being
+    able to rearrange the sandbox's own mounts (the plan's §11).
+  - **Rejected:** a host-level FUSE mount like the resources' gocryptfs
+    (fuse-overlayfs would run as xbind on sandbox-written data, and leaks
+    mounts); a mount per session (unsafe on a shared upper) or an
+    ephemeral one for the second session (a login made in one tab missing
+    in the next); merging the layer on trust (the attack itself); hiding
+    credential directories from reads (not built: the list is never
+    complete — what it would take is in the plan).
+  - **Kept open:** untrusted code still READS the home. An admin no
+    longer attaches to another person's session that has their real home.
+    An admin's REAL-home session on a tile runs that tile's code with the
+    admin's sandbox powers — by design, now behind the trust answer.
 
 - **D246 — A person's access as a change, one read for a tile, and a
   context budget of a million tokens (2026-11-18; issue #51; the owner's

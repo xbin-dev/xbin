@@ -81,6 +81,9 @@ func Launch(s *Spec) (*exec.Cmd, *Handle, error) {
 		if h.ctrl != nil {
 			h.ctrl.Close()
 		}
+		if h.hold != nil {
+			h.hold.Close()
+		}
 		return nil, nil, err
 	}
 
@@ -124,6 +127,35 @@ func Launch(s *Spec) (*exec.Cmd, *Handle, error) {
 			*g.fd = nextFD
 			nextFD++
 		}
+	}
+
+	// A hold's socket (hold_linux.go): the init serves clones of its
+	// overlay on the child end.
+	s.HoldFD = 0
+	if s.Hold != nil {
+		parent, child, err := holdSocketpair()
+		if err != nil {
+			return fail(err)
+		}
+		extra = append(extra, child)
+		h.own = append(h.own, child)
+		s.HoldFD = nextFD
+		nextFD++
+		h.hold = parent
+	}
+	// Detached mounts the init attaches (Bind.Mount): the caller's files.
+	for i := range s.Binds {
+		b := &s.Binds[i]
+		b.MountFD = 0
+		if b.Mount == nil {
+			continue
+		}
+		if !s.NoFollow || b.Mask || b.Sub != "" {
+			return fail(fmt.Errorf("sandbox: the mount for %s needs a NoFollow root and is neither a mask nor a Sub bind", b.Dst))
+		}
+		extra = append(extra, b.Mount)
+		b.MountFD = nextFD
+		nextFD++
 	}
 
 	f, err := os.CreateTemp("", "bx-spec-*.json")

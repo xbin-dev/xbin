@@ -231,12 +231,12 @@ export function allowSpoken(req, choice = 'once') {
 }
 
 /**
- * approveBody(req, choice, duration, ticks): what POST …/approve sends — {grant, scope?, unseen?, signin?, trust?}. A body nobody
+ * approveBody(req, choice, duration, ticks): what POST …/approve sends — {grant, scope?, unseen?, signin?, trust?, shown?}. A body nobody
  * could read is approved only by saying so (unseen); ticks {signin, trust} are a start's own lines, ticked (D230): never by default.
  */
 export function approveBody(req, choice = 'once', duration = '', ticks = null) {
   const s = (req.kind === 'session' && req.preview && req.preview.session) || {}, use = !!(ticks && ticks.signin && s.signInId);
-  const unseen = { ...(sends(req).binary ? { unseen: true } : {}), ...(use ? { signin: true } : {}), ...(use && ticks.trust && s.signInTrust ? { trust: true } : {}) };
+  const unseen = { ...(sends(req).binary ? { unseen: true } : {}), ...(use ? { signin: true } : {}), ...(use && ticks.trust && s.signInTrust ? { trust: true, shown: 'signin+home' } : {}) }; // shown: what the trust line says trusting means (signins.TrustShown)
   if (req.kind === 'mcp' && choice === 'tool') {
     const d = duration === 'hour' || duration === 'always' ? duration : CHOICES.duration.tool;
     return { grant: d, scope: 'tool', ...unseen };

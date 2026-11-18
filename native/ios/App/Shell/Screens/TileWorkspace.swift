@@ -652,7 +652,7 @@ private struct SessionLauncherView: View {
                     section("Running here") {
                         ForEach(model.running) { e in
                             Button { model.reopen(e) } label: {
-                                row(title: e.title, subtitle: e.statusText, symbol: XbinGlyphs.symbol(e.kind == .shell ? "terminal" : "agent"))
+                                row(title: e.title, subtitle: e.statusLine, symbol: XbinGlyphs.symbol(e.kind == .shell ? "terminal" : "agent"))
                             }
                             .buttonStyle(.plain)
                         }

@@ -48,11 +48,37 @@ func TestSigninDocsSayTheLimits(t *testing.T) {
 		"approving is neither using nor trusting":       "approving a start never implies using your sign-in, and never implies trust",
 		"what a ticked start exposes":                   "your agent can steer that session",
 		"a file in the tile is not masked":              "a file written in the tile is not masked at all",
-		"the open residual: the home":                   "**Your home, shared by all your tiles — OPEN**",
-		"…with the exact attack":                        "`~/.claude/settings.json` hooks, `~/.gitconfig`",
-		"nothing but the person answers":                "nothing but you answers it",
-		"the migration":                                 "get the question instead",
-		"the owner accepted the risk":                   "accepted the risk",
+		// D245: the home is a copy on a tile the person has not trusted — closed for writes, open for reads
+		"the home: closed for writes, open for reads":  "**closed for writes, open for reads.**",
+		"…reads stay open, said plainly":               "It can still **read** your home",
+		"…what the copy is":                            "**Writes stay on this tile.**",
+		"what trusting means now: two things":          "means two things: your saved sign-in is used there, and",
+		"trusting merges nothing":                      "there is no \"copy it over\"",
+		"a copy that can't be mounted fails closed":    "session **fails** and says why",
+		"no sandboxes, no protection":                  "nothing here protects it",
+		"an admin can't type into a real-home session": "admin can't attach to, or drive, your session when it has your own home",
+		"…with the exact attack":                       "`~/.claude/settings.json` hooks, `~/.gitconfig`",
+		// the review of D245
+		"an admin's copy session is a member's":      "**confined like a member's until you trust that tile**",
+		"who could change a tile before":             "**someone else could change its code before, and can't now**",
+		"…and what xbind can't know":                 "**What xbind can't know:**",
+		"an old answer is void":                      "**what trusting meant when you gave it**",
+		"a terminal's token: that terminal's home":   "**only when that terminal has it**",
+		"xbind removes no copy on its own":           "**xbind never removes a copy on its own**",
+		"a moved tile keeps its copies":              "a tile that is **moved or renamed** keeps its people's copies",
+		"a deleted account's copies are kept":        "when an **account is deleted**, its copies are kept",
+		"the root token is asked":                    "like a person it is **asked**",
+		"what an admin's confined session still has": "**What the tile's code still has in an admin's confined session**",
+		"a tile inside another":                      "**A tile inside another tile's directory**",
+		"a former admin":                             "**A workspace admin who stops being one**",
+		"a fuse copy stays one":                      "To get a kernel-overlay copy: **forget**",
+		"a restore from a backup":                    "**restored from a backup**",
+		"the fallback's limit":                       "**only root in the session can use the home**",
+		"the trust button is a deliberate click":     "not Enter, not a script",
+		"the real home changes under an open copy":   "**Your real home can change while a session on a tile's copy is open**",
+		"nothing but the person answers":             "nothing but you answers it",
+		"the migration":                              "get the question instead",
+		"the owner accepted the risk":                "accepted the risk",
 	} {
 		if !strings.Contains(guide, want) {
 			t.Errorf("docs/agent-signins.md doesn't say %s (%q)", what, want)
@@ -61,7 +87,7 @@ func TestSigninDocsSayTheLimits(t *testing.T) {
 	if !strings.Contains(proto, "This lowers accidental exposure and is not a guarantee") {
 		t.Error("docs/protocol/signins.md doesn't say masking is not a guarantee")
 	}
-	for _, stale := range []string{"wherever it appears whole", "no other person has terminal access", "can also open terminals on", "never on a start your", "gets your default sign-in on a tile", "asks again** when someone new"} {
+	for _, stale := range []string{"not closed in this version", "mounted read-write into every session of yours", "wherever it appears whole", "no other person has terminal access", "can also open terminals on", "never on a start your", "gets your default sign-in on a tile", "asks again** when someone new"} {
 		if strings.Contains(guide, stale) || strings.Contains(proto, stale) {
 			t.Errorf("a doc still says %q", stale)
 		}

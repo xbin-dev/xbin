@@ -84,6 +84,7 @@ func TestKeys(t *testing.T) {
 // the key (plans/tile-sandbox-runtime.md §1.4, §14).
 var reviewedPrincipalFields = []string{
 	"Access", "Agent", "AgentModel", "AgentSession", "Component", "Deployment", "DeviceID", "Gen", "Impersonator", "Owner", "Partition", "Role", "User", "UserID", "Via",
+	"TermRef", // which terminal token a terminal principal came by (D245): its tile is Component, as ever — no part of a key
 }
 
 // A person's workspace agent names no sandboxes, whatever else its

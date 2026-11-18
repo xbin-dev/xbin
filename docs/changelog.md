@@ -12,6 +12,47 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-18
 
+- terminals, coding agents: **BREAKING — on a tile that isn't only yours
+  and that you haven't trusted, your home is this tile's copy.** A
+  security fix for every release so far: every session mounted its
+  person's one home read-write, so code in a tile someone else controls
+  could leave `~/.claude/settings.json` hooks, a `~/.gitconfig` setting or
+  a `~/.bashrc` line that ran later on the person's own tile, beside their
+  saved sign-in. Now a session there reads your real home as before and
+  what it writes under `~` stays on that tile (kept per person and tile
+  under `data/home-copies/`, never merged back). "I trust this tile's
+  source" now means two things — your sign-in is used there, and that
+  tile's code can change your home — and gives new sessions on the tile
+  your real home; a trust that stops holding ends the sessions that had
+  it. **A session on a copy is confined like a member's, a workspace
+  admin's too** (no mounts or new namespaces, the restricted view, no
+  host network — `home.confined`) until they trust the tile. **Trust
+  answers given before this release are void and asked again** (they
+  were for the sign-in only; the basis is now `tb2_…`, and the question
+  carries `means`), and a tile someone else *could* change before keeps
+  asking after they lose access (`trust.past`, `pastUntil`; xbind's
+  record starts with this release). Session rows carry `home: {mode: own
+  | copy, why?, kept?, confined?, trust?, docs}`; a dialog button may be
+  `armed` (`xbin.dialog`: the person's deliberate click only — the home
+  dialog's "I trust this tile's source" is). xbind never removes a copy
+  on its own (a moved tile keeps its copies; a gone tile's and a deleted
+  account's are kept and listed — `gone`, and `kept` for admins, with
+  `DELETE /agent/signins/homes/<id>?of=<user>`); the root token is asked
+  the trust question and keeps answers of its own; a trust answer carries
+  `shown: "signin+home"` (409 `{reload}` without); the question names
+  editors `through` a tile above, `pastAdmins` and `pastMore`; the window's status bar says `home: yours` or `home: this tile's
+  copy (changes stay on this tile)`; `GET /agent/signins` gains `home`
+  (with `?tile=`) and `homes`, and `DELETE /agent/signins/homes/<id>` is
+  "forget what this tile wrote to my home". A workspace admin can no
+  longer attach to, or drive, another person's session that has that
+  person's real home. A copy that can't be mounted fails the session —
+  the real home is never opened in its place. Your own tiles, trusted
+  tiles, a one-person workspace and a workspace without sandboxes see no
+  change; code on an untrusted tile can still *read* your home. What
+  changes for you and how to get the old behaviour on a tile:
+  [changes/2026-11-18-home-on-untrusted-tiles.md](changes/2026-11-18-home-on-untrusted-tiles.md);
+  the rule: [agent-signins.md](agent-signins.md#your-home-on-a-tile-that-isnt-only-yours)
+  (D245).
 - workspace agent: **a person's access to a tile is a change it can
   propose** — `access.set {tile, user, level}` in a plan
   (`POST /delegate/plans`) or an admin's change set — applied as the

@@ -28,6 +28,7 @@ import (
 	"net/http"
 
 	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/term"
 	"github.com/xbin-dev/xbin/internal/util"
 )
 
@@ -134,6 +135,9 @@ func (s *Server) partitionGate(r2 *http.Request) (*http.Request, http.HandlerFun
 	if class == PersonOnly {
 		// a person's own session, app or device credential only: never a
 		// tile's, view-as, or one that names no person (the root token)
+		if rootTokenRoutes[pattern] && term.RootTokenAsks(p) {
+			return r2, nil // the root token's own trust answers and copies (signinsroot.go: the seam)
+		}
 		if p.Component != "" || p.Impersonator != "" || p.UserID == "" || p.Agent != "" { // nor their workspace agent (delegate.go)
 			return r2, refusal(http.StatusForbidden, "this is a person's own act: sign in and do it yourself — a tile's credentials can't")
 		}
@@ -514,6 +518,7 @@ var partitionClasses = map[string]PartitionClass{
 	"POST /agent/signins/guided":               PersonOnly, // a person's saved coding-agent sign-ins (D230)
 	"POST /agent/signins/trust":                PersonOnly, // a person's saved coding-agent sign-ins (D230)
 	"DELETE /agent/signins/trust/{id}":         PersonOnly, // a person's saved coding-agent sign-ins (D230)
+	"DELETE /agent/signins/homes/{id}":         PersonOnly, // the copies of a person's home (D245)
 	"POST /agent/signins/guided/{flow}":        PersonOnly, // a person's saved coding-agent sign-ins (D230)
 	"DELETE /agent/signins/guided/{flow}":      PersonOnly, // a person's saved coding-agent sign-ins (D230)
 	// ---- the LLM connector's calls (D226): a person's partition calls as

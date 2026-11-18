@@ -58,6 +58,44 @@ import Testing
     /// or inbox row here either — the web's visibleRows drops it the same
     /// way. A name hides nothing (anyone who may rename could give one),
     /// and an agent session is never hidden.
+    /// D245: a row says which home its session mounts — the person's own, or
+    /// this tile's copy — and the app's words for it; an unknown mode, a
+    /// malformed or absent `home` read as "says nothing".
+    @Test func rowsCarryTheSessionsHome() {
+        let json = #"""
+        [{"id":"own","cwd":"apps/mine","kind":"shell","home":{"mode":"own","docs":"/docs/agent-signins.md"}},
+         {"id":"copy","cwd":"apps/theirs","kind":"agent","provider":"claude","status":"idle",
+          "home":{"mode":"copy","why":"apps/theirs isn't only yours — it belongs to bob","trust":{"tile":"apps/theirs","basis":"tb_1","allowed":true},"docs":"/docs/agent-signins.md"}},
+         {"id":"kept","cwd":"apps/theirs","kind":"agent","status":"running","home":{"mode":"copy","kept":true}},
+         {"id":"old","cwd":"apps/x","kind":"shell"},
+         {"id":"odd","cwd":"apps/x","kind":"shell","home":{"mode":"shared"}},
+         {"id":"bad","cwd":"apps/x","kind":"shell","home":"copy"}]
+        """#
+        let list = TermDirectory.decode(Data(json.utf8))
+        let by = Dictionary(uniqueKeysWithValues: list.map { ($0.id, $0) })
+        #expect(list.count == 6)
+        #expect(by["own"]?.home == "own" && by["own"]?.homeIsCopy == false)
+        #expect(by["copy"]?.home == "copy" && by["copy"]?.homeIsCopy == true)
+        #expect(by["kept"]?.homeIsCopy == true)
+        #expect(by["old"]?.home == "" && by["odd"]?.home == "" && by["bad"]?.home == "")
+        // the second line: the status, and the copy where it is one — never for the person's own home
+        #expect(by["own"]?.statusLine == by["own"]?.statusText)
+        #expect(by["copy"]?.statusLine == "idle · home: this tile's copy")
+        #expect(by["kept"]?.statusLine == "working · home: this tile's copy")
+        #expect(by["old"]?.statusLine == by["old"]?.statusText)
+
+        // the words, as every client says them
+        #expect(SessionHomeWords.own == "home: yours")
+        #expect(SessionHomeWords.copy == "home: this tile's copy (changes stay on this tile)")
+        #expect(SessionHomeWords.line("own") == SessionHomeWords.own && SessionHomeWords.line("copy") == SessionHomeWords.copy && SessionHomeWords.line("x") == "")
+        #expect(SessionHomeWords.copyMeans.contains("your real home is not changed"))
+        // trust is decided on the web: the app says where, and what it means — two things
+        #expect(SessionHomeWords.trustOnWeb.contains("on the web"))
+        #expect(SessionHomeWords.trustOnWeb.contains("your saved sign-in is used here"))
+        #expect(SessionHomeWords.trustOnWeb.contains("this tile's code can change your home"))
+        #expect(!SessionHomeWords.trustOnWeb.lowercased().contains("copy it over") && !SessionHomeWords.trustOnWeb.lowercased().contains("merge"))
+    }
+
     @Test func guidedSigninSessionsAreNotListed() {
         let json = #"""
         [{"id":"s1","cwd":"apps/x","kind":"shell","name":"build"},

@@ -98,6 +98,7 @@ type agentState struct {
 	perms     *agent.Permissions
 	provider  agent.Provider
 	ready     chan struct{} // closed once the driver's Start returned
+	never     chan struct{} // closed when the session ended before its driver started: the pump ends it
 	done      chan struct{} // closed once the pump ended (the session is over)
 	gone      chan struct{} // closed after the teardown: history saved, layer released, row removed
 	mu        sync.Mutex
@@ -179,6 +180,9 @@ type AgentOpen struct {
 	// delegate's open without it is refused.
 	Delegate *DelegateStart
 	origin   string // a restart: the session's origin carries over
+	// home: a restart — HomeCopy when the session it restarts was on the
+	// tile's copy of the home: it stays on it (home.go)
+	home string
 	// originMode: a restart — the mode the session was first opened in by
 	// its origin carries over too (the restart's own mode is the person's)
 	originMode string
@@ -261,6 +265,12 @@ func (m *Manager) OpenAgentWith(p auth.Principal, a AgentOpen) (SessionInfo, int
 	o.origin = cmp.Or(p.Agent, a.origin) // a delegate's open; a restart keeps its session's (delegate.go)
 	if o.originMode = a.originMode; p.Agent != "" {
 		o.originMode = mode // the mode its person approved, or their preference's
+	}
+	if a.home == HomeCopy || (resumeFrom != nil && resumeFrom.Home == HomeCopy) {
+		// it restarts, or resumes, a session that ran on this tile's copy of
+		// the home: it stays on the copy (its agent's own session files are
+		// there), whatever the rule says now — never the other way (home.go)
+		m.setHome(p, &o, m.homePlanFor(p, tile, true))
 	}
 	if code, err := m.pickTarget(p, &o, tile, a.Deployment); err != nil {
 		return SessionInfo{}, code, err
@@ -378,8 +388,13 @@ func (m *Manager) AgentToken(tok string) bool {
 	return false
 }
 
-// onAgentConfig sees each agent session's driver config (tests).
-var onAgentConfig func(agent.Config)
+// onAgentConfig sees each agent session's driver config (tests);
+// onAgentStart is told a session's driver is about to start — the moment
+// its first frame, with any saved sign-in, goes into the sandbox.
+var (
+	onAgentConfig func(agent.Config)
+	onAgentStart  func(id string)
+)
 
 // createAgent is create() for the agent kind: pipes instead of a PTY, the
 // driver started in the background (the session reports `starting` until
@@ -455,6 +470,7 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 		cleanup: cleanup, relay: rl, envKey: envKey, homeKey: o.homeKey, token: token,
 		baseOld: m.layerOutdated(envKey), gpu: o.gpu, api: o.api, target: o.target, part: o.part,
 		origin: o.origin, originMode: o.originMode,
+		home: sessionHome{plan: o.home, dir: o.launch.homeCopy},
 		born: time.Now(), hub: termwire.NewHub(0), // no terminal socket: the hub keeps its activity clock
 	}
 	st.snap = newSnapper(dir, func(e agent.Event) { s.logEvent(m, e) })
@@ -474,6 +490,9 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 		s.signinHello(m, h) // what it signs in with (signin.go)
 	})
 	st.drv = drv // before the session is visible: info() and the API read it
+	if m.beforeRegister != nil {
+		m.beforeRegister()
+	}
 	m.mu.Lock()
 	m.sessions[s.ID] = s
 	m.mu.Unlock()
@@ -482,7 +501,8 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 	if o.launch.baseMoved != "" { // D175: this start moved the tile's layer to the current base
 		s.sayBaseMoved(m, o.layerKey(rel), o.movedLayer()) // the layer it moved: on a partitioned tile its person's (partition.go)
 	}
-	s.llmSay(m) // why it runs without the workspace's LLM connector, when that needs saying (llmhook.go)
+	s.llmSay(m)     // why it runs without the workspace's LLM connector, when that needs saying (llmhook.go)
+	s.sayHome(m, o) // the first session on a tile's copy of the home says what that means (home.go)
 
 	// The agent's env: the sandbox env (with the per-user $HOME the CLI reads
 	// its login from) plus the provider's own non-secret knobs. No API keys —
@@ -519,6 +539,7 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 	if onAgentConfig != nil {
 		onAgentConfig(cfg)
 	}
+	st.never = make(chan struct{}) // closed when the session ends before its driver ever starts (below)
 	go s.agentPump(m, func() {
 		unlist()
 		st.mu.Lock()
@@ -534,7 +555,23 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 		}
 		m.dropLeaf(leaf)
 	})
+	slog.Info("agent session created", "id", s.ID, "cwd", filepath.ToSlash(rel), "provider", prov.ID, "mode", mode, "net", o.net, "restricted", o.restricted)
+	// judged BEFORE the driver starts: a sweep that ran while the sandbox
+	// came up never saw this session (home.go registered), and the driver's
+	// first frame carries the saved sign-in into the sandbox — it is not
+	// sent to a session whose trust stopped holding in between
+	if m.registered(s) {
+		st.mu.Lock()
+		st.startErr = errors.New("the session was ended as it started: what it was allowed changed while its sandbox came up")
+		st.mu.Unlock()
+		close(st.ready)
+		close(st.never) // the pump tears the session down: no driver will close its events
+		return s, nil
+	}
 	go func() {
+		if onAgentStart != nil {
+			onAgentStart(s.ID)
+		}
 		err := drv.Start(context.Background(), cfg)
 		if err == nil {
 			err = s.llmHeld(m) // only the connector may serve it: it is on it, or it ends (llmhook.go)
@@ -546,7 +583,6 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 		st.mu.Unlock()
 		close(st.ready)
 	}()
-	slog.Info("agent session created", "id", s.ID, "cwd", filepath.ToSlash(rel), "provider", prov.ID, "mode", mode, "net", o.net, "restricted", o.restricted)
 	return s, nil
 }
 
@@ -598,6 +634,9 @@ func (s *Session) agentPump(m *Manager, onExit func()) {
 	}
 	for {
 		select {
+		case <-st.never: // ended before its driver started (createAgent): nothing was sent into the sandbox
+			flush()
+			goto ended
 		case e, ok := <-st.drv.Events():
 			if !ok {
 				flush()

@@ -34,6 +34,7 @@ type Handle struct {
 	ctrl    *os.File     // parent end of the fd-passing socketpair (nil = no relay)
 	setup   func() error // range uid/gid mapping + release the init (nil = single-uid)
 	own     []*os.File   // Launch's own child-side files (ctrl's child end, the sync pipe's read end)
+	hold    *os.File     // a hold's socket, xbind's end (Spec.Hold; StartHold takes it)
 	given   []*os.File   // the caller's child-side files (Spec.Agent, Spec.Lock, Spec.Exe)
 }
 
@@ -83,6 +84,9 @@ func (h *Handle) Cleanup() {
 	}
 	if h.ctrl != nil {
 		h.ctrl.Close()
+	}
+	if h.hold != nil {
+		h.hold.Close()
 	}
 	for _, f := range h.own {
 		f.Close()
@@ -155,6 +159,15 @@ type NetLink struct {
 // directly in Src that a later mount point's path meets is followed, inside
 // the new root, like one the image ships; one deeper in Src (in a tile's
 // directory, which sandboxes write) still fails the start.
+//
+// Mount, when set, is a detached mount (Hold.Mount: a clone of an overlay
+// held in a namespace of its own) that the init ATTACHES at Dst instead of
+// binding Src — move_mount on the mount point it walked. Src then only
+// says what kind of thing is mounted (a directory: SubMode, a VM's export)
+// and is never bound: a Mount bind that cannot be attached fails the start,
+// it never degrades to a bind of Src. Needs Spec.NoFollow. The file stays
+// the caller's, who closes it once the sandbox has started (the init holds
+// its own copy); Launch records its number in MountFD.
 type Bind struct {
 	Src    string `json:"src"`              // host path (as seen before pivot_root); unused when Mask
 	Sub    string `json:"sub,omitempty"`    // relative path beneath Src, resolved without symlinks
@@ -162,6 +175,9 @@ type Bind struct {
 	RO     bool   `json:"ro"`               // remount read-only after binding (seal, if Mask)
 	Mask   bool   `json:"mask,omitempty"`   // cover Dst with an empty tmpfs instead of binding Src
 	Layout bool   `json:"layout,omitempty"` // Src's own entries are the host's (see above)
+
+	Mount   *os.File `json:"-"`                 // a detached mount to attach at Dst (see above)
+	MountFD int      `json:"mountFd,omitempty"` // Mount's number in the init (Launch fills it)
 }
 
 // sortBinds orders binds ancestors-first (shallower Dst mounts earlier; stable
@@ -388,6 +404,14 @@ type Spec struct {
 	// masks — yet `apt install` still works. (plans/DECISIONS.md D18; isolation.md.)
 	Restricted bool `json:"restricted,omitempty"`
 
+	// Hold, when set, makes this no sandbox at all but the HOLD of one
+	// overlay mount (hold_linux.go, D245): the init — in the namespaces and
+	// with the uid mapping every sandbox of this xbind gets — mounts the
+	// overlay on a private tmpfs, pivots into it, and serves detached
+	// clones of the mount over a socket Launch makes (HoldFD). Nothing else
+	// of the spec is used but HostUID/HostGID and Debug. StartHold builds it.
+	Hold *HoldSpec `json:"hold,omitempty"`
+
 	// VM, when set, makes this a VM sandbox (plans/vm-sandbox.md): the
 	// namespace sandbox becomes the rootless jail around a Firecracker microVM.
 	// The root is a bare tmpfs (no Lower), /dev/kvm is bound in, the egress
@@ -412,6 +436,8 @@ type Spec struct {
 	LockFD  int `json:"lockFd,omitempty"`
 	// ExeFD is Exe's number in the init (0 = run Entry).
 	ExeFD int `json:"exeFd,omitempty"`
+	// HoldFD is the hold's socket in the init (Hold).
+	HoldFD int `json:"holdFd,omitempty"`
 	// FuseOverlay, when non-empty, is the path to a fuse-overlayfs binary the
 	// init mounts the root with (supports redirect_dir/metacopy that unprivileged
 	// kernel overlayfs forbids, so `apt install` etc. work). "" = kernel overlay.
@@ -447,4 +473,30 @@ func (s *Spec) tmpfsSize() string {
 		return ""
 	}
 	return ",size=" + strconv.FormatInt(s.TmpfsBytes, 10)
+}
+
+// HoldSpec is one overlay a hold mounts and hands out (Spec.Hold): Lower
+// read-only beneath Upper, with Work as the overlay's work directory —
+// host paths, Upper and Work directories xbind made on one filesystem.
+// Fuse is the fuse-overlayfs binary to serve it with ("" = the kernel's
+// overlayfs, with user xattrs).
+type HoldSpec struct {
+	Lower string `json:"lower"`
+	Upper string `json:"upper"`
+	Work  string `json:"work"`
+	Fuse  string `json:"fuse,omitempty"`
+}
+
+// The overlay flavours a hold mounts (internal/layers' stamp values).
+const (
+	HoldFuse   = "fuse"
+	HoldKernel = "kernel"
+)
+
+// Flavour is the overlay flavour h mounts.
+func (h HoldSpec) Flavour() string {
+	if h.Fuse != "" {
+		return HoldFuse
+	}
+	return HoldKernel
 }

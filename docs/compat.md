@@ -430,6 +430,44 @@ differently.
   xbind that rewrites `users.json` drops the `agents` keys, as it drops
   every key it doesn't know.
 
+## A person's home on a tile they have not trusted (D245)
+
+- **What an upgrade does to an existing workspace:** nothing on disk. No
+  home is moved, copied or rewritten; `homes/<user>` stays what it is.
+  From the upgrade on, a session on a tile whose source isn't only its
+  person's — and that they have not trusted — mounts a copy-on-write view
+  of their home: it reads the home as before, and what it writes under
+  `~` goes to `data/home-copies/<user>/<tile>/`, empty at first. A
+  security fix (the changelog entry is marked BREAKING, with
+  [changes/2026-11-18-home-on-untrusted-tiles.md](changes/2026-11-18-home-on-untrusted-tiles.md)).
+- **Who sees no change:** sessions on a person's own tiles; a workspace
+  admin on workspace-owned tiles nobody else can change — so a one-person
+  workspace entirely, `bx agent` in the root token's shell included — and
+  every workspace without `--isolate`.
+- **Trust answers given before this release are void** (one question
+  per tile, again): they were given for the sign-in only. Nothing is
+  deleted; the list shows them as "asked again".
+- **Additive state:** `data/signins/tiles.json` (who could change each
+  tile's code, from this release on; none in a one-person workspace).
+  An older xbind ignores it.
+- **xbind removes no copy by itself** — not for a tile that is deleted,
+  moved, re-made or restored from a backup (a moved tile keeps its
+  copies; the others' are listed as gone), not for a deleted account
+  (listed to admins). Only *forget* removes one.
+- **The root token** keeps trust answers of its own (`data/signins/`,
+  under the key of its home), so someone who works on the token gets the
+  real home back on a person's tile by the same one click.
+- **Additive API:** session rows gain `home`, `GET /agent/signins` gains
+  `home` and `homes`, one new route (`DELETE /agent/signins/homes/<id>`).
+  An older page ignores them.
+- **Narrowed, on purpose:** an admin's attach to another person's session
+  is refused when that session has the person's real home; a session whose
+  copy cannot be mounted does not start; an admin's session on a tile they
+  have not trusted (a person's, an org's) is a member's sandbox.
+- **Downgrading** an xbind: it knows nothing of `data/home-copies/`,
+  mounts the real home read-write on every tile again (the old exposure),
+  and leaves the copies untouched for the next upgrade.
+
 ## Sealed components (system components, D227)
 
 A release may ship **sealed components**: parts of xbin that run like

@@ -54,7 +54,11 @@ POST   /agent/signins/trust       a person. {tile} → 201 {trust}: "I trust
                                    tile is yours alone; 403 trusting is off
 DELETE /agent/signins/trust/<id>  a person. → {ok, ended}: no longer
                                    trusted; your sessions there on a saved
-                                   sign-in are ended
+                                   sign-in, or with your real home, are
+                                   ended
+DELETE /agent/signins/homes/<id>  a person. → {ok, tile, ended}: forget
+                                   what that tile wrote to your home (its
+                                   copy; your real home is not touched)
 ```
 
 **No answer of any route carries a secret, or a part of one** — not a
@@ -198,12 +202,19 @@ naming who did it.
 A saved sign-in is used by default on a tile that is its person's alone.
 On a tile whose source isn't only theirs — it is owned by someone else (a
 person, an org, the workspace), **or** someone else who isn't a workspace
-admin can change its code (write level or more; partitioned tiles too) —
+admin can change its code (write level or more; partitioned tiles too),
+**or** someone else could before and can't now (xbind's record of who
+could change each tile, kept from this rule on: `trust.past`) —
 it is used only once the person says so
 ([agent-signins.md](/docs/agent-signins.md) → the rule).
 
-`POST /agent/signins/trust {tile, basis}` is that answer: "I trust this
-tile's source". `tile` is a tile the caller may open a terminal on, or a
+`POST /agent/signins/trust {tile, basis, shown}` is that answer: "I trust this
+tile's source". **`shown` is `"signin+home"`**: what the page that asked
+said trusting means. A page loaded before it meant the home too sends
+none: **409 `{error, changed: true, reload: true, trust}`** — the error
+tells the person to reload — and nothing is recorded. The same goes for a
+ticked trust line: `POST /delegate/requests/{id}/approve {signin, trust,
+shown}` and a plan's `…/approve {signin: [n…], trust: [n…], shown}`. `tile` is a tile the caller may open a terminal on, or a
 directory in one; **`basis` is the question's own** (`here.trust.basis`,
 or a start's `signInTrust.basis`): the person trusts what they were
 shown. 201 `{trust: {id, tile, name?, at, via, holds}}`. **409 `{error,
@@ -214,6 +225,21 @@ again: nothing is recorded, and `trust` is the question as it stands now
 basis; 409 when the tile is the caller's alone (nothing to trust), or
 xbind can't tell it from another tile at its path; 403 when the workspace
 doesn't let people trust; 404 no such tile.
+
+The question (`here.trust`, a row's `home.trust`, a start's
+`signInTrust`) names, beside the owner and `editors`, **`past`** — the
+account ids (and `org:<id>`) that could change the tile's code before and
+can't now — with `pastUntil` (Unix ms: when the last of them was last
+seen able to), their `names`, `pastAdmins` (the ones among them who were
+workspace admins: they could change every tile) and `pastMore` (and
+others the record had no room for) — and **`through`**: for an editor who
+can change the tile because they can write a tile it lies in, that tile; and **`means`**, the version of what an
+answer stands for (2: the saved sign-in is used there *and* the tile's
+code can change the person's home). `means` is part of the basis (now
+`tb2_…`): a card drawn by an older xbind, or an approval's stored
+preview, gets the 409 above and is drawn again; an answer **kept** from
+before (no `means`) is void — `holds: false`, `why` says trusting means
+more now — and the question is asked again.
 
 The answer is kept with the person's sign-ins **for the tile as it
 stood** — the tile itself (its directory's identity) at its path, its
@@ -231,12 +257,101 @@ answer's record, so their return is someone new. `via` is `card`,
 `approval` (the trust line of a start the person approved) or `plan`.
 
 `DELETE /agent/signins/trust/<id>` takes it back → `{ok, ended}`: the
-caller's sessions on that tile that run on a saved sign-in are ended.
+caller's sessions on that tile that run on a saved sign-in, or that have
+their real home (below), are ended.
 
 Only a person's own session, app or device calls either — never a tile's
-frame, backend or terminal token, a person's workspace agent, an admin
-viewing as them, or the root token (403). The agent's page may open the
+frame, backend or terminal token, a person's workspace agent or an admin
+viewing as them (403). **The root token itself** (a browser or CLI
+session on it — not a terminal token of one of its shells) may call
+`GET /agent/signins`, `POST /agent/signins/trust`, `DELETE
+/agent/signins/trust/{id}` and `DELETE /agent/signins/homes/{id}`: it
+keeps trust answers and copies of its own, under the key of its home,
+and never a saved sign-in (every other `/agent/signins` route answers it
+403). The agent's page may open the
 sign-in card (`xbin:agent-open-signin`); no message answers it.
+
+## Your home on a tile that isn't only yours
+
+The same answer decides which home a session mounts (D245,
+[agent-signins.md](../agent-signins.md#your-home-on-a-tile-that-isnt-only-yours)).
+A person has one home for all their tiles. On a tile whose source isn't
+only theirs and that they have not trusted, their terminals and agent
+sessions read that home and write to a **copy** kept for that tile: what
+the tile's code writes under `~` never reaches the real home. Everywhere
+else — their own tiles, trusted ones — the home is the real one.
+
+Every session row (`GET /term/sessions`, `POST /term/sessions`, `GET
+/term/sessions/<id>`) carries it, fixed at the session's start:
+
+```
+home: { mode: "own" | "copy",   // "home: yours" | "home: this tile's copy
+                                //  (changes stay on this tile)"
+        why?,                   // why it is the copy
+        kept?,                  // it restarted or resumed a session that ran
+                                //  on the copy, and stays on it
+        confined?,              // an admin's (the root token's) session on
+                                //  the copy: it has a member's sandbox —
+                                //  the restricted tier, its view, no host
+                                //  network — until they trust the tile
+        netInstead?,            // it asked for the host's network, which a
+                                //  confined session is not given: the scope
+                                //  it runs on instead (its label)
+        unsandboxed?,           // the workspace runs without sandboxes:
+                                //  nothing is protected
+        trust?,                 // the question (as here.trust) whose answer
+                                //  gives NEW sessions there the real home
+        docs }
+```
+
+`GET /agent/signins?tile=<path>` answers `home` the same way for a session
+the caller would open there now, with `copy` — the tile's copy, when there
+is one — and `homes`, all the caller's copies:
+
+```
+homes: [{ id, tile, name?, created, bytes,   // bytes -1: not measured
+          sessions,                           // live sessions on it
+          gone?,                              // its tile is gone — deleted, or made again
+                                              //  at its path: never mounted again, KEPT
+                                              //  until forgotten (xbind removes no copy)
+          unused }]                           // the tile is trusted now: kept, not used
+kept:  [{ user, id, tile, name?, created, bytes, gone? }]   // admins only: the copies kept from
+                                              //  accounts that no longer exist
+```
+
+Trusting a tile (`POST /agent/signins/trust`) merges nothing into the real
+home, and there is no route that copies a copy over. New sessions on the
+tile then mount the real home; the ones already open stay on the copy
+(`kept` after a restart). A trust that stops holding ends the sessions
+that have the real home on that tile; the next one is on the copy as it
+was left. `DELETE /agent/signins/homes/<id>` removes a copy: the caller's
+sessions on it are ended first (`ended`), a start under way on it is
+waited for (up to 20 s) and ends as it registers; **409** when one is
+still starting or ending then — nothing was removed, ask again; 404 when
+it isn't theirs. With **`?of=<user>`** an admin forgets a copy kept from
+an account that no longer exists (404 for a living account's, the root
+token's, or a caller who is no admin). **xbind never removes a copy by
+itself**: a moved or renamed tile keeps its copies (`tile` follows it), a
+deleted or re-made tile's are listed `gone`, a deleted account's are
+listed in `kept`.
+
+A session is judged when it is opened and **again when it is listed** if
+anything that ends sessions happened in between (a start takes seconds; a
+VM's, longer): one that would no longer get its real home, or the saved
+sign-in it carries, is ended with the reason as its first frame. A
+session opened with a terminal's token (`bx agent` in a shell) has the
+real home only when the session that token was minted for has it; the
+root token's terminals' tokens are the root token's.
+
+A session that has its person's real home is that person's alone: an
+admin's attach (`/ws/term?session=`) and the per-session routes answer 403
+for anyone else, as on a partitioned tile; ending it stays allowed. A
+session on a copy is confined like a member's whoever opened it
+(`home.confined` for an admin and the root token). A
+copy that cannot be mounted fails the session's start with the reason —
+`400` on `/ws/term`, `POST /term/sessions` — and the real home is not
+opened in its place. Without `--isolate` there are no sandboxes and no
+copies: `home.mode` is `own` with `unsandboxed: true`.
 
 ## The switches
 

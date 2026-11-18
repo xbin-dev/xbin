@@ -69,7 +69,7 @@ func TestSigninTrustIsVoidedByEveryChangeOfItsBasis(t *testing.T) {
 		if err := json.Unmarshal([]byte(api(200, "GET", "/agent/signins?tile=apps/plain", nil, alice)), &v); err != nil || len(v.Harnesses) == 0 || v.Harnesses[0].Here == nil || v.Harnesses[0].Here.Trust == nil {
 			t.Fatalf("the question for apps/plain: %+v %v", v, err)
 		}
-		api(201, "POST", "/agent/signins/trust", map[string]string{"tile": "apps/plain", "basis": v.Harnesses[0].Here.Trust.Basis}, alice)
+		api(201, "POST", "/agent/signins/trust", map[string]string{"tile": "apps/plain", "basis": v.Harnesses[0].Here.Trust.Basis, "shown": signins.TrustShown}, alice)
 		if tr := store.Trusted("alice"); len(tr) != 1 || tr[0].Void() {
 			t.Fatalf("after her answer: %+v", tr)
 		}

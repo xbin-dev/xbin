@@ -1,6 +1,10 @@
 package term
 
-import "github.com/xbin-dev/xbin/internal/auth"
+import (
+	"slices"
+
+	"github.com/xbin-dev/xbin/internal/auth"
+)
 
 // openOptsFor is the "user" half of opening a session on a tile the
 // principal may open one on (tile: the registered tile cwd is or lies in,
@@ -27,6 +31,38 @@ func (m *Manager) openOptsFor(p auth.Principal, tile, cwd, netMode, gpuMode stri
 		o.netNote = clampNote(asked, o.net, o.netGrant)
 	}
 	o.netHost, o.netRules, o.label = resolveNet(o.net, o.netGrant)
+	m.setHome(p, &o, m.homePlanFor(p, tile, false)) // their real home, or this tile's copy of it (home.go, D245)
+	return o
+}
+
+// setHome gives o its home and what follows from it: the restricted tier
+// for every non-admin — and for an admin (and the root token) whose home
+// here is the tile's copy (homePlan.confines: with an unrestricted
+// sandbox's capabilities the tile's code could mount its way back to the
+// real home) — and that tier's view of the workspace.
+//
+// The host's own network stack is an admin's too (scopes.go): an admin's
+// confined session asked onto it lands where a member's would — the
+// owner's network or offline, never silently plain internet — and is
+// told; it is not in the session's list of scopes. (Also where the owner's
+// network sets grant `host` to members: the grant an admin holds doesn't
+// say which of the two it is from, and the narrower answer is the safe one.)
+func (m *Manager) setHome(p auth.Principal, o *openOpts, pl homePlan) {
+	o.home = pl
+	o.restricted = !p.IsAdmin() || pl.confines()
+	if pl.confines() && p.IsAdmin() {
+		if o.net == NetHost {
+			o.net = NetNone
+			if o.netGrant.OrgOK {
+				o.net = o.netGrant.ownerScope()
+			}
+			o.netHost, o.netRules, o.label = resolveNet(o.net, o.netGrant)
+			o.netNote = "host networking isn't offered to a session that is confined like a member's — trust this tile for an admin's — running as " + o.label
+			o.home.netInstead = o.label // said in the session's first lines and its home dialog too
+		}
+		o.scopes = slices.DeleteFunc(slices.Clone(o.scopes), func(s Scope) bool { return s.ID == NetHost })
+	}
+	o.readable, o.rootFiles, o.hide = nil, nil, nil
 	if o.restricted {
 		if m.TermView != nil { // D40 allow-list view
 			o.readable, o.rootFiles = m.TermView(p)
@@ -34,5 +70,4 @@ func (m *Manager) openOptsFor(p auth.Principal, tile, cwd, netMode, gpuMode stri
 			o.hide = m.HiddenTiles(p)
 		}
 	}
-	return o
 }
