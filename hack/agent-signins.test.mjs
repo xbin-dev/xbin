@@ -139,7 +139,7 @@ test('"I trust this tile\'s source": the card\'s words — whose tile, who can c
   const w = trustWords({ tile: 'apps/crm', ownerKind: 'person', owner: 'bob', editors: ['carol', 'dave'], allowed: true }, 'Claude Code', 'own');
   assert.equal(w.title, 'Use your Claude Code sign-in on this tile?');
   assert.equal(w.whose, 'This tile belongs to bob. carol and dave can also change it.');
-  assert.equal(w.risk, "Trusting means your Claude Code sign-in is used here and this tile's code can change your home. People who can change this tile could read it and use your Claude Code account.");
+  assert.equal(w.risk, "Trusting means your sign-in is used here and this tile's code can change your home. People who can change this tile could read it and use your Claude Code account.");
   assert.equal(w.trust, 'Trust this tile — use my sign-in');
   assert.equal(w.without, 'Start without my sign-in');
   assert.equal(w.then, "Without it, the agent uses this tile's own login.");

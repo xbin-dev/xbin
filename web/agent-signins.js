@@ -193,7 +193,7 @@ export function trustWords(trust, harness = 'coding agent', without = '', all = 
     whose: [whose, who, was].filter(Boolean).join(' '),
     more: everyone.length - shown.length + before.length - beforeShown.length,
     showAll: `Show all ${everyone.length + before.length}`,
-    risk: `Trusting means your ${harness} sign-in is used here and this tile's code can change your home. People who can change this tile could read it and use your ${harness} account.`,
+    risk: `Trusting means your sign-in is used here and this tile's code can change your home. People who can change this tile could read it and use your ${harness} account.`,
     trust: 'Trust this tile — use my sign-in',
     without: 'Start without my sign-in',
     then: without === 'own' ? "Without it, the agent uses this tile's own login." : without === 'connector' ? "Without it, the agent runs on the workspace's model."

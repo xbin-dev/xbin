@@ -177,8 +177,8 @@ So xbind decides, itself, at every start:
 **The card.** In the tile's Agent tab: whose tile it is and who can
 change it — by **account id**, the display name beside it (a display name
 is its bearer's to set; the id is what xbind checks) — two sentences —
-"Trusting means your Claude Code sign-in is used here and this tile's code
-can change your home. People who can change this tile could read it and
+"Trusting means your sign-in is used here and this tile's code can change
+your home. People who can change this tile could read it and
 use your Claude Code account." — trusting is those two things, and
 nothing a tile wrote to its copy of your home is ever copied into your
 home ([below](#your-home-on-a-tile-that-isnt-only-yours)) — and two

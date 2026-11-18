@@ -76,11 +76,11 @@ async function agentSigninTrust(browser) {
   });
   check(words.title === 'Use your Fake agent (tests) sign-in on this tile?' && /^This tile belongs to the org .+\. .*dev1.* can also change it\.$/.test(words.whose),
     `the card: whose tile it is and who can change it (${words.title} / ${words.whose})`);
-  check(words.risk === "Trusting means your Fake agent (tests) sign-in is used here and this tile's code can change your home. People who can change this tile could read it and use your Fake agent (tests) account.",
+  check(words.risk === "Trusting means your sign-in is used here and this tile's code can change your home. People who can change this tile could read it and use your Fake agent (tests) account.",
     `…the risk, in two sentences (${words.risk})`);
   check(words.yes === 'Trust this tile — use my sign-in' && words.no === 'Start without my sign-in' && words.sameSize && words.sameLook && words.focused === '' && /^Without it, the agent /.test(words.then),
     `…and two choices of the same size and weight, neither focused; what happens without (${JSON.stringify({ yes: words.yes, no: words.no, sameSize: words.sameSize, sameLook: words.sameLook, then: words.then })})`);
-  check(words.text.split(' ').length <= 85, `the whole card is ${words.text.split(' ').length} words: read in a few seconds (the harness agent's name is three words long, three times)`);
+  check(words.text.split(' ').length <= 85, `the whole card is ${words.text.split(' ').length} words: read in a few seconds (the harness agent's name is three words long, twice)`);
   await page.locator(`${CARD} button.trust-yes[aria-disabled="false"]`).waitFor({ timeout: 10000 }); // as a person meets it: armed a moment after it shows
   await shotEl(page, `bx-frame[src="${TILE}"] .pop`, 'trust-card-agent-tab');
 

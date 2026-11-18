@@ -303,8 +303,8 @@ session runs on instead).
 **The card** (`<bx-agent-signin view="trust">`, the tile window's Agent
 tab, before a first start and whenever a session ran without): whose tile
 it is and who can change it (xbind's names, at most three and "N more");
-"Trusting means your ‹harness› sign-in is used here and this tile's code
-can change your home. People who can change this tile could read it and
+"Trusting means your sign-in is used here and this tile's code can change
+your home. People who can change this tile could read it and
 use your ‹harness› account." (two things since D245: the sign-in, and the
 home — `home-on-untrusted-tiles.md`); two buttons of the same size and look — "Trust this tile — use
 my sign-in" (armed: 600 ms after it shows, the person's own click, nothing
