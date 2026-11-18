@@ -767,14 +767,6 @@ func normalizeID(id string) string {
 	return strings.ToLower(strings.TrimSpace(id))
 }
 
-// NormalizeID is an account id as the store keys it: two spellings name the
-// same account exactly when these are equal.
-func NormalizeID(id string) string { return normalizeID(id) }
-
-// LevelRank orders the access levels: none (or unknown) 0, read 1, write 2,
-// terminal 3.
-func LevelRank(l string) int { return levelRank(l) }
-
 // userIDRe / reservedUserIDs enforce the durable-key contract. A user id is
 // the PERMANENT key for three things that outlive any one session and can't be
 // renamed without orphaning data: the terminal home dir (homes/<user>), the
