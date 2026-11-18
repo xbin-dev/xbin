@@ -20,6 +20,8 @@ package auth
 
 import (
 	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"log/slog"
 	"net/http"
 	"os"
@@ -109,6 +111,22 @@ type Principal struct {
 	// delivery's registration, or the broker's answer for the tile's own
 	// credentials (addressedPartition). "" for everyone else.
 	Partition util.Partition
+	// TermRef, on a terminal token's principal (Via "terminal"), names the
+	// token without being it: TerminalRef(token), a hash. The terminal
+	// manager tells by it WHICH session's token a request carries — a
+	// session opened with a shell's token gets no more than that shell has
+	// (term/home.go, D245). "" for everyone else.
+	TermRef string
+}
+
+// TerminalRef is the reference a terminal token's principal carries
+// (Principal.TermRef): a hash of the token, never the token.
+func TerminalRef(token string) string {
+	if token == "" {
+		return ""
+	}
+	h := sha256.Sum256([]byte("xbin terminal token ref\x00" + token))
+	return hex.EncodeToString(h[:16])
 }
 
 // ReadOnly reports an impersonation principal: an admin looking through a
@@ -455,8 +473,8 @@ func (a *Auth) lookupTerminal(token string) (termID, bool) {
 // rejected — deleting/disabling a user kills their live shells' API access.
 // The user's Access rides along so per-tile gates beyond the terminal's own
 // tile follow the DRIVING human, not a blanket element pass.
-func (a *Auth) terminalPrincipal(id termID) (Principal, bool) {
-	p := Principal{Component: id.component, UserID: id.userID, Via: "terminal", Deployment: id.deployment}
+func (a *Auth) terminalPrincipal(id termID, token string) (Principal, bool) {
+	p := Principal{Component: id.component, UserID: id.userID, Via: "terminal", Deployment: id.deployment, TermRef: TerminalRef(token)}
 	if id.userID != "" {
 		if _, found := a.userSnapshot(id.userID); !found {
 			return Principal{}, false
@@ -531,7 +549,7 @@ func (a *Auth) fromRequest(r *http.Request) (Principal, bool) {
 				return id.principal(), true
 			}
 			if id, ok := a.lookupTerminal(tok); ok {
-				return a.terminalPrincipal(id)
+				return a.terminalPrincipal(id, tok)
 			}
 		}
 		if p, ok, present := frame(); present {
@@ -549,7 +567,7 @@ func (a *Auth) fromRequest(r *http.Request) (Principal, bool) {
 			return id.principal(), true
 		}
 		if id, ok := a.lookupTerminal(tok); ok {
-			return a.terminalPrincipal(id)
+			return a.terminalPrincipal(id, tok)
 		}
 		// The app's human sessions (device / password / SSO) ride as bearers.
 		return a.bearerSessionPrincipal(tok, a.ipOf(r))
