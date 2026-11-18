@@ -28,7 +28,13 @@ import (
 // is the point. A number the spec names that isn't open fails the start.
 // Then the hostname.
 func initFDs(s *Spec) error {
-	for _, fd := range []int{s.CtrlFD, s.AgentFD, s.LockFD, s.ExeFD} {
+	// a hold's socket and the detached mounts to attach (Bind.Mount) are the
+	// init's alone: nothing it starts inherits them, nor does the entry
+	mine := []int{s.HoldFD}
+	for _, b := range s.Binds {
+		mine = append(mine, b.MountFD)
+	}
+	for _, fd := range append([]int{s.CtrlFD, s.AgentFD, s.LockFD, s.ExeFD}, mine...) {
 		if fd <= 0 {
 			continue
 		}
@@ -36,7 +42,7 @@ func initFDs(s *Spec) error {
 			return must(err, "inherited fd "+strconv.Itoa(fd))
 		}
 	}
-	for _, fd := range []int{s.CtrlFD, s.AgentFD, s.ExeFD} {
+	for _, fd := range append([]int{s.CtrlFD, s.AgentFD, s.ExeFD}, mine...) {
 		if fd > 0 {
 			unix.CloseOnExec(fd)
 		}

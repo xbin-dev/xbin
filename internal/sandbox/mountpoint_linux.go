@@ -310,23 +310,34 @@ func mountBindsNoFollow(w *walk, binds []Bind, debug bool) error {
 			}
 			continue
 		}
-		src, isDir, release, err := bindSource(b)
-		if err != nil {
-			return err
-		}
-		mp, err := w.point(dst, isDir, true, false)
-		if err == nil {
-			// Always recursive, as mountBind (see Bind's doc).
-			err = must(unix.Mount(src, fdPath(mp), "", unix.MS_BIND|unix.MS_REC, ""), "bind "+b.Src+" -> "+b.Dst)
-			unix.Close(mp)
-		}
-		var st unix.Stat_t
-		if err == nil && b.Layout && isDir && unix.Stat(src, &st) == nil {
-			w.layout = append(w.layout, statID(&st)) // its entries are the host's
-		}
-		release()
-		if err != nil {
-			return err
+		isDir := true
+		if b.MountFD > 0 {
+			// a detached mount (Bind.Mount: a hold's overlay), attached on
+			// the mount point the walk opened. Src is never bound: a mount
+			// that can't be attached fails the start
+			if err := attachMount(w, b, dst); err != nil {
+				return err
+			}
+		} else {
+			src, dir, release, err := bindSource(b)
+			if err != nil {
+				return err
+			}
+			isDir = dir
+			mp, err := w.point(dst, isDir, true, false)
+			if err == nil {
+				// Always recursive, as mountBind (see Bind's doc).
+				err = must(unix.Mount(src, fdPath(mp), "", unix.MS_BIND|unix.MS_REC, ""), "bind "+b.Src+" -> "+b.Dst)
+				unix.Close(mp)
+			}
+			var st unix.Stat_t
+			if err == nil && b.Layout && isDir && unix.Stat(src, &st) == nil {
+				w.layout = append(w.layout, statID(&st)) // its entries are the host's
+			}
+			release()
+			if err != nil {
+				return err
+			}
 		}
 		if !b.RO {
 			continue
@@ -407,4 +418,17 @@ func inRoot(newroot string, fn func(root int) error) error {
 	}
 	defer unix.Close(root)
 	return fn(root)
+}
+
+// attachMount attaches the detached mount b carries (Bind.Mount) at dst,
+// on the mount point the walk opens, and closes the init's copy of it.
+func attachMount(w *walk, b Bind, dst string) error {
+	defer unix.Close(b.MountFD)
+	mp, err := w.point(dst, true, true, false)
+	if err != nil {
+		return err
+	}
+	defer unix.Close(mp)
+	err = unix.MoveMount(b.MountFD, "", mp, "", unix.MOVE_MOUNT_F_EMPTY_PATH|unix.MOVE_MOUNT_T_EMPTY_PATH)
+	return must(err, "attach the mount at "+b.Dst+" (open_tree and move_mount need Linux 5.2)")
 }

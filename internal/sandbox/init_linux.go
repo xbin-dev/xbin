@@ -79,6 +79,10 @@ func runInit(specPath string) error {
 	dbg(s.Debug, "fds: agent=%d lock=%d ctrl=%d hostname=%q nofollow=%v followBase=%v",
 		s.AgentFD, s.LockFD, s.CtrlFD, s.Hostname, s.NoFollow, s.FollowBase)
 
+	if s.Hold != nil { // no sandbox: the hold of one overlay mount (hold_linux.go)
+		return runHold(&s)
+	}
+
 	// Detach mount propagation so nothing we do leaks to the host.
 	if err := unix.Mount("", "/", "", unix.MS_REC|unix.MS_PRIVATE, ""); err != nil {
 		return must(err, "make-rprivate /")
@@ -491,6 +495,11 @@ func mountBind(newroot string, b Bind) error {
 // mkdirat. Masks keep mountMask's path.
 func mountBinds(newroot string, binds []Bind, debug bool) error {
 	binds = sortBinds(binds)
+	for _, b := range binds {
+		if b.MountFD > 0 || b.Mount != nil { // Launch refuses it: never a bind of Src in its place
+			return fmt.Errorf("the mount for %s needs a NoFollow root", b.Dst)
+		}
+	}
 	var roots []bindRoot // mounted binds a later bind nests under
 	defer func() {
 		for _, r := range roots {
