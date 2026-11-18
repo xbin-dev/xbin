@@ -59,9 +59,49 @@ type homeCopies struct {
 	holds    map[string]*copyHold   // layer dir → its hold
 	keys     map[string]*sync.Mutex // layer dir → starts, stops and removals of it, one at a time
 	removing map[string]bool        // layer dir → being forgotten: no session starts on it
+	sizes    map[string]copySize    // layer dir → its size as last measured (a list re-reads within copySizeTTL)
 	// tests: stand in for sandbox.StartHold and confine.DiskUsage
 	start func(sandbox.HoldSpec) (overlayHold, error)
 	usage func(dir string) (int64, error)
+}
+
+// copySize is a layer's measured size.
+type copySize struct {
+	bytes int64
+	at    time.Time
+}
+
+// copySizeTTL is how long a layer's measured size is reused: measuring is
+// a confined run per layer.
+const copySizeTTL = 30 * time.Second
+
+// size is the layer's size on disk (-1: it could not be measured).
+func (c *homeCopies) size(dir string) int64 {
+	c.mu.Lock()
+	got, ok := c.sizes[dir]
+	usage := c.usage
+	c.mu.Unlock()
+	if ok && time.Since(got.at) < copySizeTTL {
+		return got.bytes
+	}
+	if usage == nil {
+		usage = func(dir string) (int64, error) {
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			defer cancel()
+			return confine.DiskUsage(ctx, dir)
+		}
+	}
+	n, err := usage(filepath.Join(dir, "upper"))
+	if err != nil {
+		return -1
+	}
+	c.mu.Lock()
+	if c.sizes == nil {
+		c.sizes = map[string]copySize{}
+	}
+	c.sizes[dir] = copySize{n, time.Now()}
+	c.mu.Unlock()
+	return n
 }
 
 type copyHold struct {
@@ -326,8 +366,8 @@ func (m *Manager) endCopySessions(dir, why string) int {
 	return n
 }
 
-// HomeCopies lists homeKey's layers, newest first. identOf answers a
-// tile's identity now (the broker's TileIdentity; nil: unknown).
+// HomeCopies lists homeKey's layers, newest first, each with its size on
+// disk (measured by a confined run, reused for copySizeTTL).
 func (m *Manager) HomeCopies(homeKey string) []HomeCopyInfo {
 	out := []HomeCopyInfo{}
 	ents, _ := os.ReadDir(m.homeCopiesRoot(homeKey))
@@ -337,20 +377,9 @@ func (m *Manager) HomeCopies(homeKey string) []HomeCopyInfo {
 		if err != nil || !e.IsDir() {
 			continue
 		}
-		hc := HomeCopyInfo{ID: e.Name(), Tile: meta.Tile, Name: meta.Name, Created: meta.Created, Bytes: -1, Sessions: m.copies.live(dir)}
+		hc := HomeCopyInfo{ID: e.Name(), Tile: meta.Tile, Name: meta.Name, Created: meta.Created, Bytes: m.copies.size(dir), Sessions: m.copies.live(dir)}
 		if m.TileIdentity != nil {
 			hc.Gone = m.TileIdentity(meta.Tile) != meta.Ident
-		}
-		usage := m.copies.usage
-		if usage == nil {
-			usage = func(dir string) (int64, error) {
-				ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-				defer cancel()
-				return confine.DiskUsage(ctx, dir)
-			}
-		}
-		if n, err := usage(filepath.Join(dir, "upper")); err == nil {
-			hc.Bytes = n
 		}
 		out = append(out, hc)
 	}
@@ -399,6 +428,7 @@ func (m *Manager) ForgetHomeCopy(homeKey, id, why string) (tile string, ended in
 	defer func() {
 		c.mu.Lock()
 		delete(c.removing, dir)
+		delete(c.sizes, dir)
 		c.mu.Unlock()
 	}()
 	ended = m.endCopySessions(dir, why)

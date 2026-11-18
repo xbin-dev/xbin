@@ -54,7 +54,11 @@ POST   /agent/signins/trust       a person. {tile} → 201 {trust}: "I trust
                                    tile is yours alone; 403 trusting is off
 DELETE /agent/signins/trust/<id>  a person. → {ok, ended}: no longer
                                    trusted; your sessions there on a saved
-                                   sign-in are ended
+                                   sign-in, or with your real home, are
+                                   ended
+DELETE /agent/signins/homes/<id>  a person. → {ok, tile, ended}: forget
+                                   what that tile wrote to your home (its
+                                   copy; your real home is not touched)
 ```
 
 **No answer of any route carries a secret, or a part of one** — not a
@@ -231,12 +235,66 @@ answer's record, so their return is someone new. `via` is `card`,
 `approval` (the trust line of a start the person approved) or `plan`.
 
 `DELETE /agent/signins/trust/<id>` takes it back → `{ok, ended}`: the
-caller's sessions on that tile that run on a saved sign-in are ended.
+caller's sessions on that tile that run on a saved sign-in, or that have
+their real home (below), are ended.
 
 Only a person's own session, app or device calls either — never a tile's
 frame, backend or terminal token, a person's workspace agent, an admin
 viewing as them, or the root token (403). The agent's page may open the
 sign-in card (`xbin:agent-open-signin`); no message answers it.
+
+## Your home on a tile that isn't only yours
+
+The same answer decides which home a session mounts (D245,
+[agent-signins.md](../agent-signins.md#your-home-on-a-tile-that-isnt-only-yours)).
+A person has one home for all their tiles. On a tile whose source isn't
+only theirs and that they have not trusted, their terminals and agent
+sessions read that home and write to a **copy** kept for that tile: what
+the tile's code writes under `~` never reaches the real home. Everywhere
+else — their own tiles, trusted ones — the home is the real one.
+
+Every session row (`GET /term/sessions`, `POST /term/sessions`, `GET
+/term/sessions/<id>`) carries it, fixed at the session's start:
+
+```
+home: { mode: "own" | "copy",   // "home: yours" | "home: this tile's copy
+                                //  (changes stay on this tile)"
+        why?,                   // why it is the copy
+        kept?,                  // it restarted or resumed a session that ran
+                                //  on the copy, and stays on it
+        unsandboxed?,           // the workspace runs without sandboxes:
+                                //  nothing is protected
+        trust?,                 // the question (as here.trust) whose answer
+                                //  gives NEW sessions there the real home
+        docs }
+```
+
+`GET /agent/signins?tile=<path>` answers `home` the same way for a session
+the caller would open there now, with `copy` — the tile's copy, when there
+is one — and `homes`, all the caller's copies:
+
+```
+homes: [{ id, tile, name?, created, bytes,   // bytes -1: not measured
+          sessions,                           // live sessions on it
+          gone?,                              // its tile is gone: it goes at the next sweep
+          unused }]                           // the tile is trusted now: kept, not used
+```
+
+Trusting a tile (`POST /agent/signins/trust`) merges nothing into the real
+home, and there is no route that copies a copy over. New sessions on the
+tile then mount the real home; the ones already open stay on the copy
+(`kept` after a restart). A trust that stops holding ends the sessions
+that have the real home on that tile; the next one is on the copy as it
+was left. `DELETE /agent/signins/homes/<id>` removes a copy: the caller's
+sessions on it are ended (`ended`), 404 when it isn't theirs.
+
+A session that has its person's real home is that person's alone: an
+admin's attach (`/ws/term?session=`) and the per-session routes answer 403
+for anyone else, as on a partitioned tile; ending it stays allowed. A
+copy that cannot be mounted fails the session's start with the reason —
+`400` on `/ws/term`, `POST /term/sessions` — and the real home is not
+opened in its place. Without `--isolate` there are no sandboxes and no
+copies: `home.mode` is `own` with `unsandboxed: true`.
 
 ## The switches
 

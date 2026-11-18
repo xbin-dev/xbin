@@ -50,5 +50,8 @@ func signinsEndpoints() []ep {
 		{"DELETE", "/agent/signins/trust/{id}", "Agent sessions", "Stop trusting a tile's source", person,
 			"Removes the caller's answer and ends their sessions on that tile that run on a saved sign-in (ended: how many). 404 not theirs.",
 			[]oapi{pathParam("id", "trust id")}, nil, "{ok, ended}"},
+		{"DELETE", "/agent/signins/homes/{id}", "Agent sessions", "Forget what a tile wrote to the caller's home", person,
+			"On a tile whose source isn't only the caller's and that they have not trusted, their sessions read their real home and write to a copy kept for that tile (GET /agent/signins → homes: [{id, tile, name?, created, bytes, sessions, gone?, unused}]; with ?tile=, home: {mode: own | copy, why?, trust?, docs, copy?} is the home a session there would mount now). This removes one copy: the caller's sessions on it are ended (ended: how many) and what the tile wrote there is deleted; their real home is not touched, and nothing of a copy is ever merged into it. 404 not theirs; 409 its sessions did not end in time. Only a person's own session, app or device.",
+			[]oapi{pathParam("id", "copy id")}, nil, "{ok, tile, ended}"},
 	}
 }

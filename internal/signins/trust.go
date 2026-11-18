@@ -184,9 +184,10 @@ func (s *Store) TrustTile(user string, src Source, via, basis string) (Trust, er
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	pol := s.policy()
+	// (the switch on SAVED SIGN-INS does not gate this: a trust also decides
+	// which home the person's sessions mount on the tile — term/home.go,
+	// D245 — whether or not anyone may save a sign-in)
 	switch {
-	case !pol.Enabled:
-		return Trust{}, ErrOff
 	case !pol.Trust.Allowed:
 		return Trust{}, ErrTrustOff
 	case src.ID == "" || src.Tile == "":

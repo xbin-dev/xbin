@@ -7,8 +7,10 @@ import (
 	"sync"
 
 	"github.com/xbin-dev/xbin/internal/agent"
+	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/server"
 	"github.com/xbin-dev/xbin/internal/signins"
+	"github.com/xbin-dev/xbin/internal/term"
 )
 
 // setupSignins starts the coding-agent sign-in store (D230,
@@ -68,6 +70,11 @@ func (st *State) setupSignins(srv *server.Server) {
 		// else can change it (broker/signinothers.go) — what decides whether
 		// their trust is asked first
 		tm.SigninSource = brk.SigninSource
+		// …and what tells a tile from one made later at its path: the copy
+		// of a person's home on a tile they have not trusted is kept per tile
+		// identity (term/home.go, D245). The same source and the same trust
+		// decide which home a session mounts: wired whenever sessions exist
+		tm.TileIdentity = brk.TileIdentity
 		srv.SigninSourcePlanned = brk.SigninSourcePlanned
 		tm.SigninsOff = func() bool { return !store.Policy().Enabled }           // the admins' switch, or the host's file
 		tm.SigninTrustOff = func() bool { return !store.Policy().Trust.Allowed } // …and the one on trusting a tile's source
@@ -110,6 +117,12 @@ func (st *State) setupSignins(srv *server.Server) {
 			seenMu.Unlock()
 			if !same {
 				revalidate()
+				// the copies of people's homes kept for a tile that is gone —
+				// its directory no longer there, or another one now — go
+				// (term/homecopy.go); an unregistered tile's stay
+				if n := tm.SweepHomeCopies(); n > 0 {
+					slog.Info("home copies: removed the layers of tiles that are gone", "removed", n)
+				}
 			}
 		}
 		st.signinTiles() // the tiles as xbind finds them at its start
@@ -146,6 +159,9 @@ func (st *State) setupSignins(srv *server.Server) {
 		}
 		if deleted {
 			store.PersonGone(id)
+			if st.Term != nil { // what tiles wrote to the copies of their home goes with the account (D245)
+				st.Term.ForgetHomeCopies(term.HomeKey(auth.Principal{UserID: id}), "Your account was deleted, so this session was ended.")
+			}
 		}
 	}
 }

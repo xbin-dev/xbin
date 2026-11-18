@@ -514,6 +514,7 @@ var partitionClasses = map[string]PartitionClass{
 	"POST /agent/signins/guided":               PersonOnly, // a person's saved coding-agent sign-ins (D230)
 	"POST /agent/signins/trust":                PersonOnly, // a person's saved coding-agent sign-ins (D230)
 	"DELETE /agent/signins/trust/{id}":         PersonOnly, // a person's saved coding-agent sign-ins (D230)
+	"DELETE /agent/signins/homes/{id}":         PersonOnly, // the copies of a person's home (D245)
 	"POST /agent/signins/guided/{flow}":        PersonOnly, // a person's saved coding-agent sign-ins (D230)
 	"DELETE /agent/signins/guided/{flow}":      PersonOnly, // a person's saved coding-agent sign-ins (D230)
 	// ---- the LLM connector's calls (D226): a person's partition calls as

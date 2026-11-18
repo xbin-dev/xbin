@@ -5,6 +5,7 @@
 DELETE /access-requests	handled
 DELETE /agent/history/{id}	no-tile
 DELETE /agent/signins/guided/{flow}	no-tile
+DELETE /agent/signins/homes/{id}	no-tile
 DELETE /agent/signins/notice	no-tile
 DELETE /agent/signins/people/{user}/{id}	no-tile
 DELETE /agent/signins/trust/{id}	no-tile

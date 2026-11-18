@@ -6,6 +6,7 @@
 DELETE /access-requests	never
 DELETE /agent/history/{id}	never
 DELETE /agent/signins/guided/{flow}	never
+DELETE /agent/signins/homes/{id}	never
 DELETE /agent/signins/notice	never
 DELETE /agent/signins/people/{user}/{id}	never
 DELETE /agent/signins/trust/{id}	never
