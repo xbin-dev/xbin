@@ -450,9 +450,13 @@ differently.
 - **Additive state:** `data/signins/tiles.json` (who could change each
   tile's code, from this release on; none in a one-person workspace).
   An older xbind ignores it.
-- **A restored backup** keeps every copy: tiles get another identity, so
-  the copies are listed as not used and are their people's to forget;
-  xbind deletes a copy by itself only when the tile's directory is gone.
+- **xbind removes no copy by itself** — not for a tile that is deleted,
+  moved, re-made or restored from a backup (a moved tile keeps its
+  copies; the others' are listed as gone), not for a deleted account
+  (listed to admins). Only *forget* removes one.
+- **The root token** keeps trust answers of its own (`data/signins/`,
+  under the key of its home), so someone who works on the token gets the
+  real home back on a person's tile by the same one click.
 - **Additive API:** session rows gain `home`, `GET /agent/signins` gains
   `home` and `homes`, one new route (`DELETE /agent/signins/homes/<id>`).
   An older page ignores them.

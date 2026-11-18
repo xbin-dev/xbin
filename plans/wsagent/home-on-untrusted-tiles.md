@@ -60,6 +60,29 @@ shows no non-admin who could change it. **Unknown to xbind, and said so in
 the docs:** who could change a tile before this record began, and changes
 made to the workspace's files while xbind was not running.
 
+**The record's gaps, closed in the re-review** (`signins/past.go`,
+`broker/signinothers.go`): (a) a writer of a tile ABOVE can change a
+nested tile (it is inside the read-write bind, unmasked) — editors, now
+and in the record, include the ancestors' writers, and the card says
+through which tile; (b) a workspace admin who is demoted, disabled or
+deleted could change every tile — recorded once, workspace-wide
+(`ObserveAdmins`), named on every tile until each person answers; an
+answer covers who it named (`VoidPast` otherwise); (c) a tile whose
+identity changed takes over the record of the tile at its path — nothing
+is pruned; (d) a full record (200 parties) says "and others", which
+still asks; (e) an admin's ownership is no party (admins are in the
+trust base while they are admins), so a workspace with one account
+writes nothing, also when a tile goes from that account to the
+workspace. Still unknown to xbind: history before the record, changes
+made while it was not running, and an admin demoted while it was down.
+
+**The answer says what was shown** (`signins.TrustShown`, the re-review's
+item 4): the basis says what the tile is; a page loaded before D245
+re-fetches today's basis and still shows the old words. So the card, the
+dialog and a ticked trust line send `shown: "signin+home"`; an answer
+without it gets 409 `{changed, reload}` whose text tells the person to
+reload (an old page cannot recover by itself: its words are in its code).
+
 **What an answer means is versioned** (`signins.TrustMeans` = 2, the
 basis prefix `tb2_`, `Trust.Means`): an answer given before D245 was for
 the sign-in only. It is void (`VoidMeans`) and asked again with the words
@@ -85,7 +108,13 @@ the allow-list view), the masks (the view binds no `homes`, `data`,
 member can make), the admin pass (it is about attaching: a copy session
 may be attached to by an admin, which is why a terminal token of a copy
 session never opens a real-home one — below), host networking (refused
-for an admin's confined session). A VM session's guest has only what is
+for an admin's confined session: it runs on the owner's network or
+offline, and the session's first lines, its row — `home.netInstead` —
+and the home dialog say which, and that trusting the tile restores it).
+What the tile's code STILL has in an admin's confined session, stated in
+the docs: every tile's source read-only (an admin's allow-list is every
+tile), the unredacted `xbin.json`, a GPU if asked for, the connector's
+model key, the session's API token with the admin's access riding on it. A VM session's guest has only what is
 shared into it — the clone — whatever its tier. (Where the kernel has
 Landlock the read guard also happens to refuse a session's mounts; the
 rule does not rest on it, and the test runs with and without.)
@@ -96,7 +125,7 @@ Who the session is for:
 |---|---|
 | the person (browser, app, device) | the rule, for them |
 | their workspace agent (a delegate start, approved or by preference) | the rule, for the person. Trust is only ever the person's own answer (the approval's trust line records it before the open) |
-| the root token (`homes/owner`) | the rule, as a workspace admin with no account: a workspace-owned tile nobody else can change is its own. It cannot keep a trust answer (answers are an account's), so on every other tile it gets the copy |
+| the root token (`homes/owner`) | the rule, as a workspace admin with no account: a workspace-owned tile nobody else can change is its own. Elsewhere the copy, confined — and it is ASKED: the root token keeps trust answers of its own under the key of its home (`signins.RootTokenUser`), given through the same dialog and route, basis-bound, voided and revocable like a person's. It never has a saved sign-in. **One seam, to delete when the token becomes a credential that only onboards**: `internal/signins/roottoken.go` (the key, the source wrapper), `term.homeUser` / `term.RootTokenAsks`, `internal/server/signinsroot.go` (the four routes, the partition gate's exception) |
 | a terminal's token (`bx agent` inside a shell: the only tile credential that can open a session, and only on its own tile) | never more than the session it came from: **own** only when the rule says so now AND the session the token was minted for (`auth.Principal.TermRef`, a hash of the token) is that person's, on that tile, with the real home; else copy. Not "some session of theirs there": an admin may be attached to a copy session, and its token would open a real-home session they drive |
 | a terminal token of the root token's shell (no account) | the root token's: the row above, with `homes/owner` — a one-person install's `bx agent` in a shell keeps the real home |
 | any other component credential, view-as | they open no session (the gates refuse); the rule answers copy for them all the same |
@@ -261,20 +290,34 @@ another tile's, and the tile's backend never see it.
   refusing: "forget" is the person's way out of a copy a tile filled, and
   a refusal while a session of theirs runs there would make them hunt for
   it first.
-- **Deleted with the tile — only on a positive answer** (review L4): at
-  every rescan and at boot, a layer is removed when its tile's path is
-  positively not there (`tileAbsent`: ENOENT on the directory, below real
-  directories; a symlink on the way, or any other error, is "don't
-  know"). Another identity at the path, or an identity that could not be
-  read (EMFILE, EACCES), removes nothing: the layer is an **orphan** —
-  never mounted again (its id is the old identity's), listed as not used,
-  forgotten by its person. That is also the answer for a workspace
-  **restored from a backup**: every tile gets another identity (inode,
-  birth time), so every copy is an orphan and every trust is void
-  (asked again); nothing of a person's is deleted on the strength of an
-  inode number. A tile that is merely unregistered keeps its layers.
-- **Deleted with the account** (`OnUserSignedOut(deleted)`), and the
-  holds ended.
+- **Never deleted by xbind** (the re-review's item 1; the owner's rule
+  for homes: "must not remove old ones / needs migration"). The first
+  fix (L4) still deleted a copy whose recorded PATH was positively
+  absent — but the layer is keyed by identity and the path was never
+  updated, so a tile moved or renamed, a renamed parent, or a path
+  missing at one rescan wiped its people's copies (agent transcripts
+  included); a tile's owner could do it to everyone by renaming twice.
+  Now nothing but "forget" removes a layer:
+  - a copy **follows its tile by identity** (`copyTile`): when the
+    identity is no longer at the recorded path and a registered tile has
+    it (`Manager.TilePathOf`), `meta.json`'s path is updated — at the
+    list, at a session's start (`prepareCopy`), at `FollowHomeCopies`;
+  - a copy whose tile is **gone** (deleted; another identity at its path
+    and none anywhere) is kept, listed to its person as "its tile is
+    gone", with Forget. An identity that can't be read says nothing;
+  - a **deleted account's** copies are kept (`EndHomeCopySessions` ends
+    its sessions on them) and listed to admins (`kept` in `GET
+    /agent/signins`), who forget them (`DELETE
+    /agent/signins/homes/{id}?of=<user>`: the same confined removal;
+    never a living account's). A re-created account of the same id has
+    the same home key — and so its copies, as it has the home.
+  - `FollowHomeCopies` (boot, and a rescan that changed the tiles) only
+    reads each layer's `meta.json` and runs in a goroutine of its own:
+    the watch loop and boot no longer wait on it (the sweep used to
+    forget — 20 s + a confined run per copy — synchronously there).
+  A workspace **restored from a backup** gives every tile another
+  identity: every copy is listed as gone, every trust is void (asked
+  again), nothing is removed.
 - **Quota**: homes have no quota or limit in xbind today (checked: none in
   `internal/limits`, the broker's usage, the docs), so there is nothing to
   count against; the list shows each layer's size on disk (`du`, confined).
@@ -458,6 +501,12 @@ The review's findings (2026-11-18), each with its test and a red run:
 | L5 non-root processes refused their home | kernel overlay first | `TestHomeCopyNonRootUser` (sub-uid mapping), `TestHomeLayerStore` |
 | L6a the host's switch | `signinTrustOff` in `homePlanFor` | `TestHomeTrustSwitchedOffByTheHost` |
 | L6b forget under a start | the lock, the wait | `TestHomeForgetDuringAStart`, `TestHomeCopyCycles` |
+| re-review 1: copies deleted by a move | nothing removes a copy; it follows its tile | `TestHomeLayerStore`, `TestHomeCopyTrustAndForget` (a rename keeps the copy), `TestHomeCopyRoutes` (a deleted account's copies kept, an admin's forget) |
+| re-review 2: the root token locked out | its own trust answers (the seam) | `TestRootTokenTrust`, `TestHomeRootTokenTrust`, `TestHomeCopyAdminIsConfined`, `TestHomeCopyRoutes`, e2e `TestHomeRootTokenTrusts` |
+| re-review 3: nested tiles, former admins, identity, the cap, one account | `codeWritersAbove`, `ObserveAdmins`, carry-over, `More`, `pastOwner` | `TestPastAdminsIdentityAndTheCap`, `TestTrustCoversWhoItNamed`, `TestHomeCopyRoutes` |
+| re-review 4: an old page's answer | `TrustShown` | `TestHomeCopyRoutes`, `TestDelegateStartDefaultsSavedSignIn`, the plan test, e2e `TestHomeRootTokenTrusts` |
+| re-review 5: the sign-in frame sent before the judgement | `registered` before `drv.Start` | `TestSigninNotSentToASessionJudgedGone` |
+| re-review 6: host network moved silently | `home.netInstead`, the words | `TestHomeCopyConfinesAdmins`, the JS word tests |
 | sticky past | `signins.Past` | `TestPastRemembersWhoCouldChangeATile`, `TestHomeRuleRemembersPastEditors`, `TestHomeCopyRoutes` (a one-person install records nothing) |
 
 ## 11. Not done, known
@@ -495,6 +544,13 @@ The review's findings (2026-11-18), each with its test and a red run:
   it in a leaf of its own needs a cgroup that outlives each session and is
   shared by several (the leaf is per session today) — not simple, so it
   is a documented residual (docs/agent-signins.md, "Admins").
+- A copy stamped fuse-overlayfs keeps the non-root lockout after the
+  kernel is upgraded (the re-review's item 7). Decided: **not migrated**
+  — the two overlays keep whiteouts and opaque directories differently
+  (fuse-overlayfs: `.wh.` files and its own xattrs; the kernel:
+  character devices and `user.overlay.*`), so re-stamping a written
+  upper would resurrect deleted files or hide directories. The docs say
+  how to get a kernel copy: forget it, start a session.
 - On the fuse-overlayfs fallback (a kernel before 5.11) only root in a
   session can use the home on a copy (§4). Not fixable from outside the
   kernel short of nesting the sessions' user namespaces under the hold's.

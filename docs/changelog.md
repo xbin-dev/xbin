@@ -34,7 +34,13 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   record starts with this release). Session rows carry `home: {mode: own
   | copy, why?, kept?, confined?, trust?, docs}`; a dialog button may be
   `armed` (`xbin.dialog`: the person's deliberate click only — the home
-  dialog's "I trust this tile's source" is); the window's status bar says `home: yours` or `home: this tile's
+  dialog's "I trust this tile's source" is). xbind never removes a copy
+  on its own (a moved tile keeps its copies; a gone tile's and a deleted
+  account's are kept and listed — `gone`, and `kept` for admins, with
+  `DELETE /agent/signins/homes/<id>?of=<user>`); the root token is asked
+  the trust question and keeps answers of its own; a trust answer carries
+  `shown: "signin+home"` (409 `{reload}` without); the question names
+  editors `through` a tile above, `pastAdmins` and `pastMore`; the window's status bar says `home: yours` or `home: this tile's
   copy (changes stay on this tile)`; `GET /agent/signins` gains `home`
   (with `?tile=`) and `homes`, and `DELETE /agent/signins/homes/<id>` is
   "forget what this tile wrote to my home". A workspace admin can no

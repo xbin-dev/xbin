@@ -143,7 +143,9 @@ So xbind decides, itself, at every start:
      write level or more, by an entry of their own, a pattern, or an org
      the tile is shared with — on a partitioned tile too (a partition
      keeps people's data apart; the tile's directory is the same code in
-     every partition).
+     every partition). **A tile inside another tile's directory** can be
+     changed by whoever can write the tile above it — the card names them
+     too ("bob (through apps/crm) can change it").
 
    - **someone else could change its code before, and can't now** — a
      past owner (a person, an org), or a person who had write level and
@@ -154,7 +156,13 @@ So xbind decides, itself, at every start:
      A tile you made and never shared has no such record and asks nothing.
      For a workspace admin a workspace-owned tile stays "theirs" only
      while no non-admin has been able to change it since the record
-     began. **What xbind can't know:** who could change a tile before it
+     began. **A workspace admin who stops being one** (demoted, disabled,
+     deleted) could change every tile: every tile asks each person once
+     after it, naming them ("zed (was a workspace admin)"); an answer you
+     gave before that day does not cover them. A tile whose directory was
+     re-made or restored keeps the record of the tile at its path. A
+     record that is full says "and others" — it still asks. A workspace
+     with one account records nothing. **What xbind can't know:** who could change a tile before it
      kept this record (it starts with the xbind that has this rule), and
      changes made to the workspace's files while xbind was not running.
 
@@ -336,11 +344,22 @@ trusting off, an answer you gave is not usable: the copy.
   session on a tile's copy of your home is
   **confined like a member's until you trust that tile** — it sees the workspace read-only through
   the tiles you may read, can't mount or open new namespaces, has a
-  member's resource limits, and is not offered the host's network. An
+  member's resource limits, and is not given the host's network: asked
+  for it, the session runs on the tile owner's network, or offline, and
+  its first lines and the home dialog say which. An
   admin's sandbox can mount: with it, the tile's code could mount its way
   around the copy to your real home, or to your own tiles' code. The
   session's first lines and the home dialog say so. Trusting the tile
-  gives new sessions there the admin's sandbox, and your real home.
+  gives new sessions there the admin's sandbox, the host's network if you
+  ask for it, and your real home.
+  **What the tile's code still has in an admin's confined session**: it
+  reads every tile's source (an admin may read them all; read-only), the
+  workspace's whole `xbin.json` (not a member's redacted one), a GPU if
+  you asked for one, the model key of the workspace's connector, and the
+  session's API token — the tile's, acting with your access. Confinement
+  keeps it from *changing* your home and your other tiles; it is not a
+  member's view. Don't open a session on a tile you would not let read
+  the workspace.
 
 Why: code in a tile runs in your sessions there — a project hook, a build
 script, a Makefile. With your real home writable it could leave a file
@@ -370,15 +389,23 @@ not Enter, not a script.
 under *Coding-agent sign-ins*, which shows each copy and its size) ends
 your sessions on a copy and then deletes it; while one of them is still
 starting, forget waits for it, and if it doesn't come up in time nothing
-is removed and you are told to try again. A copy also goes when its tile
-is **deleted** (its directory is not there any more), or your account
-is. xbind never deletes a copy on a doubt: when a tile was made again at
-its path — which is also what a workspace **restored from a backup**
-looks like: every tile gets another identity — the old copy is never
-mounted again, and stays in the list as "its tile was deleted or made
-again — this copy is not used any more" until you forget it. Your
-sessions on the restored tile start a new copy, and your trust answers
-are asked again. Your real home is never touched by any of this.
+is removed and you are told to try again.
+
+**xbind never removes a copy on its own** — only *forget* does:
+
+- a tile that is **moved or renamed** keeps its people's copies (a copy
+  is its tile's by the tile's identity, not its path);
+- a tile that is **deleted**, or made again at its path — which is also
+  what a workspace **restored from a backup** looks like: every tile gets
+  another identity — leaves its copies in your list as "its tile is gone
+  — kept until you forget it". They are never mounted again; your
+  sessions on the new tile start a new copy, and your trust answers are
+  asked again;
+- when an **account is deleted**, its copies are kept. Workspace admins
+  see them under *Coding-agent sign-ins → Kept from deleted accounts*,
+  with their sizes, and forget them there.
+
+Your real home is never touched by any of this.
 
 What to know:
 
@@ -408,15 +435,24 @@ What to know:
   it. There directories rename, but
   **only root in the session can use the home**: a FUSE mount held outside the session's user namespace
   serves one user, and a non-root process gets "permission denied" on
-  `~`.
+  `~`. A copy made that way keeps it after the kernel is upgraded — the
+  two overlays keep deletions and renames differently on disk, so xbind
+  does not convert one. To get a kernel-overlay copy: **forget** the
+  copy (what the tile wrote to it goes) and start a session; the new
+  copy is the kernel's.
 - A session someone else could type into never has your real home: an
   admin can't attach to, or drive, your session when it has your own home
   (they can end it). A session opened by a terminal's own token (`bx
   agent` in a terminal) has your real home
   **only when that terminal has it** — not because another session of yours on the tile does.
-- The root token has its own home (`homes/owner`) and keeps no trust
-  answers: on a tile owned by a person or an org it always works on a
-  copy. `bx agent` in the root token's terminal is the root token's too.
+- **The root token** has its own home (`homes/owner`). On a tile that
+  isn't the workspace's — a person's, an org's, one someone else could
+  change — its sessions are on the copy, confined, like an admin's; and
+  like a person it is **asked**: the home line's dialog has the same
+  "I trust this tile's source", and the token's own answer (kept for the
+  token, listed, revocable, void when the tile changes) gives its new
+  sessions there the real home. It never has a saved sign-in. `bx agent`
+  in the root token's terminal is the root token's too.
 - If the copy can't be mounted (neither overlay works; a copy
   fuse-overlayfs wrote and no fuse-overlayfs any more), the session
   **fails** and says why. Your real home is never opened in its place.
@@ -430,8 +466,10 @@ What to know:
 
 Admins: copies live in `data/home-copies/<person>/<tile>/` (in a backup of
 `data/`), are mounted in no sandbox but through their overlay, and are
-removed by xbind when a tile's directory or an account is deleted —
-never because a tile's identity changed or could not be read. Homes have
+**never removed by xbind**: not when a tile is deleted, moved or made
+again, not when an account is deleted — only by *forget* (the person's,
+or an admin's for an account that no longer exists: `DELETE
+/agent/signins/homes/<id>?of=<user>`). Homes have
 no quota in xbind; the list shows each copy's size. The record of who
 could change each tile's code is `data/signins/tiles.json` (written the
 first time a tile has, or had, a second party; a one-person workspace

@@ -6020,6 +6020,20 @@ here: cut from the old end, never reword.
     only when its tile's directory is positively gone — a restored
     workspace leaves orphans, listed and forgettable. Forget ends the
     sessions on a copy and waits for a start in flight.
+  - **The re-review of the same day:** xbind NEVER removes a copy on its
+    own (the owner: "homes - must not remove old ones") — a copy follows
+    its tile by identity, a gone tile's and a deleted account's are kept
+    and listed (to the person; to admins), only "forget" removes one, and
+    the sweep only reads, off the watch loop. The root token keeps trust
+    answers of its own (one seam, to delete when the token becomes
+    onboarding-only: `signins/roottoken.go`, `term.homeUser`,
+    `server/signinsroot.go`). The record of past editors covers tiles
+    nested in a tile someone can write, former workspace admins
+    (workspace-wide), a changed identity (carried over) and a full
+    record ("and others"); one account records nothing. A trust answer
+    says what its page showed (`shown`), so a page from before cannot
+    answer for more than it said. An agent session is judged before its
+    driver starts. A fuse-stamped copy is not converted (forget + new).
   - **Open follow-up:** a nested user + mount namespace after the root is
     built, so that an admin's session could keep `mount` without being
     able to rearrange the sandbox's own mounts (the plan's §11).

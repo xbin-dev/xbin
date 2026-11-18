@@ -61,18 +61,33 @@ Also:
   sessions there that have your real home.
 - Under `--isolate`, a copy that can't be mounted **fails the session**
   with the reason; the real home is never mounted in its place.
-- A copy is deleted by xbind only when its tile's directory is gone (or
-  the account is). After a **restore from a backup** every tile has
-  another identity: trust answers are asked again, sessions start new
-  copies, and the old copies stay listed ("its tile was deleted or made
-  again — this copy is not used any more") until their people forget
-  them — nothing is deleted on a doubt.
+- **xbind never deletes a copy on its own.** A tile that is moved or
+  renamed keeps its people's copies. A tile that is deleted or made
+  again — a workspace **restored from a backup** looks like that for
+  every tile: trust answers are asked again, sessions start new copies —
+  leaves its copies listed ("its tile is gone — kept until you forget
+  it"). A deleted account's copies are kept and listed to workspace
+  admins (*Coding-agent sign-ins → Kept from deleted accounts*), who
+  forget them.
+- **The root token is asked too.** On a tile that isn't the workspace's
+  its sessions are on the copy, confined; the home line's dialog has the
+  same "I trust this tile's source", and the token's own answer gives its
+  new sessions there the real home. (It still never has a saved sign-in.)
+- **A trust answer says what was shown** (`shown: "signin+home"` with
+  `POST /agent/signins/trust` and with a ticked trust line). A page that
+  was open across the upgrade is told to reload.
+- Who can change a tile now includes who can write **a tile it lies in**,
+  and a **workspace admin who stops being one** is remembered: every tile
+  asks each person once after it.
 
 ## Who's affected
 
 - **A one-person workspace: nobody.** A sole admin's sessions on the
   workspace's own tiles need no trust and keep the real home; so does the
-  root token there; so does `bx agent` in a shell.
+  root token there; so does `bx agent` in a shell. **If you live on the
+  root token** and work on tiles owned by an account or an org: the
+  first terminal there is on a copy, confined — click the home line in
+  its status bar and trust the tile, once, for the real home.
 - **People on shared workspaces**, on tiles owned by someone else, an org
   or the workspace, or that a colleague can edit: a `claude auth login`,
   a `git config --global`, an `npm login`, shell history or a tool
