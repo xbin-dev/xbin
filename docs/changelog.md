@@ -59,6 +59,8 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
     per model, and *describe…*: tick the levels a model takes); `bx llm
     upstream set … --reasoning '<model>=<preset>|<levels>'`, and `bx llm
     models` prints each model's reasoning line.
+  - the Go SDK: `llm.Request.SetMember(name, raw)` replaces (or, `nil`,
+    removes) one member of a relayed request.
   - [llm.md §Reasoning effort](/docs/llm.md#reasoning-effort). The workspace
     agent sends no effort (unchanged); there is no per-upstream ceiling yet.
 

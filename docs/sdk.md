@@ -705,7 +705,9 @@ err = llm.ReadSSE(resp.Body, func(_ string, data []byte) error {
 - **A relay** rewrites a client's request without dropping members it
   doesn't know: `llm.OpenRequest(body)` gives the model and whether it
   streams (`ErrBadStream` when `stream` is no boolean: a relay must read
-  what its upstream will), `.Member(name)` any other member, and
+  what its upstream will), `.Member(name)` any other member,
+  `.SetMember(name, raw)` to replace one (`nil` removes it — what the LLM
+  connector does to a described model's reasoning effort), and
   `.Body(model, streamUsage)` the body to send — always written anew, each
   member once. `StreamUsage.Events()` and `BodyUsage.Bytes()` say how much
   passed, for an estimate when an answer ends without its usage. `JoinURL(base,
