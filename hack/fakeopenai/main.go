@@ -105,6 +105,13 @@
 // three words of the first message>"; its compaction summarizer (D133) gets
 // "SUMMARY: <n> transcript line(s) folded".
 //
+// "fake-think" (D249) is a thinking model as DeepSeek's API runs one: every
+// chat answer reasons (reasoning_content), its list entry describes its
+// effort (effort: low · high · max, default high, can be off), its answers
+// say what effort they were asked for ("[effort high] …"), and — DeepSeek's
+// documented rule — a request that offers tools while an earlier assistant
+// message lacks its reasoning_content is refused, 400.
+//
 // Every request reports a 100-token prompt and 20 completion tokens unless
 // its plan says otherwise (a -script answer reports its own sizes), with
 // their sum as total_tokens on both wires.
@@ -583,15 +590,17 @@ func answerLine(s string) string {
 
 func chatCompletions(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Model    string            `json:"model"`
-		Stream   bool              `json:"stream"`
-		Tools    []json.RawMessage `json:"tools"`
-		Messages []struct {
-			Role       string          `json:"role"`
-			Content    json.RawMessage `json:"content"`
-			ToolCallID string          `json:"tool_call_id"`
-			Name       string          `json:"name"`
-			ToolCalls  []struct {
+		Model           string            `json:"model"`
+		Stream          bool              `json:"stream"`
+		Tools           []json.RawMessage `json:"tools"`
+		ReasoningEffort string            `json:"reasoning_effort"`
+		Messages        []struct {
+			Role             string          `json:"role"`
+			Content          json.RawMessage `json:"content"`
+			ToolCallID       string          `json:"tool_call_id"`
+			Name             string          `json:"name"`
+			ReasoningContent *string         `json:"reasoning_content"`
+			ToolCalls        []struct {
 				ID       string `json:"id"`
 				Function struct {
 					Name string `json:"name"`
@@ -622,7 +631,29 @@ func chatCompletions(w http.ResponseWriter, r *http.Request) {
 		}
 		conv = append(conv, turn{Role: m.Role, Text: text, Tool: names[m.ToolCallID]})
 	}
+	thinker := req.Model == thinkModel
+	if thinker && len(req.Tools) > 0 {
+		for i, m := range req.Messages {
+			if m.Role == "assistant" && m.ReasoningContent == nil {
+				llm.WriteError(w, 400, llm.Error{Message: fmt.Sprintf("Missing `reasoning_content` field in the assistant message at message index %d: the reasoning_content in the thinking mode must be passed back to the API", i),
+					Type: "invalid_request_error"})
+				return
+			}
+		}
+	}
 	p := pick(conv, system, offered(req.Tools))
+	if thinker && purposeOf(system) == "turn" {
+		if len(p.Thinking) == 0 {
+			p.Thinking = []string{"Thinking ", "it over…"}
+		}
+		effort := req.ReasoningEffort
+		if effort == "" {
+			effort = "default"
+		}
+		if p.Text != "" {
+			p.Text = "[effort " + effort + "] " + p.Text
+		}
+	}
 	rec := record("chat", req.Model, conv, system, reminder)
 	if !wait(r.Context(), p.Delay) {
 		rec.done(true)
@@ -938,13 +969,17 @@ func main() {
 func newMux(chatOnly bool) *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET "+llm.PathModels, func(w http.ResponseWriter, r *http.Request) {
-		ids := []string{"fake-chat", "gpt-5-fake"}
+		ids := []string{"fake-chat", "gpt-5-fake", thinkModel}
 		if demo != nil && len(demo.Models) > 0 {
 			ids = demo.Models
 		}
 		list := llm.ModelList{Object: "list", Data: []llm.Model{}}
 		for _, id := range ids {
-			list.Data = append(list.Data, llm.Model{ID: id, Object: "model", Extra: map[string]json.RawMessage{"context_length": json.RawMessage("128000")}})
+			extra := map[string]json.RawMessage{"context_length": json.RawMessage("128000")}
+			if id == thinkModel { // DeepSeek's own GET /models member (D249)
+				extra["effort"] = json.RawMessage(`{"supported_levels":["low","high","max"],"default_level":"high"}`)
+			}
+			list.Data = append(list.Data, llm.Model{ID: id, Object: "model", Extra: extra})
 		}
 		writeJSON(w, list)
 	})
@@ -965,6 +1000,10 @@ func newMux(chatOnly bool) *http.ServeMux {
 	})
 	return mux
 }
+
+// thinkModel is the thinking model (D249): reasons on every answer, needs its
+// reasoning back once tools are offered.
+const thinkModel = "fake-think"
 
 // servePort is "sandbox serve"'s: this server's port + 1 (main).
 var servePort = 18978
