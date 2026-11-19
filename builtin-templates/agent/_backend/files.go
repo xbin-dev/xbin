@@ -73,7 +73,7 @@ func fileToolSpecs(cfg Config) []toolSpec {
 		{Type: "function", Function: funcDef{
 			Name: "file_list",
 			Description: "List this run's session files with their sizes, versions, short content hashes and where each came from; " +
-				"flags files with the same content, and session copies whose sandbox file changed since.",
+				"flags files with the same content, and session copies whose sandbox file changed since." + mcpFilesHint(cfg),
 			Parameters: obj(nil, map[string]any{}),
 		}},
 		{Type: "function", Function: funcDef{

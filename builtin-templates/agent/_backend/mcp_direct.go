@@ -744,7 +744,10 @@ func directRPC(ctx context.Context, srv MCPServer, method string, params any, se
 			Session string          `json:"session"`
 			Error   string          `json:"error"`
 		}
-		_ = json.Unmarshal(res.Body, &out)
+		if err := json.Unmarshal(res.Body, &out); err != nil && res.Status == 200 {
+			// gwDo reads 4 MiB: a bigger answer (a tool's file) arrives cut short
+			return nil, sessionID, fmt.Errorf("mcp %s (global %s): its answer couldn't be read (%s; over 4 MiB is cut short) — ask the tool for less at a time", method, s.name(), mcpSize(len(res.Body)))
+		}
 		if res.Status != 200 {
 			if out.Error == "" {
 				out.Error = fmt.Sprintf("HTTP %d", res.Status)

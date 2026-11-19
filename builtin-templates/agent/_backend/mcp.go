@@ -138,7 +138,14 @@ func (s MCPServer) rpc(ctx context.Context, method string, params any, sessionID
 	if sid := resp.Header.Get("Mcp-Session-Id"); sid != "" {
 		sessionID = sid
 	}
-	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+	limit := 8 << 20
+	if method == "tools/call" { // a tool's answer may carry files (mcp_content.go)
+		limit = mcpCallReadMax
+	}
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, int64(limit)+1))
+	if len(raw) > limit && resp.StatusCode < 300 {
+		return nil, sessionID, fmt.Errorf("mcp %s: the server's answer is over %s, more than this agent reads — ask the tool for less at a time (a page, a range, a smaller file)", method, mcpSize(limit))
+	}
 	if resp.StatusCode >= 300 {
 		return nil, sessionID, &mcpHTTPError{Method: method, Status: resp.StatusCode, Body: strings.TrimSpace(string(raw))}
 	}
@@ -340,7 +347,7 @@ func listMCPTools(ctx context.Context, srv MCPServer) ([]toolSpec, error) {
 }
 
 // mcpCall dispatches a `mcp:<server>:<tool>` call.
-func (ag *Agent) mcpCall(ctx context.Context, cfg Config, name string, args map[string]any) (string, error) {
+func (ag *Agent) mcpCall(ctx context.Context, run *Run, cfg Config, name string, args map[string]any) (string, error) {
 	rest := strings.TrimPrefix(name, "mcp:")
 	server, tool, ok := strings.Cut(rest, ":")
 	if !ok {
@@ -365,25 +372,7 @@ func (ag *Agent) mcpCall(ctx context.Context, cfg Config, name string, args map[
 	if err != nil {
 		return "", err
 	}
-	// MCP tool results are {content: [{type:"text", text:"..."}], ...}. Flatten
-	// text parts; fall back to the raw JSON for anything else.
-	var out struct {
-		Content []struct {
-			Type string `json:"type"`
-			Text string `json:"text"`
-		} `json:"content"`
-	}
-	if json.Unmarshal(res, &out) == nil && len(out.Content) > 0 {
-		var sb strings.Builder
-		for _, c := range out.Content {
-			if c.Type == "text" {
-				sb.WriteString(c.Text)
-				sb.WriteByte('\n')
-			}
-		}
-		if sb.Len() > 0 {
-			return strings.TrimSpace(sb.String()), nil
-		}
-	}
-	return string(res), nil
+	// The text blocks, and a line for each other block — a file is saved in
+	// the session files (mcp_content.go).
+	return ag.mcpResultText(ctx, run, cfg, srv.Name, tool, res), nil
 }

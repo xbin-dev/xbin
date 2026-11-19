@@ -322,6 +322,21 @@ func shownImages(c toolCall, content string) []string {
 		if p, err := normReplPath(str(decodeArgs(c.Function.Arguments)["path"])); err == nil {
 			return []string{p}
 		}
+	default: // an MCP tool's saved images: the last line naming them (mcp_content.go)
+		if !strings.HasPrefix(c.Function.Name, "mcp:") {
+			return nil
+		}
+		i := strings.LastIndex(content, "\n"+mcpShownLead)
+		if i < 0 {
+			return nil
+		}
+		var out []string
+		for _, k := range strings.Split(content[i+1+len(mcpShownLead):], ", ") {
+			if p, err := normReplPath(k); err == nil && strings.HasPrefix(p, "mcp/") {
+				out = append(out, p)
+			}
+		}
+		return out
 	case "browser_check":
 		for _, line := range strings.Split(content, "\n") {
 			if rest, ok := strings.CutPrefix(line, browserShotsLead); ok {
@@ -336,6 +351,13 @@ func shownImages(c toolCall, content string) []string {
 		}
 	}
 	return nil
+}
+
+// savedByCall: the file's current version was saved (or found unchanged)
+// by the tool call id.
+func (ag *Agent) savedByCall(runID int64, p, id string) bool {
+	f, err := ag.db.replFile(runID, p)
+	return err == nil && id != "" && f.Source != nil && f.Source.Kind == "tool" && f.Source.Call == id
 }
 
 // imageRef is one image the context would like to show.
@@ -385,6 +407,9 @@ func (ag *Agent) withImages(ctx context.Context, run *Run, cfg Config, live []*M
 					continue
 				}
 				for _, p := range shownImages(c, content) {
+					if strings.HasPrefix(c.Function.Name, "mcp:") && !ag.savedByCall(run.ID, p, c.ID) {
+						continue // a server's text naming a file is not this call saving it
+					}
 					refs = append(refs, imageRef{path: p, at: end, view: true})
 				}
 			}
