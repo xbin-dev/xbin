@@ -190,7 +190,16 @@ POST   /builtins/import            same authority as /create, checked on
 GET    /builtins/updates            any. builtins (scaffold + imported tiles) with
                                    a newer embedded version. [{id,installPath,
                                    fromVersion,toVersion,adopted,files:[{path,
-                                   status}],clean,conflicts}] (docs/overview/14-lifecycle.md §Keeping code fresh)
+                                   status,note?}],clean,conflicts}] (docs/overview/14-lifecycle.md §Keeping code fresh).
+                                   A file is read as the file at its path:
+                                   a symbolic link (anywhere on the path),
+                                   a FIFO, socket or device, a directory, a
+                                   file over 32 MiB, or a file inside a
+                                   component nested in the unit that the
+                                   unit doesn't ship is never followed or
+                                   read — it is a "conflict" whose note says
+                                   why ("apps/chat/index.html is a symbolic
+                                   link: not read, and no update writes it").
 POST   /builtins/update             xbin:writer. body {id, mode:
                                    replace|merge|pr|pin|unpin}. replace
                                    overwrites, merge 3-way-merges (git merge-file);
@@ -217,7 +226,23 @@ POST   /builtins/update             xbin:writer. body {id, mode:
                                    request a switch") — replace whenever it
                                    does, merge and "pr" when upstream changed
                                    the key — and a "pr" proposal's message
-                                   says so too. mode "pr" (D49) writes NOTHING:
+                                   says so too. No mode reads or writes
+                                   through a link or opens a FIFO: merge
+                                   and "pr" leave such a file (and a file
+                                   in a nested component) as it is and note
+                                   it, and the update stays offered;
+                                   replace puts upstream's regular file in
+                                   place of a link or a FIFO at a file's
+                                   path (never following it) and leaves a
+                                   file beneath a link, a directory, or a
+                                   nested component's file, noted. Each
+                                   file is written beside itself and
+                                   renamed in; merge writes a file only
+                                   while it is what merge read (a file
+                                   changed meanwhile stops the merge there:
+                                   400 naming it and the files written
+                                   before) and never rewrites a file it
+                                   leaves as it is. mode "pr" (D49) writes NOTHING:
                                    the update is filed as a change proposal
                                    against the tile → {pr:{target,number,…}} —
                                    the tile's own plane reviews and `git am`s

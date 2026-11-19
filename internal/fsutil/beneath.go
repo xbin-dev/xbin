@@ -2,6 +2,7 @@ package fsutil
 
 import (
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -58,6 +59,24 @@ func OpenResolved(root, rel string, allow func(resolved string) bool) (*os.File,
 	return openResolved(root, rel, allow)
 }
 
+// OpenNoSymlinks opens root/rel for reading with no symlink anywhere on
+// rel — not an in-tree one either, and not its last step: a link is never
+// followed, wherever it points (ErrEscapes, or the platform's ELOOP). root
+// is the trust boundary (it may be reached through symlinks). Only regular
+// files and directories are returned (ErrNotRegular otherwise), and the
+// open never blocks. For files xbind reads to write back or to hand to
+// someone else (a builtin update, a proposal's series): what it reads must
+// be the file at that path, not what a link there names.
+func OpenNoSymlinks(root, rel string) (*os.File, error) {
+	if rel == "" {
+		rel = "."
+	}
+	if !filepath.IsLocal(filepath.FromSlash(rel)) {
+		return nil, &os.PathError{Op: "open", Path: filepath.Join(root, rel), Err: ErrEscapes}
+	}
+	return openNoSymlinks(root, filepath.Clean(filepath.FromSlash(rel)))
+}
+
 // MkdirAllIn creates the missing directories of root/sub, never through a
 // symlink: every step of sub is made (or found) as a real directory beneath
 // root, and a symlink or a file on the way fails the call (ErrEscapes, or
@@ -105,4 +124,24 @@ func OpenRootIn(root, sub string) (*os.Root, error) {
 		return nil, &os.PathError{Op: "open", Path: name, Err: ErrEscapes}
 	}
 	return r, nil
+}
+
+// NoSymlinksFS is root's tree as an fs.FS whose every open is
+// OpenNoSymlinks: a walk lists a symbolic link but reading one fails, and
+// a FIFO or a device fails without blocking — for copying a tree someone
+// else writes (a workspace template) where os.DirFS would read whatever a
+// link there names.
+func NoSymlinksFS(root string) fs.FS { return noSymlinksFS(root) }
+
+type noSymlinksFS string
+
+func (r noSymlinksFS) Open(name string) (fs.File, error) {
+	if !fs.ValidPath(name) {
+		return nil, &fs.PathError{Op: "open", Path: name, Err: fs.ErrInvalid}
+	}
+	f, err := OpenNoSymlinks(string(r), name)
+	if err != nil {
+		return nil, err
+	}
+	return f, nil
 }

@@ -478,6 +478,13 @@ favor of replace-or-hand-diff. No mode touches a manifest's `partition`:
 each `xbin.json` keeps its installed value (present, absent or its list),
 and the answer notes where upstream asks otherwise — only a deliberate
 edit requests a partition mode switch ([partitions](../partitions.md)).
+An update reads and writes a tile's files as the files at their paths: a
+symbolic link, a FIFO or a directory where a file was, or a file in a
+component nested in the unit that it doesn't ship, is never followed, read
+or written through — it lists as a conflict that says why, and only a
+replace puts upstream's file in place of a link or a FIFO. A merge writes
+each file only while it is what the merge read, so an edit made meanwhile
+stops it there, said.
 Template *instances* are deliberately never tracked here: they're forks meant to diverge, served by the `template`
 remote instead. A builtin xbind stops shipping is **retired** (`devbox`,
 2026-09-27): copies already imported are left alone and no longer offered

@@ -38,6 +38,44 @@ func openInFallback(root, sub, rel string) (*os.File, error) {
 	return openChecked(full)
 }
 
+// openNoSymlinksFallback refuses a link at any step of rel (Lstat each),
+// then opens the last with O_NOFOLLOW: a swap racing the walk can still
+// place a link on a parent step, which is why Linux uses openat2.
+func openNoSymlinksFallback(root, rel string) (*os.File, error) {
+	dir, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return nil, err
+	}
+	p := dir
+	for _, seg := range strings.Split(filepath.ToSlash(rel), "/") {
+		if seg == "." {
+			continue
+		}
+		p = filepath.Join(p, seg)
+		fi, err := os.Lstat(p)
+		if err != nil {
+			return nil, err
+		}
+		if fi.Mode()&os.ModeSymlink != 0 {
+			return nil, &os.PathError{Op: "open", Path: p, Err: ErrEscapes}
+		}
+	}
+	f, err := os.OpenFile(p, os.O_RDONLY|syscall.O_NONBLOCK|syscall.O_NOFOLLOW, 0)
+	if err != nil {
+		return nil, err
+	}
+	fi, err := f.Stat()
+	if err != nil {
+		f.Close()
+		return nil, err
+	}
+	if !fi.Mode().IsRegular() && !fi.IsDir() {
+		f.Close()
+		return nil, &os.PathError{Op: "open", Path: p, Err: ErrNotRegular}
+	}
+	return f, nil
+}
+
 func mkdirAllInFallback(root, sub string, perm os.FileMode) error {
 	dir, err := filepath.EvalSymlinks(root)
 	if err != nil {

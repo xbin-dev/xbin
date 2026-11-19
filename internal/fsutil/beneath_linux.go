@@ -74,6 +74,28 @@ func openIn(root, sub, rel string) (*os.File, error) {
 	return fileOf(fd, full)
 }
 
+func openNoSymlinks(root, rel string) (*os.File, error) {
+	rfd, err := unix.Open(root, unix.O_PATH|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return nil, &os.PathError{Op: "open", Path: root, Err: err}
+	}
+	defer unix.Close(rfd)
+	full := filepath.Join(root, rel)
+	fd, err := openat2(rfd, rel, &unix.OpenHow{
+		Flags:   readFlags,
+		Resolve: unix.RESOLVE_BENEATH | unix.RESOLVE_NO_SYMLINKS | unix.RESOLVE_NO_MAGICLINKS,
+	})
+	switch {
+	case errors.Is(err, unix.ENOSYS):
+		return openNoSymlinksFallback(root, rel) // pre-5.6 kernel
+	case errors.Is(err, unix.ELOOP), errors.Is(err, unix.EXDEV):
+		return nil, &os.PathError{Op: "open", Path: full, Err: ErrEscapes}
+	case err != nil:
+		return nil, &os.PathError{Op: "open", Path: full, Err: err}
+	}
+	return fileOf(fd, full)
+}
+
 // mkdirAllIn makes each step of sub with mkdirat on the directory fd the
 // previous step opened with RESOLVE_NO_SYMLINKS: mkdir never follows its
 // last component, and the open refuses a link, so nothing is made or

@@ -12,7 +12,6 @@
 package builtins
 
 import (
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -23,8 +22,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-
-	"github.com/xbin-dev/xbin/internal/confine"
 )
 
 const (
@@ -86,7 +83,7 @@ func (u *Updater) BackfillEssentials(ledgerPath string) ([]string, error) {
 	var l struct {
 		Done []string `json:"done"`
 	}
-	if b, err := os.ReadFile(ledgerPath); err == nil {
+	if b, err := os.ReadFile(ledgerPath); err == nil { // walk-ok: the ledger is xbind's own (data dir)
 		_ = json.Unmarshal(b, &l)
 	}
 	done := map[string]bool{}
@@ -219,7 +216,7 @@ func (u *Updater) snapDir(id string) string {
 
 func (u *Updater) load() *origin {
 	o := &origin{Units: map[string]*UnitState{}}
-	b, err := os.ReadFile(u.markerPath())
+	b, err := os.ReadFile(u.markerPath()) // walk-ok: the marker is xbind's own (.xbin/builtins.json)
 	if err != nil {
 		return o
 	}
@@ -315,10 +312,12 @@ func (u *Updater) render(def unitDef, installPath string) (map[string][]byte, er
 	return RenderTree(def.SrcFS, def.SrcRoot, installPath, def.DefaultPath, nil)
 }
 
+// installed reports whether a component is at installPath: anything at its
+// manifest's or its page's path (a link too — it is never followed, and
+// reads as a conflict).
 func (u *Updater) installed(installPath string) bool {
-	base := filepath.Join(u.root, filepath.FromSlash(installPath))
 	for _, f := range []string{"xbin.json", "index.html"} {
-		if _, err := os.Stat(filepath.Join(base, f)); err == nil {
+		if hasTile(u.root, installPath, f) {
 			return true
 		}
 	}
@@ -340,6 +339,10 @@ const (
 type FileStatus struct {
 	Path   string `json:"path"`
 	Status string `json:"status"`
+	// Note says why a file is a conflict when it was not read: a symbolic
+	// link, not a regular file, too large, or inside a component of its own
+	// (tilefs.go) — no update writes it.
+	Note string `json:"note,omitempty"`
 }
 
 type UnitUpdate struct {
@@ -423,13 +426,22 @@ func (u *Updater) compare(def unitDef, installPath string, state *UnitState) (*U
 	}
 	sort.Strings(rels)
 
+	ships := shipsOf(theirs, baseFiles)
 	for _, rel := range rels {
 		th, inTheirs := theirs[rel]
 		bh, inBase := baseFiles[rel]
-		ou, inOurs := u.oursHash(installPath, rel)
+		tf := readTile(u.root, installPath, rel)
+		ou, inOurs := "", tf.present
+		if inOurs {
+			ou = sha(tf.data)
+		}
 
-		st := stUpToDate
+		st, note := stUpToDate, leftAlone(u.root, installPath, rel, tf, ships, false)
+		if note != "" {
+			st = stConflict
+		}
 		switch {
+		case note != "":
 		case adopted:
 			// No trustworthy base: any divergence is a review/conflict.
 			if !inOurs {
@@ -475,7 +487,7 @@ func (u *Updater) compare(def unitDef, installPath string, state *UnitState) (*U
 			uu.Conflicts++
 		}
 		if st != stUpToDate {
-			uu.Files = append(uu.Files, FileStatus{Path: rel, Status: st})
+			uu.Files = append(uu.Files, FileStatus{Path: rel, Status: st, Note: note})
 		}
 	}
 
@@ -487,14 +499,6 @@ func (u *Updater) compare(def unitDef, installPath string, state *UnitState) (*U
 	}
 	uu.HasUpdate = actionable > 0 && !uu.Pinned
 	return uu, nil
-}
-
-func (u *Updater) oursHash(installPath, rel string) (string, bool) {
-	b, err := os.ReadFile(filepath.Join(u.root, filepath.FromSlash(installPath), filepath.FromSlash(rel)))
-	if err != nil {
-		return "", false
-	}
-	return sha(b), true
 }
 
 // --- apply --------------------------------------------------------------
@@ -518,18 +522,40 @@ func (u *Updater) applyReplace(id string, notes *[]string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	// Delete files removed upstream (present in base, gone in theirs).
+	var base map[string]string
 	if state != nil {
-		for rel := range state.Files {
-			if _, ok := theirs[rel]; !ok {
-				_ = os.Remove(filepath.Join(u.root, filepath.FromSlash(installPath), filepath.FromSlash(rel)))
-			}
+		base = state.Files
+	}
+	ships := shipsOf(theirs, base)
+	whole := true
+	// Delete files removed upstream (present in base, gone in theirs): the
+	// file itself, never what a link there names.
+	var left []string
+	for rel := range base {
+		if _, ok := theirs[rel]; ok {
+			continue
+		}
+		if why := leftAlone(u.root, installPath, rel, readTile(u.root, installPath, rel), ships, true); why != "" {
+			left, whole = append(left, why), false
+			continue
+		}
+		if err := removeTile(u.root, installPath, rel, ""); err != nil {
+			left, whole = append(left, err.Error()), false
 		}
 	}
-	kept, whole := u.keepPartition(installPath, theirs, notes) // whole: no manifest left as it is
-	written, err := WriteTree(filepath.Join(u.root, filepath.FromSlash(installPath)), installPath, kept)
-	if err != nil || !whole { // a manifest left as it is keeps the update offered
-		return written, err
+	kept, keptWhole := u.keepPartition(installPath, theirs, notes) // keptWhole: no manifest left as it is
+	whole = whole && keptWhole
+	for rel := range kept {
+		if why := leftAlone(u.root, installPath, rel, readTile(u.root, installPath, rel), ships, true); why != "" {
+			delete(kept, rel)
+			left, whole = append(left, why), false
+		}
+	}
+	sort.Strings(left)
+	*notes = append(*notes, left...)
+	written, err := writeTreeIn(u.root, installPath, kept, "")
+	if err != nil || !whole { // a file left as it is keeps the update offered
+		return written, writtenSoFar(err, written)
 	}
 	return written, u.record(def, installPath, theirs)
 }
@@ -555,6 +581,7 @@ func (u *Updater) applyMerge(id string, notes *[]string) ([]string, error) {
 	}
 	snap := u.snapDir(id)
 	kept, whole := u.mergeTheirs(installPath, snap, theirs, notes) // theirs, upstream's "partition" change undone
+	ships := shipsOf(theirs, state.Files)
 	var written []string
 	seen := map[string]bool{}
 	for rel := range theirs {
@@ -569,42 +596,49 @@ func (u *Updater) applyMerge(id string, notes *[]string) ([]string, error) {
 	}
 	sort.Strings(rels)
 
+	// write puts data at rel while the file is still what was read (want);
+	// a file already holding data is not written again.
+	write := func(rel string, data []byte, want string) error {
+		wrote, err := writeTile(u.root, installPath, rel, data, want)
+		if wrote {
+			written = append(written, installPath+"/"+rel)
+		}
+		return err
+	}
 	for _, rel := range rels {
 		th, inTheirs := kept[rel]
 		bh, inBase := state.Files[rel]
-		ourPath := filepath.Join(u.root, filepath.FromSlash(installPath), filepath.FromSlash(rel))
-		ours, ourErr := os.ReadFile(ourPath)
-		inOurs := ourErr == nil
+		tf := readTile(u.root, installPath, rel)
+		if why := leftAlone(u.root, installPath, rel, tf, ships, false); why != "" { // a link, a FIFO, a nested tile…: left as it is, and said
+			*notes, whole = append(*notes, why), false
+			continue
+		}
+		ours, inOurs, want := tf.data, tf.present, tf.stamp()
 
+		var err error
 		switch {
 		case !inTheirs && inBase: // removed upstream
 			if inOurs && sha(ours) == bh {
-				_ = os.Remove(ourPath)
+				err = removeTile(u.root, installPath, rel, want)
 			}
 		case !inOurs: // clean add / restore
-			if _, err := writeFile(ourPath, th); err != nil {
-				return written, err
-			}
-			written = append(written, installPath+"/"+rel)
+			err = write(rel, th, want)
 		case sha(ours) == sha(th): // already up to date
 		case sha(ours) == bh: // local unmodified → fast-forward
-			if _, err := writeFile(ourPath, th); err != nil {
-				return written, err
-			}
-			written = append(written, installPath+"/"+rel)
+			err = write(rel, th, want)
 		default: // both changed → 3-way merge
-			base, _ := os.ReadFile(filepath.Join(snap, filepath.FromSlash(rel)))
-			merged, err := mergeKeeping(rel, ours, base, th)
-			if err != nil {
-				return written, err
+			base, _ := os.ReadFile(filepath.Join(snap, filepath.FromSlash(rel))) // walk-ok: the base snapshot is xbind's own (.xbin/builtins)
+			merged, merr := mergeKeeping(rel, ours, base, th)
+			if merr != nil {
+				return written, writtenSoFar(merr, written)
 			}
-			if _, err := writeFile(ourPath, merged); err != nil {
-				return written, err
-			}
-			written = append(written, installPath+"/"+rel)
+			err = write(rel, merged, want)
+		}
+		if err != nil {
+			return written, writtenSoFar(err, written)
 		}
 	}
-	if !whole { // a manifest left as it is keeps the update offered
+	if !whole { // a file left as it is keeps the update offered
 		return written, nil
 	}
 	return written, u.record(def, installPath, theirs)
@@ -659,15 +693,17 @@ func (u *Updater) Propose(id string) (*Proposal, error) {
 	if state != nil && !state.Adopted {
 		snap := u.snapDir(id)
 		for rel := range state.Files {
-			if data, err := os.ReadFile(filepath.Join(snap, filepath.FromSlash(rel))); err == nil {
+			if data, err := os.ReadFile(filepath.Join(snap, filepath.FromSlash(rel))); err == nil { // walk-ok: the base snapshot is xbind's own (.xbin/builtins)
 				base[rel] = data
 			}
 		}
 	} else {
-		root := filepath.Join(u.root, filepath.FromSlash(installPath))
+		// Each file as it is at its path: a link, a FIFO, a file too large
+		// is not read (its status says so) — the series, which the tile's
+		// readers fetch, holds only what is there.
 		for _, fs := range uu.Files {
-			if data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(fs.Path))); err == nil {
-				base[fs.Path] = data
+			if tf := readTile(u.root, installPath, fs.Path); tf.present {
+				base[fs.Path] = tf.data
 			}
 		}
 	}
@@ -681,11 +717,18 @@ func (u *Updater) Propose(id string) (*Proposal, error) {
 		msg.WriteString(def.Changelog + "\n\n")
 	}
 	msg.WriteString("File status (base / yours / upstream):\n")
+	var unread []string
 	for _, fs := range uu.Files {
 		if fs.Status == stUpToDate {
 			continue
 		}
 		fmt.Fprintf(&msg, "  %-9s %s\n", fs.Status, fs.Path)
+		if fs.Note != "" {
+			unread = append(unread, fs.Note)
+		}
+	}
+	if len(unread) > 0 {
+		msg.WriteString("\nNot read (the series takes upstream's file for each):\n  " + strings.Join(unread, "\n  ") + "\n")
 	}
 	msg.WriteString("\nApply in this tile's terminal (clone-first keeps markers out of live files):\n" +
 		"  git clone \"$XBIN_WORKSPACE/" + installPath + "\" /tmp/upd && cd /tmp/upd\n" +
@@ -694,6 +737,7 @@ func (u *Updater) Propose(id string) (*Proposal, error) {
 		"Closing merged refreshes update tracking; rejecting keeps the update offered.")
 
 	to, notes := u.proposalPartition(installPath, base, theirs) // the series never touches "partition"
+	notes = append(notes, unread...)
 	msg.WriteString(proposalNote(notes))
 	series := "" // stays "" when upstream changed nothing else: nothing to propose
 	if !sameFiles(base, to) {
@@ -738,79 +782,6 @@ func (u *Updater) RecordApplied(id, toHash string) error {
 	return u.record(def, installPath, theirs)
 }
 
-// patchSeries renders old→new as a one-commit git format-patch mbox: a temp
-// repo, the old tree as a baseline commit, the new tree as the update commit
-// (subject + body = the PR title + message). git computes renames/deletions;
-// `git am --3way` on the receiving side gets index blob ids to merge from.
-func patchSeries(from, to map[string][]byte, subject, body string) (string, error) {
-	dir, err := os.MkdirTemp("", "xbin-propose-*")
-	if err != nil {
-		return "", err
-	}
-	defer os.RemoveAll(dir)
-	// confined (D78): the trees are an installed tile's files
-	git := func(args ...string) (string, error) {
-		full := append([]string{"-c", "user.email=builtins@xbin", "-c", "user.name=xbin builtins"}, args...)
-		out, err := confine.Git(context.Background(), dir, nil, full...)
-		if err != nil {
-			return "", fmt.Errorf("git %v: %s", args, strings.TrimSpace(err.Error()))
-		}
-		return out, nil
-	}
-	writeTree := func(files map[string][]byte) error {
-		ents, err := os.ReadDir(dir)
-		if err != nil {
-			return err
-		}
-		for _, e := range ents {
-			if e.Name() != ".git" {
-				if err := os.RemoveAll(filepath.Join(dir, e.Name())); err != nil {
-					return err
-				}
-			}
-		}
-		for rel, data := range files {
-			p := filepath.Join(dir, filepath.FromSlash(rel))
-			if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-				return err
-			}
-			if err := os.WriteFile(p, data, 0o644); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-	if _, err := git("init", "-q", "-b", "main"); err != nil {
-		return "", err
-	}
-	if err := writeTree(from); err != nil {
-		return "", err
-	}
-	if _, err := git("add", "-A"); err != nil {
-		return "", err
-	}
-	if _, err := git("commit", "-q", "--allow-empty", "-m", "builtin base"); err != nil {
-		return "", err
-	}
-	if err := writeTree(to); err != nil {
-		return "", err
-	}
-	if _, err := git("add", "-A"); err != nil {
-		return "", err
-	}
-	if _, err := git("commit", "-q", "-m", subject+"\n\n"+body); err != nil {
-		return "", err
-	}
-	series, err := git("format-patch", "--stdout", "-1", "HEAD")
-	if err != nil {
-		return "", err
-	}
-	if !strings.Contains(series, "diff --git") {
-		return "", fmt.Errorf("update produced an empty diff")
-	}
-	return series, nil
-}
-
 // Pin/unpin stop/resume offering updates for a unit.
 func (u *Updater) Pin(id string, pinned bool) error {
 	o := u.load()
@@ -819,11 +790,4 @@ func (u *Updater) Pin(id string, pinned bool) error {
 	}
 	o.Units[id].Pinned = pinned
 	return u.save(o)
-}
-
-func writeFile(p string, data []byte) (string, error) {
-	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-		return "", err
-	}
-	return p, os.WriteFile(p, data, 0o644)
 }
