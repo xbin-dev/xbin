@@ -739,6 +739,11 @@ func TestBuiltinLineCarriesItsPin(t *testing.T) {
 	if it := cs.Items[0]; it.Pin == "" {
 		t.Fatalf("no pin: %+v", it)
 	}
+	pv, err := w.b.previewBuiltinUpdate(auth.Principal{Owner: true}, delegation.ChangeOp{Kind: ChangeBuiltinUpdate, Args: json.RawMessage(`{"id":"tile:gw"}`)}, nil)
+	var call struct{ ID, Mode, Pin string }
+	if err != nil || json.Unmarshal(pv.Call.Body, &call) != nil || call.Mode != "safe" || call.Pin == "" || call.Pin != pv.Pin {
+		t.Fatalf("the line's call doesn't carry its pin: %s %v", pv.Call.Body, err)
+	}
 	_, bob := w.session("bob")
 	before := string(readFile(t, filepath.Join(w.root, "apps/gw/index.html")))
 	code, body := w.do("POST", "/builtins/update", `{"id":"tile:gw","mode":"safe","pin":"sha256:not-what-was-shown"}`, bob)
