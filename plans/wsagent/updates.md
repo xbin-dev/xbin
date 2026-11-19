@@ -320,7 +320,27 @@ approved start as today. A plan's `agent.start` takes the same template.
 
 ## Tests and the rule each holds (red without it)
 
-Filled in as built — see "Red runs" below.
+Each rule was taken out and its test run (the log of 2026-11-19):
+
+| Rule taken out | Red |
+|---|---|
+| the by-hand gate (`requireWriter`, xbin:writer) — a line applies with a right the approver lost | `TestBuiltinLineAppliesThroughTheRouteAsTheApproverNow` |
+| always an admin's line | `TestBuiltinLineWords`, `TestBuiltinLineNeedsAnAdmin` |
+| never waits (a `Waits` on the preview) | `TestBuiltinLineWords` |
+| `POST /builtins/update` never delegated (made an act) | `TestBuiltinLineNotAutoApprovable` (and the golden) |
+| safe writes nothing that conflicts (a merge with markers written) | `TestSafeUpdateNeverOverwritesLocalEdits`, `TestSafeUpdateProperty` |
+| a conflict becomes a proposal (an error instead) | `TestBuiltinLineConflictBecomesAProposal` |
+| pinned refused with its reason | `TestSafeUpdateRefusals`, `TestBuiltinLineNeedsAnAdmin` |
+| the read held to the scope / tainting / the person's readability | `TestDelegateUpdatesHeldToTheConversation`, `TestDelegateUpdatesIsTheByHandListing` (×2) |
+| the tiles' titles framed (`wsData`) | `TestWsEvalWhatNeedsUpdating` |
+| nothing tile-authored in the brief (a title put in) | `TestUpdateBriefHoldsNothingTileAuthored` |
+| `knows` asked for `builtin.update` | `TestBuiltinLineNotAutoApprovable` |
+| an org admin's line is "needs an admin" | `TestBuiltinLineNeedsAnAdmin` |
+| the agent's redaction | `TestBuiltinLineRedactedForAgent` |
+| held to the conversation in `admin_propose` sets | `TestBuiltinLineHeldToTheConversation` |
+| the pin on the installed files | `TestSafePinFollowsTheInstalledFiles`, `TestBuiltinLineConflictBecomesAProposal` (after the test was made to edit where the line's words stay the same: it first passed without the pin) |
+| the session's fallback git address | `TestGitIdentityIsAFallback`; and the first runs of `TestTemplateUpdateInATileSession` ("Author identity unknown") |
+| the web's words changed without the vectors / the app's port without `builtinText` | `hack/delegation-words.test.mjs`; XbinCore `plans()` |
 
 ## Not done
 
