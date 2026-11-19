@@ -12,6 +12,43 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-19
 
+- workspace agent: **it sees what has an update, proposes a builtin's
+  simple update, and hands every other update to the tile's own agent**
+  (D248). `GET /api/xbin/delegate/updates[?tile=]` — the person's own
+  `GET /builtins/updates` and `GET /templates/updates` rows, each held to
+  the conversation's scope and the orgs' rules, with the files edited
+  here only, an open builtin-update proposal, a template instance's
+  commits behind its template and of its own, and the next step:
+  `propose`, `tile-agent` with a brief xbind writes from its own names
+  only, or `by-hand` with who can (a tile whose agent level is `off`, the
+  consoles always; a tile where the person's sessions can't reach xbin).
+  The tool `updates` reads it. A new change kind, **`builtin.update
+  {id}`** — in `admin_propose` sets and plans, always an admin's line
+  (anyone else: "needs an admin", Ask an admin), a scaffold page's warned
+  — applies as `POST /builtins/update {id, mode: "safe"}`, as the
+  approver; the agent chooses which builtin, never the content. Of such a
+  line the agent reads its argument, the result and `out {update, files,
+  tile, proposal?}`. Clients name it in `knows` (an older app can't apply
+  it). The brief template `update` (`tile_agent_brief {tile, template:
+  "update"}`, a plan's `agent.start`) takes xbind's brief word for word.
+  [workspace-agent.md](/docs/workspace-agent.md),
+  [protocol/delegation.md §Updates](/docs/protocol/delegation.md).
+- builtins: **`POST /builtins/update {id, mode: "safe"}`** (and `bx builtin
+  update <id> --safe`) never loses a local edit: it merges when every file
+  merges cleanly — upstream-only changes taken, local-only edits kept,
+  both-changed files merged line by line — and where anything would
+  conflict (markers, or upstream removing a file edited here) writes
+  nothing and files the update as a change proposal on the tile, as
+  `--pr` does → `{applied: "updated" | "installed" | "proposed", files,
+  notes?, pr?, conflicts?}`. A pinned builtin is refused.
+  [protocol/tiles.md](/docs/protocol/tiles.md).
+- terminals: **a sandboxed session carries `EMAIL=<you>@xbin.invalid`**,
+  git's last-resort address: a commit or a merge in a tile's terminal (or
+  its coding agent's session) failed for anyone who set no git identity
+  ("unable to auto-detect email address"). An identity you set (`git
+  config user.email`) wins; `.invalid` never delivers.
+  [getting-started.md §What's in a terminal](/docs/getting-started.md).
+
 - agent template: **a file an MCP tool returns reaches the model as a
   session file** — it was dropped without a word. An embedded resource
   with a `blob`, an `image` or an `audio` block is saved under

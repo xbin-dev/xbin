@@ -509,7 +509,7 @@ thing to read (or have an agent read) after upgrading the daemon.
 | schedules | `GET/POST /api/xbin/backup-schedule`, `DELETE ?component=` | `bx backup-schedule <c> --every 24h [--keep N]` |
 | archiver binding | `POST /api/xbin/bindings` (`@archive`) | `bx bind '*' @archive=<tile>` |
 | catalog / import | `GET /api/xbin/builtins`, `POST /builtins/import` | `bx tile ls`, `bx tile import <name> [as <path>]` |
-| updates | `GET /builtins/updates`, `POST /builtins/update {id, mode}` | `bx builtin updates`, `bx builtin update <id> [--replace\|--merge]` |
+| updates | `GET /builtins/updates`, `POST /builtins/update {id, mode}` | `bx builtin updates`, `bx builtin update <id> [--replace\|--merge\|--safe\|--pr]` (`--safe`: merged when clean, else filed as a proposal — never a lost edit, D248) |
 | templates | `GET /templates`, `POST /templates/new` | `bx template ls`, `bx template new <source> [as <path>] [--no-partition]` |
 | fork / git | `POST /clone`, `GET /git/remote-info`, `POST /git/import` | Tile Manager UI |
 
