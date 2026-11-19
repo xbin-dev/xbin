@@ -119,8 +119,11 @@ type agentClass struct {
 	SandboxEgress []string `json:"sandboxEgress,omitempty"` // egress values a sandbox may have: none, internet, open
 	Harnesses     classSet `json:"harnesses"`               // "all" or a list of coding-agent ids (only meaningful with harness)
 	Model         string   `json:"model,omitempty"`
-	System        string   `json:"system,omitempty"`
-	Who           string   `json:"who,omitempty"` // "everyone" (default) | "managers"
+	// Effort is the class's reasoning effort (D249) beside its model: a ladder
+	// word, or "default" (the model's own); "" leaves it to the tile's default.
+	Effort string `json:"effort,omitempty"`
+	System string `json:"system,omitempty"`
+	Who    string `json:"who,omitempty"` // "everyone" (default) | "managers"
 }
 
 func (c agentClass) has(toolset string) bool { return hasStr(c.Toolsets, toolset) }
@@ -473,7 +476,7 @@ func writeClassErr(w http.ResponseWriter, err error) {
 func classView(c agentClass) map[string]any {
 	return map[string]any{
 		"id": c.ID, "name": c.Name, "description": c.Description, "icon": c.Icon, "toolsets": c.Toolsets,
-		"mcp": c.MCP, "managers": c.Managers, "sandboxEgress": orList(c.SandboxEgress), "model": c.Model,
+		"mcp": c.MCP, "managers": c.Managers, "sandboxEgress": orList(c.SandboxEgress), "model": c.Model, "effort": c.Effort,
 		"system": c.System, "who": orStr(c.Who, "everyone"), "builtin": isBuiltinClass(c.ID), "harnesses": c.Harnesses,
 		"lane": c.lane(), "egress": c.egress(), "mixed": c.mixed(),
 	}
@@ -497,9 +500,12 @@ const maxClasses = 32
 func (c *agentClass) normalize() string {
 	c.ID, c.Name = strings.TrimSpace(c.ID), strings.TrimSpace(c.Name)
 	c.Icon, c.Description = strings.TrimSpace(c.Icon), strings.TrimSpace(c.Description)
-	c.Model, c.Who = strings.TrimSpace(c.Model), strings.TrimSpace(c.Who)
+	c.Model, c.Who, c.Effort = strings.TrimSpace(c.Model), strings.TrimSpace(c.Who), strings.TrimSpace(c.Effort)
 	if !classIDRe.MatchString(c.ID) {
 		return fmt.Sprintf("class id %q: a–z, 0–9 and -, starting with a letter, up to 32", c.ID)
+	}
+	if !validEffort(c.Effort) {
+		return fmt.Sprintf("class %s: effort %q — default, or one of %s", c.ID, c.Effort, strings.Join(effortLadder, ", "))
 	}
 	if c.Name == "" {
 		c.Name = c.ID

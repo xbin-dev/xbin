@@ -643,6 +643,12 @@ func (e *Engine) modelStep(ctx context.Context, ts *turnState) (LLMReply, bool) 
 	// moment later (llm_failed.go): a bounded number of times, said in the transcript each time. The gate is
 	// not held while it waits.
 	var failedAt time.Time // the call's first failure
+	req := LLMRequest{
+		Run: run.ID, Purpose: "turn",
+		Model: model, Msgs: msgs, Tools: specs, Stream: cfg.feature("streaming"),
+		Wire: cfg.Wire,
+	}
+	e.withEffort(ctx, &req, cfg) // the level, and whether the model reasons (llm_effort.go, D249)
 	for try := 0; ; try++ {
 		release, err := e.acquireLLM(ctx, e.modelGateTop(run)) // a built-in task takes a subagent's place (project_gate.go)
 		if err != nil {
@@ -651,11 +657,7 @@ func (e *Engine) modelStep(ctx context.Context, ts *turnState) (LLMReply, bool) 
 		}
 		e.draftStart(ts, model)
 		t0 = time.Now()
-		reply, err = e.chat(ctx, LLMRequest{
-			Run: run.ID, Purpose: "turn",
-			Model: model, Msgs: msgs, Tools: specs, Stream: cfg.feature("streaming"),
-			Wire: cfg.Wire, ReasoningEffort: cfg.ReasoningEffort,
-		}, func(ev LLMEvent) { e.draftEvent(ts, ev) })
+		reply, err = e.chat(ctx, req, func(ev LLMEvent) { e.draftEvent(ts, ev) })
 		release()
 		e.draftEnd(ts)
 		if err == nil {
@@ -682,6 +684,7 @@ func (e *Engine) modelStep(ctx context.Context, ts *turnState) (LLMReply, bool) 
 	if reply.Model == "" {
 		reply.Model = model
 	}
+	e.effortNotes(ts, req, reply)
 	for i, c := range reply.Msg.ToolCalls {
 		if n, ok := ts.back[c.Function.Name]; ok {
 			reply.Msg.ToolCalls[i].Function.Name = n
@@ -703,6 +706,14 @@ func (e *Engine) recordAssistant(ts *turnState, reply LLMReply, calls []toolCall
 	}
 	meta := msgMeta{Reasoning: reply.Reasoning, ReasoningRaw: reply.ReasoningRaw, ReasoningMs: reply.ReasoningMs,
 		Wire: reply.Wire, Model: reply.Model, Finish: reply.Finish}
+	if reply.Reasoning != "" && reply.ReplayField != "" { // where it goes back, and to whom (D249)
+		meta.ReplayField, meta.Via = reply.ReplayField, reply.Via
+		if e := reply.ThinkEdge; e != (thinkEdge{}) {
+			meta.ThinkEdge = &e
+		}
+	} else if len(reply.ReasoningRaw) > 0 {
+		meta.Via = reply.Via
+	}
 	if reply.Usage.PromptTokens > 0 || reply.Usage.CompletionTokens > 0 {
 		u := reply.Usage
 		meta.Usage = &u

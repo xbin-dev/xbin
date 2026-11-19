@@ -77,6 +77,7 @@ export function createApp(opts = {}) {
     classes: null,         // GET /classes ({classes, default}, model/classes.js listOf): what you may start a chat in
     classId: '',           // the class for NEW asks: your last pick, else the tile's default; a run keeps its own
     model: '',             // the model for NEW asks ('' = the agent's default): your last pick
+    effort: '',            // the reasoning effort for the NEXT new ask ('' = the agent's default; D249): never remembered
     catalog: null,         // GET /models: the bound providers' models (the pickers)
     needs: [],
     halted: false,
@@ -204,6 +205,21 @@ export function createApp(opts = {}) {
       }
       app.model = ref;
       actions.saveModelPref(ref).catch(() => {});
+      emit('model');
+    },
+    // pickEffort: the reasoning effort (D249: a ladder word, 'default' for
+    // the model's own) — in an open conversation you may talk in, from its
+    // next turn; at home, the next new chat's only: a last choice is not
+    // carried into new chats. Throws when the conversation refuses it.
+    async pickEffort(level) {
+      const v = app.session.current();
+      if (v && rules.access(v).talk) {
+        await actions.setRunEffort(v.run.rootId || v.run.id, level);
+        const stored = app.session.views.get(v.run.id);
+        if (stored) stored.config = { ...(stored.config || {}), effort: level };
+      } else if (!v) {
+        app.effort = level;
+      }
       emit('model');
     },
 
@@ -409,12 +425,16 @@ export function createApp(opts = {}) {
   // picked to answer (app.harness) goes with it, and the model is its option.
   const picked = (cls = app.newClassId()) => {
     const h = app.harness.askPart();
-    return { ...(app.model && !h.harness ? { model: app.model } : {}), ...(cls ? app.sbx.askPart(cls) : {}), ...h };
+    return { ...(app.model && !h.harness ? { model: app.model } : {}), ...(app.effort && !h.harness ? { effort: app.effort } : {}),
+      ...(cls ? app.sbx.askPart(cls) : {}), ...h };
   };
   // asking: POST /ask — one refused for the sandbox it named drops that pick
   // and says so (app.sbx.refused), so the next ask isn't refused the same way.
   const asking = async (body) => {
-    try { return await actions.ask(body); } catch (e) { if (body.sandbox) app.sbx.refused(e); throw e; }
+    let run;
+    try { run = await actions.ask(body); } catch (e) { if (body.sandbox) app.sbx.refused(e); throw e; }
+    if (body.effort) { app.effort = ''; emit('model'); } // the next new chat starts at the default again (D249)
+    return run;
   };
   // classOf: a new ask's class (yours, unless the form named one) and, beside
   // it, its lane as the legacy toolset; nothing before the classes are read

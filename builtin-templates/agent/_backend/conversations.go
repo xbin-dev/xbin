@@ -296,12 +296,14 @@ func searchConversations(w http.ResponseWriter, c who, q string) {
 // handlePatchRun changes a conversation: your own pin and archive (any
 // viewer), or its title and who may see it (its owner).
 //
-//	PATCH /runs/{id} {title?, pinned?, archived?, visibility?, teamRole?, model?, sandbox?, detach?}
+//	PATCH /runs/{id} {title?, pinned?, archived?, visibility?, teamRole?, model?, effort?, sandbox?, detach?}
 //
 // model is the conversation's pick (Config.Pick, "" = the agent's default):
 // anyone who may talk in it may switch it; its next turn uses it. So is its
-// sandbox (sandbox_bind.go). Its class (D116) is fixed: a class other than
-// its own is refused.
+// reasoning effort (Config.Effort, D249: a ladder word, "default" for the
+// model's own, "" for the class's or the tile's) and its sandbox
+// (sandbox_bind.go). Its class (D116) is fixed: a class other than its own
+// is refused.
 func handlePatchRun(w http.ResponseWriter, r *http.Request) {
 	c, lv := callerOf(r), levelOf(r)
 	run, err := agent.db.getRun(pathID(r))
@@ -317,6 +319,7 @@ func handlePatchRun(w http.ResponseWriter, r *http.Request) {
 		Visibility *string `json:"visibility"`
 		TeamRole   *string `json:"teamRole"`
 		Model      *string `json:"model"`
+		Effort     *string `json:"effort"`
 		Class      *string `json:"class"`
 		// the conversation's sandbox (sandbox_bind.go): {ref, cwd?} | null; detach: a ref
 		Sandbox json.RawMessage `json:"sandbox"`
@@ -330,6 +333,9 @@ func handlePatchRun(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case body.Model != nil:
 			xbin.WriteError(w, 400, `a coding agent's model is an option: PATCH /runs/{id}/harness {option: {id: "model", …}}`)
+			return
+		case body.Effort != nil:
+			xbin.WriteError(w, 400, `a coding agent's reasoning effort is its own option: PATCH /runs/{id}/harness {option: {id: …}}`)
 			return
 		case len(body.Sandbox) > 0 || body.Detach != nil:
 			xbin.WriteError(w, 400, "a coding agent's sandbox is fixed for the conversation")
@@ -352,6 +358,20 @@ func handlePatchRun(w http.ResponseWriter, r *http.Request) {
 	}
 	if (body.Visibility != nil || body.TeamRole != nil) && projectRunBarred(w, root) { // a project's sharing is its tasks' (project_tasks.go)
 		return
+	}
+	if body.Effort != nil {
+		cfg, err := agent.db.runConfig(root)
+		switch {
+		case lv < lvParticipant:
+			xbin.WriteError(w, 403, "only someone who may talk in it can pick its reasoning effort")
+			return
+		case !validEffort(*body.Effort):
+			xbin.WriteError(w, 400, effortWords)
+			return
+		case err == nil && cfg.Class == classWorkspace:
+			xbin.WriteError(w, 400, "a workspace agent's reasoning effort is not set per conversation")
+			return
+		}
 	}
 	if body.Model != nil && (lv < lvParticipant || !validPick(*body.Model)) {
 		if lv < lvParticipant {
@@ -417,12 +437,17 @@ func handlePatchRun(w http.ResponseWriter, r *http.Request) {
 				return err
 			}
 		}
-		if body.Model != nil {
+		if body.Model != nil || body.Effort != nil {
 			cfg, err := t.runConfig(root)
 			if err != nil {
 				return err
 			}
-			cfg.Pick = *body.Model
+			if body.Model != nil {
+				cfg.Pick = *body.Model
+			}
+			if body.Effort != nil {
+				cfg.Effort = *body.Effort
+			}
 			raw, _ := json.Marshal(cfg)
 			if _, err := t.q.Exec(`UPDATE runs SET config=? WHERE id=?`, string(raw), root); err != nil {
 				return err

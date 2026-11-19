@@ -52,6 +52,8 @@ import { makeWorkflow } from './workflow.js';
 import { ext, ctx as extCtx } from './web-ext.js';
 import './harness-web.js'; // the coding harnesses' modules (their hooks on ext)
 import './project-web.js'; // Projects' modules: the page (ext.page; atop Mine, ext.listTop), a task's chips, crumb and cards
+import './effort-chip.js'; // the composer's reasoning-effort chip beside the model (D249)
+import { LADDER as EFFORT_LADDER, word as effortWord } from './model/effort.js'; // the ⚙ Config tab's default effort
 import { steerWords } from './model/harness-ask.js'; // a coding harness's queued chips
 import { clsIcon } from './classes.js'; // a class's glyph (or its admin's emoji) before its name
 import { mountDirectMcp } from './mcp-direct.js'; // Settings → MCP: servers connected by URL
@@ -789,6 +791,9 @@ async function tabConfig(bd) {
         <div class="field"><label>Vision (VLM)</label><select id="cf-vlm">${opt(m.vlm)}</select></div>
       </div>
       <div class="hint">Empty tier = the provider's preferred model for that job (llm-gw's per-use default).${models.length ? '' : ' (no models listed — bind the agent\'s llm interface to a provider that has a backend)'}</div>
+      <div class="grid4"><div class="field"><label for="cf-effort" title="what a new conversation asks of a model that reasons; a conversation's own pick (the composer's chip) and a class's come first">Reasoning effort</label>
+        <select id="cf-effort">${['', ...EFFORT_LADDER].map((w) => `<option value="${w}" ${w === (c.reasoningEffort || '') ? 'selected' : ''}>${w ? esc(effortWord(w)) : 'the model\'s own default'}</option>`).join('')}</select></div></div>
+      <div class="hint">Sent only to a model that reasons, mapped onto its own levels by the LLM connector; new conversations start with it, and each can change it from the composer.</div>
       ${provs ? `<div class="hint">Models from: ${provs}</div>` : ''}
     </div>
     <div class="sec"><h4>Base system prompt</h4><textarea id="cf-system" rows="5">${esc(c.system || '')}</textarea></div>
@@ -812,7 +817,7 @@ async function tabConfig(bd) {
       models: { general: $('cf-general').value, code: $('cf-code').value, memory: $('cf-memory').value, vlm: $('cf-vlm').value },
       system: $('cf-system').value,
       tokenBudget: num($('cf-budget').value), maxIters: num($('cf-iters').value), toolTimeout: num($('cf-timeout').value),
-      subagents: $('cf-sub').checked, approve: $('cf-appr').checked,
+      subagents: $('cf-sub').checked, approve: $('cf-appr').checked, reasoningEffort: $('cf-effort').value,
       ...Object.fromEntries(actions.WF_LIMITS.map(([k]) => [k, num($('cf-' + k).value)])),
     };
     try {

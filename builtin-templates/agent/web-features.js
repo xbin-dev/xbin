@@ -80,6 +80,7 @@ export const IMPLEMENTS = {
   'composer.disabled': 'agent.js — paint() (model/rules.js composer)',
   'composer.class': 'classes.js — makeClassPicker: #tset opens .clsmenu (model/classes.js classPicker → app.pickClass)',
   'composer.model': 'agent.js — #msel (rules.modelPicker → app.pickModel)',
+  'composer.effort': 'effort-chip.js — #echip beside #msel and its #epop notched track (model/effort.js chip → app.pickEffort); at home the next new chat\'s',
   'composer.sandbox': 'sandboxes.js — makeSandboxUI: #ssel (model/sandboxes.js sandboxPicker → app.sbx.choose; New sandbox… / Manage… open #sbxdlg)',
   'composer.agent': 'harness-start.js — #apick: #abtn opens its menu (model/harness-start.js agentPicker → chooseAgent); classes.js hides #cpick',
   'composer.attach': 'agent.js — #clip',

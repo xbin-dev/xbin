@@ -217,7 +217,8 @@
    },
    "Finish": "stop",
    "Wire": "",
-   "Model": ""
+   "Model": "",
+   "ReplayField": "reasoning_content"
   },
   "toolCallsNil": true
  },
@@ -590,6 +591,67 @@
    "text|The \"usage\" field is { reported last."
   ]
  },
+ "chat-stream/reasoning-content-tools": {
+  "reply": {
+   "Msg": {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+     {
+      "id": "c1",
+      "type": "function",
+      "function": {
+       "name": "note",
+       "arguments": "{}"
+      }
+     }
+    ]
+   },
+   "Reasoning": "Call it.",
+   "ReasoningRaw": null,
+   "ReasoningMs": 0,
+   "Usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0
+   },
+   "Finish": "tool_calls",
+   "Wire": "",
+   "Model": "",
+   "ReplayField": "reasoning_content"
+  },
+  "toolCallsNil": false,
+  "events": [
+   "thinking|Call it.",
+   "tool|0|c1|note|{}"
+  ]
+ },
+ "chat-stream/reasoning-field-only": {
+  "reply": {
+   "Msg": {
+    "role": "assistant",
+    "content": "Done."
+   },
+   "Reasoning": "Weigh it.",
+   "ReasoningRaw": null,
+   "ReasoningMs": 0,
+   "Usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0
+   },
+   "Finish": "stop",
+   "Wire": "",
+   "Model": "",
+   "ReplayField": "reasoning"
+  },
+  "toolCallsNil": true,
+  "events": [
+   "thinking|Weigh ",
+   "thinking|Weigh it.",
+   "text|Done."
+  ]
+ },
  "chat-stream/reasoning-three-names": {
   "reply": {
    "Msg": {
@@ -618,7 +680,8 @@
    },
    "Finish": "stop",
    "Wire": "",
-   "Model": ""
+   "Model": "",
+   "ReplayField": "reasoning_content"
   },
   "toolCallsNil": true,
   "events": [
@@ -643,12 +706,68 @@
    },
    "Finish": "stop",
    "Wire": "",
-   "Model": ""
+   "Model": "",
+   "ReplayField": "think",
+   "ThinkEdge": {
+    "gap": "\n\n"
+   }
   },
   "toolCallsNil": true,
   "events": [
    "thinking|pondering",
    "text|The answer."
+  ]
+ },
+ "chat-stream/think-tags-edges": {
+  "reply": {
+   "Msg": {
+    "role": "assistant",
+    "content": "Out."
+   },
+   "Reasoning": " a\nb ",
+   "ReasoningRaw": null,
+   "ReasoningMs": 0,
+   "Usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0
+   },
+   "Finish": "stop",
+   "Wire": "",
+   "Model": "",
+   "ReplayField": "think",
+   "ThinkEdge": {
+    "lead": "\n ",
+    "gap": "\n\n"
+   }
+  },
+  "toolCallsNil": true,
+  "events": [
+   "thinking| a\nb ",
+   "text|Out."
+  ]
+ },
+ "chat-stream/think-tags-unclosed": {
+  "reply": {
+   "Msg": {
+    "role": "assistant",
+    "content": ""
+   },
+   "Reasoning": "never done",
+   "ReasoningRaw": null,
+   "ReasoningMs": 0,
+   "Usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0
+   },
+   "Finish": "stop",
+   "Wire": "",
+   "Model": ""
+  },
+  "toolCallsNil": true,
+  "events": [
+   "thinking|never done"
   ]
  },
  "chat-stream/tool-calls": {
@@ -933,11 +1052,20 @@
  ],
  "paths": "/v1/chat/completions /v1/responses",
  "request/chat": "{\"model\":\"kimi-k3\",\"messages\":[{\"role\":\"system\",\"content\":\"You are an agent.\"},{\"role\":\"user\",\"content\":\"hello\"},{\"role\":\"system\",\"content\":\"A later system note.\"},{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"look \\u003c\\u0026\\u003e\"},{\"type\":\"image_url\",\"image_url\":{\"url\":\"data:image/png;base64,xx\"}}]},{\"role\":\"user\",\"content\":\"[#1 user] not parts\",\"name\":\"alice\"},{\"role\":\"assistant\",\"content\":\"calling\",\"tool_calls\":[{\"id\":\"call_1\",\"type\":\"function\",\"function\":{\"name\":\"note\",\"arguments\":\"{\\\"text\\\":\\\"x\\\"}\"}},{\"id\":\"call_2\",\"type\":\"\",\"function\":{\"name\":\"bash\",\"arguments\":\"{}\"}}],\"reasoning_details\":[{\"type\":\"reasoning.text\",\"text\":\"T\",\"index\":0}]},{\"role\":\"tool\",\"content\":\"noted\",\"name\":\"note\",\"tool_call_id\":\"call_1\"},{\"role\":\"tool\",\"content\":\"\",\"tool_call_id\":\"call_2\"},{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"id\":\"call_3\",\"type\":\"function\",\"function\":{\"name\":\"bash\",\"arguments\":\"{\\\"command\\\":\\\"ls\\\"}\"}}]},{\"role\":\"tool\",\"content\":{\"files\":[\"a\"]},\"tool_call_id\":\"call_3\"},{\"role\":\"assistant\",\"tool_calls\":[{\"id\":\"call_4\",\"type\":\"function\",\"function\":{\"name\":\"note\",\"arguments\":\"{}\"}}]},{\"role\":\"tool\",\"content\":\"ok\",\"tool_call_id\":\"call_4\"},{\"role\":\"assistant\",\"content\":\"Done.\"}],\"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"note\",\"description\":\"Jot a note.\",\"parameters\":{\"properties\":{\"text\":{\"type\":\"string\"}},\"required\":[\"text\"],\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"bare\",\"description\":\"\",\"parameters\":{\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"nil-schema\",\"description\":\"\",\"parameters\":null}}],\"stream\":true,\"stream_options\":{\"include_usage\":true},\"reasoning_effort\":\"high\"}",
+ "request/chat-no-reasoning": "{\"model\":\"plain\",\"messages\":[{\"role\":\"system\",\"content\":\"sys\"},{\"role\":\"user\",\"content\":\"q1\"},{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"id\":\"call_9\",\"type\":\"function\",\"function\":{\"name\":\"note\",\"arguments\":\"{}\"}}]},{\"role\":\"tool\",\"content\":\"noted\",\"tool_call_id\":\"call_9\"},{\"role\":\"assistant\",\"content\":\"A2\"},{\"role\":\"user\",\"content\":\"q2\"},{\"role\":\"assistant\",\"content\":\"A3\"},{\"role\":\"assistant\",\"content\":\"A4\"},{\"role\":\"assistant\",\"content\":\"A5\"},{\"role\":\"user\",\"content\":\"q3\"}],\"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"note\",\"description\":\"Jot a note.\",\"parameters\":{\"properties\":{\"text\":{\"type\":\"string\"}},\"required\":[\"text\"],\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"bare\",\"description\":\"\",\"parameters\":{\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"nil-schema\",\"description\":\"\",\"parameters\":null}}]}",
  "request/chat-no-tools": "{\"model\":\"m\",\"messages\":[{\"role\":\"system\",\"content\":\"You are an agent.\"},{\"role\":\"user\",\"content\":\"hello\"},{\"role\":\"system\",\"content\":\"A later system note.\"},{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"look \\u003c\\u0026\\u003e\"},{\"type\":\"image_url\",\"image_url\":{\"url\":\"data:image/png;base64,xx\"}}]},{\"role\":\"user\",\"content\":\"[#1 user] not parts\",\"name\":\"alice\"},{\"role\":\"assistant\",\"content\":\"calling\",\"tool_calls\":[{\"id\":\"call_1\",\"type\":\"function\",\"function\":{\"name\":\"note\",\"arguments\":\"{\\\"text\\\":\\\"x\\\"}\"}},{\"id\":\"call_2\",\"type\":\"\",\"function\":{\"name\":\"bash\",\"arguments\":\"{}\"}}]},{\"role\":\"tool\",\"content\":\"noted\",\"name\":\"note\",\"tool_call_id\":\"call_1\"},{\"role\":\"tool\",\"content\":\"\",\"tool_call_id\":\"call_2\"},{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"id\":\"call_3\",\"type\":\"function\",\"function\":{\"name\":\"bash\",\"arguments\":\"{\\\"command\\\":\\\"ls\\\"}\"}}]},{\"role\":\"tool\",\"content\":{\"files\":[\"a\"]},\"tool_call_id\":\"call_3\"},{\"role\":\"assistant\",\"tool_calls\":[{\"id\":\"call_4\",\"type\":\"function\",\"function\":{\"name\":\"note\",\"arguments\":\"{}\"}}]},{\"role\":\"tool\",\"content\":\"ok\",\"tool_call_id\":\"call_4\"},{\"role\":\"assistant\",\"content\":\"Done.\"}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
  "request/chat-other-model": "{\"model\":\"gpt-4.1\",\"messages\":[{\"role\":\"system\",\"content\":\"You are an agent.\"},{\"role\":\"user\",\"content\":\"hello\"},{\"role\":\"system\",\"content\":\"A later system note.\"},{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"look \\u003c\\u0026\\u003e\"},{\"type\":\"image_url\",\"image_url\":{\"url\":\"data:image/png;base64,xx\"}}]},{\"role\":\"user\",\"content\":\"[#1 user] not parts\",\"name\":\"alice\"},{\"role\":\"assistant\",\"content\":\"calling\",\"tool_calls\":[{\"id\":\"call_1\",\"type\":\"function\",\"function\":{\"name\":\"note\",\"arguments\":\"{\\\"text\\\":\\\"x\\\"}\"}},{\"id\":\"call_2\",\"type\":\"\",\"function\":{\"name\":\"bash\",\"arguments\":\"{}\"}}]},{\"role\":\"tool\",\"content\":\"noted\",\"name\":\"note\",\"tool_call_id\":\"call_1\"},{\"role\":\"tool\",\"content\":\"\",\"tool_call_id\":\"call_2\"},{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"id\":\"call_3\",\"type\":\"function\",\"function\":{\"name\":\"bash\",\"arguments\":\"{\\\"command\\\":\\\"ls\\\"}\"}}]},{\"role\":\"tool\",\"content\":{\"files\":[\"a\"]},\"tool_call_id\":\"call_3\"},{\"role\":\"assistant\",\"tool_calls\":[{\"id\":\"call_4\",\"type\":\"function\",\"function\":{\"name\":\"note\",\"arguments\":\"{}\"}}]},{\"role\":\"tool\",\"content\":\"ok\",\"tool_call_id\":\"call_4\"},{\"role\":\"assistant\",\"content\":\"Done.\"}],\"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"note\",\"description\":\"Jot a note.\",\"parameters\":{\"properties\":{\"text\":{\"type\":\"string\"}},\"required\":[\"text\"],\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"bare\",\"description\":\"\",\"parameters\":{\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"nil-schema\",\"description\":\"\",\"parameters\":null}}]}",
+ "request/chat-replay": "{\"model\":\"deepseek-v4.1-flash\",\"messages\":[{\"role\":\"system\",\"content\":\"sys\"},{\"role\":\"user\",\"content\":\"q1\"},{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"id\":\"call_9\",\"type\":\"function\",\"function\":{\"name\":\"note\",\"arguments\":\"{}\"}}],\"reasoning_content\":\"R1 \\u003ctool\\u003e\"},{\"role\":\"tool\",\"content\":\"noted\",\"tool_call_id\":\"call_9\"},{\"role\":\"assistant\",\"content\":\"A2\",\"reasoning\":\"R2\"},{\"role\":\"user\",\"content\":\"q2\"},{\"role\":\"assistant\",\"content\":\"\\n\\u003cthink\\u003eR3\\u003c/think\\u003e\\n\\nA3\"},{\"role\":\"assistant\",\"content\":\"A4\"},{\"role\":\"assistant\",\"content\":\"A5\"},{\"role\":\"user\",\"content\":\"q3\"}],\"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"note\",\"description\":\"Jot a note.\",\"parameters\":{\"properties\":{\"text\":{\"type\":\"string\"}},\"required\":[\"text\"],\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"bare\",\"description\":\"\",\"parameters\":{\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"nil-schema\",\"description\":\"\",\"parameters\":null}}],\"stream\":true,\"stream_options\":{\"include_usage\":true},\"reasoning_effort\":\"max\"}",
+ "request/chat-replay-model-switch": "{\"model\":\"kimi-k3\",\"messages\":[{\"role\":\"system\",\"content\":\"sys\"},{\"role\":\"user\",\"content\":\"q1\"},{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"id\":\"call_9\",\"type\":\"function\",\"function\":{\"name\":\"note\",\"arguments\":\"{}\"}}]},{\"role\":\"tool\",\"content\":\"noted\",\"tool_call_id\":\"call_9\"},{\"role\":\"assistant\",\"content\":\"A2\"},{\"role\":\"user\",\"content\":\"q2\"},{\"role\":\"assistant\",\"content\":\"A3\"},{\"role\":\"assistant\",\"content\":\"A4\"},{\"role\":\"assistant\",\"content\":\"A5\"},{\"role\":\"user\",\"content\":\"q3\"}],\"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"note\",\"description\":\"Jot a note.\",\"parameters\":{\"properties\":{\"text\":{\"type\":\"string\"}},\"required\":[\"text\"],\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"bare\",\"description\":\"\",\"parameters\":{\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"nil-schema\",\"description\":\"\",\"parameters\":null}}]}",
+ "request/chat-replay-no-tools": "{\"model\":\"deepseek-v4.1-flash\",\"messages\":[{\"role\":\"system\",\"content\":\"sys\"},{\"role\":\"user\",\"content\":\"q1\"},{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"id\":\"call_9\",\"type\":\"function\",\"function\":{\"name\":\"note\",\"arguments\":\"{}\"}}],\"reasoning_content\":\"R1 \\u003ctool\\u003e\"},{\"role\":\"tool\",\"content\":\"noted\",\"tool_call_id\":\"call_9\"},{\"role\":\"assistant\",\"content\":\"A2\",\"reasoning\":\"R2\"},{\"role\":\"user\",\"content\":\"q2\"},{\"role\":\"assistant\",\"content\":\"\\n\\u003cthink\\u003eR3\\u003c/think\\u003e\\n\\nA3\"},{\"role\":\"assistant\",\"content\":\"A4\"},{\"role\":\"assistant\",\"content\":\"A5\"},{\"role\":\"user\",\"content\":\"q3\"}]}",
+ "request/chat-replay-other-target": "{\"model\":\"deepseek-v4.1-flash\",\"messages\":[{\"role\":\"system\",\"content\":\"sys\"},{\"role\":\"user\",\"content\":\"q1\"},{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"id\":\"call_9\",\"type\":\"function\",\"function\":{\"name\":\"note\",\"arguments\":\"{}\"}}]},{\"role\":\"tool\",\"content\":\"noted\",\"tool_call_id\":\"call_9\"},{\"role\":\"assistant\",\"content\":\"A2\"},{\"role\":\"user\",\"content\":\"q2\"},{\"role\":\"assistant\",\"content\":\"A3\"},{\"role\":\"assistant\",\"content\":\"A4\"},{\"role\":\"assistant\",\"content\":\"A5\"},{\"role\":\"user\",\"content\":\"q3\"}],\"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"note\",\"description\":\"Jot a note.\",\"parameters\":{\"properties\":{\"text\":{\"type\":\"string\"}},\"required\":[\"text\"],\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"bare\",\"description\":\"\",\"parameters\":{\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"nil-schema\",\"description\":\"\",\"parameters\":null}}]}",
+ "request/chat-replay-refused": "{\"model\":\"deepseek-v4.1-flash\",\"messages\":[{\"role\":\"system\",\"content\":\"sys\"},{\"role\":\"user\",\"content\":\"q1\"},{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"id\":\"call_9\",\"type\":\"function\",\"function\":{\"name\":\"note\",\"arguments\":\"{}\"}}]},{\"role\":\"tool\",\"content\":\"noted\",\"tool_call_id\":\"call_9\"},{\"role\":\"assistant\",\"content\":\"A2\"},{\"role\":\"user\",\"content\":\"q2\"},{\"role\":\"assistant\",\"content\":\"A3\"},{\"role\":\"assistant\",\"content\":\"A4\"},{\"role\":\"assistant\",\"content\":\"A5\"},{\"role\":\"user\",\"content\":\"q3\"}],\"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"note\",\"description\":\"Jot a note.\",\"parameters\":{\"properties\":{\"text\":{\"type\":\"string\"}},\"required\":[\"text\"],\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"bare\",\"description\":\"\",\"parameters\":{\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"nil-schema\",\"description\":\"\",\"parameters\":null}}]}",
  "request/responses": "{\"model\":\"gpt-5\",\"instructions\":\"You are an agent.\",\"input\":[{\"role\":\"user\",\"content\":\"hello\"},{\"role\":\"developer\",\"content\":\"A later system note.\"},{\"role\":\"user\",\"content\":[{\"text\":\"look \\u003c\\u0026\\u003e\",\"type\":\"input_text\"},{\"image_url\":\"data:image/png;base64,xx\",\"type\":\"input_image\"}]},{\"role\":\"user\",\"content\":\"[#1 user] not parts\"},{\"role\":\"assistant\",\"content\":\"calling\"},{\"type\":\"function_call\",\"call_id\":\"call_1\",\"name\":\"note\",\"arguments\":\"{\\\"text\\\":\\\"x\\\"}\"},{\"type\":\"function_call\",\"call_id\":\"call_2\",\"name\":\"bash\",\"arguments\":\"{}\"},{\"type\":\"function_call_output\",\"call_id\":\"call_1\",\"output\":\"noted\"},{\"type\":\"function_call_output\",\"call_id\":\"call_2\",\"output\":\"\"},{\"type\":\"reasoning\",\"id\":\"rs_1\",\"encrypted_content\":\"E\",\"summary\":[]},{\"type\":\"function_call\",\"call_id\":\"call_3\",\"name\":\"bash\",\"arguments\":\"{\\\"command\\\":\\\"ls\\\"}\"},{\"type\":\"function_call_output\",\"call_id\":\"call_3\",\"output\":\"{\\\"files\\\":[\\\"a\\\"]}\"},{\"type\":\"function_call\",\"call_id\":\"call_4\",\"name\":\"note\",\"arguments\":\"{}\"},{\"type\":\"function_call_output\",\"call_id\":\"call_4\",\"output\":\"ok\"},{\"role\":\"assistant\",\"content\":\"Done.\"}],\"tools\":[{\"type\":\"function\",\"name\":\"note\",\"description\":\"Jot a note.\",\"parameters\":{\"properties\":{\"text\":{\"type\":\"string\"}},\"required\":[\"text\"],\"type\":\"object\"}},{\"type\":\"function\",\"name\":\"bare\",\"parameters\":{\"type\":\"object\"}},{\"type\":\"function\",\"name\":\"nil-schema\",\"parameters\":null}],\"stream\":true,\"reasoning\":{\"effort\":\"low\",\"summary\":\"auto\"},\"store\":false,\"include\":[\"reasoning.encrypted_content\"]}",
  "request/responses-plain": "{\"model\":\"gpt-4.1\",\"instructions\":\"You are an agent.\",\"input\":[{\"role\":\"user\",\"content\":\"hello\"},{\"role\":\"developer\",\"content\":\"A later system note.\"},{\"role\":\"user\",\"content\":[{\"text\":\"look \\u003c\\u0026\\u003e\",\"type\":\"input_text\"},{\"image_url\":\"data:image/png;base64,xx\",\"type\":\"input_image\"}]},{\"role\":\"user\",\"content\":\"[#1 user] not parts\"},{\"role\":\"assistant\",\"content\":\"calling\"},{\"type\":\"function_call\",\"call_id\":\"call_1\",\"name\":\"note\",\"arguments\":\"{\\\"text\\\":\\\"x\\\"}\"},{\"type\":\"function_call\",\"call_id\":\"call_2\",\"name\":\"bash\",\"arguments\":\"{}\"},{\"type\":\"function_call_output\",\"call_id\":\"call_1\",\"output\":\"noted\"},{\"type\":\"function_call_output\",\"call_id\":\"call_2\",\"output\":\"\"},{\"type\":\"function_call\",\"call_id\":\"call_3\",\"name\":\"bash\",\"arguments\":\"{\\\"command\\\":\\\"ls\\\"}\"},{\"type\":\"function_call_output\",\"call_id\":\"call_3\",\"output\":\"{\\\"files\\\":[\\\"a\\\"]}\"},{\"type\":\"function_call\",\"call_id\":\"call_4\",\"name\":\"note\",\"arguments\":\"{}\"},{\"type\":\"function_call_output\",\"call_id\":\"call_4\",\"output\":\"ok\"},{\"role\":\"assistant\",\"content\":\"Done.\"}],\"tools\":[{\"type\":\"function\",\"name\":\"note\",\"description\":\"Jot a note.\",\"parameters\":{\"properties\":{\"text\":{\"type\":\"string\"}},\"required\":[\"text\"],\"type\":\"object\"}},{\"type\":\"function\",\"name\":\"bare\",\"parameters\":{\"type\":\"object\"}},{\"type\":\"function\",\"name\":\"nil-schema\",\"parameters\":null}],\"store\":false}",
  "request/responses-reasoning": "{\"model\":\"openai/o4-mini\",\"instructions\":\"You are an agent.\",\"input\":[{\"role\":\"user\",\"content\":\"hello\"},{\"role\":\"developer\",\"content\":\"A later system note.\"},{\"role\":\"user\",\"content\":[{\"text\":\"look \\u003c\\u0026\\u003e\",\"type\":\"input_text\"},{\"image_url\":\"data:image/png;base64,xx\",\"type\":\"input_image\"}]},{\"role\":\"user\",\"content\":\"[#1 user] not parts\"},{\"role\":\"assistant\",\"content\":\"calling\"},{\"type\":\"function_call\",\"call_id\":\"call_1\",\"name\":\"note\",\"arguments\":\"{\\\"text\\\":\\\"x\\\"}\"},{\"type\":\"function_call\",\"call_id\":\"call_2\",\"name\":\"bash\",\"arguments\":\"{}\"},{\"type\":\"function_call_output\",\"call_id\":\"call_1\",\"output\":\"noted\"},{\"type\":\"function_call_output\",\"call_id\":\"call_2\",\"output\":\"\"},{\"type\":\"function_call\",\"call_id\":\"call_3\",\"name\":\"bash\",\"arguments\":\"{\\\"command\\\":\\\"ls\\\"}\"},{\"type\":\"function_call_output\",\"call_id\":\"call_3\",\"output\":\"{\\\"files\\\":[\\\"a\\\"]}\"},{\"type\":\"function_call\",\"call_id\":\"call_4\",\"name\":\"note\",\"arguments\":\"{}\"},{\"type\":\"function_call_output\",\"call_id\":\"call_4\",\"output\":\"ok\"},{\"role\":\"assistant\",\"content\":\"Done.\"}],\"tools\":[{\"type\":\"function\",\"name\":\"note\",\"description\":\"Jot a note.\",\"parameters\":{\"properties\":{\"text\":{\"type\":\"string\"}},\"required\":[\"text\"],\"type\":\"object\"}},{\"type\":\"function\",\"name\":\"bare\",\"parameters\":{\"type\":\"object\"}},{\"type\":\"function\",\"name\":\"nil-schema\",\"parameters\":null}],\"reasoning\":{\"summary\":\"auto\"},\"store\":false,\"include\":[\"reasoning.encrypted_content\"]}",
+ "request/responses-reasons-default": "{\"model\":\"deepseek-v4.1-flash\",\"instructions\":\"sys\",\"input\":[{\"role\":\"user\",\"content\":\"q1\"},{\"type\":\"function_call\",\"call_id\":\"call_9\",\"name\":\"note\",\"arguments\":\"{}\"},{\"type\":\"function_call_output\",\"call_id\":\"call_9\",\"output\":\"noted\"},{\"role\":\"assistant\",\"content\":\"A2\"},{\"role\":\"user\",\"content\":\"q2\"},{\"role\":\"assistant\",\"content\":\"A3\"},{\"role\":\"assistant\",\"content\":\"A4\"},{\"role\":\"assistant\",\"content\":\"A5\"},{\"role\":\"user\",\"content\":\"q3\"}],\"tools\":[{\"type\":\"function\",\"name\":\"note\",\"description\":\"Jot a note.\",\"parameters\":{\"properties\":{\"text\":{\"type\":\"string\"}},\"required\":[\"text\"],\"type\":\"object\"}},{\"type\":\"function\",\"name\":\"bare\",\"parameters\":{\"type\":\"object\"}},{\"type\":\"function\",\"name\":\"nil-schema\",\"parameters\":null}],\"reasoning\":{\"summary\":\"auto\"},\"store\":false,\"include\":[\"reasoning.encrypted_content\"]}",
+ "request/responses-reasons-no": "{\"model\":\"gpt-5\",\"instructions\":\"sys\",\"input\":[{\"role\":\"user\",\"content\":\"q1\"},{\"type\":\"function_call\",\"call_id\":\"call_9\",\"name\":\"note\",\"arguments\":\"{}\"},{\"type\":\"function_call_output\",\"call_id\":\"call_9\",\"output\":\"noted\"},{\"role\":\"assistant\",\"content\":\"A2\"},{\"role\":\"user\",\"content\":\"q2\"},{\"role\":\"assistant\",\"content\":\"A3\"},{\"role\":\"assistant\",\"content\":\"A4\"},{\"role\":\"assistant\",\"content\":\"A5\"},{\"role\":\"user\",\"content\":\"q3\"}],\"tools\":[{\"type\":\"function\",\"name\":\"note\",\"description\":\"Jot a note.\",\"parameters\":{\"properties\":{\"text\":{\"type\":\"string\"}},\"required\":[\"text\"],\"type\":\"object\"}},{\"type\":\"function\",\"name\":\"bare\",\"parameters\":{\"type\":\"object\"}},{\"type\":\"function\",\"name\":\"nil-schema\",\"parameters\":null}],\"store\":false}",
+ "request/responses-reasons-yes": "{\"model\":\"deepseek-v4.1-flash\",\"instructions\":\"sys\",\"input\":[{\"role\":\"user\",\"content\":\"q1\"},{\"type\":\"function_call\",\"call_id\":\"call_9\",\"name\":\"note\",\"arguments\":\"{}\"},{\"type\":\"function_call_output\",\"call_id\":\"call_9\",\"output\":\"noted\"},{\"role\":\"assistant\",\"content\":\"A2\"},{\"role\":\"user\",\"content\":\"q2\"},{\"role\":\"assistant\",\"content\":\"A3\"},{\"role\":\"assistant\",\"content\":\"A4\"},{\"role\":\"assistant\",\"content\":\"A5\"},{\"role\":\"user\",\"content\":\"q3\"}],\"tools\":[{\"type\":\"function\",\"name\":\"note\",\"description\":\"Jot a note.\",\"parameters\":{\"properties\":{\"text\":{\"type\":\"string\"}},\"required\":[\"text\"],\"type\":\"object\"}},{\"type\":\"function\",\"name\":\"bare\",\"parameters\":{\"type\":\"object\"}},{\"type\":\"function\",\"name\":\"nil-schema\",\"parameters\":null}],\"reasoning\":{\"effort\":\"high\",\"summary\":\"auto\"},\"store\":false,\"include\":[\"reasoning.encrypted_content\"]}",
  "responses-body/completed": {
   "reply": {
    "Msg": {

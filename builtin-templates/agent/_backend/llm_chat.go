@@ -23,12 +23,36 @@ func (chatCodec) path() string                           { return llm.PathChat }
 func (chatCodec) unsupported(int, string) bool           { return false }
 func (chatCodec) parseBody(raw []byte) (LLMReply, error) { return parseChatBody(raw) }
 
-// chatMsg is a wireMsg plus the one field replay may add. reasoning_details is
-// sent only back to the wire and model that produced it: an unknown field is a
-// 400 on strict providers.
+// chatMsg is a wireMsg plus the fields replay may add: reasoning_details, or
+// the plain reasoning in the field it came in (reasoning_content, reasoning)
+// — sent only back to the provider, model and wire that produced it
+// (sameSource): an unknown field is a 400 on strict providers, and another
+// model's reasoning is not this one's.
 type chatMsg struct {
 	wireMsg
 	ReasoningDetails json.RawMessage `json:"reasoning_details,omitempty"`
+	ReasoningContent string          `json:"reasoning_content,omitempty"`
+	Reasoning        string          `json:"reasoning,omitempty"`
+}
+
+// sameSource reports whether reasoning stored as r goes back on req (the
+// wire it is encoded for): the same wire and model — and, for a message
+// that names them, the same provider and served model (Via): the same
+// model id on another provider is another model. A message stored before
+// Via existed keeps the rule it had (wire and model).
+func sameSource(r *msgMeta, wire string, req LLMRequest) bool {
+	return r != nil && !req.NoReplay && r.Wire == wire && r.Model == req.Model && (r.Via == "" || r.Via == req.Via)
+}
+
+// plainReplay reports whether a chat request on req would send plain
+// reasoning back (what an upstream that refuses it 400s on).
+func plainReplay(req LLMRequest) bool {
+	for _, m := range req.Msgs {
+		if r := m.Replay; m.Role == "assistant" && sameSource(r, "chat", req) && len(r.ReasoningRaw) == 0 && r.ReplayField != "" && r.Via != "" && r.Reasoning != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // chatBody is llm.ChatRequest over the engine's messages and tools: they
@@ -46,13 +70,30 @@ type chatBody struct {
 
 func (chatCodec) encode(req LLMRequest) ([]byte, error) {
 	b := chatBody{Model: req.Model, Tools: req.Tools, ReasoningEffort: req.ReasoningEffort}
+	if req.Reasons == reasonsNo { // its record says it has no reasoning: a strict provider refuses the field
+		b.ReasoningEffort = ""
+	}
 	if req.Stream {
 		b.Stream, b.StreamOptions = true, &llm.StreamOptions{IncludeUsage: true}
 	}
 	for _, m := range req.Msgs {
 		cm := chatMsg{wireMsg: m}
-		if r := m.Replay; m.Role == "assistant" && r != nil && r.Wire == "chat" && r.Model == req.Model && len(r.ReasoningRaw) > 0 {
-			cm.ReasoningDetails = r.ReasoningRaw
+		if r := m.Replay; m.Role == "assistant" && sameSource(r, "chat", req) {
+			switch {
+			case len(r.ReasoningRaw) > 0: // OpenRouter's blocks win: they are what it asks back
+				cm.ReasoningDetails = r.ReasoningRaw
+			case r.Via == "" || r.Reasoning == "": // plain reasoning goes back only to a source it names
+			case r.ReplayField == "reasoning_content":
+				cm.ReasoningContent = r.Reasoning
+			case r.ReplayField == "reasoning":
+				cm.Reasoning = r.Reasoning
+			case r.ReplayField == "think": // as it came: a leading block of the content
+				edge := thinkEdge{}
+				if r.ThinkEdge != nil {
+					edge = *r.ThinkEdge
+				}
+				cm.Content = edge.Lead + thinkOpen + r.Reasoning + thinkClose + edge.Gap + asString(m.Content)
+			}
 		}
 		b.Messages = append(b.Messages, cm)
 	}
@@ -106,6 +147,25 @@ type chatAcc struct {
 	finish   string
 	usage    usageBlock
 	sawPlain bool
+	field    string // the plain reasoning's field: reasoning_content, else reasoning
+}
+
+// plainField is the field a delta's plain reasoning came in ("" none).
+func plainField(f llm.ChatReplyFields) string {
+	if f.ReasoningContent != nil && *f.ReasoningContent != "" {
+		return "reasoning_content"
+	}
+	var s string
+	if len(f.Reasoning) > 0 && f.Reasoning[0] == '"' && json.Unmarshal(f.Reasoning, &s) == nil && s != "" {
+		return "reasoning"
+	}
+	return ""
+}
+
+func (a *chatAcc) noteField(f llm.ChatReplyFields) {
+	if k := plainField(f); k != "" && a.field != "reasoning_content" {
+		a.field = k // reasoning_content where any part came in it: the name most servers take back
+	}
 }
 
 func newChatAcc(emit func(LLMEvent)) *chatAcc {
@@ -179,6 +239,13 @@ func (a *chatAcc) reply() LLMReply {
 		msg.ToolCalls = append(msg.ToolCalls, *a.tcs[idx])
 	}
 	rep := LLMReply{Msg: msg, Reasoning: a.thinking(), ReasoningRaw: a.details.raw(), Usage: a.usage, Finish: a.finish}
+	switch {
+	case a.sawPlain:
+		rep.ReplayField = a.field
+	case a.think.closed && a.think.thought.Len() > 0:
+		rep.ReplayField = "think"
+		rep.ThinkEdge = thinkEdge{Lead: a.think.lead, Gap: a.think.gap.String()}
+	}
 	if rep.Finish == "" {
 		rep.Finish = "stop"
 		if len(msg.ToolCalls) > 0 {
@@ -206,6 +273,7 @@ func (chatCodec) parseStream(r io.Reader, emit func(LLMEvent)) (LLMReply, error)
 		}
 		ch := c.Choices[0]
 		d := ch.Delta
+		a.noteField(d)
 		plain := d.ReasoningText()
 		detailText := a.details.add(d.ReasoningDetails)
 		if plain != "" || detailText != "" {
@@ -239,6 +307,7 @@ func parseChatBody(raw []byte) (LLMReply, error) {
 	}
 	m := cr.Choices[0].Message
 	a := newChatAcc(nil)
+	a.noteField(m)
 	a.addThinking(m.ReasoningText(), a.details.add(m.ReasoningDetails))
 	content := m.Text()
 	if content == "" && len(m.Content) > 0 && m.Content[0] != 'n' && m.Content[0] != '"' {
@@ -334,6 +403,11 @@ type thinkSplit struct {
 	hold     strings.Builder
 	thought  strings.Builder
 	trimLead bool
+	// what replay puts back as it came: the whitespace before <think>, the
+	// whitespace trimmed after </think>, and whether the block closed
+	lead   string
+	gap    strings.Builder
+	closed bool
 }
 
 const (
@@ -352,6 +426,7 @@ func (t *thinkSplit) feed(s string) (text, thought string) {
 		case strings.HasPrefix(trimmed, thinkOpen):
 			t.state = 1
 			t.hold.Reset()
+			t.lead = b[:len(b)-len(trimmed)]
 			return t.inside(trimmed[len(thinkOpen):])
 		case len(trimmed) < len(thinkOpen) && strings.HasPrefix(thinkOpen, trimmed):
 			return "", "" // still could be a <think>
@@ -369,7 +444,7 @@ func (t *thinkSplit) inside(s string) (text, thought string) {
 	b := t.hold.String() + s
 	t.hold.Reset()
 	if i := strings.Index(b, thinkClose); i >= 0 {
-		t.state, t.trimLead = 2, true
+		t.state, t.trimLead, t.closed = 2, true, true
 		thought = b[:i]
 		t.thought.WriteString(thought)
 		return t.plain(b[i+len(thinkClose):]), thought
@@ -383,8 +458,9 @@ func (t *thinkSplit) inside(s string) (text, thought string) {
 
 func (t *thinkSplit) plain(s string) string {
 	if t.trimLead {
-		s = strings.TrimLeft(s, " \t\r\n")
-		if s == "" {
+		rest := strings.TrimLeft(s, " \t\r\n")
+		t.gap.WriteString(s[:len(s)-len(rest)])
+		if s = rest; s == "" {
 			return ""
 		}
 		t.trimLead = false

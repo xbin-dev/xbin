@@ -21,6 +21,7 @@ import { docCardTpl } from './doc-card.js'; // a document the agent wrote (D201)
 import { openPublish } from './homes.js'; // one of a person's own conversations: shared by a copy
 import { newChat, openAutos, rev2, compact } from './nav.js';
 import { pickTpl } from './pick.js';
+import { chip as effortChip, DEFAULT as EFFORT_DEFAULT } from '../model/effort.js'; // the reasoning effort beside the model (D249)
 import { hostedNoticeTpl, hostedComposer, hostedButtonsTpl } from './hosted.js'; // a non-secure conversation's warning and lock
 import { steerWords } from '../model/harness-ask.js'; // a coding harness's queued chips
 import { activityStill } from '../model/harness.js'; // …and its activity line
@@ -192,10 +193,11 @@ export function chatScreen(v) {
   return html`<screen title=${t.title} subtitle=${subtitle} style="scroll">
     ${compact() ? html`<toolbar>
       <button icon="pencil" @tap=${newChat}>New chat</button>
-      <menu icon="ellipsis" label="More">${folded([modelPickerTpl(v, true), sandboxPickerTpl(true), ctx.ext.toolbar(v, { fold: true })])}${runMenu(v, t)}</menu>
+      <menu icon="ellipsis" label="More">${folded([modelPickerTpl(v, true), effortPickerTpl(v, true), sandboxPickerTpl(true), ctx.ext.toolbar(v, { fold: true })])}${runMenu(v, t)}</menu>
     </toolbar>` : html`<toolbar>
       <button icon="pencil" @tap=${newChat}>New chat</button>
       ${modelPickerTpl(v)}
+      ${effortPickerTpl(v)}
       ${sandboxPickerTpl()}
       ${ctx.ext.toolbar(v) || nothing}
       <menu icon="ellipsis" label="More">${runMenu(v, t)}</menu>
@@ -274,6 +276,21 @@ export function modelPickerTpl(v, fold = false) {
   if (!p.shown || p.disabled) return nothing;
   return pickTpl({ label: 'Model', icon: 'cpu', fold, value: p.value, options: p.options.map(({ value, label }) => ({ value, label })),
     change: (e) => guard(() => app.pickModel(e.value))() });
+}
+
+// effortPickerTpl: the conversation's reasoning effort (D249, model/effort.js
+// chip) — a picker beside Model: Default (named after the model's own) and
+// the model's own levels, Off first where it can be turned off; none for a
+// model nothing describes or without reasoning. The native vocabulary has
+// no slider: the web's notched track is this menu here.
+export function effortPickerTpl(v, fold = false) {
+  const app = ctx.app;
+  if (!v) return nothing;
+  const c = effortChip(v, { catalog: app.catalog, tileDefault: app.catalog && app.catalog.defaultEffort, talk: app.rules.access(v).talk });
+  if (!c.shown || c.disabled) return nothing;
+  const options = [{ value: EFFORT_DEFAULT, label: c.def }, ...c.notches.map((n) => ({ value: n.value, label: n.label }))];
+  return pickTpl({ label: 'Effort', icon: 'sparkles', fold, value: c.value, options,
+    change: (e) => guard(() => app.pickEffort(e.value))() });
 }
 
 // --- the composer ------------------------------------------------------------------------

@@ -52,8 +52,11 @@ func handleAsk(w http.ResponseWriter, r *http.Request) {
 		Draft string
 		Files []string
 		// Model is the person's pick for this conversation (a model
-		// reference; "" = the agent's default).
-		Model string
+		// reference; "" = the agent's default). Effort is its reasoning
+		// effort (D249: a ladder word, "default"; "" = the class's or the
+		// tile's).
+		Model  string
+		Effort string
 		// Class is the conversation's agent class (D116; GET /classes);
 		// without it the legacy Toolset names a built-in, else the
 		// caller's default.
@@ -71,6 +74,10 @@ func handleAsk(w http.ResponseWriter, r *http.Request) {
 	}
 	if !validPick(body.Model) {
 		xbin.WriteError(w, 400, "model: a model id from GET /models (up to 200 characters)")
+		return
+	}
+	if !validEffort(body.Effort) || (body.Effort != "" && body.Harness != nil) {
+		xbin.WriteError(w, 400, effortWords)
 		return
 	}
 	var cls agentClass
@@ -91,7 +98,7 @@ func handleAsk(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if id := heldDraft(agent.db, callerOf(r), body.Draft); id != 0 || len(body.Files) > 0 {
-			releaseDraft(w, r, id, body.Draft, body.Text, cls, body.Title, body.System, body.Model, body.Files, body.Harness)
+			releaseDraft(w, r, id, body.Draft, body.Text, cls, body.Title, body.System, body.Model, body.Effort, body.Files, body.Harness)
 			return
 		}
 		// nothing was uploaded for it: an ordinary ask
@@ -102,7 +109,7 @@ func handleAsk(w http.ResponseWriter, r *http.Request) {
 	}
 	cfg := parseConfig(agent.db.getSetting("config"))
 	cfg.setClass(cls, body.System != "")
-	cfg.Pick = body.Model
+	cfg.Pick, cfg.Effort = body.Model, body.Effort
 	if body.System != "" {
 		cfg.System = body.System
 	}
@@ -207,7 +214,7 @@ var errDraftGone = errors.New("those attachments are gone (the draft was sent or
 // releaseDraft turns the held run into the new ask: titled from the text (or
 // the files' names), the caller's tool mode and instructions, the first
 // message queued with its files, and driven. id 0: the draft is gone.
-func releaseDraft(w http.ResponseWriter, r *http.Request, id int64, key, text string, cls agentClass, title, system, model string, files []string, harness *harnessReq) {
+func releaseDraft(w http.ResponseWriter, r *http.Request, id int64, key, text string, cls agentClass, title, system, model, effort string, files []string, harness *harnessReq) {
 	if id == 0 {
 		xbin.WriteError(w, 409, errDraftGone.Error())
 		return
@@ -226,7 +233,7 @@ func releaseDraft(w http.ResponseWriter, r *http.Request, id int64, key, text st
 	c := callerOf(r)
 	cfg := parseConfig(agent.db.getSetting("config"))
 	cfg.setClass(cls, system != "")
-	cfg.Pick = model
+	cfg.Pick, cfg.Effort = model, effort
 	if system != "" {
 		cfg.System = system
 	}

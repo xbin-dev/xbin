@@ -116,6 +116,7 @@ type Engine struct {
 	now       func() time.Time
 	onTakeup  func()                                     // called after takeover (tests)
 	readEpoch func(q queryer, key string) (int64, error) // nil = readEpoch (epoch.go)
+	effortFn  func(model string) *effortRec              // nil = the provider's list says (llm_effort.go)
 }
 
 // epochName is the settings key of this engine's epoch.

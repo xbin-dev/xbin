@@ -123,11 +123,17 @@ func (g *gatewayLLM) Chat(ctx context.Context, req LLMRequest, onEvent func(LLME
 		var p llmProvider
 		p, req.Model = resolveModel(ctx, req.Model)
 		base = p.URL
+		req.Via = p.Path + "|" + servedAs(ctx, p.Path, req.Model)
 	} else {
 		_, req.Model = splitModelRef(req.Model)
+		req.Via = "|" + req.Model
+	}
+	if _, refused := noReplay.Load(req.Via); refused {
+		req.NoReplay = true // its provider refused reasoning sent back: not again in this process
 	}
 	if pickWire(req.Wire, req.Model) == "responses" {
 		rep, err := g.call(ctx, base, req, onEvent, responsesCodec{})
+		rep.Via = req.Via
 		if !errors.Is(err, errWireUnsupported) {
 			return rep, err
 		}
@@ -139,7 +145,35 @@ func (g *gatewayLLM) Chat(ctx context.Context, req LLMRequest, onEvent func(LLME
 		responsesFallback[req.Model] = true
 		responsesFallbackMu.Unlock()
 	}
-	return g.call(ctx, base, req, onEvent, chatCodec{})
+	rep, err := g.call(ctx, base, req, onEvent, chatCodec{})
+	if err != nil && !req.NoReplay && plainReplay(req) && replayRefused(err) {
+		// a provider that takes no reasoning back (D249): the call once more without it — only a 400 that
+		// isn't about the context's size, only once; it is remembered only when that call worked
+		again := req
+		again.NoReplay = true
+		rep2, err2 := g.call(ctx, base, again, onEvent, chatCodec{})
+		if err2 == nil {
+			noReplay.Store(req.Via, true)
+			logf("llm: %s refused the reasoning sent back with earlier answers (400); it is not sent to it again until this agent restarts", bareModel(req.Model))
+			rep2.Via, rep2.ReplayRefused = req.Via, true
+			return rep2, nil
+		}
+	}
+	rep.Via = req.Via
+	return rep, err
+}
+
+// servedAs is the model a provider serves for id: an alias's target (the
+// LLM connector's xbin/default, an admin's alias) when its list says, else
+// id — so reasoning goes back only to the model that produced it, even
+// when an alias's target changes under a conversation.
+func servedAs(ctx context.Context, provider, id string) string {
+	for _, m := range modelCatalog(ctx).Models {
+		if m.ID == id && (m.Provider == provider || m.Provider == "") && m.AliasOf != "" {
+			return m.AliasOf
+		}
+	}
+	return id
 }
 
 // call runs one request with retries. Retrying is allowed only while nothing
@@ -257,6 +291,7 @@ func (g *gatewayLLM) attempt(ctx context.Context, base string, req LLMRequest, w
 	for _, f := range llmStatusHooks {
 		f(req, resp.StatusCode, nil)
 	}
+	said := resp.Header.Get("X-XBin-LLM-Effort") // what the LLM connector sent the model (D249)
 	if !req.Stream {
 		raw, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
 		if err != nil {
@@ -266,10 +301,12 @@ func (g *gatewayLLM) attempt(ctx context.Context, base string, req LLMRequest, w
 			return LLMReply{}, true, fmt.Errorf("llm-gw read: %w", causeOf(cctx, err))
 		}
 		rep, err := w.parseBody(raw)
+		rep.Effort = said
 		return rep, false, err
 	}
 	idle.Reset(llmIdleTimeout)
 	rep, err = w.parseStream(&watchedReader{r: resp.Body, idle: idle}, emit)
+	rep.Effort = said
 	if err != nil {
 		if ctx.Err() != nil {
 			return rep, false, ctx.Err()

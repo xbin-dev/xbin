@@ -211,7 +211,9 @@ export function fold(v, childView = () => null, depth = 0, cache = null) {
     }
     // assistant (a harness-internal subagent's text: under its call)
     const under = m.acp && m.acp.parent ? { parent: m.acp.parent } : null;
-    if (m.reasoning) out.push(memo('r' + m.id, [m], () => ({ k: 'think', id: 'r' + m.id, text: m.reasoning, ms: m.reasoningMs || 0, live: false, ...under })));
+    // (with the reasoning tokens its answer's usage reports, when it does: "Thought for 21s · 4.3k tokens", D249)
+    if (m.reasoning) out.push(memo('r' + m.id, [m], () => ({ k: 'think', id: 'r' + m.id, text: m.reasoning, ms: m.reasoningMs || 0, live: false,
+      ...(m.usage && m.usage.reasoning_tokens > 0 ? { tokens: m.usage.reasoning_tokens } : {}), ...under })));
     if (m.content) out.push(memo('m' + m.id, [m], () => ({ k: 'assistant', id: 'm' + m.id, text: m.content, model: m.model, usage: m.usage, ...under })));
     for (const c of m.toolCalls || []) {
       const name = c.function?.name || '';
@@ -391,7 +393,7 @@ function convert(b, scope) {
         files: (b.files || []).map((f) => ({ name: String(f.path).split('/').pop(), path: f.path, mime: f.mime || '', size: null, sizeText: f.size || '' })) });
     // (an engine-written message, an automation's prompt: folded to its heading — the first line without its brackets)
     case 'notice': return block('notice', b.id, { text: b.text, fold: true, title: String(b.text || '').split('\n')[0].replace(/^\[|\]$/g, '').replace(/ — .*$/, '') });
-    case 'think': return block('thought', b.id, { text: b.text, live: !!b.live, ms: b.ms || 0, at: b.started || 0, ...under });
+    case 'think': return block('thought', b.id, { text: b.text, live: !!b.live, ms: b.ms || 0, at: b.started || 0, ...(b.tokens ? { tokens: b.tokens } : {}), ...under });
     case 'assistant': return block('assistant', b.id, { text: b.text, model: b.model || '', usage: b.usage || null, ...under });
     case 'draft': return block('draft', b.id, { text: b.text });
     case 'tool': {

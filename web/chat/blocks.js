@@ -110,6 +110,7 @@ export const TOOL_STATES = Object.freeze(['writing', 'pending', 'running', 'appr
  *   kind: 'thought', text: string,
  *   live: boolean,   // still being thought (a view also asks ChatCtx.running)
  *   ms: number,      // how long it took (0: not known)
+ *   tokens?: number, // the reasoning tokens its answer's usage reports (D249)
  * }} ThoughtBlock
  */
 

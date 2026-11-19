@@ -101,7 +101,7 @@ by the role gate alone; merge the template's update to get them.
 |---|---|---|
 | `GET /conversations?limit=&cursor=&archived=&scope=` | — | your conversations, newest activity first → `{pinned, items, next}`. `pinned` (your pins) comes on the first page only; `next` is the cursor for the page after. `scope=mine` (default: yours, ones you joined, and unowned ones), `shared` (sharing both ways: yours shared with the team or with people, and others' that reach you — team-visible or you were added; each row's `access` tells them apart) or `team` (older: only others' team-shared ones). `archived=1` lists what you archived |
 | `GET /conversations?q=` | — | search titles and everything said, in every conversation you may see (archived and automation runs included), up to 50; content hits carry `match {msgId, snippet}` |
-| `PATCH /runs/{id}` | `{title?, pinned?, archived?, visibility?, teamRole?, model?}` | pin and archive are yours (any viewer); title and visibility are the owner's. Making an unowned run private claims it. `model` switches the conversation's model from its next turn (anyone who may talk in it; `""` = the agent's default) |
+| `PATCH /runs/{id}` | `{title?, pinned?, archived?, visibility?, teamRole?, model?, effort?}` | pin and archive are yours (any viewer); title and visibility are the owner's. Making an unowned run private claims it. `model` switches the conversation's model from its next turn (anyone who may talk in it; `""` = the agent's default); `effort` its reasoning effort, the same way (a ladder word, `"default"` for the model's own, `""` for its class's or the agent's default; 400 otherwise, and for a coding agent's or the workspace agent's conversation — D249) |
 | `POST /runs/{id}/read` | — | mark it read up to now |
 | `GET /needs` | — | what waits for you: conversations where the agent (or a subagent) asks a question or wants an approval — or a coding agent waits for you to sign in (`login`, D147 §4.3.9) — conversations you may talk to whose coding agent's or project's last turn stopped part-way (`unfinished`, D198, §Not finished), automations you own whose last run failed and you haven't looked at, and project tasks you may act in whose pull request passed CI — open, its checks `success`: it waits for you to review and merge it (`review`, §Projects and tasks); a project task's approval is `action` — action required: its turn waits on it, and no one else watches a task (§Coding agents) → `{items:[{run, reason: question\|approval\|action\|login\|unfinished\|failed\|review, subRun, harness?, project?, text?, since?, ws?}]}`; `harness` is the waiting run's compact summary when a coding agent waits (as `/tree` nodes carry it); `text` is what it asks, in words, clipped to 240 characters — the question (a coding agent's form question: its questions, else its message; the built-in agent's `ask_user`: its question), the approval, the sign-in, a task's workspace park — or, for `failed`, what it said; `since` is when it began waiting (unix ms; a park stored before this field: its run's last change; `failed`: when it failed); `ws`, on a task's workspace park (`reason` `project`), is its workspace's state (`signin`, `failed`, `blocked`) (#56) |
 | `POST /runs/{id}/unfinished/dismiss` | — | take the conversation's "not finished" mark down — for everyone, as an answered question is (anyone who may talk to it; D198) → `{ok}` |
@@ -740,7 +740,7 @@ background tab doesn't keep a partition running.
 |---|---|---|
 | `GET /runs` | — | list runs (id, title, kind, status, timestamps; a quick ask also carries `last`, its latest answer, for the home view's cards). `?roots=1` lists top-level runs only — what the sidebar shows; subagents are reached through their parent |
 | `POST /runs` | `{goal, title?, system?, class?, toolset?}` | create a run and start driving it; `class` (or the legacy `toolset`): see **Agent classes** |
-| `POST /ask` | `{text, class?, toolset?, model?, hold?, draft?, files?, share?}` | a quick ask: a run titled from `text`, `kind:"quick"`, driven immediately (`hold`, `draft`: see Attachments; `class`: see **Agent classes**; `share` — `{visibility: "team", teamRole}` and/or `{members: [{user, role}]}` — shares it at once, as the sharing routes below would right after; not with `draft`) |
+| `POST /ask` | `{text, class?, toolset?, model?, effort?, hold?, draft?, files?, share?}` | a quick ask: a run titled from `text`, `kind:"quick"`, driven immediately (`hold`, `draft`: see Attachments; `class`: see **Agent classes**; `effort`: its reasoning effort, §Reasoning effort under **Config, models, features**; `share` — `{visibility: "team", teamRole}` and/or `{members: [{user, role}]}` — shares it at once, as the sharing routes below would right after; not with `draft`) |
 | `PUT /ask/upload?draft=&name=` | raw bytes, the file's own `Content-Type` | attach a file to a new ask before it exists (a native app's upload at home): into the run held for the draft key `{path, mime, bytes, binary, run}` — see Attachments |
 | `GET /runs/{id}` | — | run detail: `{run, messages, steps, memory, config, class, files, draft, messageFiles, slots, queued}` (`class`: the conversation's class, see **Agent classes**) (`draft` = live streaming text; `files` is session-file METADATA only; `messageFiles` = `{msgId: [path…]}`, the files each user message carried; `slots` = `{active, limit}` model calls in flight; `queued` = messages not yet delivered) |
 | `GET /runs/{id}/view` | — | the run as the chat draws it, plus a stream cursor — see **The live view**. `?limit=&before=` pages it, newest first — see **Paging the view** |
@@ -973,7 +973,7 @@ The Features menu can still switch an optional toolset off, and a run's
 `deny` list still hides tools.
 
 A class is `{id, name, description?, icon?, toolsets, mcp, managers,
-sandboxEgress?, harnesses?, model?, system?, who?}`: `mcp` and `managers` are
+sandboxEgress?, harnesses?, model?, effort?, system?, who?}`: `mcp` and `managers` are
 `"all"` or a list (MCP server names; sandbox-manager tile paths);
 `harnesses` is `"all"` or a list of coding-agent ids (`GET /harnesses`;
 `[]` in a class without the `harness` toolset, `"all"` when a class with it
@@ -982,7 +982,9 @@ toolset has);
 `sandboxEgress` is the
 egress a bound sandbox may have (`none`, `internet`, `open`; `["none"]` when a
 sandbox class names none); `model` is the class's model when the person picked
-none; `system` is added to the agent's prompt when the conversation has no
+none, and `effort` its reasoning effort when the person picked none (a ladder
+word or `"default"`, the model's own; absent: the tile's `reasoningEffort`;
+D249); `system` is added to the agent's prompt when the conversation has no
 system prompt of its own; `who` is `everyone` (default) or `managers` (only
 the tile's managers may start conversations or automations in it). Built in:
 
@@ -1082,7 +1084,10 @@ interface bound (`bx bind <this component> net=internet`); unbound, they return
   "maxTurnSteps": 96,          // model calls in one turn before it stops as incomplete
   "toolTimeout": 120,          // seconds per tool call
   "wire": "auto",              // "auto" | "chat" | "responses" (below)
-  "reasoningEffort": "",       // passed to reasoning models ("" = provider default)
+  "reasoningEffort": "",       // the default reasoning effort of new conversations ("" = the
+                               //   model's own); a word of the ladder (below, D249)
+  "effort": "",                // a conversation's own effort (composer, PATCH/ask {effort}):
+                               //   over its class's and reasoningEffort; not a default
   "subagents": true,
   "approve": false,            // gate side-effecting tools on human approval
   "features": { "recall": true, "skills": true, "streaming": true,
@@ -1111,10 +1116,17 @@ defaults: `PUT /config` drops them, as it drops `sandbox` and `attached`.
 - `GET /features` → `{keys, features}` — the toggleable capabilities and their
   current state (the tile's Features menu). Toggle by `PUT /config` with a
   `features` map.
-- `GET /models` → `{data: [{id, provider, ref, owned_by?, alias_of?}],
-  providers: [{path, ok, legacy?, error?}], error?}` — every bound provider's
+- `GET /models` → `{data: [{id, provider, ref, owned_by?, alias_of?,
+  contextWindow?, effort?}], providers: [{path, ok, legacy?, error?}],
+  defaultModel?, defaultEffort?, error?}` — every bound provider's
   models (for the composer's picker and the tier dropdowns; anyone who can
-  use the tile). `ref` is what a tier, `pick` or `{model}` stores.
+  use the tile). `ref` is what a tier, `pick` or `{model}` stores. `effort`
+  is what the provider's list says of the model's reasoning (the LLM
+  connector's record, D249: `{supported_levels, default_level?,
+  can_disable?, thinks_by_default?, replay?, source?, partial?}`; absent:
+  nothing says); `defaultModel` and `defaultEffort` are what a new
+  conversation runs on and asks for (the general tier's model, the
+  `reasoningEffort` default) — what the composer's effort chip reads.
 - `GET /tools` → `{default, classes: [{id, name, tools: [{name, source,
   call?, server?}], mcp: [server names], note?}], mcp: [{name, via, slot?,
   tile?, instance?, personal?, global?, url?, state?, probed, reachable,
@@ -1159,6 +1171,29 @@ isn't vision-capable); compaction and the summarizer use `memory`. The chat's
 composer picks a conversation's model (grouped by provider when several are
 bound); the last pick is the person's default for new chats (`/api/xbin/prefs/model`).
 
+**Reasoning effort (D249).** How hard a model thinks is one word of OpenAI's
+ladder — `none · minimal · low · medium · high · xhigh · max` — or
+`"default"`, the model's own (nothing is sent). A turn asks for the
+conversation's `effort` (the composer's chip beside the model, `PATCH
+/runs/{id} {effort}`, `POST /ask {effort}`; read every turn, applied from the
+next one), else its class's `effort` (**Agent classes**), else the tile's
+`reasoningEffort` (the ⚙ Config tab's select), copied into each run at its
+start. Subagents inherit their parent's. A person's last choice is not
+carried into new chats. The level is sent only to a model that reasons: what
+the model's `effort` on `GET /models` says — a model whose record says it
+has no reasoning gets none; a model nothing describes gets it as before
+(`reasoning_effort` when set on Chat Completions; on Responses with OpenAI's
+`gpt-5*`/`o*` names or a set level). The LLM connector maps it onto the
+model's own levels and says what it sent (`X-XBin-LLM-Effort`); when a
+conversation's model changes and its level becomes another there, the
+transcript gets one line — `model → kimi-k3 · effort Max → High (its
+highest at or below)`. Compaction, titles and the judge send none. The
+workspace agent's conversations send none (no control of their own yet).
+The chip offers only the model's levels — Off first where it can be turned
+off, Off | On for a model that is only on or off, "Default · High" naming
+the model's own — and is hidden for a model with no record or no
+reasoning; the app shows the same as an Effort picker beside Model.
+
 **Wires and thinking.** Two model APIs, both through the bound provider: Chat Completions
 (`/v1/chat/completions`) and the Responses API (`/v1/responses`), which OpenAI's
 gpt-5 and o-series models need to show their reasoning. `wire: "auto"` picks
@@ -1169,8 +1204,21 @@ does not have `/v1/responses`. Reasoning streams as thinking from either:
 `<think>…</think>` on Chat Completions; reasoning summaries on Responses
 (requested with `reasoning.summary:"auto"`, `store:false`, and encrypted
 reasoning items kept for replay). It is stored on the assistant message
-(`messages.meta`: `reasoning`, `reasoningMs`, model, usage) and replayed to the
-model only on the same wire and model. A stream that goes 90 s without a byte
+(`messages.meta`: `reasoning`, `reasoningMs`, model, usage, and — D249 — where
+its plain reasoning came, `replayField`, and the provider and model that
+produced it, `via`) and **sent back to that model on later turns**, every
+turn, with tools or without, in the field it came in: `reasoning_content`,
+`reasoning` (vLLM's name), a leading `<think>…</think>` as it came in the
+content, OpenRouter's `reasoning_details`, Responses' reasoning items —
+DeepSeek's API refuses (400) a tool call's follow-up without it, and Kimi,
+GLM and MiniMax ask for it too. Only ever to the same wire, provider and
+model (an alias's target): never across a model switch, never to the same
+model id on another provider; a message compacted away takes its reasoning
+with it. It is input: the provider counts it in the prompt tokens that
+trigger compaction. A provider that refuses the field (a 400 not about the
+context's size) gets the call once more without it; that one is then not
+sent reasoning again until the agent restarts, and the conversation says so
+in a line. A model whose record says `"replay": "never"` is sent none. A stream that goes 90 s without a byte
 before the model starts answering is abandoned, and once it has, one that goes
 5 minutes without a byte: some upstreams send a tool call whole when it is
 done, so a large one (a file written in one call) is minutes of silence

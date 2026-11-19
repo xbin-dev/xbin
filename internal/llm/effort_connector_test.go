@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 	"testing"
 
@@ -397,5 +398,35 @@ func TestTranslationReplayRefusedOnce(t *testing.T) {
 	r.do(pOwner, "POST", "/llm/v1/responses", map[string]any{"model": "house/m", "input": "x"})
 	if up.calls()-n != 1 {
 		t.Errorf("a refusal of a request without replay was retried: %d calls", up.calls()-n)
+	}
+}
+
+// covers D249 (compat) — an older agent template on this xbind: its own
+// recorded request (the template's golden file, request/chat: kimi-k3, a
+// reasoning_effort, OpenRouter's reasoning_details sent back) goes to a
+// model nobody describes as it came, and to a described one with only its
+// effort mapped.
+func TestAnOlderTemplatesRequest(t *testing.T) {
+	raw, err := os.ReadFile("../../builtin-templates/agent/_backend/testdata/llm_wire_golden.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var golden map[string]json.RawMessage
+	_ = json.Unmarshal(raw, &golden)
+	var body string
+	if err := json.Unmarshal(golden["request/chat"], &body); err != nil || !strings.Contains(body, `"reasoning_effort":"high"`) {
+		t.Fatalf("request/chat: %v %s", err, body)
+	}
+	r := newRig(t, "")
+	up := newUpstream(t)
+	up.setModels(map[string]any{"id": "kimi-k3"}, map[string]any{"id": "llama"})
+	r.addUpstream("house", up, nil)
+	for model, want := range map[string]string{"house/llama": "", "house/kimi-k3": "high"} {
+		b := strings.Replace(body, `"model":"kimi-k3"`, `"model":"`+model+`"`, 1)
+		a := r.must(200, pOwner, "POST", "/llm/v1/chat/completions", json.RawMessage(b))
+		wantBody, _, _ := sdkllm.RewriteRequest([]byte(b), strings.TrimPrefix(model, "house/"), true)
+		if got := up.lastRaw(); !bytes.Equal(got, wantBody) || a.h.Get(EffortHeader) != want {
+			t.Errorf("%s: header %q (want %q)\n got %s\nwant %s", model, a.h.Get(EffortHeader), want, got, wantBody)
+		}
 	}
 }
