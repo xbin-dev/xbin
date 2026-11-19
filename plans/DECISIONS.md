@@ -6195,3 +6195,62 @@ here: cut from the old end, never reword.
     (mocks in the change's screenshots). Also not chosen: a `Tile ▸`
     submenu for the tile's own lines — they are the frequent ones and
     must stay one click away.
+- **D249 — Reasoning effort is one word of OpenAI's ladder, mapped by the
+  connector onto each model's own levels; a model's reasoning goes back to
+  it by default (2026-11-20; `plans/llm/reasoning-effort.md`, stages 0 and
+  1).** The owner wanted a control for how hard the model thinks
+  (DeepSeek-V4.1-Flash behind his gateway) and accepted the design's
+  recommendations, with one change of his own: "Ship the levels, thinking
+  replay - at this stage it's industry standard to keep thinking blocks in
+  context pretty much always".
+  - **A named level, not a number.** `none · minimal · low · medium · high
+    · xhigh · max`, or "default" (nothing sent). Every caller of the
+    connector already speaks it; only one model family has a numeric knob,
+    and only self-hosted. A number (DeepSeek's 1–100 through
+    `chat_template_kwargs`) is a later, model-local refinement; the
+    connector passes `chat_template_kwargs` untouched.
+  - **The connector maps, the agent sends the intent.** A capability record
+    per upstream + model — an admin's or the host's entry (keyed like
+    `prices`, the whole truth), else the upstream's own `/models` (untrusted:
+    ladder words, booleans, a bounded alias map; a list's silence says
+    nothing — a real router left `reasoning_effort` out of a model that
+    takes it), else a vendored table written from the providers' pages
+    (a family whose page doesn't state its levels — OpenAI's — is left
+    out). Rules: exact → the provider's alias → the highest level at or
+    below → the lowest; `none` off only where it can be; a non-ladder word
+    untouched; a model with no reasoning gets none (named). An undescribed
+    model's request is byte for byte today's. `X-XBin-LLM-Effort` says what
+    was sent. Capability is a property of upstream + model: the owner's
+    router serves `glm-5.2` with none · medium · high · xhigh where GLM's API
+    takes all; that is an admin's entry, never the table's.
+  - **Replay by default, to its source only.** A model's reasoning — plain
+    (`reasoning_content`, `reasoning`, a `<think>` block) or opaque — goes
+    back on every later turn, with or without tools, for every model that
+    returned any: no per-model opt-in (the design had gated it on a
+    `replay: {when: tools}` record; the owner's call). Only ever to the
+    same provider, model (an alias's target) and wire: never across a model
+    switch, never to the same model id on another upstream. The
+    translation tags the reasoning items it makes with the upstream and
+    model (`rs_<tag>_…`) for the same reason, and names every other item it
+    drops (D244's rule). It is input: counted in the provider's prompt
+    tokens, which compaction reads. A compacted message takes its reasoning
+    with it.
+  - **Recovering from a strict endpoint.** An upstream that 400s on the
+    field (a 400 not about the context's size) gets the call once more
+    without it. The agent remembers that for the provider's model for the
+    process, only when the retry worked, and says so in the conversation;
+    the connector's translation never remembers — a refusal is something a
+    caller can provoke (D244). `"replay": "never"` on a record is the
+    admin's lasting switch.
+  - **The control:** a chip beside the model, a notched track over the
+    model's own levels (Off where it can be off; Off | On), "Default ·
+    High" sending nothing, hidden for a model nobody describes; a picker in
+    the app (its vocabulary has no slider). Not remembered for new chats (a
+    forgotten Max is the cost surprise others' users complain of). The
+    level is kept on a model switch and the transcript says what it became.
+  - **The admin's edit** ticks the levels a model takes (presets pre-tick)
+    — no JSON, no request patches: those (`send`), budgets and scales are
+    read and kept but not acted on; a record that needs them is unknown.
+  - **Not done (later stages):** a per-upstream ceiling, the workspace
+    agent's control, harness configs (Codex's catalog, OpenCode's variants),
+    request patches, numeric values.
