@@ -280,6 +280,16 @@ public struct AdminChangeSet: Sendable, Equatable, Identifiable {
         public var waitTile: String
         public var waitService: String
         public var waitHeld: String
+        /// What an applied builtin.update line made (D248): xbind's out.
+        public struct BuiltinOut: Sendable, Equatable {
+            /// updated | installed | proposed
+            public var update: String
+            public var files: Int
+            public var tile: String
+            /// the change proposal's number on `tile`, when it was filed as one
+            public var proposal: Int
+        }
+        public var builtinOut: BuiltinOut?
 
         public var id: Int { n }
 
@@ -306,6 +316,10 @@ public struct AdminChangeSet: Sendable, Equatable, Identifiable {
             waitTile = json["wait"]?["tile"]?.stringValue ?? ""
             waitService = json["wait"]?["service"]?.stringValue ?? ""
             waitHeld = json["wait"]?["held"]?.stringValue ?? ""
+            if let o = json["out"], o.objectValue != nil, kind == "builtin.update" {
+                builtinOut = BuiltinOut(update: o["update"]?.stringValue ?? "", files: Int(o["files"]?.intValue ?? 0),
+                                        tile: o["tile"]?.stringValue ?? "", proposal: Int(o["proposal"]?.intValue ?? 0))
+            }
         }
     }
 

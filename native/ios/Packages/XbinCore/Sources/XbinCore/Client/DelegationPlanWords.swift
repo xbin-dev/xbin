@@ -12,11 +12,11 @@ import Foundation
 /// ticked — an older app shows such a line and leaves it to the web.
 public enum PlanWords {
     /// The kinds this app knows how to show.
-    public static let kinds = ["grant.add", "grant.revoke", "binding.set", "binding.remove", "org.share", "limits.set", "tile.create", "agent.start", "access.set"]
+    public static let kinds = ["grant.add", "grant.revoke", "binding.set", "binding.remove", "org.share", "limits.set", "tile.create", "agent.start", "access.set", "builtin.update"]
     /// The kinds newer than the eight every app knows: an apply names the
     /// ones it shows for what they are (`knows`), and xbind applies a line
     /// of such a kind only then (D246).
-    public static let newerKinds = ["access.set"]
+    public static let newerKinds = ["access.set", "builtin.update"]
     public static func knownKind(_ kind: String) -> Bool { kinds.contains(kind) }
 
     /// What stands between a line and its tick.

@@ -16877,6 +16877,1113 @@
   },
   {
    "json": {
+    "id": "pl_builtin",
+    "user": "ana",
+    "agent": "xbin/wsagent",
+    "plan": true,
+    "session": "h1",
+    "title": "Keep the builtins current",
+    "state": "proposed",
+    "created": "2026-11-16T09:40:00Z",
+    "expires": "2026-11-23T09:00:00Z",
+    "items": [
+     {
+      "n": 1,
+      "kind": "builtin.update",
+      "args": {
+       "id": "tile:gw"
+      },
+      "line": "Update the builtin tile gw (apps/gw) from v1 to v2: 1 file change — no file here was edited",
+      "admin": true,
+      "before": {
+       "version": 1
+      },
+      "after": {
+       "version": 2
+      },
+      "beforeText": "v1",
+      "afterText": "v2",
+      "effects": [
+       "files written or removed in apps/gw: index.html",
+       "apps/gw's backend rebuilds and restarts"
+      ]
+     },
+     {
+      "n": 2,
+      "kind": "builtin.update",
+      "args": {
+       "id": "scaffold:tiles/apidocs"
+      },
+      "line": "Update the workspace's own page tiles/apidocs to this xbin's copy: 2 files change — conflicts with your changes: filed as a proposal for review instead",
+      "admin": true,
+      "before": {
+       "version": 1
+      },
+      "after": {
+       "version": 1,
+       "proposal": true
+      },
+      "beforeText": "this workspace's copy",
+      "afterText": "unchanged until the proposal is merged",
+      "warnings": [
+       "SCAFFOLD: tiles/apidocs is part of this workspace's own chrome — the shell, a console or a page everyone has: updating it changes what everyone here sees"
+      ]
+     },
+     {
+      "n": 3,
+      "kind": "builtin.update",
+      "args": {
+       "id": "scaffold:shell"
+      },
+      "line": "Update the workspace's own shell to this xbin's copy: 1 file change — your local changes are kept",
+      "admin": true,
+      "needsAdmin": true
+     },
+     {
+      "n": 4,
+      "kind": "builtin.update",
+      "args": {
+       "id": "tile:pinned"
+      },
+      "line": "Update the builtin tile pinned (apps/pinned) from v1 to v2",
+      "admin": true,
+      "blocked": "it is pinned: an admin chose to skip its updates — unpin it first (the Tile Manager's updates tab, or bx builtin unpin)"
+     }
+    ]
+   },
+   "need": {
+    "title": "A plan of 4 changes",
+    "note": "1 has a warning · 1 can't be applied · 1 needs an admin"
+   },
+   "askedWords": "1 line needs an admin and was not applied.",
+   "waitingWords": "",
+   "items": [
+    {
+     "tag": "update",
+     "known": true,
+     "result": {
+      "word": "",
+      "icon": "",
+      "tone": "",
+      "text": ""
+     },
+     "before": "v1",
+     "after": "v2",
+     "neededBy": [],
+     "start": null
+    },
+    {
+     "tag": "update",
+     "known": true,
+     "result": {
+      "word": "",
+      "icon": "",
+      "tone": "",
+      "text": ""
+     },
+     "before": "this workspace's copy",
+     "after": "unchanged until the proposal is merged",
+     "neededBy": [],
+     "start": null
+    },
+    {
+     "tag": "update",
+     "known": true,
+     "result": {
+      "word": "needs an admin",
+      "icon": "lock",
+      "tone": "",
+      "text": ""
+     },
+     "before": null,
+     "after": null,
+     "neededBy": [],
+     "start": null
+    },
+    {
+     "tag": "update",
+     "known": true,
+     "result": {
+      "word": "",
+      "icon": "",
+      "tone": "",
+      "text": ""
+     },
+     "before": null,
+     "after": null,
+     "neededBy": [],
+     "start": null
+    }
+   ],
+   "ticks": [],
+   "words": {
+    "bar": "xbin · plan",
+    "heading": "Your agent proposes 4 changes",
+    "intro": "Each line, its before and after and its warnings are written by xbin from the change itself. Nothing has been applied.",
+    "footer": "0 of 4 ticked · applied in order as you. If one fails, later ones are skipped and earlier ones stay.",
+    "apply": "Apply none",
+    "reject": "Reject all",
+    "ask": {
+     "text": "1 line needs an admin.",
+     "button": "Ask an admin",
+     "can": true,
+     "why": "The workspace’s admins get it as a request from you, in xbin’s words. They apply it with their own rights; you can apply the rest now."
+    },
+    "byHand": []
+   },
+   "none": "Apply none",
+   "lines": [
+    {
+     "state": "ok",
+     "can": true,
+     "alone": true,
+     "notes": {
+      "tag": "admin",
+      "needs": "",
+      "neededBy": "",
+      "why": "An admin change — applied as you."
+     },
+     "off": [],
+     "on": [
+      1
+     ]
+    },
+    {
+     "state": "ok",
+     "can": true,
+     "alone": true,
+     "notes": {
+      "tag": "admin",
+      "needs": "",
+      "neededBy": "",
+      "why": "An admin change — applied as you."
+     },
+     "off": [],
+     "on": [
+      2
+     ]
+    },
+    {
+     "state": "needs-admin",
+     "can": false,
+     "alone": false,
+     "notes": {
+      "tag": "needs an admin",
+      "needs": "",
+      "neededBy": "",
+      "why": "Not yours to apply: it takes an admin’s rights. xbin shows what it would change to an admin."
+     },
+     "off": [],
+     "on": [
+      3
+     ]
+    },
+    {
+     "state": "blocked",
+     "can": false,
+     "alone": false,
+     "notes": {
+      "tag": "admin",
+      "needs": "",
+      "neededBy": "",
+      "why": ""
+     },
+     "off": [],
+     "on": [
+      4
+     ]
+    }
+   ],
+   "kept": [
+    [
+     1,
+     2
+    ],
+    [],
+    [
+     1,
+     2
+    ],
+    []
+   ],
+   "closes": [
+    {
+     "json": {
+      "id": "pl_builtin",
+      "user": "ana",
+      "agent": "xbin/wsagent",
+      "plan": true,
+      "session": "h1",
+      "title": "Keep the builtins current",
+      "state": "applied",
+      "created": "2026-11-16T09:40:00Z",
+      "expires": "2026-11-23T09:00:00Z",
+      "items": [
+       {
+        "n": 1,
+        "kind": "builtin.update",
+        "args": {
+         "id": "tile:gw"
+        },
+        "line": "Update the builtin tile gw (apps/gw) from v1 to v2: 1 file change — no file here was edited",
+        "admin": true,
+        "before": {
+         "version": 1
+        },
+        "after": {
+         "version": 2
+        },
+        "beforeText": "v1",
+        "afterText": "v2",
+        "effects": [
+         "files written or removed in apps/gw: index.html",
+         "apps/gw's backend rebuilds and restarts"
+        ],
+        "result": "rejected"
+       },
+       {
+        "n": 2,
+        "kind": "builtin.update",
+        "args": {
+         "id": "scaffold:tiles/apidocs"
+        },
+        "line": "Update the workspace's own page tiles/apidocs to this xbin's copy: 2 files change — conflicts with your changes: filed as a proposal for review instead",
+        "admin": true,
+        "before": {
+         "version": 1
+        },
+        "after": {
+         "version": 1,
+         "proposal": true
+        },
+        "beforeText": "this workspace's copy",
+        "afterText": "unchanged until the proposal is merged",
+        "warnings": [
+         "SCAFFOLD: tiles/apidocs is part of this workspace's own chrome — the shell, a console or a page everyone has: updating it changes what everyone here sees"
+        ],
+        "result": "rejected"
+       },
+       {
+        "n": 3,
+        "kind": "builtin.update",
+        "args": {
+         "id": "scaffold:shell"
+        },
+        "line": "Update the workspace's own shell to this xbin's copy: 1 file change — your local changes are kept",
+        "admin": true,
+        "needsAdmin": true
+       },
+       {
+        "n": 4,
+        "kind": "builtin.update",
+        "args": {
+         "id": "tile:pinned"
+        },
+        "line": "Update the builtin tile pinned (apps/pinned) from v1 to v2",
+        "admin": true,
+        "blocked": "it is pinned: an admin chose to skip its updates — unpin it first (the Tile Manager's updates tab, or bx builtin unpin)",
+        "result": "rejected"
+       }
+      ]
+     },
+     "chosen": [],
+     "want": false
+    },
+    {
+     "json": {
+      "id": "pl_builtin",
+      "user": "ana",
+      "agent": "xbin/wsagent",
+      "plan": true,
+      "session": "h1",
+      "title": "Keep the builtins current",
+      "state": "applied",
+      "created": "2026-11-16T09:40:00Z",
+      "expires": "2026-11-23T09:00:00Z",
+      "items": [
+       {
+        "n": 1,
+        "kind": "builtin.update",
+        "args": {
+         "id": "tile:gw"
+        },
+        "line": "Update the builtin tile gw (apps/gw) from v1 to v2: 1 file change — no file here was edited",
+        "admin": true,
+        "before": {
+         "version": 1
+        },
+        "after": {
+         "version": 2
+        },
+        "beforeText": "v1",
+        "afterText": "v2",
+        "effects": [
+         "files written or removed in apps/gw: index.html",
+         "apps/gw's backend rebuilds and restarts"
+        ],
+        "result": "applied"
+       },
+       {
+        "n": 2,
+        "kind": "builtin.update",
+        "args": {
+         "id": "scaffold:tiles/apidocs"
+        },
+        "line": "Update the workspace's own page tiles/apidocs to this xbin's copy: 2 files change — conflicts with your changes: filed as a proposal for review instead",
+        "admin": true,
+        "before": {
+         "version": 1
+        },
+        "after": {
+         "version": 1,
+         "proposal": true
+        },
+        "beforeText": "this workspace's copy",
+        "afterText": "unchanged until the proposal is merged",
+        "warnings": [
+         "SCAFFOLD: tiles/apidocs is part of this workspace's own chrome — the shell, a console or a page everyone has: updating it changes what everyone here sees"
+        ],
+        "result": "applied"
+       },
+       {
+        "n": 3,
+        "kind": "builtin.update",
+        "args": {
+         "id": "scaffold:shell"
+        },
+        "line": "Update the workspace's own shell to this xbin's copy: 1 file change — your local changes are kept",
+        "admin": true,
+        "needsAdmin": true
+       },
+       {
+        "n": 4,
+        "kind": "builtin.update",
+        "args": {
+         "id": "tile:pinned"
+        },
+        "line": "Update the builtin tile pinned (apps/pinned) from v1 to v2",
+        "admin": true,
+        "blocked": "it is pinned: an admin chose to skip its updates — unpin it first (the Tile Manager's updates tab, or bx builtin unpin)",
+        "result": "rejected"
+       }
+      ]
+     },
+     "chosen": [
+      1,
+      2
+     ],
+     "want": false
+    },
+    {
+     "json": {
+      "id": "pl_builtin",
+      "user": "ana",
+      "agent": "xbin/wsagent",
+      "plan": true,
+      "session": "h1",
+      "title": "Keep the builtins current",
+      "state": "partial",
+      "created": "2026-11-16T09:40:00Z",
+      "expires": "2026-11-23T09:00:00Z",
+      "items": [
+       {
+        "n": 1,
+        "kind": "builtin.update",
+        "args": {
+         "id": "tile:gw"
+        },
+        "line": "Update the builtin tile gw (apps/gw) from v1 to v2: 1 file change — no file here was edited",
+        "admin": true,
+        "before": {
+         "version": 1
+        },
+        "after": {
+         "version": 2
+        },
+        "beforeText": "v1",
+        "afterText": "v2",
+        "effects": [
+         "files written or removed in apps/gw: index.html",
+         "apps/gw's backend rebuilds and restarts"
+        ],
+        "result": "failed"
+       },
+       {
+        "n": 2,
+        "kind": "builtin.update",
+        "args": {
+         "id": "scaffold:tiles/apidocs"
+        },
+        "line": "Update the workspace's own page tiles/apidocs to this xbin's copy: 2 files change — conflicts with your changes: filed as a proposal for review instead",
+        "admin": true,
+        "before": {
+         "version": 1
+        },
+        "after": {
+         "version": 1,
+         "proposal": true
+        },
+        "beforeText": "this workspace's copy",
+        "afterText": "unchanged until the proposal is merged",
+        "warnings": [
+         "SCAFFOLD: tiles/apidocs is part of this workspace's own chrome — the shell, a console or a page everyone has: updating it changes what everyone here sees"
+        ],
+        "result": "skipped"
+       },
+       {
+        "n": 3,
+        "kind": "builtin.update",
+        "args": {
+         "id": "scaffold:shell"
+        },
+        "line": "Update the workspace's own shell to this xbin's copy: 1 file change — your local changes are kept",
+        "admin": true,
+        "needsAdmin": true
+       },
+       {
+        "n": 4,
+        "kind": "builtin.update",
+        "args": {
+         "id": "tile:pinned"
+        },
+        "line": "Update the builtin tile pinned (apps/pinned) from v1 to v2",
+        "admin": true,
+        "blocked": "it is pinned: an admin chose to skip its updates — unpin it first (the Tile Manager's updates tab, or bx builtin unpin)",
+        "result": "rejected"
+       }
+      ]
+     },
+     "chosen": [
+      1,
+      2
+     ],
+     "want": false
+    },
+    {
+     "json": {
+      "id": "pl_builtin",
+      "user": "ana",
+      "agent": "xbin/wsagent",
+      "plan": true,
+      "session": "h1",
+      "title": "Keep the builtins current",
+      "state": "applied",
+      "created": "2026-11-16T09:40:00Z",
+      "expires": "2026-11-23T09:00:00Z",
+      "items": [
+       {
+        "n": 1,
+        "kind": "builtin.update",
+        "args": {
+         "id": "tile:gw"
+        },
+        "line": "Update the builtin tile gw (apps/gw) from v1 to v2: 1 file change — no file here was edited",
+        "admin": true,
+        "before": {
+         "version": 1
+        },
+        "after": {
+         "version": 2
+        },
+        "beforeText": "v1",
+        "afterText": "v2",
+        "effects": [
+         "files written or removed in apps/gw: index.html",
+         "apps/gw's backend rebuilds and restarts"
+        ],
+        "result": "rejected"
+       },
+       {
+        "n": 2,
+        "kind": "builtin.update",
+        "args": {
+         "id": "scaffold:tiles/apidocs"
+        },
+        "line": "Update the workspace's own page tiles/apidocs to this xbin's copy: 2 files change — conflicts with your changes: filed as a proposal for review instead",
+        "admin": true,
+        "before": {
+         "version": 1
+        },
+        "after": {
+         "version": 1,
+         "proposal": true
+        },
+        "beforeText": "this workspace's copy",
+        "afterText": "unchanged until the proposal is merged",
+        "warnings": [
+         "SCAFFOLD: tiles/apidocs is part of this workspace's own chrome — the shell, a console or a page everyone has: updating it changes what everyone here sees"
+        ],
+        "result": "rejected"
+       },
+       {
+        "n": 3,
+        "kind": "builtin.update",
+        "args": {
+         "id": "scaffold:shell"
+        },
+        "line": "Update the workspace's own shell to this xbin's copy: 1 file change — your local changes are kept",
+        "admin": true,
+        "needsAdmin": true
+       },
+       {
+        "n": 4,
+        "kind": "builtin.update",
+        "args": {
+         "id": "tile:pinned"
+        },
+        "line": "Update the builtin tile pinned (apps/pinned) from v1 to v2",
+        "admin": true,
+        "blocked": "it is pinned: an admin chose to skip its updates — unpin it first (the Tile Manager's updates tab, or bx builtin unpin)",
+        "result": "rejected"
+       }
+      ]
+     },
+     "chosen": [],
+     "want": false
+    }
+   ]
+  },
+  {
+   "json": {
+    "id": "pl_builtin_done",
+    "user": "ana",
+    "agent": "xbin/wsagent",
+    "plan": true,
+    "session": "h1",
+    "title": "Keep the builtins current",
+    "state": "applied",
+    "created": "2026-11-16T09:40:00Z",
+    "decided": "2026-11-16T09:45:00Z",
+    "expires": "2026-11-23T09:00:00Z",
+    "items": [
+     {
+      "n": 1,
+      "kind": "builtin.update",
+      "args": {
+       "id": "tile:gw"
+      },
+      "line": "Update the builtin tile gw (apps/gw) from v1 to v2: 1 file change — no file here was edited",
+      "admin": true,
+      "result": "applied",
+      "out": {
+       "update": "updated",
+       "files": 1,
+       "tile": "apps/gw"
+      }
+     },
+     {
+      "n": 2,
+      "kind": "builtin.update",
+      "args": {
+       "id": "scaffold:tiles/apidocs"
+      },
+      "line": "Update the workspace's own page tiles/apidocs to this xbin's copy: 2 files change — conflicts with your changes: filed as a proposal for review instead",
+      "admin": true,
+      "result": "applied",
+      "out": {
+       "update": "proposed",
+       "files": 2,
+       "tile": "tiles/apidocs",
+       "proposal": 3
+      }
+     },
+     {
+      "n": 3,
+      "kind": "builtin.update",
+      "args": {
+       "id": "scaffold:tiles/organisations"
+      },
+      "line": "Install the workspace's own page tiles/organisations, which this workspace predates: 1 file",
+      "admin": true,
+      "result": "applied",
+      "out": {
+       "update": "installed",
+       "files": 1,
+       "tile": "tiles/organisations"
+      }
+     },
+     {
+      "n": 4,
+      "kind": "builtin.update",
+      "args": {
+       "id": "tile:odd"
+      },
+      "line": "Update the builtin tile odd (apps/odd) from v1 to v2",
+      "admin": true,
+      "result": "applied",
+      "out": {
+       "update": "something-newer",
+       "files": 1,
+       "tile": "apps/odd"
+      }
+     }
+    ]
+   },
+   "need": {
+    "title": "A plan of 4 changes",
+    "note": ""
+   },
+   "askedWords": "",
+   "waitingWords": "",
+   "items": [
+    {
+     "tag": "update",
+     "known": true,
+     "result": {
+      "word": "applied",
+      "icon": "ok",
+      "tone": "ok",
+      "text": "Updated apps/gw: 1 file, keeping its own changes."
+     },
+     "before": null,
+     "after": null,
+     "neededBy": [],
+     "start": null
+    },
+    {
+     "tag": "update",
+     "known": true,
+     "result": {
+      "word": "applied",
+      "icon": "ok",
+      "tone": "ok",
+      "text": "It conflicts with changes made in tiles/apidocs, so xbin filed it there as change proposal #3 instead: nothing in the tile changed. Its tile agent (or a terminal there) merges it — your agent can start one with xbin's brief."
+     },
+     "before": null,
+     "after": null,
+     "neededBy": [],
+     "start": null
+    },
+    {
+     "tag": "update",
+     "known": true,
+     "result": {
+      "word": "applied",
+      "icon": "ok",
+      "tone": "ok",
+      "text": "Installed in tiles/organisations: 1 file."
+     },
+     "before": null,
+     "after": null,
+     "neededBy": [],
+     "start": null
+    },
+    {
+     "tag": "update",
+     "known": true,
+     "result": {
+      "word": "applied",
+      "icon": "ok",
+      "tone": "ok",
+      "text": ""
+     },
+     "before": null,
+     "after": null,
+     "neededBy": [],
+     "start": null
+    }
+   ],
+   "ticks": [],
+   "words": {
+    "bar": "xbin · plan",
+    "heading": "Your agent proposes 4 changes",
+    "intro": "Each line, its before and after and its warnings are written by xbin from the change itself. Nothing has been applied.",
+    "footer": "0 of 4 ticked · applied in order as you. If one fails, later ones are skipped and earlier ones stay.",
+    "apply": "Apply none",
+    "reject": "Reject all",
+    "ask": null,
+    "byHand": []
+   },
+   "none": "Apply none",
+   "lines": [
+    {
+     "state": "decided",
+     "can": false,
+     "alone": false,
+     "notes": {
+      "tag": "admin",
+      "needs": "",
+      "neededBy": "",
+      "why": ""
+     },
+     "off": [],
+     "on": [
+      1
+     ]
+    },
+    {
+     "state": "decided",
+     "can": false,
+     "alone": false,
+     "notes": {
+      "tag": "admin",
+      "needs": "",
+      "neededBy": "",
+      "why": ""
+     },
+     "off": [],
+     "on": [
+      2
+     ]
+    },
+    {
+     "state": "decided",
+     "can": false,
+     "alone": false,
+     "notes": {
+      "tag": "admin",
+      "needs": "",
+      "neededBy": "",
+      "why": ""
+     },
+     "off": [],
+     "on": [
+      3
+     ]
+    },
+    {
+     "state": "decided",
+     "can": false,
+     "alone": false,
+     "notes": {
+      "tag": "admin",
+      "needs": "",
+      "neededBy": "",
+      "why": ""
+     },
+     "off": [],
+     "on": [
+      4
+     ]
+    }
+   ],
+   "kept": [
+    [],
+    [],
+    [],
+    []
+   ],
+   "closes": [
+    {
+     "json": {
+      "id": "pl_builtin_done",
+      "user": "ana",
+      "agent": "xbin/wsagent",
+      "plan": true,
+      "session": "h1",
+      "title": "Keep the builtins current",
+      "state": "applied",
+      "created": "2026-11-16T09:40:00Z",
+      "decided": "2026-11-16T09:45:00Z",
+      "expires": "2026-11-23T09:00:00Z",
+      "items": [
+       {
+        "n": 1,
+        "kind": "builtin.update",
+        "args": {
+         "id": "tile:gw"
+        },
+        "line": "Update the builtin tile gw (apps/gw) from v1 to v2: 1 file change — no file here was edited",
+        "admin": true,
+        "result": "applied",
+        "out": {
+         "update": "updated",
+         "files": 1,
+         "tile": "apps/gw"
+        }
+       },
+       {
+        "n": 2,
+        "kind": "builtin.update",
+        "args": {
+         "id": "scaffold:tiles/apidocs"
+        },
+        "line": "Update the workspace's own page tiles/apidocs to this xbin's copy: 2 files change — conflicts with your changes: filed as a proposal for review instead",
+        "admin": true,
+        "result": "applied",
+        "out": {
+         "update": "proposed",
+         "files": 2,
+         "tile": "tiles/apidocs",
+         "proposal": 3
+        }
+       },
+       {
+        "n": 3,
+        "kind": "builtin.update",
+        "args": {
+         "id": "scaffold:tiles/organisations"
+        },
+        "line": "Install the workspace's own page tiles/organisations, which this workspace predates: 1 file",
+        "admin": true,
+        "result": "applied",
+        "out": {
+         "update": "installed",
+         "files": 1,
+         "tile": "tiles/organisations"
+        }
+       },
+       {
+        "n": 4,
+        "kind": "builtin.update",
+        "args": {
+         "id": "tile:odd"
+        },
+        "line": "Update the builtin tile odd (apps/odd) from v1 to v2",
+        "admin": true,
+        "result": "applied",
+        "out": {
+         "update": "something-newer",
+         "files": 1,
+         "tile": "apps/odd"
+        }
+       }
+      ]
+     },
+     "chosen": [],
+     "want": false
+    },
+    {
+     "json": {
+      "id": "pl_builtin_done",
+      "user": "ana",
+      "agent": "xbin/wsagent",
+      "plan": true,
+      "session": "h1",
+      "title": "Keep the builtins current",
+      "state": "applied",
+      "created": "2026-11-16T09:40:00Z",
+      "decided": "2026-11-16T09:45:00Z",
+      "expires": "2026-11-23T09:00:00Z",
+      "items": [
+       {
+        "n": 1,
+        "kind": "builtin.update",
+        "args": {
+         "id": "tile:gw"
+        },
+        "line": "Update the builtin tile gw (apps/gw) from v1 to v2: 1 file change — no file here was edited",
+        "admin": true,
+        "result": "applied",
+        "out": {
+         "update": "updated",
+         "files": 1,
+         "tile": "apps/gw"
+        }
+       },
+       {
+        "n": 2,
+        "kind": "builtin.update",
+        "args": {
+         "id": "scaffold:tiles/apidocs"
+        },
+        "line": "Update the workspace's own page tiles/apidocs to this xbin's copy: 2 files change — conflicts with your changes: filed as a proposal for review instead",
+        "admin": true,
+        "result": "applied",
+        "out": {
+         "update": "proposed",
+         "files": 2,
+         "tile": "tiles/apidocs",
+         "proposal": 3
+        }
+       },
+       {
+        "n": 3,
+        "kind": "builtin.update",
+        "args": {
+         "id": "scaffold:tiles/organisations"
+        },
+        "line": "Install the workspace's own page tiles/organisations, which this workspace predates: 1 file",
+        "admin": true,
+        "result": "applied",
+        "out": {
+         "update": "installed",
+         "files": 1,
+         "tile": "tiles/organisations"
+        }
+       },
+       {
+        "n": 4,
+        "kind": "builtin.update",
+        "args": {
+         "id": "tile:odd"
+        },
+        "line": "Update the builtin tile odd (apps/odd) from v1 to v2",
+        "admin": true,
+        "result": "applied",
+        "out": {
+         "update": "something-newer",
+         "files": 1,
+         "tile": "apps/odd"
+        }
+       }
+      ]
+     },
+     "chosen": [],
+     "want": false
+    },
+    {
+     "json": {
+      "id": "pl_builtin_done",
+      "user": "ana",
+      "agent": "xbin/wsagent",
+      "plan": true,
+      "session": "h1",
+      "title": "Keep the builtins current",
+      "state": "applied",
+      "created": "2026-11-16T09:40:00Z",
+      "decided": "2026-11-16T09:45:00Z",
+      "expires": "2026-11-23T09:00:00Z",
+      "items": [
+       {
+        "n": 1,
+        "kind": "builtin.update",
+        "args": {
+         "id": "tile:gw"
+        },
+        "line": "Update the builtin tile gw (apps/gw) from v1 to v2: 1 file change — no file here was edited",
+        "admin": true,
+        "result": "applied",
+        "out": {
+         "update": "updated",
+         "files": 1,
+         "tile": "apps/gw"
+        }
+       },
+       {
+        "n": 2,
+        "kind": "builtin.update",
+        "args": {
+         "id": "scaffold:tiles/apidocs"
+        },
+        "line": "Update the workspace's own page tiles/apidocs to this xbin's copy: 2 files change — conflicts with your changes: filed as a proposal for review instead",
+        "admin": true,
+        "result": "applied",
+        "out": {
+         "update": "proposed",
+         "files": 2,
+         "tile": "tiles/apidocs",
+         "proposal": 3
+        }
+       },
+       {
+        "n": 3,
+        "kind": "builtin.update",
+        "args": {
+         "id": "scaffold:tiles/organisations"
+        },
+        "line": "Install the workspace's own page tiles/organisations, which this workspace predates: 1 file",
+        "admin": true,
+        "result": "applied",
+        "out": {
+         "update": "installed",
+         "files": 1,
+         "tile": "tiles/organisations"
+        }
+       },
+       {
+        "n": 4,
+        "kind": "builtin.update",
+        "args": {
+         "id": "tile:odd"
+        },
+        "line": "Update the builtin tile odd (apps/odd) from v1 to v2",
+        "admin": true,
+        "result": "applied",
+        "out": {
+         "update": "something-newer",
+         "files": 1,
+         "tile": "apps/odd"
+        }
+       }
+      ]
+     },
+     "chosen": [],
+     "want": false
+    },
+    {
+     "json": {
+      "id": "pl_builtin_done",
+      "user": "ana",
+      "agent": "xbin/wsagent",
+      "plan": true,
+      "session": "h1",
+      "title": "Keep the builtins current",
+      "state": "applied",
+      "created": "2026-11-16T09:40:00Z",
+      "decided": "2026-11-16T09:45:00Z",
+      "expires": "2026-11-23T09:00:00Z",
+      "items": [
+       {
+        "n": 1,
+        "kind": "builtin.update",
+        "args": {
+         "id": "tile:gw"
+        },
+        "line": "Update the builtin tile gw (apps/gw) from v1 to v2: 1 file change — no file here was edited",
+        "admin": true,
+        "result": "applied",
+        "out": {
+         "update": "updated",
+         "files": 1,
+         "tile": "apps/gw"
+        }
+       },
+       {
+        "n": 2,
+        "kind": "builtin.update",
+        "args": {
+         "id": "scaffold:tiles/apidocs"
+        },
+        "line": "Update the workspace's own page tiles/apidocs to this xbin's copy: 2 files change — conflicts with your changes: filed as a proposal for review instead",
+        "admin": true,
+        "result": "applied",
+        "out": {
+         "update": "proposed",
+         "files": 2,
+         "tile": "tiles/apidocs",
+         "proposal": 3
+        }
+       },
+       {
+        "n": 3,
+        "kind": "builtin.update",
+        "args": {
+         "id": "scaffold:tiles/organisations"
+        },
+        "line": "Install the workspace's own page tiles/organisations, which this workspace predates: 1 file",
+        "admin": true,
+        "result": "applied",
+        "out": {
+         "update": "installed",
+         "files": 1,
+         "tile": "tiles/organisations"
+        }
+       },
+       {
+        "n": 4,
+        "kind": "builtin.update",
+        "args": {
+         "id": "tile:odd"
+        },
+        "line": "Update the builtin tile odd (apps/odd) from v1 to v2",
+        "admin": true,
+        "result": "applied",
+        "out": {
+         "update": "something-newer",
+         "files": 1,
+         "tile": "apps/odd"
+        }
+       }
+      ]
+     },
+     "chosen": [],
+     "want": false
+    }
+   ]
+  },
+  {
+   "json": {
     "id": "pl_undo",
     "plan": true,
     "undoOf": "pl_dice",

@@ -220,6 +220,23 @@ export const plans = [
       warnings: ['TERMINAL: dave can run code in apps/orders and change it — and every tile inside it — and with it everything those tiles can reach'] },
     { n: 3, kind: 'access.set', args: { tile: 'apps/orders', user: 'ana', level: 'terminal' }, line: 'Set the access of “ana” on apps/orders to terminal',
       blocked: "your own access is changed by a workspace admin on xbin's own pages (or asked for from the tile's Request access) — never through your agent" }] },
+  // a builtin's update (D248): an admin's line — clean, a scaffold page's (warned), one for a person who is no admin, one pinned
+  { id: 'pl_builtin', user: 'ana', agent: 'xbin/wsagent', plan: true, session: 'h1', title: 'Keep the builtins current', state: 'proposed', created: t('09:40:00'), expires: '2026-11-23T09:00:00Z', items: [
+    { n: 1, kind: 'builtin.update', args: { id: 'tile:gw' }, line: 'Update the builtin tile gw (apps/gw) from v1 to v2: 1 file change — no file here was edited', admin: true,
+      before: { version: 1 }, after: { version: 2 }, beforeText: 'v1', afterText: 'v2', effects: ['files written or removed in apps/gw: index.html', "apps/gw's backend rebuilds and restarts"] },
+    { n: 2, kind: 'builtin.update', args: { id: 'scaffold:tiles/apidocs' }, line: "Update the workspace's own page tiles/apidocs to this xbin's copy: 2 files change — conflicts with your changes: filed as a proposal for review instead", admin: true,
+      before: { version: 1 }, after: { version: 1, proposal: true }, beforeText: "this workspace's copy", afterText: 'unchanged until the proposal is merged',
+      warnings: ["SCAFFOLD: tiles/apidocs is part of this workspace's own chrome — the shell, a console or a page everyone has: updating it changes what everyone here sees"] },
+    { n: 3, kind: 'builtin.update', args: { id: 'scaffold:shell' }, line: "Update the workspace's own shell to this xbin's copy: 1 file change — your local changes are kept", admin: true, needsAdmin: true },
+    { n: 4, kind: 'builtin.update', args: { id: 'tile:pinned' }, line: 'Update the builtin tile pinned (apps/pinned) from v1 to v2', admin: true,
+      blocked: "it is pinned: an admin chose to skip its updates — unpin it first (the Tile Manager's updates tab, or bx builtin unpin)" }] },
+  // …applied: updated, filed as a proposal because it conflicts, installed
+  { id: 'pl_builtin_done', user: 'ana', agent: 'xbin/wsagent', plan: true, session: 'h1', title: 'Keep the builtins current', state: 'applied', created: t('09:40:00'), decided: t('09:45:00'), expires: '2026-11-23T09:00:00Z', items: [
+    { n: 1, kind: 'builtin.update', args: { id: 'tile:gw' }, line: 'Update the builtin tile gw (apps/gw) from v1 to v2: 1 file change — no file here was edited', admin: true, result: 'applied', out: { update: 'updated', files: 1, tile: 'apps/gw' } },
+    { n: 2, kind: 'builtin.update', args: { id: 'scaffold:tiles/apidocs' }, line: "Update the workspace's own page tiles/apidocs to this xbin's copy: 2 files change — conflicts with your changes: filed as a proposal for review instead", admin: true,
+      result: 'applied', out: { update: 'proposed', files: 2, tile: 'tiles/apidocs', proposal: 3 } },
+    { n: 3, kind: 'builtin.update', args: { id: 'scaffold:tiles/organisations' }, line: "Install the workspace's own page tiles/organisations, which this workspace predates: 1 file", admin: true, result: 'applied', out: { update: 'installed', files: 1, tile: 'tiles/organisations' } },
+    { n: 4, kind: 'builtin.update', args: { id: 'tile:odd' }, line: 'Update the builtin tile odd (apps/odd) from v1 to v2', admin: true, result: 'applied', out: { update: 'something-newer', files: 1, tile: 'apps/odd' } }] },
   { id: 'pl_undo', plan: true, undoOf: 'pl_dice', title: 'Undo: A dice tool', state: 'proposed', created: t('09:20:00'), expires: '2026-11-23T09:00:00Z', byHand: ["xbin doesn't delete tiles: deleting apps/dice is yours to do, from the tile's own menu"],
     items: [{ n: 1, kind: 'binding.remove', args: {}, line: "Unbind apps/assistant's mcp", before: { binding: [{ provider: 'apps/dice' }] }, after: { binding: [] }, beforeText: 'apps/dice', afterText: 'not bound' }] },
 ];

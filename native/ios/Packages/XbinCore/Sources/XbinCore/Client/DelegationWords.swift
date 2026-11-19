@@ -619,6 +619,7 @@ public enum DelegationWords {
         case "limits.set": return "limit"
         case "tile.create": return "new tile"
         case "agent.start": return "tile agent"
+        case "builtin.update": return "update"
         default: return kind.split(separator: ".").first.map(String.init) ?? ""
         }
     }
@@ -673,7 +674,7 @@ public enum DelegationWords {
     /// is due ("xbin said: …" for a failure).
     public static func resultOf(_ item: AdminChangeSet.Item) -> (word: String, icon: String, tone: String, text: String) {
         switch item.result {
-        case "applied": return ("applied", "check", "ok", "")
+        case "applied": return ("applied", "check", "ok", builtinText(item))
         case "failed": return ("failed", "error", "danger", "xbin said: “\(item.error.isEmpty ? "it failed" : item.error)”")
         case "skipped": return ("skipped", "minus", "", "")
         case "stale":
@@ -687,6 +688,22 @@ public enum DelegationWords {
         case "lapsed": return ("lapsed — never applied", "clock", "", item.error)
         case "cancelled": return ("cancelled — never applied", "minus", "", item.error)
         default: return item.needsAdmin && item.result.isEmpty ? ("needs an admin", "lock", "", "") : (item.result, "", "", "")
+        }
+    }
+
+    /// What an applied builtin.update line made (D248), from xbind's out —
+    /// updated, installed, or filed as a proposal on its tile because it
+    /// conflicts with the tile's own changes ("" for any other line).
+    public static func builtinText(_ item: AdminChangeSet.Item) -> String {
+        guard item.kind == "builtin.update", item.result == "applied", let o = item.builtinOut else { return "" }
+        let tile = o.tile.isEmpty ? "its tile" : o.tile
+        let f = "\(o.files) file\(o.files == 1 ? "" : "s")"
+        switch o.update {
+        case "proposed":
+            return "It conflicts with changes made in \(tile), so xbin filed it there as change proposal #\(o.proposal) instead: nothing in the tile changed. Its tile agent (or a terminal there) merges it — your agent can start one with xbin's brief."
+        case "installed": return "Installed in \(tile): \(f)."
+        case "updated": return "Updated \(tile): \(f), keeping its own changes."
+        default: return ""
         }
     }
 
