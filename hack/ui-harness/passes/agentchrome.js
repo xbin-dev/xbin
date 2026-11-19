@@ -122,7 +122,7 @@ async function fakeDelegation(ctx) {
         for (const it of c.items) {
           if (it.needsAdmin || it.result === 'asked') continue;
           if (it.blocked) it.result = 'blocked'; else if (!body.items.includes(it.n)) it.result = 'rejected';
-          else if (failed) it.result = 'skipped'; else if (it.failsAtApply) { it.result = 'failed'; it.error = it.failsAtApply; failed = true; } else it.result = 'applied';
+          else if (failed) it.result = 'skipped'; else if (it.failsAtApply) { it.result = 'failed'; it.error = it.failsAtApply; failed = true; } else { it.result = 'applied'; if (it.applyOut) it.out = it.applyOut; } // (out: what xbind says it made — a builtin's update, D248)
         }
         c.state = failed ? 'partial' : 'applied';
         return json(route, c);
@@ -317,7 +317,7 @@ async function agentChrome(browser) {
     const res = await page.$$eval(`${DLG} .item [data-result]`, (els) => els.map((e) => e.dataset.result));
     check(res.join(' ') === 'applied failed blocked skipped' && /1 of 3 changes applied/.test(await text(`${DLG} h2`)) && /One change failed, so the one after it was skipped\. The one that was applied stays\./.test(await text(`${DLG} .banner.warn`))
       && /xbin said: “the host name is taken”/.test(await text(`${DLG} [role="dialog"]`)), `[${width}] partial results, in words (${res.join(' ')}; ${await text(`${DLG} h2`)})`);
-    check(JSON.stringify(sentTo(/c1\/approve$/).map((c) => c.body)) === '[{"items":[1,2,4],"knows":["access.set"]},{"items":[1,2,4],"knows":["access.set"],"password":"right"}]', `[${width}] apply sent the ticked items (and the newer kinds it shows: D246), then again with the password`);
+    check(JSON.stringify(sentTo(/c1\/approve$/).map((c) => c.body)) === '[{"items":[1,2,4],"knows":["access.set","builtin.update"]},{"items":[1,2,4],"knows":["access.set","builtin.update"],"password":"right"}]', `[${width}] apply sent the ticked items (and the newer kinds it shows: D246, D248), then again with the password`);
     await shot(page, `agent-chrome-results${tag}`, { fullPage: false });
     await page.click(`${DLG} [data-undo]`);
     await page.waitForFunction(() => document.querySelector('bx-agent-changes')?.set?.undoOf === 'c1');

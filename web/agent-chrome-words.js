@@ -380,7 +380,7 @@ export const STANDING_NOTE = 'Starting a tile agent, creating a tile and reading
 // ---- change sets -------------------------------------------------------------------------
 
 const KIND_TAG = { 'grant.add': 'grant', 'grant.revoke': 'grant', 'binding.set': 'binding', 'binding.remove': 'binding', 'org.share': 'org share', 'limits.set': 'limit',
-  'tile.create': 'new tile', 'agent.start': 'tile agent' };
+  'tile.create': 'new tile', 'agent.start': 'tile agent', 'builtin.update': 'update' };
 /** kindTag(kind): "grant" · "binding" · "org share" · "limit". */
 export const kindTag = (kind) => KIND_TAG[kind] || String(kind || '').split('.')[0];
 
@@ -469,11 +469,27 @@ export function waitText(item) {
   const what = `${w.tile} provides ${w.service}`;
   return w.held ? `Not bound — ${w.held}. xbin applies it once ${what} as you approved it.` : `xbin applies it by itself once ${what}; nothing is bound until then.`;
 }
+/**
+ * builtinText(item): what an applied builtin.update line made (D248), from
+ * xbind's out — updated, installed, or filed as a proposal on its tile
+ * because it conflicts with the tile's own changes ('' for any other line).
+ */
+export function builtinText(item) {
+  const o = (item && item.kind === 'builtin.update' && item.result === 'applied' && item.out) || null;
+  if (!o || typeof o !== 'object') return '';
+  const tile = String(o.tile || 'its tile'), files = Number(o.files) || 0, f = `${files} file${files === 1 ? '' : 's'}`;
+  switch (o.update) {
+    case 'proposed': return `It conflicts with changes made in ${tile}, so xbin filed it there as change proposal #${Number(o.proposal) || 0} instead: nothing in the tile changed. Its tile agent (or a terminal there) merges it — your agent can start one with xbin's brief.`;
+    case 'installed': return `Installed in ${tile}: ${f}.`;
+    case 'updated': return `Updated ${tile}: ${f}, keeping its own changes.`;
+  }
+  return '';
+}
 /** resultOf(item): an item's result as {word, icon, tone, text} ("xbin said: …" for a failure). */
 export function resultOf(item) {
   const r = RESULT[item.result] || (item.needsAdmin && !item.result ? { word: 'needs an admin', icon: 'lock', tone: '' } : { word: item.result || '', icon: '', tone: '' });
   const text = item.result === 'failed' ? `xbin said: “${item.error || 'it failed'}”` : item.result === 'blocked' ? String(item.blocked || item.error || '')
-    : item.result === 'waiting' ? waitText(item) : ['lapsed', 'cancelled'].includes(item.result) ? String(item.error || '') : r.text || '';
+    : item.result === 'waiting' ? waitText(item) : ['lapsed', 'cancelled'].includes(item.result) ? String(item.error || '') : builtinText(item) || r.text || '';
   return { ...r, text };
 }
 

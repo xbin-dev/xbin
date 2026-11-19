@@ -7,7 +7,9 @@
 // failure; a start drawn as the single start's sheet draws it, a mode that
 // doesn't ask in the danger wording and unticked; a person who is no admin
 // — "needs an admin", Ask an admin; the admin's review of that request; a
-// kind this page doesn't know; hidden characters in a brief as escapes.
+// kind this page doesn't know; hidden characters in a brief as escapes; a
+// builtin's update (D248) — an admin's line, a scaffold page's warned, and
+// what xbind made of it.
 // Screenshots: out/agent-plan-*.png (both widths; run it in both themes).
 
 const review = (page, id) => page.evaluate((i) => { document.querySelector('bx-agent-dock').review('changeset', i); }, id);
@@ -112,6 +114,37 @@ async function planChecks({ page, S, check, refresh, sentTo, armed, text, shot, 
   await shot(page, `agent-plan-danger${tag}`, { fullPage: false });
   await close();
   S.changesets = S.changesets.filter((c) => c.id !== 'pl2');
+
+  // ---- a builtin's update (D248): an admin's line, unticked; a scaffold page's warned; applied, it says what xbind made — updated, or filed as a proposal on its tile ----
+  S.changesets.push({ ...plan('pl6', iso), title: 'Keep the builtins current', items: [
+    { n: 1, kind: 'builtin.update', args: { id: 'tile:gw' }, line: 'Update the builtin tile gw (apps/gw) from v1 to v2: 1 file change — no file here was edited', admin: true,
+      before: { version: 1 }, after: { version: 2 }, beforeText: 'v1', afterText: 'v2', effects: ['files written or removed in apps/gw: index.html'], why: 'a newer Gateway ships with xbin',
+      applyOut: { update: 'updated', files: 1, tile: 'apps/gw' } },
+    { n: 2, kind: 'builtin.update', args: { id: 'scaffold:tiles/apidocs' }, line: "Update the workspace's own page tiles/apidocs to this xbin's copy: 2 files change — conflicts with your changes: filed as a proposal for review instead", admin: true,
+      before: { version: 1 }, after: { version: 1, proposal: true }, beforeText: "this workspace's copy", afterText: 'unchanged until the proposal is merged', why: 'a newer docs page',
+      warnings: ["SCAFFOLD: tiles/apidocs is part of this workspace's own chrome — the shell, a console or a page everyone has: updating it changes what everyone here sees"],
+      applyOut: { update: 'proposed', files: 2, tile: 'tiles/apidocs', proposal: 3 } }] });
+  await refresh();
+  await review(page, 'pl6');
+  await page.waitForSelector(`${DLG} [role="dialog"][data-view="review"] .item[data-n="2"]`);
+  const bu = await text(`${DLG} [role="dialog"]`);
+  check((await ticks()) === '1- 2-' && (await page.getAttribute(`${DLG} .item[data-n="1"]`, 'data-line')) === 'ok' && (await page.getAttribute(`${DLG} .item[data-n="2"]`, 'data-line')) === 'ok'
+    && (await text(`${DLG} .item[data-n="1"] .line .tag`)) === 'update' && (await text(`${DLG} .item[data-n="2"] [data-warning]`)).startsWith('SCAFFOLD')
+    && /conflicts with your changes: filed as a proposal for review instead/.test(bu) && /An admin change — applied as you\./.test(await text(`${DLG} .item[data-n="1"] [data-why]`)),
+  `[${width}] a builtin's update: an admin's line, unticked; a scaffold page's warned; xbind's verdict in the line (${await ticks()})`);
+  await shot(page, `agent-plan-builtin${tag}`, { fullPage: false });
+  await page.check(`${DLG} .item[data-n="1"] input`); await page.check(`${DLG} .item[data-n="2"] input`);
+  await armed(['bx-agent-changes', 'button[data-apply]']);
+  await page.click(`${DLG} button[data-apply]`);
+  await page.waitForSelector(`${DLG} [role="dialog"][data-view="results"]`);
+  check(/Updated apps\/gw: 1 file, keeping its own changes\./.test(await text(`${DLG} .item[data-n="1"]`))
+    && /so xbin filed it there as change proposal #3 instead: nothing in the tile changed/.test(await text(`${DLG} .item[data-n="2"]`))
+    && JSON.stringify(sentTo(/pl6\/approve$/).map((c) => c.body.knows)) === '[["access.set","builtin.update"]]',
+  `[${width}] applied: what xbind made of each — updated, or filed as a proposal on its tile — and the apply named the kind it shows`);
+  await shot(page, `agent-plan-builtin-results${tag}`, { fullPage: false });
+  if (await page.$(`${DLG} button[data-done]`)) await page.click(`${DLG} button[data-done]`);
+  await page.waitForFunction(() => !document.querySelector('bx-agent-changes'), null, { timeout: 6000 });
+  S.changesets = S.changesets.filter((c) => c.id !== 'pl6');
 
   // ---- a person who is no admin: "needs an admin", and Ask an admin once what it needs is applied ----
   S.state.adminChanges = false; S.state.canAdminChanges = false;
