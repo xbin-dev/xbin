@@ -108,7 +108,7 @@ func (s *Service) apiCall(path string) http.HandlerFunc {
 		name := s.meterName(r.Context(), u, model)
 		// the caller's reasoning effort, mapped onto the model's own levels when something describes it (D249,
 		// effort.go); an undescribed model's request is relayed exactly as it came
-		eff := s.effortFor(r.Context(), u, model)
+		eff := s.effortFor(u, model)
 		if dropped, said := effortRewrite(eff, path == sdkllm.PathChat, req.Member, req.SetMember); said != "" || len(dropped) > 0 {
 			if said != "" {
 				answer.Set(EffortHeader, said)

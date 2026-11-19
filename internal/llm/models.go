@@ -320,21 +320,17 @@ func (s *Service) meterName(ctx context.Context, u effUpstream, model string) st
 
 // effortFor is what is known of model's reasoning on u for a call (D249,
 // effort.go): the configuration's entry, else the upstream's own list as
-// cached — asked for now (bounded) only when it never was — over xbind's
-// table. nil: nothing.
-func (s *Service) effortFor(ctx context.Context, u effUpstream, model string) *EffortRecord {
+// cached, over xbind's table. nil: nothing. It never asks the upstream: a
+// pass-through upstream's list is fetched for the call anyway (meterName),
+// and one with a configured list is read when models are listed — a call
+// makes no request it didn't make before.
+func (s *Service) effortFor(u effUpstream, model string) *EffortRecord {
 	if _, ok := lookupModel(u.Reasoning, model); ok {
 		return effortOf(u, model, nil)
 	}
 	var extra map[string]json.RawMessage
 	if t, err := s.target(u); err == nil {
-		fp := t.BaseURL + "|" + hint(t.Key)
-		e, _, ok := s.models.peek(u.Name, fp, s.now())
-		if !ok {
-			fetch, cancel := context.WithTimeout(ctx, 5*time.Second)
-			e.models, _ = s.upstreamOwn(fetch, u)
-			cancel()
-		}
+		e, _, _ := s.models.peek(u.Name, t.BaseURL+"|"+hint(t.Key), s.now())
 		for _, m := range e.models {
 			if m.ID == model {
 				extra = m.Extra
