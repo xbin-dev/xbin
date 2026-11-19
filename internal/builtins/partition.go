@@ -135,11 +135,18 @@ type pval struct {
 
 func (p pval) same(q pval) bool { return p.has == q.has && canonical(p.raw) == canonical(q.raw) }
 
+// String is the value as a note says it to an admin: none, or one of the
+// values xbind knows (docs/partitions.md) — anything else, which the
+// tile's writer put there, is never repeated (review of 2026-11-20, (b)).
 func (p pval) String() string {
 	if !p.has {
 		return "none"
 	}
-	return canonical(p.raw)
+	switch c := canonical(p.raw); c {
+	case `["user"]`, `["user","global"]`, `["global","user"]`:
+		return c
+	}
+	return "an unrecognized value"
 }
 
 // readPartition is doc's partition; ok is false when doc doesn't parse.

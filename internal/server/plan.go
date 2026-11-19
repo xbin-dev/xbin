@@ -471,8 +471,19 @@ func (s *Server) describePlan(person auth.Principal, a planAgent, ops []delegati
 		// what the conversation may not see comes first: nothing is said of
 		// such a tile, the line's own refusal included — and a person's own
 		// access is never a line of their agent's, whoever describes it
+		// argsLine is the line as its arguments say it — for a kind whose
+		// line is the state behind it (a builtin's files, its verdict), all
+		// a person who may not see that state reads
+		argsLine := pv.Line
+		if op.Kind == delegation.KindBuiltinUpdate {
+			argsLine = delegation.BuiltinArgsLine(op.Args)
+		}
+		refused := false
 		if why := cmpOr(s.lineAgentRefusal(a, pv.Tiles), s.createScopeRefusal(a, pv.Creates), s.accessSelfRefusal(person, a, pv, op)); why != "" {
-			it = delegation.ChangeItem{ChangeOp: op, Why: it.Why, Line: pv.Line, Blocked: why, Admin: pv.Admin, Needs: pv.Uses, Deferred: pv.Deferred}
+			// blocked it stays, whoever reads it: nothing below turns it into
+			// a line to ask an admin for (review of 2026-11-20, (a))
+			it = delegation.ChangeItem{ChangeOp: op, Why: it.Why, Line: argsLine, Blocked: why, Admin: pv.Admin, Needs: pv.Uses, Deferred: pv.Deferred}
+			refused = true
 		}
 		waits := 0 // a line it needs that waits for an admin
 		for _, dep := range it.Needs {
@@ -483,6 +494,7 @@ func (s *Server) describePlan(person auth.Principal, a planAgent, ops []delegati
 		// a line only a workspace admin applies is no org admin's either: theirs to ask for (changeset_builtin.go)
 		linePlain := plain || needsWorkspaceAdmin(op) && !person.IsAdmin() && !s.devOwner(person)
 		switch {
+		case refused:
 		case plain && pv.Later != "":
 			// it may not wait, and asking an admin now would ask for something
 			// xbind can't apply: said as it is (the words name the line's own
@@ -491,7 +503,7 @@ func (s *Server) describePlan(person auth.Principal, a planAgent, ops []delegati
 		case linePlain && (pv.Admin || waits != 0 && op.Kind != delegation.KindAgentStart):
 			// not theirs to apply — and not theirs to read: the line, and
 			// nothing of the state an admin would see behind it
-			it = delegation.ChangeItem{ChangeOp: op, Why: it.Why, Line: pv.Line, Admin: true, NeedsAdmin: true, Needs: pv.Uses}
+			it = delegation.ChangeItem{ChangeOp: op, Why: it.Why, Line: argsLine, Admin: true, NeedsAdmin: true, Needs: pv.Uses}
 		case waits != 0:
 			it.Blocked = fmt.Sprintf("line %d needs an admin first: ask your agent to propose this start again once the tile exists", waits)
 		}

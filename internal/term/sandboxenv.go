@@ -7,6 +7,7 @@ package term
 // the session's target isn't the primary (sessionEnv).
 
 import (
+	"fmt"
 	"net"
 	"net/url"
 	"slices"
@@ -108,8 +109,8 @@ func (m *Manager) sandboxEnv(rel string, relayNet bool, homeDir, termTok string)
 // workspace has an LLM connector.
 func (m *Manager) sessionEnv(rel string, relayNet bool, homeDir, termTok string, o openOpts) []string {
 	env := m.sandboxEnv(rel, relayNet, homeDir, termTok)
-	env = append(env, gitIdentityEnv(o.homeKey)...) // git commits work in a sandbox: the person's fallback address
-	env = append(env, o.llmShellEnv(env)...)        // a terminal's XBIN_LLM_* with a connector configured (llmhook.go)
+	env = append(env, gitIdentityEnv(o.homeKey, env)...) // git commits work in a sandbox: the person's fallback address
+	env = append(env, o.llmShellEnv(env)...)             // a terminal's XBIN_LLM_* with a connector configured (llmhook.go)
 	dep := append(o.deploymentEnv(), o.partitionEnv()...)
 	if len(dep) == 0 {
 		return env
@@ -123,15 +124,36 @@ func (m *Manager) sessionEnv(rel string, relayNet bool, homeDir, termTok string,
 // host name has no domain: "unable to auto-detect email address"), so a
 // commit — a merge of a tile's template, a tile agent's `git am` (D248) —
 // failed in every session whose person set no identity. EMAIL is git's
-// last resort, below user.email in any config file and GIT_*_EMAIL, so an
-// identity the person set wins; the name stays git's own (the sandbox's
-// user) unless they set one. .invalid never delivers (RFC 2606). Nothing
-// for a session with no person.
-func gitIdentityEnv(person string) []string {
-	if person == "" || strings.ContainsAny(person, " \t\r\n<>@") {
+// last resort, below user.email in any config file and GIT_*_EMAIL (which
+// would beat the person's own config: not used), so an identity the
+// person set wins; and it is set only when env has no EMAIL of its own.
+// The name stays git's own (the sandbox's user) unless they set one.
+// .invalid never delivers (RFC 2606) — but commits carry it, and so do
+// pushes of them to an external remote (docs/getting-started.md). The
+// person's id is escaped, never stripped (gitLocalPart): two ids never
+// share an address. Nothing for a session with no person.
+func gitIdentityEnv(person string, env []string) []string {
+	if person == "" || slices.ContainsFunc(env, func(e string) bool { return strings.HasPrefix(e, "EMAIL=") }) {
 		return nil
 	}
-	return []string{"EMAIL=" + person + "@xbin.invalid"}
+	return []string{"EMAIL=" + gitLocalPart(person) + "@xbin.invalid"}
+}
+
+// gitLocalPart is id as an address's local part, one to one: letters,
+// digits, '-' and '_' as they are, every other byte (a '.', an '@', a '='
+// itself) as '=' and two hex digits — so distinct ids never collide.
+func gitLocalPart(id string) string {
+	var b strings.Builder
+	for i := 0; i < len(id); i++ {
+		c := id[i]
+		switch {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9', c == '-', c == '_':
+			b.WriteByte(c)
+		default:
+			fmt.Fprintf(&b, "=%02X", c)
+		}
+	}
+	return b.String()
 }
 
 // deployRemote is the checkpoint fetch remote, `xbin-deploy`, as the two

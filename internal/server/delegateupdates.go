@@ -27,6 +27,8 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/delegation"
@@ -214,6 +216,8 @@ func (s *Server) apiDelegateUpdates(w http.ResponseWriter, r *http.Request) {
 // none; a tile agent opens as its person, at terminal level).
 func (s *Server) tileAgentNext(person auth.Principal, tile string, brief func() UpdateBrief) (string, string, *UpdateBrief) {
 	switch {
+	case !briefPathOK(tile):
+		return updateNextByHand, "its path holds characters a command can't carry: whoever has terminal access to it merges it there", nil
 	case isChrome(tile):
 		return updateNextByHand, "no tile agent opens on " + tile + ": an admin merges it by hand (bx code prs " + tile + ")", nil
 	case levelOf(person, tile) != "terminal":
@@ -228,15 +232,48 @@ func (s *Server) tileAgentNext(person auth.Principal, tile string, brief func() 
 	return updateNextTileAgent, "", &b
 }
 
+// briefGit is git as a brief runs it in a tile: none of the tile's own
+// hooks, no fsmonitor command, no ext:: transport. What is still the tile
+// writer's in a session there — its .gitattributes, filters and merge
+// drivers, the manifest's merge driver among them — is bounded by the
+// session's confinement (the tile's own sandbox, as the person; v0.3.82's
+// untrusted-tile confinement): plans/wsagent/updates.md §The brief.
+const briefGit = "git -c core.fsmonitor= -c core.hooksPath=/dev/null -c protocol.ext.allow=never"
+
+// shq is s as one sh word: single-quoted, each ' closed, escaped and
+// reopened — nothing in it expands.
+func shq(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
+
+// briefPathOK: a tile path a brief's commands can carry — single-quoted,
+// so anything but a control character or broken UTF-8 is inert.
+func briefPathOK(tile string) bool {
+	if tile == "" || !utf8.ValidString(tile) {
+		return false
+	}
+	for _, r := range tile {
+		if unicode.IsControl(r) {
+			return false
+		}
+	}
+	return true
+}
+
+// templateURL is the URL xbind serves a builtin template's repository at,
+// as AddTemplateRemote writes it (the session's git reaches it through the
+// gateway: its own credential, D17).
+func templateURL(name string) string { return "http://xbin/api/xbin/templates/" + name + ".git" }
+
 // TemplateUpdateBrief is xbind's brief for merging tile's template — the
 // builtin template named template, behind commits ahead of it (legacy: an
 // instance whose history shares nothing with the template's). Built from
-// those names alone. The commands are what a session in the tile runs, in
+// those names alone. It never relies on the tile's remote of that name
+// (the tile's writers can point it anywhere): it fetches xbind's own URL
+// into FETCH_HEAD. The commands are what a session in the tile runs, in
 // its directory; TestTemplateUpdateInATileSession runs exactly them.
 func TemplateUpdateBrief(tile, template string, behind int, legacy bool) UpdateBrief {
-	merge := "git merge --no-edit template/main"
+	merge := briefGit + " merge --no-edit FETCH_HEAD"
 	if legacy {
-		merge = "git merge --no-edit --allow-unrelated-histories template/main"
+		merge = briefGit + " merge --no-edit --allow-unrelated-histories FETCH_HEAD"
 	}
 	commits := "commits"
 	switch {
@@ -246,17 +283,17 @@ func TemplateUpdateBrief(tile, template string, behind int, legacy bool) UpdateB
 		commits = fmt.Sprintf("%d commits", behind)
 	}
 	cmds := []string{
-		"git status --short",
-		"git fetch template",
-		"git log --oneline HEAD..template/main",
+		briefGit + " status --short",
+		briefGit + " fetch " + shq(templateURL(template)) + " main",
+		briefGit + " log --oneline HEAD..FETCH_HEAD",
 		merge,
 		"bx status",
 		`curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $XBIN_TOKEN" "$XBIN_URL/api/$XBIN_COMPONENT/"`,
 	}
-	known := fmt.Sprintf("This tile was made from xbin's template %q, which is this tile's git remote `template` — xbin serves it, and this session's git reaches it with the session's own credential. "+
+	known := fmt.Sprintf("This tile was made from xbin's template %q, which xbin serves; this session's git reaches it with the session's own credential. Run the commands exactly as written — they fetch xbin's own copy by its URL, not whatever this tile's remotes name, and keep this tile's git hooks out. "+
 		"Run, in this tile's directory: (1) `%s` — if anything is uncommitted, commit it first and say so; (2) `%s`; (3) `%s` — what the template changed; (4) `%s`. "+
 		"xbin.json merges by keys (git runs `bx template merge-manifest` for it): what stays in conflict there is a value both sides changed. "+
-		"On a conflict you can't resolve with confidence: `git merge --abort`, and report which files and why — don't guess. "+
+		"On a conflict you can't resolve with confidence: `"+briefGit+" merge --abort`, and report which files and why — don't guess. "+
 		"xbin builds and restarts the backend by itself after the merge: (5) `%s` says where it stands, and (6) a call to the tile's own API — `%s` — starts it; a build error is in `bx logs $XBIN_COMPONENT`.",
 		template, cmds[0], cmds[1], cmds[2], cmds[3], cmds[4], cmds[5])
 	if legacy {
@@ -264,7 +301,7 @@ func TemplateUpdateBrief(tile, template string, behind int, legacy bool) UpdateB
 	}
 	return UpdateBrief{
 		Goal:       fmt.Sprintf("Bring this tile up to date with its template %q: merge the template's newest version (%s this tile doesn't have) into this tile, keeping this tile's own changes.", template, commits),
-		DoneWhen:   "`git log -1` in this tile shows the merge of template/main, `git status --short` shows nothing uncommitted, the tile's backend (if it has one) builds and answers, and you reported what the template changed and how each conflict was resolved.",
+		DoneWhen:   "`git log -1` in this tile shows the merge of the template's main, `git status --short` shows nothing uncommitted, the tile's backend (if it has one) builds and answers, and you reported what the template changed and how each conflict was resolved.",
 		LeaveAlone: "this tile's own changes, unless one conflicts with the template's — then keep this tile's version unless the template's change needs it; the manifest's \"partition\" and \"template\" keys; everything outside this tile; and don't push anywhere.",
 		CheckBy:    "`bx status`, the call to the tile's own API in step 6, `bx logs $XBIN_COMPONENT` for a build error, and the tile's own tests if it has any (`go test ./...` where its go.mod is).",
 		Known:      known,
@@ -280,27 +317,29 @@ func BuiltinProposalBrief(tile, id string, n int) UpdateBrief {
 	// the copy lives in the tile's own .git: writable and readable in every
 	// session on the tile (the session's /tmp may not be — a workspace that
 	// lives under /tmp), never a live file, and nothing git tracks
-	dir := `"$XBIN_WORKSPACE/` + tile + `"`
-	work := `"$XBIN_WORKSPACE/` + tile + `/.git/xbin-update"`
-	mbox := `"$XBIN_WORKSPACE/` + tile + `/.git/xbin-update.mbox"`
+	// every path single-quoted (the tile's path is a directory name its
+	// parent's writers chose); only $XBIN_WORKSPACE expands
+	dir := `"$XBIN_WORKSPACE"/` + shq(tile)
+	work := `"$XBIN_WORKSPACE"/` + shq(tile+"/.git/xbin-update")
+	mbox := `"$XBIN_WORKSPACE"/` + shq(tile+"/.git/xbin-update.mbox")
 	cmds := []string{
-		"git status --short",
-		"rm -rf " + work + " " + mbox + " && git clone -q " + dir + " " + work,
-		fmt.Sprintf("bx code pr fetch %d %s > %s", n, tile, mbox),
-		"git -C " + work + " am --3way " + mbox,
-		"git -C " + dir + " pull --ff-only " + work,
-		fmt.Sprintf(`bx code pr close %d %s --merged -m "merged: <what you resolved>"`, n, tile),
+		briefGit + " status --short",
+		"rm -rf " + work + " " + mbox + " && " + briefGit + " clone -q " + dir + " " + work,
+		fmt.Sprintf("bx code pr fetch %d %s > %s", n, shq(tile), mbox),
+		briefGit + " -C " + work + " am --3way " + mbox,
+		briefGit + " -C " + dir + " pull --ff-only " + work,
+		fmt.Sprintf(`bx code pr close %d %s --merged -m 'merged: <what you resolved>'`, n, shq(tile)),
 		"rm -rf " + work + " " + mbox,
 		"bx status",
 	}
 	known := fmt.Sprintf("xbin filed the update of the builtin %s as change proposal #%d on this tile, because it conflicts with changes made here; nothing of it is applied yet. "+
-		"Merge it in a copy, so no conflict marker lands in the live files: (1) `%s` — if anything is uncommitted, commit it first and say so; (2) `%s`; (3) `%s`; (4) `%s` — on a conflict: resolve each file in the copy, `git -C %s add <file>`, `git -C %s am --continue`; on one you can't resolve with confidence: `git -C %s am --abort`, and report which files and why — don't guess; "+
-		"(5) `%s` brings the merged result into the tile; (6) `%s` — closing it merged is what completes the update in xbin; (7) `%s` removes the copy. "+
+		"Merge it in a copy, so no conflict marker lands in the live files, running the commands exactly as written (they keep this tile's git hooks out): (1) `%s` — if anything is uncommitted, commit it first and say so; (2) `%s`; (3) `%s`; (4) `%s` — on a conflict: resolve each file in the copy, `%s -C %s add <file>`, `%s -C %s am --continue`; on one you can't resolve with confidence: `%s -C %s am --abort`, and report which files and why — don't guess; "+
+		"(5) `%s` brings the merged result into the tile; (6) `%s` — closing it merged records in xbin the files that now hold the update; any file that doesn't stays offered as an update; (7) `%s` removes the copy. "+
 		"xbin builds and restarts the backend by itself: (8) `%s` says where it stands; a build error is in `bx logs $XBIN_COMPONENT`. `bx code pr show %d %s` shows the proposal.",
-		id, n, cmds[0], cmds[1], cmds[2], cmds[3], work, work, work, cmds[4], cmds[5], cmds[6], cmds[7], n, tile)
+		id, n, cmds[0], cmds[1], cmds[2], cmds[3], briefGit, work, briefGit, work, briefGit, work, cmds[4], cmds[5], cmds[6], cmds[7], n, shq(tile))
 	return UpdateBrief{
 		Goal:       fmt.Sprintf("Merge xbin's update of this tile — the builtin %s — which xbin filed as change proposal #%d on this tile because it conflicts with this tile's own changes: take the update and keep this tile's changes.", id, n),
-		DoneWhen:   fmt.Sprintf("proposal #%d is closed merged (`bx code pr show %d %s` says so), the tile holds the merged files with no conflict marker, its backend (if it has one) builds and answers, and you reported how each conflict was resolved.", n, n, tile),
+		DoneWhen:   fmt.Sprintf("proposal #%d is closed merged (`bx code pr show %d %s` says so), the tile holds the merged files with no conflict marker, its backend (if it has one) builds and answers, and you reported how each conflict was resolved — and which files you kept different from the update, which xbin keeps offering as an update.", n, n, shq(tile)),
 		LeaveAlone: "this tile's own changes, unless one conflicts with the update — then keep what this tile needs and take the rest of the update; the manifest's \"partition\" key; everything outside this tile; and don't push anywhere.",
 		CheckBy:    "`bx status`, `bx logs $XBIN_COMPONENT` for a build error, a call to the tile's own API, and the tile's own tests if it has any.",
 		Known:      known,

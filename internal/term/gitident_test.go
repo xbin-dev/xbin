@@ -14,13 +14,28 @@ import (
 // works where git can make none up, and an identity the person set wins
 // over it (EMAIL is git's last resort).
 func TestGitIdentityIsAFallback(t *testing.T) {
-	if got := gitIdentityEnv("ana"); !slices.Equal(got, []string{"EMAIL=ana@xbin.invalid"}) {
+	if got := gitIdentityEnv("ana", nil); !slices.Equal(got, []string{"EMAIL=ana@xbin.invalid"}) {
 		t.Fatalf("ana: %q", got)
 	}
-	for _, bad := range []string{"", "a b", "a@b", "a<b>"} {
-		if got := gitIdentityEnv(bad); got != nil {
-			t.Errorf("%q: %q", bad, got)
+	if got := gitIdentityEnv("", nil); got != nil {
+		t.Errorf("no person: %q", got)
+	}
+	// the review of 2026-11-20, (e): an id is escaped, never stripped — no
+	// two ids share an address; and an EMAIL the session has already wins
+	seen := map[string]string{}
+	for _, id := range []string{"a.b", "a_b", "a=2Eb", "a@b", "a b", "a<b>", "a=b", "ab", "a=40b", "A.b"} {
+		got := gitIdentityEnv(id, nil)
+		if len(got) != 1 || !strings.HasSuffix(got[0], "@xbin.invalid") || strings.ContainsAny(strings.TrimSuffix(strings.TrimPrefix(got[0], "EMAIL="), "@xbin.invalid"), " <>@.") {
+			t.Errorf("%q: %q", id, got)
+			continue
 		}
+		if other, dup := seen[got[0]]; dup {
+			t.Errorf("%q and %q share %s", id, other, got[0])
+		}
+		seen[got[0]] = id
+	}
+	if got := gitIdentityEnv("ana", []string{"EMAIL=ana@example.com"}); got != nil {
+		t.Errorf("the session's own EMAIL: %q", got)
 	}
 	m := &Manager{Root: t.TempDir()}
 	if env := m.sessionEnv("apps/x", false, "/w/homes/ana", "TOK", openOpts{homeKey: "ana"}); !slices.Contains(env, "EMAIL=ana@xbin.invalid") {

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/builtins"
@@ -402,8 +403,41 @@ func TestBuiltinLineWords(t *testing.T) {
 	// the same line upstream changed: a proposal
 	w.write(map[string]string{"tiles/apidocs/index.html": "<h1>docs — ours</h1>\n<p>one</p>\n<p>two</p>\n"})
 	cs = w.builtinPlan(t, "bob", "scaffold:tiles/apidocs")
-	if it = cs.Items[0]; !strings.HasSuffix(it.Line, "— conflicts with your changes: filed as a proposal for review instead") {
+	if it = cs.Items[0]; !strings.HasSuffix(it.Line, "— conflicts with changes made here, so nothing is written: it is filed as a proposal on tiles/apidocs, which the tile's coding agent applies there") {
 		t.Errorf("a conflict: %q", it.Line)
+	}
+	// what happens is said, and no review is promised that nothing enforces (review of 2026-11-20, finding 5)
+	if all := it.Line + strings.Join(it.Effects, "|"); strings.Contains(all, "review") || !strings.Contains(all, "its changes show in the tile's Agent tab and history") {
+		t.Errorf("a proposal's words: %q", all)
+	}
+}
+
+// covers the review of 2026-11-20, finding 4 — a file deleted here is a
+// change made here: the line counts it ("your local changes are kept"),
+// says it stays deleted, and the update leaves it deleted.
+func TestBuiltinLineKeepsALocalDeletion(t *testing.T) {
+	w := updatesWorld(t)
+	v2 := fstest.MapFS{}
+	for k, v := range updV2Scaffold {
+		v2[k] = v
+	}
+	v2["tiles/apidocs/apidocs.js"] = updV1Scaffold["tiles/apidocs/apidocs.js"] // upstream leaves it as it was
+	w.b.SetUpdater(builtins.NewUpdater(w.root, updTiles(t, 2, "<p>gw v2</p>\n<p>a</p>\n<p>b</p>\n<p>keep</p>\n"), v2))
+	if err := os.Remove(filepath.Join(w.root, "tiles", "apidocs", "apidocs.js")); err != nil {
+		t.Fatal(err)
+	}
+	_, bob := w.session("bob")
+	cs := w.builtinPlan(t, "bob", "scaffold:tiles/apidocs")
+	it := cs.Items[0]
+	if !strings.HasSuffix(it.Line, "— your local changes are kept") || !strings.Contains(strings.Join(it.Effects, "|"), "1 file deleted here that upstream didn't change stays deleted: apidocs.js") {
+		t.Fatalf("the line: %q %v", it.Line, it.Effects)
+	}
+	done := w.approve(t, cs.ID, `{"items":[1],"password":"password1","knows":["access.set","builtin.update"]}`, bob)
+	if results(done) != "applied" {
+		t.Fatalf("%s %+v", results(done), done.Items[0])
+	}
+	if _, err := os.Lstat(filepath.Join(w.root, "tiles", "apidocs", "apidocs.js")); err == nil {
+		t.Fatal("the file deleted here came back")
 	}
 }
 
@@ -641,8 +675,12 @@ func TestBuiltinLineNotAutoApprovable(t *testing.T) {
 		t.Errorf("a request to approve the route: %d %s", code, body)
 	}
 	cs := w.builtinPlan(t, "bob", "tile:gw")
-	if code, body := w.do("POST", "/delegate/changesets/"+cs.ID+"/approve", `{"items":[1],"password":"password1","knows":["access.set","builtin.update"],"via":"notification"}`, bob); code != 400 {
-		t.Errorf("approved from a notification: %d %s", code, body)
+	// no tap approves it: a sign-in older than ten minutes is asked for the
+	// password, as for any admin change (the step-up), and nothing applies
+	oldSID, old := w.session("bob")
+	w.a.TestAgeSession(oldSID, 11*time.Minute, 0)
+	if code, body := w.do("POST", "/delegate/changesets/"+cs.ID+"/approve", `{"items":[1],"knows":["access.set","builtin.update"]}`, old); code != 403 || !strings.Contains(body, `"stepUp":"password"`) {
+		t.Errorf("approved without a recent sign-in or the password: %d %s", code, body)
 	}
 	code, body := w.do("POST", "/delegate/changesets/"+cs.ID+"/approve", `{"items":[1],"password":"password1","knows":["access.set"]}`, bob)
 	if code != 409 || !strings.Contains(body, `"kinds":["builtin.update"]`) {
@@ -687,5 +725,227 @@ func TestBuiltinLineHeldToTheConversation(t *testing.T) {
 	done := w.approve(t, cs.ID, `{"items":[1],"password":"password1","knows":["access.set","builtin.update"]}`, bob)
 	if results(done) != "failed" || !strings.Contains(done.Items[0].Error, "keeps agents out") {
 		t.Fatalf("applied past the org's rule: %s %+v", results(done), done.Items[0])
+	}
+}
+
+// covers the review of 2026-11-20, finding 3 — the approved pin travels
+// with the call: the line's call names it, and POST /builtins/update {mode:
+// "safe"} with a pin that no longer holds writes nothing (409) — the
+// handler checks it again under its lock, so nothing between Apply's check
+// and the write can turn an approved line into another one.
+func TestBuiltinLineCarriesItsPin(t *testing.T) {
+	w := updatesWorld(t)
+	cs := w.builtinPlan(t, "bob", "tile:gw")
+	if it := cs.Items[0]; it.Pin == "" {
+		t.Fatalf("no pin: %+v", it)
+	}
+	_, bob := w.session("bob")
+	before := string(readFile(t, filepath.Join(w.root, "apps/gw/index.html")))
+	code, body := w.do("POST", "/builtins/update", `{"id":"tile:gw","mode":"safe","pin":"sha256:not-what-was-shown"}`, bob)
+	if code != 409 || !strings.Contains(body, "no longer what was approved") {
+		t.Fatalf("a stale pin: %d %s", code, body)
+	}
+	if got := string(readFile(t, filepath.Join(w.root, "apps/gw/index.html"))); got != before {
+		t.Fatal("written under a stale pin")
+	}
+	done := w.approve(t, cs.ID, `{"items":[1],"password":"password1","knows":["access.set","builtin.update"]}`, bob)
+	if results(done) != "applied" {
+		t.Fatalf("the line, under its own pin: %s %+v", results(done), done.Items[0])
+	}
+}
+
+// covers the review of 2026-11-20, finding 6 — a tile's `template` remote
+// is its writers' to point anywhere: a row exists only for a remote that
+// is exactly xbind's own template URL — not for one that merely ends in a
+// template's name — in the by-hand listing and in the agent's read; and
+// the brief never relies on the remote's name: it fetches xbind's URL into
+// FETCH_HEAD, with git's hooks, fsmonitor and ext:: transport off.
+func TestUpdatesTrustNoForgedTemplateRemote(t *testing.T) {
+	w := updatesWorld(t)
+	gitIn(t, filepath.Join(w.root, "apps", "inst"), "remote", "set-url", "template", "https://evil.example/x/starter.git")
+	_, bob := w.session("bob")
+	if code, body := w.do("GET", "/templates/updates", "", bob); code != 200 || strings.Contains(body, "apps/inst") {
+		t.Fatalf("the by-hand listing took the forged remote: %d %s", code, body)
+	}
+	cred, _ := w.freshAgent(t, "alice", nil)
+	var got updRead
+	w.getJSON(t, "/delegate/updates", cred, &got)
+	if len(got.Instances) != 0 {
+		t.Fatalf("the agent's read took the forged remote: %+v", got.Instances)
+	}
+	gitIn(t, filepath.Join(w.root, "apps", "inst"), "remote", "set-url", "template", templateRemoteURL("starter"))
+	got = updRead{}
+	w.getJSON(t, "/delegate/updates", cred, &got)
+	if len(got.Instances) != 1 || got.Instances[0].Brief == nil {
+		t.Fatalf("xbind's own remote: %+v", got.Instances)
+	}
+	cmds := strings.Join(got.Instances[0].Brief.Commands, "\n")
+	for _, want := range []string{"fetch 'http://xbin/api/xbin/templates/starter.git' main", "merge --no-edit FETCH_HEAD", "-c core.hooksPath=/dev/null", "-c protocol.ext.allow=never", "-c core.fsmonitor="} {
+		if !strings.Contains(cmds, want) {
+			t.Errorf("the brief lacks %q:\n%s", want, cmds)
+		}
+	}
+	if strings.Contains(cmds, "fetch template") || strings.Contains(cmds, "template/main") {
+		t.Errorf("the brief relies on the remote's name:\n%s", cmds)
+	}
+}
+
+// covers the review of 2026-11-20, (c) — a brief's commands carry the
+// tile's path inert: single-quoted, so a directory name holding $(…), `…`
+// or a quote expands to nothing when sh runs them; a path no command can
+// carry (a control character) gets no brief — by hand.
+func TestUpdateBriefPathsAreInert(t *testing.T) {
+	tile := `apps/a$(touch PWNED)'b` + "`touch PWNED2`"
+	b := server.BuiltinProposalBrief(tile, "tile:gw", 7)
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, tile, ".git"), 0o755); err != nil { // the tile, by its literal name
+		t.Fatal(err)
+	}
+	for _, c := range b.Commands {
+		if !strings.HasPrefix(c, "bx code pr") {
+			continue
+		}
+		// the command as sh reads it, with printf for bx: its words, expanded or not
+		cmd := exec.Command("sh", "-c", "printf '%s\\n' "+strings.TrimPrefix(c, "bx "))
+		cmd.Dir, cmd.Env = dir, append(os.Environ(), "XBIN_WORKSPACE="+dir)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("%s: %v %s", c, err, out)
+		}
+		if strings.Contains(c, ">") {
+			out, _ = os.ReadFile(filepath.Join(dir, tile, ".git", "xbin-update.mbox"))
+		}
+		if !strings.Contains(string(out), tile) {
+			t.Errorf("%s: the path didn't come through as itself:\n%s", c, out)
+		}
+	}
+	for _, f := range []string{"PWNED", "PWNED2"} {
+		if _, err := os.Stat(filepath.Join(dir, f)); err == nil {
+			t.Fatalf("a brief's command ran the tile's path (%s)", f)
+		}
+	}
+}
+
+// covers the review of 2026-11-20, (a) — a line its conversation may not
+// touch (outside the scope) is blocked and stays blocked for a person who
+// is no admin and for an org admin alike — never turned into a line to
+// ask an admin for — and shows nothing of the builtin: its arguments only.
+func TestBuiltinLineOutOfScopeStaysBlocked(t *testing.T) {
+	w := updatesWorld(t)
+	_ = w.b.Users.SetUserTile("erin", "apps/gw", users.LevelRead)
+	for _, user := range []string{"alice", "erin"} {
+		cred, _ := w.freshAgent(t, user, &delegation.SessionScope{Tiles: []string{"apps/inst"}})
+		code, body := w.do("POST", "/delegate/plans", `{"title":"t","items":[{"kind":"builtin.update","args":{"id":"tile:gw"}}]}`, cred)
+		var got delegation.ChangeSet
+		_ = json.Unmarshal([]byte(body), &got)
+		if code != 200 || len(got.Items) != 1 {
+			t.Fatalf("%s: %d %s", user, code, body)
+		}
+		it := w.set(t, user, got.ID).Items[0]
+		if it.Blocked == "" || it.NeedsAdmin {
+			t.Errorf("%s's out-of-scope line: blocked %q, needsAdmin %v", user, it.Blocked, it.NeedsAdmin)
+		}
+		if it.Line != "Update the builtin tile:gw" || len(it.Effects) != 0 || it.Before != nil || it.After != nil {
+			t.Errorf("%s reads the builtin's state: %q %v %s %s", user, it.Line, it.Effects, it.Before, it.After)
+		}
+	}
+}
+
+// covers the review of 2026-11-20, finding 4 — a builtin whose only
+// difference is a file deleted here (upstream left it as it was) has
+// nothing a builtin.update writes: the agent's read leaves it out, while
+// the by-hand listing still offers to restore the file.
+func TestDelegateUpdatesLeavesOutALocalDeletion(t *testing.T) {
+	w := updatesWorld(t)
+	if err := os.WriteFile(filepath.Join(w.root, "apps", "gw", "index.html"), []byte("<p>gw v2</p>\n<p>a</p>\n<p>b</p>\n<p>keep</p>\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(w.root, "apps", "gw", "xbin.json")); err != nil {
+		t.Fatal(err)
+	}
+	cred, _ := w.freshAgent(t, "bob", nil)
+	var got updRead
+	w.getJSON(t, "/delegate/updates", cred, &got)
+	for _, r := range got.Builtins {
+		if r.ID == "tile:gw" {
+			t.Fatalf("a deletion only, offered as a line: %+v", r)
+		}
+	}
+	_, bob := w.session("bob")
+	if code, body := w.do("GET", "/builtins/updates", "", bob); code != 200 || !strings.Contains(body, `"tile:gw"`) {
+		t.Fatalf("the by-hand listing: %d %s", code, body)
+	}
+}
+
+// covers the review of 2026-11-20 (its open question) — can a builtin
+// update whose manifest merges with a local manifest edit put more in
+// force than was approved? No: v2 of the tile raises its agent level
+// (read → full) and adds a use of another scope's tile, the copy here has
+// an edit of its own in the manifest, and the update merges cleanly and
+// is applied by an admin — yet the level in force stays read (the raise is
+// a pending request a person who manages the tile decides, D228) and the
+// use is a pending grant, not a grant. (A use within the tile's own scope
+// and a limits ask within its orgs' ceilings take force from any manifest,
+// whoever writes it: that is the tile writer's already.)
+func TestBuiltinUpdateRaisesNothingInForce(t *testing.T) {
+	w := updatesWorld(t)
+	tiles := func(version int, manifest string) *builtins.Set {
+		set, err := builtins.Load(fstest.MapFS{
+			"gw/tile.json":  {Data: []byte(fmt.Sprintf(`{"name":"gw","title":"Gateway","defaultPath":"apps/gw","version":%d}`, version))},
+			"gw/xbin.json":  {Data: []byte(manifest)},
+			"gw/index.html": {Data: []byte("<p>gw</p>\n")},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return set
+	}
+	v3 := "{\n  \"title\": \"Gateway\",\n  \"a\": 1,\n  \"b\": 2,\n  \"c\": 3,\n  \"agent\": \"read\",\n  \"x\": 1\n}\n"
+	if err := os.WriteFile(filepath.Join(w.root, "apps", "gw", "xbin.json"), []byte(v3), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	u3 := builtins.NewUpdater(w.root, tiles(3, v3), updV2Scaffold)
+	if _, err := u3.ApplyReplace("tile:gw"); err != nil {
+		t.Fatal(err)
+	}
+	w.rescan()
+	c, _ := w.b.Reg.Component("apps/gw")
+	if in, _ := w.b.AgentLevelOf(c); in != "read" {
+		t.Fatalf("the level before: %s", in)
+	}
+	// the edit here: a value of its own, lines away from upstream's change
+	local := strings.Replace(v3, "\"a\": 1,", "\"a\": \"ours\",", 1)
+	if err := os.WriteFile(filepath.Join(w.root, "apps", "gw", "xbin.json"), []byte(local), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	v4 := strings.Replace(v3, "\"agent\": \"read\",\n  \"x\": 1\n", "\"agent\": \"full\",\n  \"x\": 1,\n  \"uses\": [{\"target\": \"apps/x\", \"role\": \"reader\"}]\n", 1)
+	w.b.SetUpdater(builtins.NewUpdater(w.root, tiles(4, v4), updV2Scaffold))
+	_, bob := w.session("bob")
+	cs := w.builtinPlan(t, "bob", "tile:gw")
+	if strings.Contains(cs.Items[0].Line, "proposal") {
+		t.Fatalf("the manifests don't merge cleanly in this fixture: %q", cs.Items[0].Line)
+	}
+	done := w.approve(t, cs.ID, `{"items":[1],"password":"password1","knows":["access.set","builtin.update"]}`, bob)
+	if results(done) != "applied" {
+		t.Fatalf("%s %+v", results(done), done.Items[0])
+	}
+	got := string(readFile(t, filepath.Join(w.root, "apps", "gw", "xbin.json")))
+	if !strings.Contains(got, `"a": "ours"`) || !strings.Contains(got, `"agent": "full"`) || !strings.Contains(got, `"apps/x"`) {
+		t.Fatalf("the merged manifest: %s", got)
+	}
+	w.rescan()
+	c, _ = w.b.Reg.Component("apps/gw")
+	if in, asked := w.b.AgentLevelOf(c); in != "read" || asked != "full" {
+		t.Errorf("the agent level after the update: in force %q, asked %q", in, asked)
+	}
+	if role, ok := w.b.grantedRole("apps/gw", "apps/x"); ok {
+		t.Errorf("the update's use was granted: %s", role)
+	}
+	pending := false
+	for _, g := range w.b.Pending() {
+		pending = pending || g.From == "apps/gw" && g.Target == "apps/x"
+	}
+	if !pending {
+		t.Error("the update's use isn't a pending grant")
 	}
 }

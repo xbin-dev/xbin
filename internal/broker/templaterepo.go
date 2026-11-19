@@ -1,17 +1,18 @@
 package broker
 
 import (
+	"errors"
 	"fmt"
 	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
-	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
 
 	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/builtins"
 	"github.com/xbin-dev/xbin/internal/confine"
 	"github.com/xbin-dev/xbin/internal/sandbox"
 	"github.com/xbin-dev/xbin/internal/server"
@@ -202,7 +203,7 @@ type TemplateInstanceUpdate struct {
 // which also covers never-fetched instances (the object isn't there at
 // all). Filtered to tiles the caller can read.
 func (b *Broker) apiTemplateUpdates(w http.ResponseWriter, r *http.Request) {
-	out, _ := b.templateInstanceUpdates(auth.PrincipalOf(r), false)
+	out, _ := b.templateInstanceUpdates(auth.PrincipalOf(r))
 	server.WriteJSON(w, http.StatusOK, map[string]any{"instances": out})
 }
 
@@ -213,29 +214,25 @@ type tplInfo struct {
 	commits    map[string]bool
 }
 
-// templateInstanceUpdates is GET /templates/updates' rows for p, and each
-// row's instance directory. cheap: a component whose .git/config names no
-// `template` remote is passed over without running git (the workspace
-// agent's read, D248) — the by-hand listing asks git of every repository,
-// so the cheap rows are a subset of its rows.
-func (b *Broker) templateInstanceUpdates(p auth.Principal, cheap bool) ([]TemplateInstanceUpdate, map[string]tplInfo) {
+// templateInstanceUpdates is GET /templates/updates' rows for p — the
+// by-hand listing's and the workspace agent's (D248) — and the templates'
+// heads: a component is an instance only when its .git/config's
+// `template` remote is xbind's own URL for a builtin template, read
+// without running git.
+func (b *Broker) templateInstanceUpdates(p auth.Principal) ([]TemplateInstanceUpdate, map[string]tplInfo) {
 	infos := map[string]tplInfo{} // template name → HEAD + root commit (cached per request)
 	out := []TemplateInstanceUpdate{}
 	for _, c := range b.Reg.Components() {
 		if c.Sealed || !isRepo(c.Dir) || !p.CanReadTile(c.Path) {
 			continue // a sealed component is no instance: it updates with xbind
 		}
-		if cheap {
-			if _, named := parseGitConfig(readRepoFile(c.Dir, ".git/config"))["remote.template.url"]; !named {
-				continue
-			}
-		}
-		url, err := runGitIn(c.Dir, "remote", "get-url", "template")
-		if err != nil {
-			continue // no template remote — not an instance
-		}
-		name := strings.TrimSuffix(path.Base(strings.TrimSpace(url)), ".git")
-		if !templateNameOK(name) {
+		// an instance is a repository whose `template` remote is exactly
+		// xbind's own URL for a builtin template (AddTemplateRemote's): the
+		// tile's writers can point a remote of that name anywhere, and a row
+		// — with a brief that fetches it — must never take their word for it
+		// (review of 2026-11-20, finding 6)
+		name, ok := templateRemoteOf(parseGitConfig(readRepoFile(c.Dir, ".git/config")))
+		if !ok {
 			continue
 		}
 		info, ok := infos[name]
@@ -281,6 +278,9 @@ func (b *Broker) BuiltinUpdateRows() ([]server.BuiltinUpdateRow, error) {
 	}
 	out := make([]server.BuiltinUpdateRow, 0, len(ups))
 	for _, u := range ups {
+		if _, err := b.updater.SafePlan(u.ID); errors.Is(err, builtins.ErrUpToDate) {
+			continue // only files deleted here differ: nothing a builtin.update writes (the by-hand listing offers to restore them)
+		}
 		row := server.BuiltinUpdateRow{ID: u.ID, Kind: u.Kind, Name: u.Name, Tile: u.InstallPath, From: u.FromVersion, To: u.ToVersion,
 			Missing: u.Missing, Adopted: u.Adopted, Clean: u.Clean, Conflicts: u.Conflicts}
 		for _, f := range u.Files {
@@ -307,7 +307,7 @@ func (b *Broker) BuiltinUpdateRows() ([]server.BuiltinUpdateRow, error) {
 // and of its own, from the two histories (confined git, as every git read
 // of a tile; D78).
 func (b *Broker) TemplateUpdateRows(p auth.Principal, keep func(tile string) bool) []server.TemplateUpdateRow {
-	rows, infos := b.templateInstanceUpdates(p, true)
+	rows, infos := b.templateInstanceUpdates(p)
 	out := []server.TemplateUpdateRow{}
 	for _, r := range rows {
 		if !keep(r.Path) {

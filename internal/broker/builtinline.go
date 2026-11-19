@@ -4,11 +4,13 @@ package broker
 // line of a change set or a plan (D248; plans/wsagent/updates.md §2;
 // docs/protocol/delegation.md §Change sets).
 //
-// It applies as POST /builtins/update {id, mode: "safe"} — the by-hand
-// route, its handler, its requireWriter gate — as the approving person:
-// merged when every file merges cleanly, installed when it is a missing
-// essential page, and otherwise filed as a change proposal on its tile
-// (mode "pr"), nothing written. Nothing here writes; this file describes
+// It applies as POST /builtins/update {id, mode: "safe", pin} — the
+// by-hand route, its handler, its requireWriter gate — as the approving
+// person: merged when every file merges cleanly, installed when it is a
+// missing essential page, and otherwise filed as a change proposal on its
+// tile (mode "pr"), nothing written; the pin is the line as it was shown,
+// which the handler checks again under its lock (a line that turned stale
+// in between writes nothing). Nothing here writes; this file describes
 // the line as the person would apply it now:
 //
 //   - ALWAYS AN ADMIN'S: xbin:writer is a workspace admin's (or the Tile
@@ -19,8 +21,10 @@ package broker
 //     refuses any other key; the files are the binary's embedded copy;
 //   - the line is xbind's — the builtin, its path, the versions, how many
 //     files change, and the dry run's verdict: "your local changes are
-//     kept", or "conflicts with your changes: filed as a proposal for
-//     review instead". A scaffold unit is warned (everyone sees it), so it
+//     kept" (a file deleted here among them), or that it conflicts with
+//     changes made here and is filed as a proposal on the tile, which the
+//     tile's coding agent applies there — no review is promised that
+//     nothing enforces. A scaffold unit is warned (everyone sees it), so it
 //     starts unticked;
 //   - pinned, no update, not installed, a missing page's path taken: a
 //     blocked line with the builtin's own reason (delegation.Builtin*);
@@ -33,6 +37,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/xbin-dev/xbin/internal/auth"
@@ -65,6 +70,17 @@ func builtinVersions(u builtins.Unit) (from, to, span string) {
 		return "this workspace's copy", "this xbin's copy", "to this xbin's copy"
 	}
 	return fmt.Sprintf("v%d", u.From), fmt.Sprintf("v%d", u.To), fmt.Sprintf("from v%d to v%d", u.From, u.To)
+}
+
+// without is list less the entries of drop.
+func without(list, drop []string) []string {
+	var out []string
+	for _, v := range list {
+		if !slices.Contains(drop, v) {
+			out = append(out, v)
+		}
+	}
+	return out
 }
 
 // filesWords lists files for an effect: at most eight by name.
@@ -133,6 +149,7 @@ func (b *Broker) previewBuiltinUpdate(p auth.Principal, op delegation.ChangeOp, 
 		if c, ok := b.Reg.Component(u.InstallPath); ok {
 			backend = c.HasBackend()
 		}
+		pv.Call.Body = mustJSON(map[string]string{"id": id, "mode": "safe", "pin": sp.Pin}) // applied only as shown (safe.go)
 		n := len(sp.Changes)
 		switch sp.Mode {
 		case builtins.SafeInstall:
@@ -140,17 +157,22 @@ func (b *Broker) previewBuiltinUpdate(p auth.Principal, op delegation.ChangeOp, 
 			pv.BeforeText, pv.AfterText = "not installed", to
 			pv.Effects = append(pv.Effects, "files written in "+u.InstallPath+": "+filesWords(sp.Changes))
 		case builtins.SafePropose:
-			pv.Line = fmt.Sprintf("Update %s %s: %s change — conflicts with your changes: filed as a proposal for review instead", what, span, plural(n, "file"))
-			pv.AfterText = "unchanged until the proposal is merged"
+			why := "conflicts with changes made here"
+			if sp.Adopted {
+				why = "xbin has no record of what was installed here, so it can't tell changes made here from upstream's"
+			}
+			pv.Line = fmt.Sprintf("Update %s %s: %s change — %s, so nothing is written: it is filed as a proposal on %s, which the tile's coding agent applies there", what, span, plural(n, "file"), why, u.InstallPath)
+			pv.AfterText = "unchanged until the tile's coding agent applies the proposal"
 			pv.After = mustJSON(map[string]any{"version": u.From, "proposal": true})
 			pv.Effects = append(pv.Effects,
-				"nothing in "+u.InstallPath+" changes now: xbin files the update as a change proposal on "+u.InstallPath+", which that tile's agent (or a terminal there) merges — closing it merged completes the update",
-				"the files that conflict with changes made here: "+filesWords(sp.Conflicts))
-		default: // merge, or an adopted copy that only gains files
+				"nothing in "+u.InstallPath+" changes now: xbin files the update as a change proposal on "+u.InstallPath+". The tile's coding agent applies it in the tile — its changes show in the tile's Agent tab and history — and closing it merged records what the tile then holds: the update stays offered for any file that doesn't hold it",
+				"the files that make it a proposal: "+filesWords(sp.Conflicts))
+		default: // the merge, every file of it clean
 			kept := "no file here was edited"
 			if len(sp.Kept)+len(sp.Merged) > 0 {
 				kept = "your local changes are kept"
 			}
+			edited := without(sp.Kept, sp.Deleted)
 			pv.Line = fmt.Sprintf("Update %s %s: %s change — %s", what, span, plural(n, "file"), kept)
 			if n > 0 {
 				pv.Effects = append(pv.Effects, "files written or removed in "+u.InstallPath+": "+filesWords(sp.Changes))
@@ -158,8 +180,11 @@ func (b *Broker) previewBuiltinUpdate(p auth.Principal, op delegation.ChangeOp, 
 			if len(sp.Merged) > 0 {
 				pv.Effects = append(pv.Effects, plural(len(sp.Merged), "file")+" changed both here and upstream "+map[bool]string{true: "is", false: "are"}[len(sp.Merged) == 1]+" merged line by line, without a conflict: "+filesWords(sp.Merged))
 			}
-			if len(sp.Kept) > 0 {
-				pv.Effects = append(pv.Effects, plural(len(sp.Kept), "file")+" edited here that upstream didn't change "+map[bool]string{true: "stays", false: "stay"}[len(sp.Kept) == 1]+" as "+map[bool]string{true: "it is", false: "they are"}[len(sp.Kept) == 1]+": "+filesWords(sp.Kept))
+			if len(edited) > 0 {
+				pv.Effects = append(pv.Effects, plural(len(edited), "file")+" edited here that upstream didn't change "+map[bool]string{true: "stays", false: "stay"}[len(edited) == 1]+" as "+map[bool]string{true: "it is", false: "they are"}[len(edited) == 1]+": "+filesWords(edited))
+			}
+			if len(sp.Deleted) > 0 {
+				pv.Effects = append(pv.Effects, plural(len(sp.Deleted), "file")+" deleted here that upstream didn't change "+map[bool]string{true: "stays", false: "stay"}[len(sp.Deleted) == 1]+" deleted: "+filesWords(sp.Deleted))
 			}
 		}
 		if backend && sp.Mode != builtins.SafePropose {
