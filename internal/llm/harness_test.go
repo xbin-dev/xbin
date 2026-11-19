@@ -34,6 +34,7 @@ type fakeUpstream struct {
 	mu       sync.Mutex
 	auth     []string                                          // every Authorization header seen
 	bodies   []map[string]any                                  // every request body
+	raws     [][]byte                                          // …as the bytes that came
 	headers  []http.Header                                     // every request's headers
 	canceled chan struct{}                                     // closed when a held call's client went away
 	hold     chan struct{}                                     // a streamed call waits on it between its first and last chunks (nil: no wait)
@@ -84,6 +85,7 @@ func (f *fakeUpstream) call(w http.ResponseWriter, r *http.Request, chat bool) {
 	_ = json.Unmarshal(raw, &body)
 	f.note(r, body)
 	f.mu.Lock()
+	f.raws = append(f.raws, raw)
 	fail, hold, usage := f.fail, f.hold, f.usage
 	f.mu.Unlock()
 	if fail != nil && fail(w, r) {

@@ -2,6 +2,7 @@ package llm
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"maps"
 	"net/http"
@@ -317,6 +318,33 @@ func (s *Service) meterName(ctx context.Context, u effUpstream, model string) st
 	return publicName(u, unknownModel)
 }
 
+// effortFor is what is known of model's reasoning on u for a call (D249,
+// effort.go): the configuration's entry, else the upstream's own list as
+// cached — asked for now (bounded) only when it never was — over xbind's
+// table. nil: nothing.
+func (s *Service) effortFor(ctx context.Context, u effUpstream, model string) *EffortRecord {
+	if _, ok := lookupModel(u.Reasoning, model); ok {
+		return effortOf(u, model, nil)
+	}
+	var extra map[string]json.RawMessage
+	if t, err := s.target(u); err == nil {
+		fp := t.BaseURL + "|" + hint(t.Key)
+		e, _, ok := s.models.peek(u.Name, fp, s.now())
+		if !ok {
+			fetch, cancel := context.WithTimeout(ctx, 5*time.Second)
+			e.models, _ = s.upstreamOwn(fetch, u)
+			cancel()
+		}
+		for _, m := range e.models {
+			if m.ID == model {
+				extra = m.Extra
+				break
+			}
+		}
+	}
+	return effortOf(u, model, extra)
+}
+
 // listModels is GET /v1/models for snap: every upstream's models as
 // "<upstream>/<model>" (the upstream's own model object kept, so context
 // sizes and the like pass through), then the aliases and the default
@@ -341,7 +369,8 @@ func (s *Service) listModels(ctx context.Context, snap *snapshot, c Caller) (sdk
 	list := sdkllm.ModelList{Object: "list", Data: []sdkllm.Model{}}
 	errs := map[string]string{}
 	listing := c
-	listing.Listing = true // the policy is asked what to show, not whether a call runs (Caller.Listing)
+	listing.Listing = true                  // the policy is asked what to show, not whether a call runs (Caller.Listing)
+	efforts := map[string]json.RawMessage{} // a listed model's effort, by its public name: its aliases carry it too
 	for i, name := range names {
 		u := snap.upstreams[name]
 		if results[i].err != "" {
@@ -350,6 +379,15 @@ func (s *Service) listModels(ctx context.Context, snap *snapshot, c Caller) (sdk
 		for _, m := range results[i].models {
 			if m.ID == "" || s.refusedByPolicy(listing, u, m.ID) {
 				continue
+			}
+			// what the connector knows of its reasoning (D249): the upstream's own effort member is replaced by
+			// the record made of it, the configuration's and xbind's table; with none, its list's members pass as they came
+			if rec := effortOf(u, m.ID, m.Extra); rec != nil {
+				extra := make(map[string]json.RawMessage, len(m.Extra)+1)
+				maps.Copy(extra, m.Extra)
+				extra["effort"] = rec.listing()
+				m.Extra = extra
+				efforts[publicName(u, m.ID)] = extra["effort"]
 			}
 			m.ID = publicName(u, m.ID)
 			if m.Object == "" {
@@ -366,7 +404,13 @@ func (s *Service) listModels(ctx context.Context, snap *snapshot, c Caller) (sdk
 		if err != nil || s.refusedByPolicy(listing, u, m) {
 			return
 		}
-		list.Data = append(list.Data, sdkllm.Model{ID: id, Object: "model", OwnedBy: "alias", AliasOf: publicName(u, m)})
+		a := sdkllm.Model{ID: id, Object: "model", OwnedBy: "alias", AliasOf: publicName(u, m)}
+		if e, ok := efforts[a.AliasOf]; ok {
+			a.Extra = map[string]json.RawMessage{"effort": e}
+		} else if rec := effortOf(u, m, nil); rec != nil { // a model its upstream doesn't list: what configuration and the table say
+			a.Extra = map[string]json.RawMessage{"effort": rec.listing()}
+		}
+		list.Data = append(list.Data, a)
 	}
 	for _, a := range slices.Sorted(maps.Keys(snap.aliases)) {
 		if a != AliasAny {

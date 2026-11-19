@@ -400,3 +400,22 @@ test('one subject\'s quota: its body, its place in the rules, its lock', () => {
   assert.equal(quotaOf(rules, 'workspace'), null);
   assert.deepEqual(['workspace', 'default', 'user:bob', 'org:eng'].map(quotaLockPath), ['quotas.workspace', 'quotas.default', 'quotas.users', 'quotas.orgs']);
 });
+
+test('reasoning effort: the line a model is described by, the presets, an upstream\'s models (D249)', async () => {
+  const { effortLine, effortWord, presetOf, upstreamModels, REASONING_PRESETS } = await import('../web/llm-kit.js');
+  assert.equal(effortLine({ supported_levels: ['low', 'high', 'max'], default_level: 'high', can_disable: true, source: 'upstream' }),
+    'Reasoning: Low · High · Max (default High; can be off) · from the upstream');
+  assert.equal(effortLine({ supported_levels: ['low', 'medium', 'high'], default_level: 'medium', can_disable: false, source: 'admin' }),
+    'Reasoning: Low · Medium · High (default Medium; always thinks) · from the admin');
+  assert.equal(effortLine({ supported_levels: [], source: 'xbin' }), 'Reasoning: none (an effort sent is dropped) · from xbin');
+  assert.equal(effortLine(null), 'Reasoning: not described — no control is offered');
+  assert.equal(effortLine('junk'), 'Reasoning: not described — no control is offered');
+  assert.equal(effortWord('xhigh'), 'Extra high');
+  const go = read('../internal/llm/effort.go');
+  for (const p of REASONING_PRESETS.filter((p) => p.id)) assert.ok(go.includes(`"${p.id}": {`), `preset ${p.id} is internal/llm's`);
+  const presets = [{ name: 'deepseek', effort: { supported_levels: ['low', 'high', 'max'], default_level: 'high', can_disable: true } }];
+  assert.equal(presetOf({ supported_levels: ['low', 'high', 'max'], default_level: 'high', can_disable: true, source: 'admin' }, presets), 'deepseek');
+  assert.equal(presetOf({ supported_levels: ['low', 'high', 'max'], default_level: 'high', can_disable: true, source: 'upstream' }, presets), '', 'the upstream\'s own is no admin pick');
+  assert.deepEqual(upstreamModels({ data: [{ id: 'h/a', effort: { supported_levels: [] } }, { id: 'h/b', effort: 'x' }, { id: 'xbin/default', owned_by: 'alias' }, { id: 'o/c' }] }, 'h'),
+    [{ id: 'a', effort: { supported_levels: [] } }, { id: 'b', effort: null }]);
+});

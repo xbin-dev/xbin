@@ -13,12 +13,19 @@
  * locks every setting there is no Add. Changing an upstream's scheme, host
  * or port drops its stored key (xbind's rule): the form says so and asks
  * for the key again, or for "remove the key".
+ *
+ * "reasoning…" opens a provider's models with what is known of their
+ * reasoning effort (D249: "Reasoning: Low · High · Max (default High) ·
+ * from the upstream", or "not described") and, unless the host holds the
+ * provider, one pick per model among the presets — no JSON, no request
+ * patches.
  */
 import { LitElement, html, css, nothing } from '/vendor/lit-all.min.js';
 import '/vendor/bx-icons.js';
 import { limitsCss } from '/vendor/bx-limits.js';
 import { llmCss, lockTpl, errTpl } from '/vendor/llm-css.js';
-import { lockOf, fullyLocked, keyWords, modelsWords, testWords, upstreamBody, upstreamDraft, addressChanged, vaultShut, vaultWords, plural } from '/vendor/llm-kit.js';
+import { lockOf, fullyLocked, keyWords, modelsWords, testWords, upstreamBody, upstreamDraft, addressChanged, vaultShut, vaultWords, plural,
+  effortLine, presetOf, upstreamModels, REASONING_PRESETS } from '/vendor/llm-kit.js';
 
 const NEW = '+';
 
@@ -30,6 +37,8 @@ export class BxLlmUpstreams extends LitElement {
     _d: { state: true },           // the editor's draft (upstreamDraft)
     _rm: { state: true },          // the upstream whose removal is being confirmed
     _tests: { state: true },       // name → the test's answer, {running} meanwhile
+    _reason: { state: true },      // the upstream whose models' reasoning is shown, or null
+    _models: { state: true },      // GET /v1/models while that is open ({data}), null before it came
     _busy: { state: true }, _err: { state: true },
   };
   static styles = [limitsCss, llmCss, css`
@@ -37,6 +46,9 @@ export class BxLlmUpstreams extends LitElement {
     td.url { max-width: 22em; }
     .prices { display: grid; grid-template-columns: minmax(8em, 1.6fr) repeat(3, minmax(5em, 1fr)) max-content; gap: 4px 8px; align-items: center; }
     .result { display: flex; gap: 6px; align-items: baseline; }
+    .reason { display: grid; grid-template-columns: minmax(8em, max-content) 1fr minmax(10em, max-content); gap: 4px 12px; align-items: center; }
+    .reason select { max-width: 100%; }
+    @media (max-width: 640px) { .reason { grid-template-columns: 1fr; } }
   `];
   constructor() { super(); this._edit = null; this._tests = {}; this._err = ''; }
 
@@ -66,6 +78,41 @@ export class BxLlmUpstreams extends LitElement {
   async _remove(name) {
     this._busy = true;
     if (this._done(await this.client.deleteUpstream(name), name)) { const { [name]: _, ...rest } = this._tests; this._tests = rest; }
+  }
+  async _openReason(name) {
+    if (this._reason === name) { this._reason = null; return; }
+    this._reason = name; this._models = null; this._err = '';
+    const r = await this.client.models();
+    this._models = r.ok ? r.data : { data: [], error: r.error };
+  }
+  async _setReason(u, model, preset) {
+    this._busy = true;
+    const r = await this.client.putUpstream(u.name, { reasoning: { [model]: preset ? { preset } : null } });
+    this._busy = false;
+    if (!r.ok) { this._err = `${u.name}: ${r.error}`; return; }
+    this._err = '';
+    this.dispatchEvent(new CustomEvent('llm-config', { detail: r.data, bubbles: true, composed: true }));
+    const m = await this.client.models();
+    if (m.ok) this._models = m.data;
+  }
+  // _reasonTpl: the provider's models, each with its reasoning and (unless locked) the preset picker; then the
+  // admin's own entries that name no listed model (a family: "deepseek*").
+  _reasonTpl(u, lock) {
+    if (!this._models) return html`<div class="meta">loading the models…</div>`;
+    const presets = this.cfg?.reasoningPresets ?? [];
+    const models = upstreamModels(this._models, u.name);
+    const own = u.reasoning ?? {};
+    const pick = (model, cur) => html`<select data-reason-pick=${model} aria-label=${`reasoning of ${model}`} ?disabled=${lock.locked || this._busy}
+        @change=${(e) => this._setReason(u, model, e.target.value)}>
+      ${REASONING_PRESETS.map((p) => html`<option value=${p.id} ?selected=${p.id === cur}>${p.label}</option>`)}</select>`;
+    const rows = models.map((m) => html`<span class="mono">${m.id}</span><span data-reason-line=${m.id}>${effortLine(m.effort)}</span>
+      ${pick(m.id, own[m.id] ? presetOf({ ...own[m.id], source: 'admin' }, presets) : '')}`);
+    const families = Object.keys(own).filter((k) => !models.some((m) => m.id === k)).sort().map((k) => html`<span class="mono">${k}</span>
+      <span data-reason-line=${k}>${effortLine(own[k])}</span>${pick(k, presetOf({ ...own[k], source: 'admin' }, presets))}`);
+    return html`<div class="wide">
+      <div class="meta">What the connector knows of each model's reasoning effort: what you describe here, else the provider's own list, else xbin's table. A model nothing describes gets no effort control, and the efforts callers send pass to it untouched.${this._models.error ? ` (The model list could not be read: ${this._models.error}.)` : ''}</div>
+      ${rows.length || families.length ? html`<div class="reason" data-reason=${u.name}>${rows}${families}</div>` : html`<div class="meta">The provider lists no models.</div>`}
+      ${errTpl(this._err)}</div>`;
   }
   async _test(u) {
     this._tests = { ...this._tests, [u.name]: { running: true } };
@@ -153,6 +200,8 @@ export class BxLlmUpstreams extends LitElement {
         <td class="acts">
           <button class="small" data-test ?disabled=${t?.running} title="a one-line call through this provider (metered to you)" @click=${() => this._test(u)}>Test</button>
           <button class="small" data-edit ?disabled=${lock.locked || busy} title=${why} @click=${() => this._open(u.name)}>edit…</button>
+          <button class="small quiet" data-reasoning aria-expanded=${this._reason === u.name ? 'true' : 'false'} title="each model's reasoning effort, and how you describe it"
+            @click=${() => this._openReason(u.name)}>reasoning…</button>
           <button class="small quiet" data-remove ?disabled=${lock.locked || busy} title=${why} @click=${() => { this._rm = u.name; this._edit = null; }}>remove</button>
         </td>
       </tr>
@@ -161,7 +210,8 @@ export class BxLlmUpstreams extends LitElement {
       ${this._rm === u.name ? html`<tr class="sub"><td colspan="6"><div class="line">Remove ${u.name}? Its key goes with it; the usage already counted under its name stays.
         <button class="small primary" data-confirm-remove ?disabled=${busy} @click=${() => this._remove(u.name)}>Remove</button>
         <button class="small quiet" @click=${() => { this._rm = null; }}>Cancel</button></div>${errTpl(this._err)}</td></tr>` : nothing}
-      ${this._edit === u.name ? html`<tr class="sub"><td colspan="6">${this._editor(u)}</td></tr>` : nothing}`;
+      ${this._edit === u.name ? html`<tr class="sub"><td colspan="6">${this._editor(u)}</td></tr>` : nothing}
+      ${this._reason === u.name ? html`<tr class="sub"><td colspan="6">${this._reasonTpl(u, lock)}</td></tr>` : nothing}`;
   }
 
   render() {
@@ -181,6 +231,8 @@ export class BxLlmUpstreams extends LitElement {
     const s = this;
     return {
       get editing() { return s._edit; },
+      get reasoning() { return s._reason; },
+      openReasoning: (name) => s._openReason(name),
       get error() { return s._err; },
       test: (name) => s._tests[name] ?? null,
     };

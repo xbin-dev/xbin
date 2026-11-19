@@ -191,6 +191,17 @@ func OpenRequest(body []byte) (*Request, error) {
 // Member is the raw value of a top-level member (nil when absent).
 func (r *Request) Member(name string) json.RawMessage { return r.m[name] }
 
+// SetMember replaces a top-level member with v, as JSON; nil removes it.
+// Body writes what it holds then. A relay rewrites only what it must (the
+// LLM connector: a reasoning effort mapped onto a model's own levels).
+func (r *Request) SetMember(name string, v json.RawMessage) {
+	if v == nil {
+		delete(r.m, name)
+		return
+	}
+	r.m[name] = v
+}
+
 // Body is the request for an upstream, no member the client sent dropped:
 // model, when not "", replaces the body's; streamUsage makes a streamed
 // Chat Completions call end with its usage chunk

@@ -564,3 +564,49 @@ export const setupAlert = (alerts) => (alerts ?? []).find((a) => a?.kind === 'll
 // isLLMAlert(a): one of the connector's (its setup card, a quota reached,
 // cost quotas that miss unpriced calls).
 export const isLLMAlert = (a) => a?.kind === 'llm-setup' || a?.kind === 'llm-quota' || a?.kind === 'llm';
+
+// ---- reasoning effort (D249) ----
+
+// REASONING_PRESETS are the descriptions an admin gives a model in one pick
+// (PUT /llm/upstreams/<name> {reasoning: {<model>: {preset}}}; internal/llm
+// effortPresets) — '' forgets the admin's description.
+export const REASONING_PRESETS = Object.freeze([
+  { id: '', label: 'not described here (the upstream\'s or xbin\'s, if any)' },
+  { id: 'openai', label: 'OpenAI-style levels (low · medium · high)' },
+  { id: 'toggle', label: 'on / off' },
+  { id: 'deepseek', label: 'DeepSeek-style low · high · max' },
+  { id: 'none', label: 'no reasoning' },
+]);
+
+const EFFORT_WORDS = { none: 'Off', minimal: 'Minimal', low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extra high', max: 'Max' };
+// effortWord('xhigh') → "Extra high": a ladder word as a person reads it.
+export const effortWord = (w) => EFFORT_WORDS[w] ?? String(w ?? '');
+
+const EFFORT_FROM = { upstream: 'from the upstream', xbin: 'from xbin', admin: 'from the admin', host: 'set by your host' };
+
+// effortLine(e) → "Reasoning: Low · High · Max (default High; can be off) ·
+// from the upstream": a model's effort record (GET /v1/models effort) as
+// /xbin/llm and bx llm say it.
+export function effortLine(e) {
+  if (!e || !Array.isArray(e.supported_levels)) return 'Reasoning: not described — no control is offered';
+  const from = EFFORT_FROM[e.source] ?? (e.source ? `from ${e.source}` : '');
+  if (!e.supported_levels.length) return `Reasoning: none (an effort sent is dropped)${from ? ` · ${from}` : ''}`;
+  const notes = [e.default_level ? `default ${effortWord(e.default_level)}` : '', e.can_disable === true ? 'can be off' : e.can_disable === false ? 'always thinks' : ''].filter(Boolean);
+  return `Reasoning: ${e.supported_levels.map(effortWord).join(' · ')}${notes.length ? ` (${notes.join('; ')})` : ''}${from ? ` · ${from}` : ''}`;
+}
+
+// presetOf(e) → the preset an admin's entry is ('' when it is none of them,
+// or not the admin's): what the picker shows as chosen.
+export function presetOf(e, presets) {
+  if (!e || (e.source !== 'admin' && e.source !== 'host')) return '';
+  const key = (r) => JSON.stringify([r?.supported_levels ?? null, r?.default_level ?? '', !!r?.can_disable]);
+  return (presets ?? []).find((p) => key(p.effort) === key(e))?.name ?? '';
+}
+
+// upstreamModels(list, name) → GET /v1/models' models of one upstream
+// (not the aliases), each {id: its own name, effort}.
+export function upstreamModels(list, name) {
+  const pre = `${name}/`;
+  return (list?.data ?? []).filter((m) => m?.owned_by !== 'alias' && String(m?.id ?? '').startsWith(pre))
+    .map((m) => ({ id: String(m.id).slice(pre.length), effort: m.effort && typeof m.effort === 'object' ? m.effort : null }));
+}

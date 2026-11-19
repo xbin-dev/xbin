@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -104,12 +105,24 @@ func (s *Service) apiCall(path string) http.HandlerFunc {
 			s.keyRefusal(u, err).write(w)
 			return
 		}
+		name := s.meterName(r.Context(), u, model)
+		// the caller's reasoning effort, mapped onto the model's own levels when something describes it (D249,
+		// effort.go); an undescribed model's request is relayed exactly as it came
+		eff := s.effortFor(r.Context(), u, model)
+		if dropped, said := effortRewrite(eff, path == sdkllm.PathChat, req.Member, req.SetMember); said != "" || len(dropped) > 0 {
+			if said != "" {
+				answer.Set(EffortHeader, said)
+			}
+			if len(dropped) > 0 {
+				sort.Strings(dropped)
+				answer.Set(DroppedHeader, strings.Join(dropped, ","))
+			}
+		}
 		out, err := req.Body(model, path == sdkllm.PathChat) // a chat stream always ends with its usage chunk: metering needs it
 		if err != nil {
 			refuse(http.StatusBadRequest, "xbin_llm_body", "the request body could not be rewritten for the upstream").write(w)
 			return
 		}
-		name := s.meterName(r.Context(), u, model)
 		h := http.Header{}
 		if a := r.Header.Get("Accept"); a != "" {
 			h.Set("Accept", a)
@@ -130,7 +143,7 @@ func (s *Service) apiCall(path string) http.HandlerFunc {
 				}
 				probed = true // nothing was generated and nothing answered: the call is made again, and metered once
 			}
-			res, sent, ok := ResponsesViaChat(r.Context(), s.plane, w, t, body, req.Model, model, h, answer)
+			res, sent, ok := ResponsesViaChatWith(r.Context(), s.plane, w, t, body, req.Model, model, h, answer, XlateOptions{Effort: eff})
 			if d := w.Header().Get(DroppedHeader); d != "" {
 				// what a client's Responses calls lose on this upstream, in the log once per kind of loss
 				if _, said := s.droppedSaid.LoadOrStore(u.Name+"\x00"+d, true); !said && s.droppedKinds.Add(1) <= 64 {

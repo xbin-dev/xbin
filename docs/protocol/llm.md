@@ -62,7 +62,14 @@ POST   /llm/v1/chat/completions    a caller (above). OpenAI's Chat Completions
                                    on a stream, stream_options.include_usage
                                    → true (the last chunk has empty choices
                                    and the usage; other stream options
-                                   stay). model: a string of at most 200
+                                   stay); for a model whose reasoning is
+                                   described (its effort in GET
+                                   /v1/models), reasoning_effort (and an
+                                   OpenRouter-style reasoning.effort) is
+                                   mapped onto the model's own levels, or
+                                   left out for a model without reasoning
+                                   (llm.md §Reasoning effort) — a model
+                                   nothing describes gets it untouched. model: a string of at most 200
                                    characters without spaces; stream: true
                                    or false (400 otherwise). The answer is
                                    the upstream's, streamed as it arrives
@@ -81,12 +88,22 @@ POST   /llm/v1/chat/completions    a caller (above). OpenAI's Chat Completions
                                    translated Responses call that left
                                    advisory fields or offered hosted tools
                                    out (llm.md §Responses on a chat-only
-                                   upstream)
+                                   upstream), and on a call whose effort a
+                                   model without reasoning can't take
+                                   (reasoning_effort, reasoning.effort);
+                                   X-XBin-LLM-Effort: what effort a
+                                   described model was sent — <level>, or
+                                   <level>; asked=<level> when the caller's
+                                   was mapped, none; asked=<level>; can't
+                                   when the model has no reasoning (only on
+                                   a call that carried an effort, streamed
+                                   or not, on either wire)
 POST   /llm/v1/responses           a caller. OpenAI's Responses request,
-                                   relayed the same way; only model is
-                                   rewritten and the stream's events pass
-                                   untouched (usage is read from
-                                   response.completed). background: true is
+                                   relayed the same way; only model (and a
+                                   described model's reasoning.effort, as
+                                   above) is rewritten and the stream's
+                                   events pass untouched (usage is read
+                                   from response.completed). background: true is
                                    400 xbin_llm_unsupported: an answer that
                                    doesn't pass through can't be metered.
                                    For an upstream that has no Responses
@@ -99,9 +116,19 @@ POST   /llm/v1/responses           a caller. OpenAI's Responses request,
                                    is the name the caller sent, and what
                                    chat can't carry is 400
                                    xbin_llm_translate before anything is
-                                   sent
+                                   sent. A reasoning item the translation
+                                   made of an answer (id rs_<tag>_…, the
+                                   tag naming its upstream and model) goes
+                                   back as reasoning_content on the
+                                   assistant message after it, to that
+                                   model only; any other reasoning item is
+                                   left out and named (input.reasoning). An
+                                   upstream that refuses (400) a request
+                                   carrying it gets it once more without
+                                   it, named the same way
 GET    /llm/v1/models              a caller. {object: "list", data: [{id,
-                                   object, owned_by, alias_of?, …}],
+                                   object, owned_by, alias_of?, effort?,
+                                   …}],
                                    upstream_errors?}: each upstream's models
                                    as <upstream>/<model> — its configured
                                    list, or its own /models answer (cached a
@@ -109,6 +136,18 @@ GET    /llm/v1/models              a caller. {object: "list", data: [{id,
                                    (context sizes pass through) — then the
                                    aliases (owned_by "alias") and
                                    xbin/default, xbin/<role> with alias_of.
+                                   effort: what the connector knows of the
+                                   model's reasoning (D249; an alias: its
+                                   target's) — {supported_levels: [ladder
+                                   words, cheapest first; [] = no
+                                   reasoning], default_level?, can_disable?,
+                                   thinks_by_default?, aliases?, replay?:
+                                   "never", source: upstream | xbin | admin
+                                   | host}; it replaces an upstream's own
+                                   member of that name, whose valid values
+                                   it keeps. Absent: nobody describes the
+                                   model (an upstream's own member that is
+                                   no record passes as it came).
                                    upstream_errors: {<upstream>: why} for a
                                    list that couldn't be read (detail for
                                    admins only)
@@ -267,14 +306,16 @@ GET    /llm/config                 admin. The configuration in force, the
                                    (XBIN_LLM_CONFIG) merged: {configured,
                                    enabled, people, upstreams: [{name, kind,
                                    baseURL, key: {set, source?: vault|host,
-                                   hint?}, models, private, prices?, source:
-                                   admin|host, locked, reason?}], defaults:
+                                   hint?}, models, private, prices?,
+                                   reasoning?, source: admin|host, locked,
+                                   reason?}], defaults:
                                    {model?, roles}, aliases, quotas,
                                    sessions: {agents, terminals, openaiEnv},
                                    locks, concurrency, host: {active,
                                    lockAll?, error?}, vault: open | sealed |
                                    locked | plaintext, problems,
-                                   storeError?, notices?, set?, by?}. locks
+                                   storeError?, notices?, set?, by?,
+                                   reasoningPresets: [{name, effort}]}. locks
                                    maps each setting the host's file sets —
                                    enabled, people, upstreams.<name>,
                                    defaults.model, defaults.roles.<role>,
@@ -320,6 +361,14 @@ PUT    /llm/config                 admin. {enabled?, people?: admins |
 PUT    /llm/upstreams/<name>       admin. Add or change an upstream: {baseURL?,
                                    key?, models?: [<model>], private?,
                                    prices?: {<model>: {in, out, cachedIn?}},
+                                   reasoning?: {<model>: {preset: openai |
+                                   toggle | deepseek | none} | a record |
+                                   null} (by model, keyed like prices: the
+                                   entries named are set, null removes one,
+                                   the rest stay; a record says its
+                                   supported_levels and carries no send
+                                   patch — 400 otherwise; llm.md §Reasoning
+                                   effort),
                                    responsesVia?: "auto" | "upstream" |
                                    "chat" (how its Responses calls are
                                    served; the view adds translating: true

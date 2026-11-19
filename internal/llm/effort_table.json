@@ -1,0 +1,82 @@
+{
+  "about": "The reasoning-effort records xbind ships (D249, docs/llm.md \"Reasoning effort\"): the lowest of three sources, under an admin's or host's entry (upstreams.<name>.reasoning) and the upstream's own model list. Keys as for prices: an exact id, the id after its last '/', or 'prefix*'. Each family was written from its provider's own page, read on the day given; a family or model whose levels its page does not state is left out (no record: callers' efforts pass untouched). Left out on 2026-11-19: OpenAI (its reasoning guide gives defaults, not each model's levels), Gemini 2.5 and 3 (budgets, and no model ids), Qwen's other models, Mistral's and xAI's other models.",
+  "families": [
+    {
+      "family": "DeepSeek API",
+      "models": ["deepseek-flash*", "deepseek-v4*"],
+      "effort": {"supported_levels": ["low", "high", "max"], "default_level": "high", "can_disable": true, "thinks_by_default": true,
+        "aliases": {"minimal": "low", "medium": "high", "xhigh": "high"}},
+      "read": "https://api-docs.deepseek.com/guides/thinking_mode and https://api-docs.deepseek.com/api/list-models, 2026-11-19 (none turns thinking off; minimal→low, medium→high, xhigh→high; its GET /models says the same)"
+    },
+    {
+      "family": "xAI Grok 4.6, 4.7",
+      "models": ["grok-4.7", "grok-4.6"],
+      "effort": {"supported_levels": ["low", "medium", "high", "xhigh"], "default_level": "high", "can_disable": false, "thinks_by_default": true},
+      "read": "https://docs.x.ai/docs/guides/reasoning, 2026-11-19 (\"Reasoning cannot be disabled.\")"
+    },
+    {
+      "family": "xAI Grok 4.5",
+      "models": ["grok-4.5"],
+      "effort": {"supported_levels": ["low", "medium", "high"], "default_level": "high", "can_disable": false, "thinks_by_default": true,
+        "aliases": {"xhigh": "high"}},
+      "read": "https://docs.x.ai/docs/guides/reasoning, 2026-11-19 (xhigh is treated as high)"
+    },
+    {
+      "family": "Gemini 4 (OpenAI-compatible endpoint)",
+      "models": ["gemini-4-neon*", "gemini-4-hydrogen*"],
+      "effort": {"supported_levels": ["low", "medium", "high", "xhigh"], "can_disable": false, "thinks_by_default": true,
+        "aliases": {"minimal": "low"}},
+      "read": "https://aistudio.google.com/docs/openai, 2026-11-19 (minimal→low; xhigh on these two; \"Reasoning cannot be turned off for … Gemini 4 models\")"
+    },
+    {
+      "family": "Kimi K3",
+      "models": ["kimi-k3", "kimi-k3.1-pro"],
+      "effort": {"supported_levels": ["low", "high", "max"], "default_level": "max", "can_disable": false, "thinks_by_default": true},
+      "read": "https://platform.kimi.ai/docs/guide/use-thinking-models, 2026-11-19 (no way to turn reasoning off is documented; the full assistant message, reasoning_content included, goes back)"
+    },
+    {
+      "family": "Z.ai GLM-5.3",
+      "models": ["glm-5.3", "GLM-5.3", "glm-5.3-flash", "GLM-5.3-FLASH"],
+      "effort": {"supported_levels": ["low", "high", "max"], "default_level": "max", "can_disable": false, "thinks_by_default": true},
+      "read": "https://docs.z.ai/guides/capabilities/thinking, 2026-11-19 (disabling thinking is an error)"
+    },
+    {
+      "family": "Z.ai GLM-5.2",
+      "models": ["glm-5.2", "GLM-5.2"],
+      "effort": {"supported_levels": ["minimal", "low", "medium", "high", "xhigh", "max"], "default_level": "max", "can_disable": true, "thinks_by_default": true},
+      "read": "https://docs.z.ai/guides/capabilities/thinking, 2026-11-19"
+    },
+    {
+      "family": "MiniMax M3.1-Flash",
+      "models": ["MiniMax-M3.1-Flash"],
+      "effort": {"supported_levels": ["low", "medium", "high", "xhigh", "max"], "default_level": "max", "can_disable": false, "thinks_by_default": true},
+      "read": "https://platform.minimax.io/docs/api-reference/text-openai-api, 2026-11-19 (always thinks; none is a 400)"
+    },
+    {
+      "family": "Qwen4-Max (Model Studio)",
+      "models": ["qwen4-max"],
+      "effort": {"supported_levels": ["low", "high", "xhigh"], "default_level": "high", "can_disable": true, "thinks_by_default": true,
+        "aliases": {"minimal": "low", "medium": "high", "max": "xhigh"}},
+      "read": "https://www.alibabacloud.com/help/en/model-studio/qwen-api-via-openai-chat-completions, 2026-11-19 (none disables thinking)"
+    },
+    {
+      "family": "Qwen3.8 (Model Studio)",
+      "models": ["qwen3.8-max", "qwen3.8-max-0902", "qwen3.8-flash"],
+      "effort": {"supported_levels": ["low", "medium", "xhigh"], "default_level": "xhigh", "can_disable": true, "thinks_by_default": true,
+        "aliases": {"minimal": "low", "high": "xhigh", "max": "xhigh"}},
+      "read": "https://www.alibabacloud.com/help/en/model-studio/qwen-api-via-openai-chat-completions, 2026-11-19 (none is enable_thinking false)"
+    },
+    {
+      "family": "Mistral Small 4, Medium 3.5",
+      "models": ["mistral-small-2603", "mistral-medium-3-5"],
+      "effort": {"supported_levels": ["high"], "can_disable": true},
+      "read": "https://docs.mistral.ai/inference/conversations/reasoning, 2026-11-19 (high or none; none thinks minimally)"
+    },
+    {
+      "family": "Mistral Large 4",
+      "models": ["mistral-large-4-0", "mistral-large-4"],
+      "effort": {"supported_levels": ["low", "medium", "high"], "default_level": "high", "can_disable": false, "thinks_by_default": true},
+      "read": "https://docs.mistral.ai/inference/conversations/reasoning, 2026-11-19 (\"If you omit reasoning_effort, Mistral Large 4 uses high\"; no none)"
+    }
+  ]
+}

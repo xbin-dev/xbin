@@ -25,15 +25,19 @@ func init() { moreCmds["llm"] = cmdLLM }
 const llmUsage = `  bx llm [status] [--json]              the LLM connector: upstreams, default models, your quota
   bx llm upstream add <name> <base-url> [--key-file <f> | --key-stdin | --no-key]
                  [--models a,b] [--private] [--price <model>=<in>:<out>[:<cached-in>]]…
-                 [--responses-via auto|upstream|chat]
+                 [--responses-via auto|upstream|chat] [--reasoning <model>=<preset>]…
                                         add a provider (the key goes to the vault; it is
                                         asked for when no --key… is given: Enter for none;
                                         never on the command line). --price '*=…' prices
                                         every model the upstream has no price for
   bx llm upstream set <name> [--url <u>] [--key…|--no-key] [--models a,b|--any-model]
                  [--private|--public] [--price …] [--responses-via auto|upstream|chat]
+                 [--reasoning <model>=openai|toggle|deepseek|none|-]…
+                                        --reasoning describes a model's reasoning effort (or a
+                                        family: 'deepseek*=deepseek'); - forgets the description
   bx llm upstream rm <name> | test <name> [<model>]
-  bx llm models [--json]                the models offered (<upstream>/<model>, aliases)
+  bx llm models [--json]                the models offered (<upstream>/<model>, aliases),
+                                        each with its reasoning effort when described
   bx llm default [set <model> [--role agent|harness|…] | unset [--role <role>]]
   bx llm alias [set <alias> <model> | rm <alias>]      "*" catches every unknown model name
   bx llm on | off | people admins|everyone|nobody | concurrency <n>
@@ -74,6 +78,63 @@ type llmUpstream struct {
 	ResponsesVia     string `json:"responsesVia"`
 	Translating      bool   `json:"translating"`
 	TranslatingSince string `json:"translatingSince"`
+	// its own description of its models' reasoning effort (D249), keyed like prices
+	Reasoning map[string]llmEffort `json:"reasoning"`
+}
+
+// llmEffort is a model's reasoning-effort record (D249) as the connector
+// answers it: on a model of GET /v1/models, and in an upstream's reasoning.
+type llmEffort struct {
+	Levels     *[]string `json:"supported_levels"`
+	Default    string    `json:"default_level"`
+	CanDisable *bool     `json:"can_disable"`
+	Source     string    `json:"source"`
+}
+
+// effortLine is "Reasoning: Low · High · Max (default High; can be off) ·
+// from the upstream" — or what is known instead.
+func effortLine(e *llmEffort) string {
+	if e == nil || e.Levels == nil {
+		return "Reasoning: not described — no control is offered"
+	}
+	from := map[string]string{"upstream": "from the upstream", "xbin": "from xbin", "admin": "from the admin", "host": "set by your host"}[e.Source]
+	if from == "" {
+		from = "from " + e.Source
+	}
+	if len(*e.Levels) == 0 {
+		return "Reasoning: none (an effort sent is dropped) · " + from
+	}
+	words := make([]string, len(*e.Levels))
+	for i, l := range *e.Levels {
+		words[i] = effortWord(l)
+	}
+	var notes []string
+	if e.Default != "" {
+		notes = append(notes, "default "+effortWord(e.Default))
+	}
+	if e.CanDisable != nil && *e.CanDisable {
+		notes = append(notes, "can be off")
+	} else if e.CanDisable != nil {
+		notes = append(notes, "always thinks")
+	}
+	line := "Reasoning: " + strings.Join(words, " · ")
+	if len(notes) > 0 {
+		line += " (" + strings.Join(notes, "; ") + ")"
+	}
+	return line + " · " + from
+}
+
+// effortWord is a ladder word as the line says it.
+func effortWord(w string) string {
+	switch w {
+	case "none":
+		return "Off"
+	case "xhigh":
+		return "Extra high"
+	case "":
+		return ""
+	}
+	return strings.ToUpper(w[:1]) + w[1:]
 }
 
 type llmDefaults struct {
@@ -374,6 +435,10 @@ func printLLMConfig(v llmConfig) {
 		case u.ResponsesVia == "upstream":
 			fmt.Println("    Responses calls: the upstream's own, never translated")
 		}
+		for _, m := range llmKeys(u.Reasoning) {
+			e := u.Reasoning[m]
+			fmt.Printf("    %s: %s\n", m, effortLine(&e))
+		}
 		for _, m := range llmKeys(u.Prices) {
 			p := u.Prices[m]
 			cached := ""
@@ -440,7 +505,7 @@ func llmUpstreamCmd(args []string) error {
 	if len(args) == 0 {
 		return llmStatusCmd(false)
 	}
-	pos, vals, on, err := llmFlags(args[1:], map[string]bool{"--key": true, "--key-file": true, "--url": true, "--models": true, "--price": true, "--responses-via": true},
+	pos, vals, on, err := llmFlags(args[1:], map[string]bool{"--key": true, "--key-file": true, "--url": true, "--models": true, "--price": true, "--responses-via": true, "--reasoning": true},
 		map[string]bool{"--key-stdin": true, "--no-key": true, "--private": true, "--public": true, "--any-model": true})
 	if err != nil {
 		return err
@@ -524,6 +589,21 @@ func llmUpstreamCmd(args []string) error {
 			}
 			body["prices"] = prices
 		}
+		if len(vals["--reasoning"]) > 0 { // by model: the rest of the upstream's table stays (the API merges)
+			reasoning := map[string]any{}
+			for _, spec := range vals["--reasoning"] {
+				model, preset, ok := strings.Cut(spec, "=")
+				if !ok || model == "" || preset == "" {
+					return fmt.Errorf("--reasoning %q: want <model>=<preset> (openai, toggle, deepseek, none) or <model>=- to forget it", spec)
+				}
+				if preset == "-" {
+					reasoning[model] = nil
+				} else {
+					reasoning[model] = map[string]string{"preset": preset}
+				}
+			}
+			body["reasoning"] = reasoning
+		}
 		var v llmConfig
 		if err := llmCall("PUT", "/api/xbin/llm/upstreams/"+url.PathEscape(pos[0]), body, &v, nil); err != nil {
 			return err
@@ -599,9 +679,10 @@ func parseLLMPrice(spec string) (string, llmPrice, error) {
 func llmModelsCmd(jsonOut bool) error {
 	var out struct {
 		Data []struct {
-			ID      string `json:"id"`
-			OwnedBy string `json:"owned_by"`
-			AliasOf string `json:"alias_of"`
+			ID      string          `json:"id"`
+			OwnedBy string          `json:"owned_by"`
+			AliasOf string          `json:"alias_of"`
+			Effort  json.RawMessage `json:"effort"`
 		} `json:"data"`
 		Errors map[string]string `json:"upstream_errors"`
 	}
@@ -616,9 +697,14 @@ func llmModelsCmd(jsonOut bool) error {
 	for _, m := range out.Data {
 		if m.AliasOf != "" {
 			fmt.Printf("%s → %s\n", m.ID, m.AliasOf)
-		} else {
-			fmt.Println(m.ID)
+			continue
 		}
+		var e llmEffort
+		if len(m.Effort) == 0 || json.Unmarshal(m.Effort, &e) != nil || e.Levels == nil {
+			fmt.Println(m.ID)
+			continue
+		}
+		fmt.Printf("%s  %s\n", m.ID, effortLine(&e))
 	}
 	for _, name := range llmKeys(out.Errors) {
 		fmt.Fprintf(os.Stderr, "bx: upstream %s: %s\n", name, out.Errors[name])

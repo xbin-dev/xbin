@@ -381,10 +381,30 @@ func (s *Service) apiPutUpstream(w http.ResponseWriter, r *http.Request) {
 		Private *bool              `json:"private"`
 		Prices  *sdkllm.PriceTable `json:"prices"`
 		Via     *string            `json:"responsesVia"`
+		// reasoning: entries to set ({preset} or a record) or, null, to remove — by model (D249)
+		Reasoning map[string]json.RawMessage `json:"reasoning"`
 	}
 	if err := decode(r, &body); err != nil {
-		server.WriteError(w, http.StatusBadRequest, "need {baseURL?, key?, models?: [<model>], private?, prices?: {<model>: {in, out, cachedIn?}}, responsesVia?: auto | upstream | chat, kind?: openai}", docs)
+		server.WriteError(w, http.StatusBadRequest, "need {baseURL?, key?, models?: [<model>], private?, prices?: {<model>: {in, out, cachedIn?}}, responsesVia?: auto | upstream | chat, reasoning?: {<model>: {preset: "+strings.Join(EffortPresetNames, "|")+"} | null}, kind?: openai}", docs)
 		return
+	}
+	reasoning := map[string]*EffortRecord{}
+	for m, raw := range body.Reasoning {
+		if strings.TrimSpace(string(raw)) == "null" {
+			reasoning[m] = nil
+			continue
+		}
+		var rec EffortRecord
+		err := json.Unmarshal(raw, &rec)
+		if err == nil {
+			err = validEntry("reasoning "+m, rec, true)
+		}
+		if err != nil {
+			server.WriteError(w, http.StatusBadRequest, "reasoning "+m+": "+strings.TrimPrefix(err.Error(), "reasoning "+m+": "), docs)
+			return
+		}
+		rec.Source = EffortFromAdmin
+		reasoning[m] = &rec
 	}
 	if body.Key != nil {
 		*body.Key = strings.TrimSpace(*body.Key)
@@ -421,6 +441,19 @@ func (s *Service) apiPutUpstream(w http.ResponseWriter, r *http.Request) {
 		}
 		if body.Prices != nil {
 			u.Prices = *body.Prices
+		}
+		for m, rec := range reasoning { // by model: the rest of the table stays
+			if rec == nil {
+				delete(u.Reasoning, m)
+				continue
+			}
+			if u.Reasoning == nil {
+				u.Reasoning = map[string]EffortRecord{}
+			}
+			u.Reasoning[m] = *rec
+		}
+		if len(u.Reasoning) == 0 {
+			u.Reasoning = nil
 		}
 		if body.Via != nil {
 			if u.ResponsesVia = *body.Via; u.ResponsesVia == ViaAuto {

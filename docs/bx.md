@@ -138,10 +138,12 @@ bx llm upstream add <name> <base-url> [--key-file <f> | --key-stdin | --no-key]
           [--responses-via auto|upstream|chat]
           | set <name> [--url <u>] [--models a,b | --any-model] [--private | --public] [--key… | --no-key] [--price …]
             [--responses-via …]  (chat: Responses calls are translated for an upstream that has only chat completions, D244)
+            [--reasoning <model>=openai|toggle|deepseek|none|-]…  (a model's reasoning effort, D249)
           | rm <name> | test <name> [<model>]
                                        its providers (admin): the key goes to
                                        the vault; test makes a one-line call
-bx llm models [--json]                 the models it offers
+bx llm models [--json]                 the models it offers, each with its
+                                       reasoning effort when described
 bx llm default [set <model> [--role <role>] | unset [--role <role>]]
 bx llm alias [set <alias> <model> | rm <alias>] | on | off | people admins|everyone|nobody
           | concurrency <n>
@@ -541,7 +543,12 @@ key is only sent to the address it was set for — and prints a note. `--models 
 through); `--private` marks it for org constraints; `--price
 gpt-5=1.25:10:0.125` prices a model in USD per million input, output and
 cached-input tokens (`--price '*=5:15'`: every model without a price of its
-own). `upstream test <name> [<model>]` makes the smallest call through it —
+own). `--reasoning 'deepseek*=deepseek'` describes a model's (or a
+family's) reasoning effort with a preset — `openai`, `toggle`, `deepseek`,
+`none` — and `--reasoning <model>=-` forgets it ([llm.md](/docs/llm.md)
+§Reasoning effort); `bx llm` lists an upstream's entries and `bx llm
+models` each model's "Reasoning: Low · High · Max (default High; can be
+off) · from the upstream". `upstream test <name> [<model>]` makes the smallest call through it —
 metered to you, held by your quota, refused while the connector is off —
 and exits non-zero with the provider's message when it fails. `default set <model>` sets the model of a call that names
 none (`xbin/default`); `--role agent|harness|<any>` sets `xbin/<role>`.

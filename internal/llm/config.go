@@ -76,7 +76,14 @@ type Upstream struct {
 	// when it has one, else translated to a chat completion; "upstream" —
 	// always its own; "chat" — always translated.
 	ResponsesVia string `json:"responsesVia,omitempty"`
+	// Reasoning describes its models' reasoning knobs (D249, effort.go), keyed
+	// like Prices ("deepseek*" a family): an entry here is the whole truth
+	// for its models, over what the upstream's own list and xbind's table say.
+	Reasoning map[string]EffortRecord `json:"reasoning,omitempty"`
 }
+
+// maxReasoningEntries bounds an upstream's reasoning table.
+const maxReasoningEntries = 256
 
 // The people switch.
 const (
@@ -141,6 +148,17 @@ func validUpstream(name string, u Upstream) error {
 	for m, p := range u.Prices {
 		if m == "" || !p.Valid() {
 			return fmt.Errorf("upstream %s: the price of %q: USD per million tokens, never negative", name, m)
+		}
+	}
+	if len(u.Reasoning) > maxReasoningEntries {
+		return fmt.Errorf("upstream %s: reasoning: at most %d entries", name, maxReasoningEntries)
+	}
+	for _, m := range slices.Sorted(maps.Keys(u.Reasoning)) {
+		if err := validModelName("upstream "+name+" reasoning", m); err != nil {
+			return err
+		}
+		if err := validEntry("upstream "+name+" reasoning "+m, u.Reasoning[m], false); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -283,6 +301,13 @@ func (s Settings) clone() Settings {
 	for k, u := range s.Upstreams {
 		u.Models = slices.Clone(u.Models)
 		u.Prices = cloneMap(u.Prices)
+		if u.Reasoning != nil {
+			r := make(map[string]EffortRecord, len(u.Reasoning))
+			for m, rec := range u.Reasoning {
+				r[m] = rec.clone()
+			}
+			u.Reasoning = r
+		}
 		out.Upstreams[k] = u
 	}
 	out.Defaults.Roles = cloneMap(s.Defaults.Roles)
