@@ -256,6 +256,11 @@ func rollup(files map[string]string) string {
 // record writes the base snapshot + marker entry for a unit aligned to `files`
 // (the installed form of the given version).
 func (u *Updater) record(def unitDef, installPath string, files map[string][]byte) error {
+	return u.recordAs(def, installPath, files, def.Version)
+}
+
+// recordAs is record at version.
+func (u *Updater) recordAs(def unitDef, installPath string, files map[string][]byte, version int) error {
 	snap := u.snapDir(def.ID)
 	_ = os.RemoveAll(snap)
 	hashes := make(map[string]string, len(files))
@@ -271,7 +276,7 @@ func (u *Updater) record(def unitDef, installPath string, files map[string][]byt
 	}
 	o := u.load()
 	o.Units[def.ID] = &UnitState{
-		Source: def.ID, InstallPath: installPath, Version: def.Version,
+		Source: def.ID, InstallPath: installPath, Version: version,
 		Hash: rollup(hashes), Files: hashes,
 	}
 	return u.save(o)
@@ -734,7 +739,8 @@ func (u *Updater) Propose(id string) (*Proposal, error) {
 		"  git clone \"$XBIN_WORKSPACE/" + installPath + "\" /tmp/upd && cd /tmp/upd\n" +
 		"  bx code pr fetch <n> | git am --3way    # resolve, build, test\n" +
 		"  git -C \"$XBIN_WORKSPACE/" + installPath + "\" pull /tmp/upd && bx code pr close <n> --merged\n" +
-		"Closing merged refreshes update tracking; rejecting keeps the update offered.")
+		"Closing merged (a person's call, never the tile's own code) records the files that then hold\n" +
+		"the update; it stays offered for the rest, as rejecting keeps it offered.")
 
 	to, notes := u.proposalPartition(installPath, base, theirs) // the series never touches "partition"
 	notes = append(notes, unread...)
@@ -753,33 +759,6 @@ func (u *Updater) Propose(id string) (*Proposal, error) {
 		ID: id, InstallPath: installPath, Title: title, Message: msg.String(),
 		Series: series, ToVersion: uu.ToVersion, ToHash: rollup(hashes), Notes: notes,
 	}, nil
-}
-
-// RecordApplied refreshes a unit's provenance after its proposal PR closed
-// merged. toHash guards against the embed having moved since the PR was
-// filed (a newer xbind): a mismatched proposal must not claim currency.
-func (u *Updater) RecordApplied(id, toHash string) error {
-	def, ok := u.defByID(id)
-	if !ok {
-		return noSuchUnit(id)
-	}
-	o := u.load()
-	installPath := def.DefaultPath
-	if state := o.Units[id]; state != nil {
-		installPath = state.InstallPath
-	}
-	theirs, err := u.render(def, installPath)
-	if err != nil {
-		return err
-	}
-	hashes := make(map[string]string, len(theirs))
-	for rel, data := range theirs {
-		hashes[rel] = sha(data)
-	}
-	if got := rollup(hashes); got != toHash {
-		return fmt.Errorf("embedded %s changed since the proposal was filed (a newer xbind?) — refresh the Updates tab and propose again", id)
-	}
-	return u.record(def, installPath, theirs)
 }
 
 // Pin/unpin stop/resume offering updates for a unit.

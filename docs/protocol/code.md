@@ -83,5 +83,19 @@ POST   /code/pr/state              {target, n, state, comment?}. merged and
                                    backend decides none: 403 "deciding a PR
                                    is the primary's act: a non-primary
                                    deployment's backend can't do it
-                                   (<deployment>)".
+                                   (<deployment>)". A builtin-update
+                                   proposal (kind "builtin-update") closes
+                                   merged only by a person — an admin, a
+                                   user who may write the tile, or that
+                                   person's terminal session in the tile —
+                                   never by the tile's backend, a frame of
+                                   it or another tile (403): tile code
+                                   can't bury an update. Its merged close
+                                   records as updated only the files that
+                                   hold upstream's change (equal to it, or
+                                   carrying it beside edits of their own);
+                                   the others keep their recorded base, so
+                                   the update stays offered for them, and
+                                   the PR's meta names them: pending
+                                   [paths] (absent when none).
 ```

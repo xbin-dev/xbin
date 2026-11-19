@@ -29,6 +29,13 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   they are. Instantiating a workspace template reads its files the same
   way: a link in it fails the copy.
   ([tiles.md](/docs/protocol/tiles.md), [lifecycle](/docs/overview/14-lifecycle.md#keeping-code-fresh))
+- code PRs: **closing a builtin-update proposal merged is a person's
+  call, and records what the tile holds.** The tile's backend, a frame of
+  it or another tile's code gets 403 (an admin, a user who may write the
+  tile, or their terminal session in it may); the close records as
+  updated only the files that hold upstream's change, the update stays
+  offered for the rest, and the PR's meta names them (`pending`).
+  ([code.md](/docs/protocol/code.md))
 
 ## 2026-11-19
 

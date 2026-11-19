@@ -256,7 +256,11 @@ POST   /builtins/update             xbin:writer. body {id, mode:
                                    version; a newer embed auto-withdraws the
                                    stale open proposal. Such PRs carry
                                    kind:"builtin-update" + builtin/toVersion/
-                                   toHash in their meta. Never touches
+                                   toHash in their meta; closing one merged
+                                   is a person's call, and records only
+                                   what the tile then holds
+                                   (docs/protocol/code.md POST
+                                   /code/pr/state). Never touches
                                    template instances.
 GET    /templates                   any. template blueprints (builtin ∪ workspace).
                                    [{id,source,title,description,defaultName,

@@ -484,7 +484,9 @@ component nested in the unit that it doesn't ship, is never followed, read
 or written through — it lists as a conflict that says why, and only a
 replace puts upstream's file in place of a link or a FIFO. A merge writes
 each file only while it is what the merge read, so an edit made meanwhile
-stops it there, said.
+stops it there, said. A **pr** proposal's merged close (a person's call,
+never the tile's own code) records only the files that then hold
+upstream's change; the update stays offered for the rest.
 Template *instances* are deliberately never tracked here: they're forks meant to diverge, served by the `template`
 remote instead. A builtin xbind stops shipping is **retired** (`devbox`,
 2026-09-27): copies already imported are left alone and no longer offered
