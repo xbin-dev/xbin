@@ -219,11 +219,8 @@ type wsMCPCall struct {
 
 // wsMCPResult is what a tool answered.
 type wsMCPResult struct {
-	IsError bool `json:"isError"`
-	Content []struct {
-		Type string `json:"type"`
-		Text string `json:"text,omitempty"`
-	} `json:"content"`
+	IsError    bool            `json:"isError"`
+	Content    []mcpBlock      `json:"content"` // xbind passes the server's blocks as they are (mcp_content.go reads them)
 	Structured json.RawMessage `json:"structured,omitempty"`
 }
 

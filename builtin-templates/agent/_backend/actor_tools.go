@@ -423,11 +423,16 @@ func toolNames(calls []toolCall) []string {
 	return out
 }
 
-func capToolResult(s string) string {
-	if len(s) <= maxToolResult {
+func capToolResult(s string) string { return capTo(s, maxToolResult) }
+
+// capTo is capToolResult to n bytes (at least 1 KiB): the head and the tail,
+// the middle elided.
+func capTo(s string, n int) string {
+	n = max(n, 1<<10)
+	if len(s) <= n {
 		return s
 	}
-	head, tail := maxToolResult*3/4, maxToolResult/4
+	head, tail := n*3/4, n/4
 	h := strings.ToValidUTF8(s[:head], "")
 	t := strings.ToValidUTF8(s[len(s)-tail:], "")
 	return fmt.Sprintf("%s\n…[%d bytes elided — output truncated; narrow the query/read a range if you need the middle]…\n%s",

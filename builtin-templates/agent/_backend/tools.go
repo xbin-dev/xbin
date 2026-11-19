@@ -524,7 +524,7 @@ func (ag *Agent) runTool(ctx context.Context, run *Run, cfg Config, name string,
 		return ag.runReplTool(ctx, run, cfg, name, args)
 	}
 	if strings.HasPrefix(name, "mcp:") {
-		return ag.mcpCall(ctx, cfg, name, args)
+		return ag.mcpCall(ctx, run, cfg, name, args)
 	}
 	return "", fmt.Errorf("unknown tool %q", name)
 }

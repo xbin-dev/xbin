@@ -263,11 +263,11 @@ func TestDirectMCPOAuth(t *testing.T) {
 	if got := toolNamesOf(ag.mcpTools(withMCPOwner(context.Background(), "bob"), Config{})); got["mcp:my-travel:echo"] {
 		t.Fatalf("bob's conversation got alice's server: %v", got)
 	}
-	out, err := ag.mcpCall(aliceCtx, Config{}, "mcp:my-travel:echo", map[string]any{"text": "hi"})
+	out, err := ag.mcpCall(aliceCtx, nil, Config{}, "mcp:my-travel:echo", map[string]any{"text": "hi"})
 	if err != nil || out != "echo: hi" {
 		t.Fatalf("a call: %q %v", out, err)
 	}
-	if _, err := ag.mcpCall(withMCPOwner(context.Background(), "bob"), Config{}, "mcp:my-travel:echo", map[string]any{"text": "x"}); err == nil {
+	if _, err := ag.mcpCall(withMCPOwner(context.Background(), "bob"), nil, Config{}, "mcp:my-travel:echo", map[string]any{"text": "x"}); err == nil {
 		t.Fatal("bob's conversation called alice's server")
 	}
 
@@ -275,19 +275,19 @@ func TestDirectMCPOAuth(t *testing.T) {
 	tk := directTokens(s.ID)
 	tk.ExpiresMs = nowMs() + 1000
 	_ = putDirectTokens(s.ID, tk)
-	if out, err := ag.mcpCall(aliceCtx, Config{}, "mcp:my-travel:echo", map[string]any{"text": "again"}); err != nil || out != "echo: again" || f.refreshed != 1 {
+	if out, err := ag.mcpCall(aliceCtx, nil, Config{}, "mcp:my-travel:echo", map[string]any{"text": "again"}); err != nil || out != "echo: again" || f.refreshed != 1 {
 		t.Fatalf("after a refresh: %q %v (refreshed %d)", out, err, f.refreshed)
 	}
 	// an access token the server stopped taking is refreshed on its 401
 	f.mu.Lock()
 	delete(f.access, directTokens(s.ID).Access)
 	f.mu.Unlock()
-	if out, err := ag.mcpCall(aliceCtx, Config{}, "mcp:my-travel:echo", map[string]any{"text": "401"}); err != nil || out != "echo: 401" || f.refreshed != 2 {
+	if out, err := ag.mcpCall(aliceCtx, nil, Config{}, "mcp:my-travel:echo", map[string]any{"text": "401"}); err != nil || out != "echo: 401" || f.refreshed != 2 {
 		t.Fatalf("after a 401: %q %v (refreshed %d)", out, err, f.refreshed)
 	}
 	// a revoked grant: the call says sign in again, and the server waits for it
 	f.revokeAll()
-	if _, err := ag.mcpCall(aliceCtx, Config{}, "mcp:my-travel:echo", map[string]any{"text": "x"}); err == nil || !strings.Contains(err.Error(), "sign in again") {
+	if _, err := ag.mcpCall(aliceCtx, nil, Config{}, "mcp:my-travel:echo", map[string]any{"text": "x"}); err == nil || !strings.Contains(err.Error(), "sign in again") {
 		t.Fatalf("a revoked grant: %v", err)
 	}
 	if row, _ := ag.db.directServer(s.ID); row.State != mcpSignin {
@@ -366,7 +366,7 @@ func TestDirectMCPGlobalAndToken(t *testing.T) {
 	if b.Auth != mcpAuthBearer || b.State != mcpReady || !b.SignedIn || len(b.Tools) != 1 || strings.Contains(w.Body.String(), "static-1") {
 		t.Fatalf("the token's server: %s", w.Body)
 	}
-	if out, err := ag.mcpCall(withMCPOwner(context.Background(), "bob"), Config{}, "mcp:my-tok:echo", map[string]any{"text": "t"}); err != nil || out != "echo: t" {
+	if out, err := ag.mcpCall(withMCPOwner(context.Background(), "bob"), nil, Config{}, "mcp:my-tok:echo", map[string]any{"text": "t"}); err != nil || out != "echo: t" {
 		t.Fatalf("a call with the token: %q %v", out, err)
 	}
 }
@@ -444,7 +444,7 @@ func TestDirectMCPPartitions(t *testing.T) {
 		t.Fatalf("a conversation not hers: %v", got)
 	}
 	n := len(paths)
-	if _, err := ag.mcpCall(context.Background(), Config{}, "mcp:docs:search", map[string]any{}); err != nil {
+	if _, err := ag.mcpCall(context.Background(), nil, Config{}, "mcp:docs:search", map[string]any{}); err != nil {
 		t.Fatalf("a global call from the partition: %v", err)
 	}
 	if len(paths) == n || !strings.HasPrefix(paths[len(paths)-1], "POST /mcp/servers/"+g.ID+"/rpc") {

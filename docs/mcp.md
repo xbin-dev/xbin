@@ -62,6 +62,28 @@ One JSON-RPC 2.0 request per `POST /mcp` (`Content-Type: application/json`), ans
 | `tools/list` | — | `{tools: [{name, title?, description, inputSchema, annotations?}]}` |
 | `tools/call` | `{name, arguments?}` | `{content: [{type: "text", text}], structuredContent?, isError}` |
 
+**Returning a file.** A tool that returns bytes — a PDF, a page image — puts
+them in a content block of their own, after a text block that says what they
+are: an **embedded resource** (`{type: "resource", resource: {uri, mimeType,
+blob}}`, `blob` base64) or an **image** (`{type: "image", mimeType, data}`;
+`audio` likewise):
+
+```json
+{"content": [
+  {"type": "text", "text": "{\"document_id\": 3317, \"total_bytes\": 328843}"},
+  {"type": "resource", "resource": {"uri": "paperless://documents/3317/invoice.pdf",
+    "mimeType": "application/pdf", "blob": "JVBERi0xLjQK…"}}
+], "isError": false}
+```
+
+The agent template saves such a block in the conversation's session files
+(`mcp/<server>/invoice.pdf`) and gives its model the path, type, size and
+sha256 — never the base64 — so the model reads it with `files.readBytes` in
+`js_eval`; a `resource_link` is named, not fetched. Name the file in the
+`uri`'s last segment (or the resource's `title`), keep one answer under
+16 MiB, and page larger files (`builtin-templates/agent/API.md` §What an
+MCP tool returns besides text).
+
 - **Version negotiation.** `initialize` answers the client's `protocolVersion` when the server speaks it (`2025-11-25`, `2025-06-18`, `2025-03-26`, `2024-11-05`), else its newest; the client decides whether it can go on.
 - **Notifications** — a message with no `id` (`notifications/initialized`) — get `202` and no body.
 - **Errors** are JSON-RPC's: `-32700` the body isn't JSON (`400`), `-32600` not a request (`400`), `-32601` an unknown method, `-32602` bad params or an unknown tool. A tool's own failure — an argument out of range, an argument the schema doesn't name — is a *result* with `isError: true` and the reason as its text, which the calling model reads and can correct.

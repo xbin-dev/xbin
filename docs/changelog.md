@@ -10,6 +10,22 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-11-19
+
+- agent template: **a file an MCP tool returns reaches the model as a
+  session file** — it was dropped without a word. An embedded resource
+  with a `blob`, an `image` or an `audio` block is saved under
+  `mcp/<server>/<name>` in the conversation's session files, and the model
+  reads one line per block after the tool's own text: the path, type,
+  size, sha256 and `files.readBytes("…")`; never the base64. A small text
+  resource is shown in place, a `resource_link` is named (not fetched), and
+  a block over a limit (16 MiB or 16 files per result) or with bad base64 is
+  named with why it wasn't kept. Without session files — and in the
+  workspace agent's `mcp_call` — each block is one line saying what came. A
+  server's `mimeType` is a label only: the file is typed by its bytes. How
+  a tool returns a file: [mcp.md §The wire](/docs/mcp.md#the-wire). An
+  existing assistant gets it with its template update.
+
 ## 2026-11-18
 
 - shell: **the top bar stays put, and a tile's menu reaches the

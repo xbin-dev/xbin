@@ -1552,6 +1552,54 @@ write one — a Go backend tile that provides `mcp` — and bind this tile's
 complete server); `GET /tools` says what reached a
 conversation. Extend these in `_backend/tools.go`.
 
+**What an MCP tool returns besides text** (`_backend/mcp_content.go`). The
+model reads a result's text blocks joined, as before, then — after them, so
+a server's own JSON envelope still reads first — one line per other block,
+under `[xbin: the tool also returned N blocks that are not text …]`:
+
+- an embedded `resource` with a `blob`, an `image`, an `audio` block: in a
+  conversation with session files (the class's `files` toolset and the
+  `files` feature) its bytes are **saved as a session file** under
+  `mcp/<server>/<name>` and the line names it — `saved
+  mcp/<server>/<name> — <type>, <size> (<bytes>), sha256 <hex>; read it with
+  files.readBytes("…") in js_eval` (or "it is in your session files" without
+  the REPL). The name is the resource's `title`/`name`, else its `uri`'s last
+  segment when that has an extension, else its last three segments
+  (`paperless://documents/3317/download` → `documents-3317-download.pdf`),
+  else `<tool>-<first 10 hex of sha256>`; percent-escapes undone once, scheme,
+  query and fragment dropped, everything but ASCII letters, digits and
+  `. _ -` made `-`, at most 72 bytes; `<server>` likewise (`apps/paperless` →
+  `apps-paperless`). The type is what the bytes sniff as, unless the
+  server's `mimeType` is on a fixed allow-list and agrees with them (a zip
+  that is a `.docx`, text that is CSV, audio sniffing can't place); HTML,
+  SVG and XML are believed only when the bytes sniff as them. The extension
+  is that type's (`.bin` for one off the list), appended when the name's own
+  differs. The same bytes at the same name write nothing ("unchanged — the
+  same bytes as its v1"); different bytes become its next version, the
+  earlier kept (`session:<path>@1`). Two blocks of one result at one name are
+  two files (`-2`, `-3`, …); the same bytes twice, one. A PNG, JPEG, GIF or
+  WebP up to 3 MB is also shown to a vision model after that turn's tool
+  results, as `file_view` does — only a file this very call saved.
+- an embedded `resource` with `text`: shown in place when ≤ 4 KiB (8 KiB of
+  such text per result), else saved like a blob.
+- `resource_link`: named — uri, name, type, size — never fetched.
+- Limits, each said in the block's line, the rest of the result still
+  arriving: one file ≤ the session file cap (128 MiB), one result's saved
+  bytes ≤ 16 MiB, ≤ 16 files per result (the rest one line: "not saved: 4
+  more blocks (…) — over the limit of 16 files"), base64 that doesn't
+  decode, a store that is full. A `tools/call` answer over 24 MiB is an error
+  that says so (other methods: 8 MiB); a partition calling a global direct
+  server through its global instance reads 4 MiB of the answer.
+- Without session files — the files feature off, or the workspace agent's
+  `mcp_call` — each block is a line saying what came and that it wasn't kept
+  ("an application/pdf file … of 321.1 KiB (328,843 bytes) was returned; this
+  agent can't keep files — ask a tile's agent to fetch it"); a large text
+  resource shows its first 4 KiB.
+
+The bytes never reach the model's context as base64. A result whose content
+is all text is unchanged; `structuredContent` is shown (clipped to 4 KiB)
+only when no text block is there to carry it.
+
 ### The task and compaction (D133)
 
 **The task ledger.** Every request a run is given is recorded verbatim, in the
