@@ -1,0 +1,298 @@
+package server
+
+// delegateupdates.go — GET /delegate/updates[?tile=]: what has an update
+// waiting, for a person's agent, in one read (D248; plans/wsagent/
+// updates.md §1; docs/protocol/delegation.md §Updates).
+//
+// Nothing here is new reach. Each row is a row of the person's own by-hand
+// listings — GET /builtins/updates (any signed-in principal; the broker's
+// BuiltinUpdateRows is its function) and GET /templates/updates (the tiles
+// the person can read; TemplateUpdateRows is its function) — held, row by
+// row, to the agent's gates: the tile readable, inside the conversation's
+// scope, its orgs' rules letting the agent in; a row that is shown taints
+// the conversation with the tile's orgs, as a listing's row does. What a
+// row adds is cheap and exact: the files edited here only (the by-hand
+// row's own file statuses, counted), an open builtin-update proposal on
+// the tile (the person's GET /code/prs?target=), an instance's commits
+// behind its template and of its own (its git history), and the next
+// step, with xbind's brief where it is a tile agent's.
+//
+// The brief is built from xbind's own names only — the tile's path, the
+// template's catalog name, the builtin's id, counts, a proposal's number:
+// never a title, a commit message or anything else a tile wrote.
+// TestDelegateUpdatesIsTheByHandListing holds the rows to the by-hand
+// listings for every agent level, scope and org rule.
+
+import (
+	"fmt"
+	"net/http"
+	"strings"
+
+	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/delegation"
+	"github.com/xbin-dev/xbin/internal/registry"
+)
+
+// UpdatesSource is the broker's part of the read (the file comment).
+type UpdatesSource interface {
+	// BuiltinUpdateRows are GET /builtins/updates' rows, each with the open
+	// builtin-update proposal on its tile (0: none).
+	BuiltinUpdateRows() ([]BuiltinUpdateRow, error)
+	// TemplateUpdateRows are GET /templates/updates' rows for p, of the
+	// tiles keep lets through (asked only of rows the by-hand listing
+	// has), with their commit counts.
+	TemplateUpdateRows(p auth.Principal, keep func(tile string) bool) []TemplateUpdateRow
+}
+
+// BuiltinUpdateRow is one row of GET /builtins/updates, as the read needs it.
+type BuiltinUpdateRow struct {
+	ID, Kind, Name, Tile     string
+	From, To                 int
+	Missing, Adopted         bool
+	Clean, Conflicts, Edited int
+	Proposal                 int
+}
+
+// TemplateUpdateRow is one row of GET /templates/updates, with its counts:
+// Behind, the template's commits the instance lacks; Local, its own
+// non-merge commits that are no template's and not xbind's instantiate
+// commit (-1 each: not counted — a history past the bound).
+type TemplateUpdateRow struct {
+	Tile, Template string
+	Behind, Local  int
+	Legacy         bool
+}
+
+// UpdateBrief is xbind's brief for a tile agent that applies an update:
+// the fields of tile_agent_brief, and the commands it names, in order.
+type UpdateBrief struct {
+	Goal       string   `json:"goal"`
+	DoneWhen   string   `json:"doneWhen"`
+	LeaveAlone string   `json:"leaveAlone"`
+	CheckBy    string   `json:"checkBy"`
+	Known      string   `json:"known"`
+	Commands   []string `json:"commands"`
+}
+
+// The next steps a row names.
+const (
+	updateNextPropose   = "propose"    // a builtin.update line
+	updateNextTileAgent = "tile-agent" // the tile's agent, with xbind's brief
+	updateNextByHand    = "by-hand"    // nothing a workspace agent can take further: why says who can
+)
+
+type builtinUpdateView struct {
+	ID        string       `json:"id"`
+	Kind      string       `json:"kind"`
+	Tile      string       `json:"tile"`
+	Title     string       `json:"title,omitempty"`
+	From      int          `json:"from"`
+	To        int          `json:"to"`
+	Missing   bool         `json:"missing,omitempty"`
+	Adopted   bool         `json:"adopted,omitempty"`
+	Clean     int          `json:"clean"`
+	Conflicts int          `json:"conflicts"`
+	Edited    int          `json:"edited"`
+	Level     string       `json:"level"`
+	Agent     string       `json:"agent,omitempty"`
+	Proposal  int          `json:"proposal,omitempty"`
+	Next      string       `json:"next"`
+	Why       string       `json:"why,omitempty"`
+	Brief     *UpdateBrief `json:"brief,omitempty"`
+}
+
+type instanceUpdateView struct {
+	Tile     string       `json:"tile"`
+	Title    string       `json:"title,omitempty"`
+	Template string       `json:"template"`
+	Behind   int          `json:"behind"`
+	Local    int          `json:"local"`
+	Legacy   bool         `json:"legacy,omitempty"`
+	Level    string       `json:"level"`
+	Agent    string       `json:"agent,omitempty"`
+	Next     string       `json:"next"`
+	Why      string       `json:"why,omitempty"`
+	Brief    *UpdateBrief `json:"brief,omitempty"`
+}
+
+func (s *Server) registerUpdatesAPI() {
+	s.RegisterAPI("GET /delegate/updates", s.apiDelegateUpdates)
+}
+
+// apiDelegateUpdates — GET /delegate/updates[?tile=]: the person's agent
+// (the file comment). With ?tile= the gate judged that tile (byTileQuery);
+// the rows are held one by one either way.
+func (s *Server) apiDelegateUpdates(w http.ResponseWriter, r *http.Request) {
+	a, ok := s.delegateCaller(w, r, false, false, true)
+	if !ok {
+		return
+	}
+	p := a.p
+	only := strings.Trim(r.URL.Query().Get("tile"), "/")
+	if only != "" && (s.tileHidden(p, only) || s.delegateHides(p, only)) {
+		delegateRefuse(w, http.StatusForbidden, "tile", DelegateRead.String(), noTileFor(p.UserID))
+		return
+	}
+	src, ok := s.ChangeSets.(UpdatesSource)
+	if !ok {
+		WriteJSON(w, http.StatusOK, map[string]any{"builtins": []any{}, "instances": []any{}, "leftOut": map[string]int{"hiddenByYou": 0, "blocked": 0}})
+		return
+	}
+	person := personOf(p)
+	h, hasHandle := s.handleOf(p)
+	hidden, blocked := 0, 0
+	// keep is the agent's gate on a by-hand row's tile: readable (a missing
+	// page: the path the person could read), in scope, let in by its orgs'
+	// rules — and a row that is shown taints the conversation
+	keep := func(tile string, exists bool) bool {
+		switch {
+		case only != "" && tile != only:
+			return false
+		case exists && !s.tileExists(tile), !p.CanReadTile(tile):
+			return false
+		case hasHandle && !s.inSessionScope(h, tile):
+			hidden++
+			return false
+		case s.agentPolicy().TileAllows(delegation.Subject{Holder: p.Agent, User: p.UserID, Tile: tile, Model: p.AgentModel}) != nil:
+			blocked++
+			return false
+		}
+		s.taint(p, tile)
+		return true
+	}
+	rows, err := src.BuiltinUpdateRows()
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, "the builtins' updates can't be read: "+err.Error(), delegationDocs)
+		return
+	}
+	builtinsOut := []builtinUpdateView{}
+	for _, row := range rows {
+		c, exists := s.Reg.Component(row.Tile)
+		if !keep(row.Tile, !row.Missing) {
+			continue
+		}
+		v := builtinUpdateView{ID: row.ID, Kind: row.Kind, Tile: row.Tile, From: row.From, To: row.To, Missing: row.Missing, Adopted: row.Adopted,
+			Clean: row.Clean, Conflicts: row.Conflicts, Edited: row.Edited, Level: levelOf(person, row.Tile), Proposal: row.Proposal}
+		agent := ""
+		if exists {
+			v.Title = c.Manifest.DisplayTitle()
+			agent, _ = s.agentLevelOf(c)
+			v.Agent = agent
+		}
+		switch {
+		case agent == registry.AgentOff:
+			v.Next, v.Why = updateNextByHand, fmt.Sprintf("%s's agent level is off: a workspace agent takes no line about it — an admin updates it by hand, in the Tile Manager's updates tab (or bx builtin update %s --safe)", row.Tile, row.ID)
+		case row.Proposal > 0:
+			v.Next, v.Why, v.Brief = s.tileAgentNext(person, row.Tile, func() UpdateBrief { return BuiltinProposalBrief(row.Tile, row.ID, row.Proposal) })
+		default:
+			v.Next = updateNextPropose
+		}
+		builtinsOut = append(builtinsOut, v)
+	}
+	instances := []instanceUpdateView{}
+	for _, row := range src.TemplateUpdateRows(p, func(tile string) bool { return keep(tile, true) }) {
+		c, _ := s.Reg.Component(row.Tile)
+		v := instanceUpdateView{Tile: row.Tile, Template: row.Template, Behind: row.Behind, Local: row.Local, Legacy: row.Legacy, Level: levelOf(person, row.Tile)}
+		if c != nil {
+			v.Title = c.Manifest.DisplayTitle()
+			v.Agent, _ = s.agentLevelOf(c)
+		}
+		if v.Agent == registry.AgentOff {
+			v.Next, v.Why = updateNextByHand, row.Tile+"'s agent level is off: a workspace agent starts no tile agent there — whoever has terminal access to it merges the template in a terminal there"
+		} else {
+			v.Next, v.Why, v.Brief = s.tileAgentNext(person, row.Tile, func() UpdateBrief { return TemplateUpdateBrief(row.Tile, row.Template, row.Behind, row.Legacy) })
+		}
+		instances = append(instances, v)
+	}
+	WriteJSON(w, http.StatusOK, map[string]any{"builtins": builtinsOut, "instances": instances,
+		"leftOut": map[string]int{"hiddenByYou": hidden, "blocked": blocked}})
+}
+
+// tileAgentNext is the next step of a row whose update is a tile agent's
+// to apply: that tile's agent with xbind's brief — or by hand where no
+// tile agent of the person's can open there (the shell and root have
+// none; a tile agent opens as its person, at terminal level).
+func (s *Server) tileAgentNext(person auth.Principal, tile string, brief func() UpdateBrief) (string, string, *UpdateBrief) {
+	switch {
+	case isChrome(tile):
+		return updateNextByHand, "no tile agent opens on " + tile + ": an admin merges it by hand (bx code prs " + tile + ")", nil
+	case levelOf(person, tile) != "terminal":
+		return updateNextByHand, person.UserID + " has no terminal access to " + tile + ", and a tile agent opens as them: whoever has (its owner, an admin) merges it there", nil
+	}
+	b := brief()
+	return updateNextTileAgent, "", &b
+}
+
+// TemplateUpdateBrief is xbind's brief for merging tile's template — the
+// builtin template named template, behind commits ahead of it (legacy: an
+// instance whose history shares nothing with the template's). Built from
+// those names alone. The commands are what a session in the tile runs, in
+// its directory; TestTemplateUpdateInATileSession runs exactly them.
+func TemplateUpdateBrief(tile, template string, behind int, legacy bool) UpdateBrief {
+	merge := "git merge --no-edit template/main"
+	if legacy {
+		merge = "git merge --no-edit --allow-unrelated-histories template/main"
+	}
+	commits := "commits"
+	switch {
+	case behind == 1:
+		commits = "1 commit"
+	case behind > 1:
+		commits = fmt.Sprintf("%d commits", behind)
+	}
+	cmds := []string{
+		"git status --short",
+		"git fetch template",
+		"git log --oneline HEAD..template/main",
+		merge,
+		"bx status",
+		`curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $XBIN_TOKEN" "$XBIN_URL/api/$XBIN_COMPONENT/"`,
+	}
+	known := fmt.Sprintf("This tile was made from xbin's template %q, which is this tile's git remote `template` — xbin serves it, and this session's git reaches it with the session's own credential. "+
+		"Run, in this tile's directory: (1) `%s` — if anything is uncommitted, commit it first and say so; (2) `%s`; (3) `%s` — what the template changed; (4) `%s`. "+
+		"xbin.json merges by keys (git runs `bx template merge-manifest` for it): what stays in conflict there is a value both sides changed. "+
+		"On a conflict you can't resolve with confidence: `git merge --abort`, and report which files and why — don't guess. "+
+		"xbin builds and restarts the backend by itself after the merge: (5) `%s` says where it stands, and (6) a call to the tile's own API — `%s` — starts it; a build error is in `bx logs $XBIN_COMPONENT`.",
+		template, cmds[0], cmds[1], cmds[2], cmds[3], cmds[4], cmds[5])
+	if legacy {
+		known += " This tile was made before xbin seeded instances from their template, so its history shares nothing with the template's: the first merge needs --allow-unrelated-histories (in step 4 already) and conflicts wherever both have a file — keep this tile's version where you can't tell."
+	}
+	return UpdateBrief{
+		Goal:       fmt.Sprintf("Bring this tile up to date with its template %q: merge the template's newest version (%s this tile doesn't have) into this tile, keeping this tile's own changes.", template, commits),
+		DoneWhen:   "`git log -1` in this tile shows the merge of template/main, `git status --short` shows nothing uncommitted, the tile's backend (if it has one) builds and answers, and you reported what the template changed and how each conflict was resolved.",
+		LeaveAlone: "this tile's own changes, unless one conflicts with the template's — then keep this tile's version unless the template's change needs it; the manifest's \"partition\" and \"template\" keys; everything outside this tile; and don't push anywhere.",
+		CheckBy:    "`bx status`, the call to the tile's own API in step 6, `bx logs $XBIN_COMPONENT` for a build error, and the tile's own tests if it has any (`go test ./...` where its go.mod is).",
+		Known:      known,
+		Commands:   cmds,
+	}
+}
+
+// BuiltinProposalBrief is xbind's brief for merging change proposal n on
+// tile: the builtin id's update, which xbin filed there because it
+// conflicts with the tile's own changes. Built from those names alone;
+// TestBuiltinProposalInATileSession runs exactly its commands.
+func BuiltinProposalBrief(tile, id string, n int) UpdateBrief {
+	dir := `"$XBIN_WORKSPACE/` + tile + `"`
+	cmds := []string{
+		"git status --short",
+		"rm -rf /tmp/xbin-update /tmp/xbin-update.mbox && git clone -q " + dir + " /tmp/xbin-update",
+		fmt.Sprintf("bx code pr fetch %d %s > /tmp/xbin-update.mbox", n, tile),
+		"git -C /tmp/xbin-update am --3way /tmp/xbin-update.mbox",
+		"git -C " + dir + " pull --ff-only /tmp/xbin-update",
+		fmt.Sprintf(`bx code pr close %d %s --merged -m "merged: <what you resolved>"`, n, tile),
+		"bx status",
+	}
+	known := fmt.Sprintf("xbin filed the update of the builtin %s as change proposal #%d on this tile, because it conflicts with changes made here; nothing of it is applied yet. "+
+		"Merge it in a copy, so no conflict marker lands in the live files: (1) `%s` — if anything is uncommitted, commit it first and say so; (2) `%s`; (3) `%s`; (4) `%s` — on a conflict: resolve each file in /tmp/xbin-update, `git -C /tmp/xbin-update add <file>`, `git -C /tmp/xbin-update am --continue`; on one you can't resolve with confidence: `git -C /tmp/xbin-update am --abort`, and report which files and why — don't guess; "+
+		"(5) `%s` brings the merged result into the tile; (6) `%s` — closing it merged is what completes the update in xbin. "+
+		"xbin builds and restarts the backend by itself: (7) `%s` says where it stands; a build error is in `bx logs $XBIN_COMPONENT`. `bx code pr show %d %s` shows the proposal.",
+		id, n, cmds[0], cmds[1], cmds[2], cmds[3], cmds[4], cmds[5], cmds[6], n, tile)
+	return UpdateBrief{
+		Goal:       fmt.Sprintf("Merge xbin's update of this tile — the builtin %s — which xbin filed as change proposal #%d on this tile because it conflicts with this tile's own changes: take the update and keep this tile's changes.", id, n),
+		DoneWhen:   fmt.Sprintf("proposal #%d is closed merged (`bx code pr show %d %s` says so), the tile holds the merged files with no conflict marker, its backend (if it has one) builds and answers, and you reported how each conflict was resolved.", n, n, tile),
+		LeaveAlone: "this tile's own changes, unless one conflicts with the update — then keep what this tile needs and take the rest of the update; the manifest's \"partition\" key; everything outside this tile; and don't push anywhere.",
+		CheckBy:    "`bx status`, `bx logs $XBIN_COMPONENT` for a build error, a call to the tile's own API, and the tile's own tests if it has any.",
+		Known:      known,
+		Commands:   cmds,
+	}
+}

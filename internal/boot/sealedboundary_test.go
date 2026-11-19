@@ -138,6 +138,8 @@ func boundaryReqs() map[string][]boundaryReq {
 		"GET /delegate/start-defaults": {{path: "?tile=" + P, person: true, other: "agent sessions are a person's workspace agent's"}},
 		// …and reads no standing of one (D246): the read is a person's agent's, and refused it on a sealed component
 		"GET /delegate/tile": {{path: "?tile=" + P, person: true, other: "only a person's workspace agent asks this"}},
+		// …and has no update of one listed (D248): it updates with xbin itself
+		"GET /delegate/updates": {{path: "?tile=" + P, person: true, other: "only a person's workspace agent asks this"}},
 		// …and never calls its tools as an MCP server's (D239): only a
 		// person's agent calls one, and for it a sealed component is no MCP tile
 		"POST /delegate/mcp/call": {{body: map[string]any{"server": P, "tool": "t", "arguments": map[string]any{}}, person: true, other: "only a person's workspace agent asks this"}},

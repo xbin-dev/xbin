@@ -54,6 +54,7 @@ func (s *Server) registerChangeSetAPI() {
 	s.registerPlanAPI()         // POST /delegate/plans, …/ask (plan.go)
 	s.registerAccountLookup()   // POST /delegate/accounts/lookup (delegateaccounts.go)
 	s.registerTileStandingAPI() // GET /delegate/tile (delegatetile.go)
+	s.registerUpdatesAPI()      // GET /delegate/updates (delegateupdates.go)
 }
 
 // personOf is the person a delegate acts for, as a principal of their own:
@@ -80,12 +81,21 @@ func changeBasis(pv delegation.ChangePreview) string {
 // describeItems previews ops as person and builds the set's items; the
 // error is the first operation that isn't one.
 func (s *Server) describeItems(person auth.Principal, ops []delegation.ChangeOp, whys []string) ([]delegation.ChangeItem, error) {
+	items, _, err := s.describeItemsOn(person, ops, whys)
+	return items, err
+}
+
+// describeItemsOn is describeItems, and the tiles each item's preview
+// names (what holdAccessLines holds them to).
+func (s *Server) describeItemsOn(person auth.Principal, ops []delegation.ChangeOp, whys []string) ([]delegation.ChangeItem, [][]string, error) {
 	items := make([]delegation.ChangeItem, 0, len(ops))
+	tiles := make([][]string, 0, len(ops))
 	for i, op := range ops {
 		pv, err := s.ChangeSets.PreviewChange(person, op)
 		if err != nil {
-			return nil, fmt.Errorf("operation %d (%s): %w", i+1, op.Kind, err)
+			return nil, nil, fmt.Errorf("operation %d (%s): %w", i+1, op.Kind, err)
 		}
+		tiles = append(tiles, pv.Tiles)
 		it := delegation.ChangeItem{ChangeOp: op, Line: pv.Line, Before: pv.Before, After: pv.After, BeforeText: pv.BeforeText, AfterText: pv.AfterText, Effects: pv.Effects,
 			Warnings: pv.Warnings, Blocked: pv.Blocked, Power: pv.Power, Inverse: pv.Inverse, Basis: changeBasis(pv)}
 		if i < len(whys) {
@@ -96,7 +106,7 @@ func (s *Server) describeItems(person auth.Principal, ops []delegation.ChangeOp,
 		}
 		items = append(items, it)
 	}
-	return items, nil
+	return items, tiles, nil
 }
 
 // apiChangeSetNew — POST /delegate/changesets {title, items: [{kind, args,
@@ -140,12 +150,12 @@ func (s *Server) apiChangeSetNew(w http.ResponseWriter, r *http.Request) {
 	for i, it := range in.Items {
 		ops[i], whys[i] = delegation.ChangeOp{Kind: it.Kind, Args: it.Args}, it.Why
 	}
-	items, err := s.describeItems(person, ops, whys)
+	items, tiles, err := s.describeItemsOn(person, ops, whys)
 	if err != nil {
 		WriteError(w, http.StatusBadRequest, err.Error(), delegationDocs)
 		return
 	}
-	s.holdAccessLines(planAgent{p: a.p}, items) // a person's access is held to what the conversation may touch (changeset_access.go)
+	s.holdAccessLines(planAgent{p: a.p}, items, tiles) // a person's access, a builtin's update: held to what the conversation may touch (changeset_access.go)
 	cs, err := s.Delegation.NewChangeSet(delegation.ChangeSet{User: a.user, Agent: a.p.Agent, Title: in.Title, Items: items, Session: a.p.AgentSession})
 	switch {
 	case errors.Is(err, delegation.ErrTooManySets):
@@ -530,7 +540,7 @@ func (s *Server) applyChangeSet(ctx context.Context, approver auth.Principal, cs
 		if err == nil && cs.Plan {
 			why = cmpOr(s.lineAgentRefusal(agent, pv.Tiles), s.createScopeRefusal(agent, pv.Creates))
 		}
-		if err == nil && why == "" && it.Kind == delegation.KindAccessSet { // whatever the set: what the agent may touch, and never its person's own access (changeset_access.go)
+		if err == nil && why == "" && (it.Kind == delegation.KindAccessSet || it.Kind == delegation.KindBuiltinUpdate) { // whatever the set: what the agent may touch, and never its person's own access (changeset_access.go)
 			if !cs.Plan {
 				why = s.lineAgentRefusal(s.agentOf(*cs, approver), pv.Tiles)
 			}
@@ -564,9 +574,12 @@ func (s *Server) applyChangeSet(ctx context.Context, approver auth.Principal, cs
 				status, msg, out = s.planStart(ctx, agent, pv, it.Start, it.SigninUse, it.SigninTrust)
 			} else {
 				status, msg, out = s.adminCallOut(ctx, approver, pv.Call)
-				if it.Kind != delegation.KindTileCreate {
+				switch {
+				case it.Kind == delegation.KindBuiltinUpdate && status < 300: // updated, installed, or filed as a proposal (changeset_builtin.go)
+					out = builtinOut(builtinTileOf(it.ChangeOp, pv), out)
+				case it.Kind != delegation.KindTileCreate:
 					out = nil
-				} else {
+				default:
 					var made struct {
 						Path string `json:"path"`
 					}

@@ -227,6 +227,10 @@ func TestBxTodayInvocationsUnchanged(t *testing.T) {
 			`POST /api/xbin/builtins/update {"id":"scaffold","mode":"merge"}`,
 			"exit 0",
 		}},
+		{"", []string{"builtin", "update", "scaffold", "--safe"}, []string{
+			`POST /api/xbin/builtins/update {"id":"scaffold","mode":"safe"}`,
+			"exit 0",
+		}},
 		{"", []string{"user", "ls"}, []string{
 			"GET /api/xbin/users",
 			"GET /api/xbin/orgs",

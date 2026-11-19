@@ -325,7 +325,12 @@ var delegateClasses = map[string]delegateRow{
 	"POST /delegate/accounts/lookup": dAct(),
 	// where one tile stands: the reads the agent makes of it, each under its
 	// own gate, in one answer (D246, delegatetile.go) — a log's tail in it
-	"GET /delegate/tile":               dRead().on(byTileQuery).logged(),
+	"GET /delegate/tile": dRead().on(byTileQuery).logged(),
+	// what has an update waiting: the person's own by-hand listings (GET
+	// /builtins/updates, GET /templates/updates), each row held to the
+	// conversation's gates, with the next step and xbind's brief (D248,
+	// delegateupdates.go) — no code, no log: not audited
+	"GET /delegate/updates":            dRead().on(byTileQuery),
 	"GET /delegate/changesets":         dRead(),
 	"GET /delegate/changesets/{id}":    dRead(),
 	"DELETE /delegate/changesets/{id}": dAct(),

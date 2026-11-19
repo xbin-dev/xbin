@@ -28,7 +28,7 @@ import (
 // newerKinds are the line kinds a client must say it knows (approve's
 // knows) before a line of one is applied: those added after the eight
 // every chrome and app since plans knows.
-var newerKinds = []string{delegation.KindAccessSet}
+var newerKinds = []string{delegation.KindAccessSet, delegation.KindBuiltinUpdate}
 
 // accessForAgent is an access.set line as a person's agent reads it.
 func accessForAgent(it delegation.ChangeItem) delegation.ChangeItem {
@@ -99,16 +99,23 @@ func accessTileOf(op delegation.ChangeOp) string {
 	return strings.Trim(a.Tile, "/")
 }
 
-// holdAccessLines holds the access.set items of a change set an agent
-// proposes outside a plan (admin_propose) to what its conversation may
-// touch, as a plan's lines are (lineAgentRefusal): the tile readable, in
-// scope, not "off", its orgs letting the agent in.
-func (s *Server) holdAccessLines(a planAgent, items []delegation.ChangeItem) {
+// holdAccessLines holds the access.set and builtin.update items of a
+// change set an agent proposes outside a plan (admin_propose) to what its
+// conversation may touch, as a plan's lines are (lineAgentRefusal): the
+// tile readable, in scope, not "off", its orgs letting the agent in.
+// tiles are the tiles each item's preview named.
+func (s *Server) holdAccessLines(a planAgent, items []delegation.ChangeItem, tiles [][]string) {
 	for i, it := range items {
-		if t := accessTileOf(it.ChangeOp); t != "" {
-			if why := s.lineAgentRefusal(a, []string{t}); why != "" {
-				items[i] = delegation.ChangeItem{ChangeOp: it.ChangeOp, Why: it.Why, Line: delegation.AccessArgsLine(it.Args), Blocked: why, Admin: true}
-			}
+		t := accessTileOf(it.ChangeOp)
+		line := delegation.AccessArgsLine(it.Args)
+		if it.Kind == delegation.KindBuiltinUpdate && i < len(tiles) && len(tiles[i]) > 0 {
+			t, line = tiles[i][0], delegation.BuiltinArgsLine(it.Args)
+		}
+		if t == "" {
+			continue
+		}
+		if why := s.lineAgentRefusal(a, []string{t}); why != "" {
+			items[i] = delegation.ChangeItem{ChangeOp: it.ChangeOp, Why: it.Why, Line: line, Blocked: why, Admin: true}
 		}
 	}
 }

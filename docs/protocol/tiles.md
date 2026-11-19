@@ -192,10 +192,25 @@ GET    /builtins/updates            any. builtins (scaffold + imported tiles) wi
                                    fromVersion,toVersion,adopted,files:[{path,
                                    status}],clean,conflicts}] (docs/overview/14-lifecycle.md §Keeping code fresh)
 POST   /builtins/update             xbin:writer. body {id, mode:
-                                   replace|merge|pr|pin|unpin}. replace
+                                   replace|merge|safe|pr|pin|unpin}. replace
                                    overwrites, merge 3-way-merges (git merge-file);
                                    both → {files, notes?} and re-record provenance
-                                   eagerly. No mode adds, removes or changes a
+                                   eagerly. safe (D248) never loses a local
+                                   edit: merge's plan, written only when every
+                                   file merges cleanly → {applied: "updated",
+                                   files, notes?}; a missing essential page is
+                                   installed where nothing is → {applied:
+                                   "installed", files}; where anything would
+                                   conflict (markers, or upstream removing a
+                                   file edited here) nothing is written and
+                                   the update is filed as "pr" files it →
+                                   {applied: "proposed", pr, conflicts}; an
+                                   adopted copy is updated only where every
+                                   file it has is upstream's. A pinned unit,
+                                   one with no update, one not installed: 400
+                                   with why. A workspace agent's
+                                   builtin.update line applies this mode
+                                   (docs/protocol/delegation.md). No mode adds, removes or changes a
                                    tile's mode request, each xbin.json's
                                    top-level "partition" (any key case, as
                                    xbind reads it — docs/partitions.md):

@@ -42,13 +42,18 @@ bx template merge-manifest [--marker-size N] [--rename FROM=TO] BASE OURS THEIRS
                                        where the line merge of the template's
                                        change conflicts, merges by keys
                                        (docs/overview/03-components.md §Templates)
-bx builtin updates | update <id> [--replace|--merge|--pr]
+bx builtin updates | update <id> [--replace|--merge|--safe|--pr]
                                        offer/apply newer embedded scaffold + tiles;
                                        also lists/installs MISSING essential tiles
                                        (upgraded workspaces predating them, D41);
                                        every mode keeps each xbin.json's installed
                                        "partition" and prints a note when upstream
-                                       asks otherwise (docs/partitions.md)
+                                       asks otherwise (docs/partitions.md).
+                                       --safe never overwrites your edits: it
+                                       merges when every file merges cleanly, and
+                                       otherwise writes nothing and files the
+                                       update as --pr does (D248; what a workspace
+                                       agent's builtin.update line applies)
 bx user ls | add <id> [flags] | set <id> [flags] | invite <id> | signout <id> [--devices] | rm <id>
                                        manage users (admin/xbin:users); add with
                                        an empty password (or --invite) prints a

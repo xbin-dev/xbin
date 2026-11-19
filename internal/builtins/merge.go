@@ -18,9 +18,17 @@ import (
 // mergeFile runs `git merge-file -p` on (ours, base, theirs) and returns the
 // merged bytes (with conflict markers where both sides changed the same lines).
 func mergeFile(ours, base, theirs []byte) ([]byte, error) {
+	merged, _, err := mergeFileC(ours, base, theirs)
+	return merged, err
+}
+
+// mergeFileC is mergeFile, and whether the merge conflicted: git
+// merge-file's exit status is the number of conflicts it left (D248's safe
+// mode writes a file only when that is none).
+func mergeFileC(ours, base, theirs []byte) ([]byte, bool, error) {
 	dir, err := os.MkdirTemp("", "bx-merge")
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	defer os.RemoveAll(dir)
 	write := func(name string, b []byte) (string, error) {
@@ -33,12 +41,15 @@ func mergeFile(ours, base, theirs []byte) ([]byte, error) {
 	// confined (D78): "ours" is the installed tile's file
 	outs, err := confine.GitCmd(context.Background(), confine.Cmd{Dir: dir}, "merge-file", "-p", "--diff3", op, bp, tp)
 	// git merge-file exits with the conflict count (>0) — not a real error.
+	conflicted := false
 	if err != nil {
-		if code, ok := confine.ExitCode(err); !ok || code < 0 {
-			return nil, fmt.Errorf("git merge-file: %w", err)
+		code, ok := confine.ExitCode(err)
+		if !ok || code < 0 {
+			return nil, false, fmt.Errorf("git merge-file: %w", err)
 		}
+		conflicted = code > 0
 	}
-	return []byte(outs), nil
+	return []byte(outs), conflicted, nil
 }
 
 // mergeKeeping is mergeFile for one of a unit's files, theirs already
@@ -49,28 +60,35 @@ func mergeFile(ours, base, theirs []byte) ([]byte, error) {
 // that merge is clean, else right after the opening brace, beside the
 // markers.
 func mergeKeeping(rel string, ours, base, theirs []byte) ([]byte, error) {
-	merged, err := mergeFile(ours, base, theirs)
+	merged, _, err := mergeKeepingC(rel, ours, base, theirs)
+	return merged, err
+}
+
+// mergeKeepingC is mergeKeeping, and whether the merge it settled on
+// conflicted (mergeFileC).
+func mergeKeepingC(rel string, ours, base, theirs []byte) ([]byte, bool, error) {
+	merged, conflicted, err := mergeFileC(ours, base, theirs)
 	if err != nil || !isManifest(rel) {
-		return merged, err
+		return merged, conflicted, err
 	}
 	if _, clean := readPartition(merged); clean {
-		return merged, nil
+		return merged, conflicted, nil
 	}
 	inst, ok := readPartition(ours)
 	if !ok {
-		return merged, nil // ours can't be read: nothing to keep it against
+		return merged, conflicted, nil // ours can't be read: nothing to keep it against
 	}
 	if keeps(merged, sideOurs, inst) && keeps(merged, sideTheirs, inst) {
-		return merged, nil
+		return merged, conflicted, nil
 	}
-	merged, err = mergeFile(withoutPartition(ours), withoutPartition(base), withoutPartition(theirs))
+	merged, conflicted, err = mergeFileC(withoutPartition(ours), withoutPartition(base), withoutPartition(theirs))
 	if err != nil || !inst.has {
-		return merged, err
+		return merged, conflicted, err
 	}
 	if out, err := setPartition(merged, inst, ours); err == nil {
-		return out, nil
+		return out, conflicted, nil
 	}
-	return insertFirst(merged, inst.raw), nil
+	return insertFirst(merged, inst.raw), conflicted, nil
 }
 
 // keeps reports whether resolving every conflict of merged to side leaves

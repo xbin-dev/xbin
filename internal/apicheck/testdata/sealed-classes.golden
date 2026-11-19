@@ -103,6 +103,7 @@ GET /delegate/sessions/{id}/connection	no-tile
 GET /delegate/start-defaults	refused	?tile
 GET /delegate/state	no-tile
 GET /delegate/tile	refused	?tile
+GET /delegate/updates	refused	?tile
 GET /delegate/workspace	no-tile
 GET /deployments	refused	?tile body.tile
 GET /deployments/backups	refused	?tile body.tile

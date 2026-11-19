@@ -142,15 +142,18 @@ func (s *Server) setFor(a delegateActor, cs delegation.ChangeSet) delegation.Cha
 	// is — never the tile's access list, the account or the level before
 	// (D246; changeset_access.go)
 	for i, it := range cs.Items {
-		if it.Kind == delegation.KindAccessSet {
+		switch it.Kind {
+		case delegation.KindAccessSet:
 			cs.Items[i] = accessForAgent(it)
+		case delegation.KindBuiltinUpdate: // applied, proposed or failed — nothing of the files (D248; changeset_builtin.go)
+			cs.Items[i] = builtinForAgent(it)
 		}
 	}
 	if s.optedIn(a.user) {
 		return cs
 	}
 	for i, it := range cs.Items {
-		if !it.Admin && !it.NeedsAdmin && it.Blocked == "" {
+		if !it.Admin && !it.NeedsAdmin && it.Blocked == "" || it.Kind == delegation.KindBuiltinUpdate { // (a builtin's update: builtinForAgent said all of it, above)
 			continue
 		}
 		red := delegation.ChangeItem{N: it.N, ChangeOp: it.ChangeOp, Why: it.Why, Line: it.Line, Admin: it.Admin, NeedsAdmin: it.NeedsAdmin,
@@ -477,13 +480,15 @@ func (s *Server) describePlan(person auth.Principal, a planAgent, ops []delegati
 				waits = dep
 			}
 		}
+		// a line only a workspace admin applies is no org admin's either: theirs to ask for (changeset_builtin.go)
+		linePlain := plain || needsWorkspaceAdmin(op) && !person.IsAdmin() && !s.devOwner(person)
 		switch {
 		case plain && pv.Later != "":
 			// it may not wait, and asking an admin now would ask for something
 			// xbind can't apply: said as it is (the words name the line's own
 			// tiles and nothing else), to be proposed again later
 			it = delegation.ChangeItem{ChangeOp: op, Why: it.Why, Line: pv.Line, Admin: true, Blocked: pv.Later, Later: pv.Later, Needs: pv.Uses}
-		case plain && (pv.Admin || waits != 0 && op.Kind != delegation.KindAgentStart):
+		case linePlain && (pv.Admin || waits != 0 && op.Kind != delegation.KindAgentStart):
 			// not theirs to apply — and not theirs to read: the line, and
 			// nothing of the state an admin would see behind it
 			it = delegation.ChangeItem{ChangeOp: op, Why: it.Why, Line: pv.Line, Admin: true, NeedsAdmin: true, Needs: pv.Uses}

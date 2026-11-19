@@ -8,6 +8,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/xbin-dev/xbin/internal/auth"
@@ -201,13 +202,33 @@ type TemplateInstanceUpdate struct {
 // which also covers never-fetched instances (the object isn't there at
 // all). Filtered to tiles the caller can read.
 func (b *Broker) apiTemplateUpdates(w http.ResponseWriter, r *http.Request) {
-	p := auth.PrincipalOf(r)
-	type tplInfo struct{ head, root string }
+	out, _ := b.templateInstanceUpdates(auth.PrincipalOf(r), false)
+	server.WriteJSON(w, http.StatusOK, map[string]any{"instances": out})
+}
+
+// tplInfo is a template repo's head and root commit (and, for counts, its
+// main's commits).
+type tplInfo struct {
+	head, root string
+	commits    map[string]bool
+}
+
+// templateInstanceUpdates is GET /templates/updates' rows for p, and each
+// row's instance directory. cheap: a component whose .git/config names no
+// `template` remote is passed over without running git (the workspace
+// agent's read, D248) — the by-hand listing asks git of every repository,
+// so the cheap rows are a subset of its rows.
+func (b *Broker) templateInstanceUpdates(p auth.Principal, cheap bool) ([]TemplateInstanceUpdate, map[string]tplInfo) {
 	infos := map[string]tplInfo{} // template name → HEAD + root commit (cached per request)
 	out := []TemplateInstanceUpdate{}
 	for _, c := range b.Reg.Components() {
 		if c.Sealed || !isRepo(c.Dir) || !p.CanReadTile(c.Path) {
 			continue // a sealed component is no instance: it updates with xbind
+		}
+		if cheap {
+			if _, named := parseGitConfig(readRepoFile(c.Dir, ".git/config"))["remote.template.url"]; !named {
+				continue
+			}
 		}
 		url, err := runGitIn(c.Dir, "remote", "get-url", "template")
 		if err != nil {
@@ -239,7 +260,106 @@ func (b *Broker) apiTemplateUpdates(w http.ResponseWriter, r *http.Request) {
 			Path: c.Path, Template: name, Head: info.head[:12], Legacy: aerr != nil,
 		})
 	}
-	server.WriteJSON(w, http.StatusOK, map[string]any{"instances": out})
+	return out, infos
+}
+
+// maxCountedCommits bounds the histories TemplateUpdateRows counts: past
+// it a row's counts are -1 (not counted).
+const maxCountedCommits = 20000
+
+// BuiltinUpdateRows are GET /builtins/updates' rows (the server's
+// UpdatesSource; D248): the updater's Updates(), each with the files
+// edited here only counted and the open builtin-update proposal on its
+// tile.
+func (b *Broker) BuiltinUpdateRows() ([]server.BuiltinUpdateRow, error) {
+	if b.updater == nil {
+		return nil, nil
+	}
+	ups, err := b.updater.Updates()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]server.BuiltinUpdateRow, 0, len(ups))
+	for _, u := range ups {
+		row := server.BuiltinUpdateRow{ID: u.ID, Kind: u.Kind, Name: u.Name, Tile: u.InstallPath, From: u.FromVersion, To: u.ToVersion,
+			Missing: u.Missing, Adopted: u.Adopted, Clean: u.Clean, Conflicts: u.Conflicts}
+		for _, f := range u.Files {
+			if f.Status == "user" {
+				row.Edited++
+			}
+		}
+		if !u.Missing {
+			for _, m := range b.prList(u.InstallPath) {
+				if m.State == "open" && m.Kind == "builtin-update" && m.Builtin == u.ID {
+					row.Proposal = m.Number
+					break
+				}
+			}
+		}
+		out = append(out, row)
+	}
+	return out, nil
+}
+
+// TemplateUpdateRows are GET /templates/updates' rows for p (the server's
+// UpdatesSource; D248) that keep lets through — asked only of rows the
+// by-hand listing has — with each instance's commits behind its template
+// and of its own, from the two histories (confined git, as every git read
+// of a tile; D78).
+func (b *Broker) TemplateUpdateRows(p auth.Principal, keep func(tile string) bool) []server.TemplateUpdateRow {
+	rows, infos := b.templateInstanceUpdates(p, true)
+	out := []server.TemplateUpdateRow{}
+	for _, r := range rows {
+		if !keep(r.Path) {
+			continue
+		}
+		row := server.TemplateUpdateRow{Tile: r.Path, Template: r.Template, Legacy: r.Legacy, Behind: -1, Local: -1}
+		info := infos[r.Template]
+		if info.commits == nil {
+			info.commits = map[string]bool{}
+			if list, err := runGitIn(filepath.Join(templateReposDir(b.Reg.Root), r.Template), "rev-list", "--max-count="+strconv.Itoa(maxCountedCommits), "main"); err == nil {
+				for _, h := range strings.Fields(list) {
+					info.commits[h] = true
+				}
+			}
+			infos[r.Template] = info
+		}
+		c, ok := b.Reg.Component(r.Path)
+		if !ok || len(info.commits) == 0 || len(info.commits) >= maxCountedCommits {
+			out = append(out, row)
+			continue
+		}
+		log, err := runGitIn(c.Dir, "log", "--max-count="+strconv.Itoa(maxCountedCommits), "--format=%H%x1f%P%x1f%ae%x1f%s", "HEAD")
+		lines := strings.Split(strings.TrimSpace(log), "\n")
+		if err != nil || len(lines) >= maxCountedCommits {
+			out = append(out, row)
+			continue
+		}
+		have, local := map[string]bool{}, 0
+		for _, ln := range lines {
+			f := strings.SplitN(ln, "\x1f", 4)
+			if len(f) < 4 {
+				continue
+			}
+			have[f[0]] = true
+			switch {
+			case info.commits[f[0]]: // the template's
+			case len(strings.Fields(f[1])) > 1: // a merge
+			case f[2] == "xbin@localhost" && strings.HasPrefix(f[3], "instantiate "): // xbind's instantiate commit
+			default:
+				local++
+			}
+		}
+		behind := 0
+		for h := range info.commits {
+			if !have[h] {
+				behind++
+			}
+		}
+		row.Behind, row.Local = behind, local
+		out = append(out, row)
+	}
+	return out
 }
 
 // serveTemplateRepo serves a template repo's git dir read-only over dumb HTTP

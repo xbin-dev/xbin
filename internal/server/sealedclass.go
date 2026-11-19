@@ -717,6 +717,7 @@ var sealedRules = map[string]SealedRule{
 	// (auth.CanTerminalTileVia, and the delegate gate's DelegateTile)
 	"GET /delegate/start-defaults": {Class: SealedRefused, Query: []string{"tile"}, What: "it has no terminal and no agent sessions"},
 	"GET /delegate/tile":           {Class: SealedRefused, Query: []string{"tile"}, What: "a person's agent acts on tiles, never on xbin's own components"},
+	"GET /delegate/updates":        {Class: SealedRefused, Query: []string{"tile"}, What: "it is updated with xbin itself"},
 	// previews (D234): a render shows tiles, never a system component's page
 	"POST /preview":                            {Class: SealedRefused, Body: []string{"tile"}, What: sealedNoPreview},
 	"GET /preview":                             {Class: SealedNoTile},

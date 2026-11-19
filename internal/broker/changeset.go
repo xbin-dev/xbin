@@ -15,6 +15,7 @@ package broker
 //	org.share      {org, tile, level}  ("" stops it)     PUT    /access
 //	limits.set     {tile, kind, value}                   POST   /limits
 //	access.set     {tile, user, level}                   PUT    /access (accessline.go, D246)
+//	builtin.update {id}                                  POST   /builtins/update {id, mode: "safe"} (builtinline.go, D248)
 //
 // The list is closed: there is no kind that names a route, so nothing
 // outside it — users, passwords, devices, SSO, the vault, view-as, policy
@@ -79,7 +80,7 @@ const (
 
 // ChangeKinds lists the kinds a change set may hold.
 func ChangeKinds() []string {
-	return []string{ChangeGrantAdd, ChangeGrantRevoke, ChangeBindingSet, ChangeBindingRemove, ChangeOrgShare, ChangeLimitsSet, ChangeAccessSet}
+	return []string{ChangeGrantAdd, ChangeGrantRevoke, ChangeBindingSet, ChangeBindingRemove, ChangeOrgShare, ChangeLimitsSet, ChangeAccessSet, ChangeBuiltinUpdate}
 }
 
 // strictArgs decodes a kind's arguments: unknown keys are an error, so a
@@ -148,7 +149,7 @@ func (b *Broker) preview(p auth.Principal, op delegation.ChangeOp, planned []del
 		return delegation.ChangePreview{}, errors.New("an admin change is described for the person who would apply it")
 	}
 	pv, err := b.previewChange(p, op, planned, starts)
-	if err == nil && plan && pv.Blocked == "" && op.Kind != ChangeAccessSet { // (who may use a tile is not how it is wired)
+	if err == nil && plan && pv.Blocked == "" && op.Kind != ChangeAccessSet && op.Kind != ChangeBuiltinUpdate { // (who may use a tile is not how it is wired; nor is its code xbin's copy)
 		b.readOnlyNote(&pv)
 	}
 	if err == nil {
@@ -247,6 +248,8 @@ func (b *Broker) previewChange(p auth.Principal, op delegation.ChangeOp, planned
 		pv, err = b.previewTileCreate(p, op, planned)
 	case ChangeAccessSet:
 		pv, err = b.previewAccess(p, op, planned) // personal or an admin's by the by-hand rule (accessline.go)
+	case ChangeBuiltinUpdate:
+		pv, err = b.previewBuiltinUpdate(p, op, planned) // always an admin's: POST /builtins/update {mode: "safe"} (builtinline.go)
 	default:
 		return delegation.ChangePreview{}, fmt.Errorf("no such kind of change (one of %s)", strings.Join(ChangeKinds(), ", "))
 	}

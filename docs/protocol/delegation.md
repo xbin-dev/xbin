@@ -82,7 +82,7 @@ forwards them):
 
 | Class | Routes |
 |---|---|
-| reads, at the person's level | `GET /whoami`, `/components`, `/components/<path>`, `/tile-status`, `/tile-report`, `/logs`, `/alerts`, `/screens`, `/templates`, `/agent/providers`, `/term/sessions`, `/term/sessions/<id>`, `…/events`, `…/log`, `…/diff`, `/agent/history`, `/agent/history/<id>/events`, `/code/tree`, `/code/file`, `/delegate/tile` (§Where a tile stands), and its own `/delegate/state`, `/delegate/approvals`, `/delegate/requests/<id>`, `/delegate/changesets[/<id>]` |
+| reads, at the person's level | `GET /whoami`, `/components`, `/components/<path>`, `/tile-status`, `/tile-report`, `/logs`, `/alerts`, `/screens`, `/templates`, `/agent/providers`, `/term/sessions`, `/term/sessions/<id>`, `…/events`, `…/log`, `…/diff`, `/agent/history`, `/agent/history/<id>/events`, `/code/tree`, `/code/file`, `/delegate/tile` (§Where a tile stands), `/delegate/updates` (§Updates), and its own `/delegate/state`, `/delegate/approvals`, `/delegate/requests/<id>`, `/delegate/changesets[/<id>]` |
 | a tile's API | `/api/<tile>/…` where the person can read the tile: `GET`/`HEAD` freely; any other method needs the person's approval — except on a tile's declared MCP endpoint, where `initialize`, `ping` and `tools/list` are reads and every other POST is refused (§MCP tiles) |
 | acts | `POST /preview` (a picture of one tile, as the person: [preview.md](/docs/protocol/preview.md) — no approval; rate-limited), `POST /term/sessions` (approval, or the person's preference), `POST /templates/new` (approval); on sessions **it opened**: `…/prompt`, `…/queue`, `DELETE …/queue[/<qid>]`, `…/cancel`, `DELETE /term/sessions/<id>`; asking: `POST`/`DELETE /delegate/requests…`, `POST`/`DELETE /delegate/changesets…`, `POST /delegate/plans`, `POST /delegate/accounts/lookup` (§A person's access); the web: `POST /delegate/web/fetch` (§Web and MCP: the person's approval of the URL when the conversation holds data); MCP tiles: `POST /delegate/mcp/call` (approval of each tool, §MCP tiles) |
 | admin reads, only for an admin who opted in | `GET /grants`, `/bindings`, `/orgs` (without SSO group rules), `/limits` — answered as the person |
@@ -260,6 +260,11 @@ GET    /delegate/map            a person, or their agent. {user, tiles:
 GET    /delegate/tile           the person's agent. ?tile= → where one
                                  tile stands, as the reads below give
                                  it to this agent (§Where a tile stands)
+GET    /delegate/updates        the person's agent. [?tile=] → what has
+                                 an update waiting, as the person's own
+                                 update listings give it, under this
+                                 conversation's gates, each row with its
+                                 next step (§Updates)
 GET    /docs/search             signed in. ?q= (≤ 200 bytes; 8 words)
                                  &limit= (≤ 20, default 8) → {q, results:
                                  [{path, title, section, heading, score,
@@ -393,6 +398,54 @@ conversation is tainted with the tile's orgs. A system component is
 refused. It is written to the person's log (it carries a log's tail). Not
 in it: the tile's template (xbind keeps no record of it outside the
 tile's git history), anyone's access to it, other people's sessions.
+
+### Updates
+
+`GET /delegate/updates[?tile=<path>]` answers what has an update waiting,
+as the person's own update listings give it — `GET /builtins/updates` and
+`GET /templates/updates`, the same rows — each held to this conversation's
+gates, with its next step (D248):
+
+```
+{builtins: [{id, kind: "tile" | "scaffold", tile, title?, from, to,
+             missing?, adopted?, clean, conflicts, edited, level, agent?,
+             proposal?, next, why?, brief?}],
+ instances: [{tile, title?, template, behind, local, legacy?, level,
+              agent?, next, why?, brief?}],
+ leftOut: {hiddenByYou, blocked}}
+next:  "propose" | "tile-agent" | "by-hand"
+brief: {goal, doneWhen, leaveAlone, checkBy, known, commands: [string]}
+```
+
+| Part | As | Its gate |
+|---|---|---|
+| a builtin row: `id`, `kind`, `from`, `to`, `missing`, `adopted`, `clean`, `conflicts` | `GET /builtins/updates`' row | the row's tile: the person can read it, inside the conversation's scope, its orgs' rules let the agent in — a row that fails is left out (counted in `leftOut` when the person can read it), one that is shown taints the conversation with the tile's orgs |
+| `edited` | the same row's files with status `user` (changed here only: kept by every update), counted | as above |
+| `proposal` | the open builtin-update proposal on the tile, as the person's `GET /code/prs?target=` lists it | as above |
+| an instance row: `tile`, `template`, `legacy` | `GET /templates/updates`' row | as above |
+| `behind`, `local` | the instance's git history and its template's: the template's commits it lacks; its own non-merge commits that are neither the template's nor xbind's instantiate commit (`-1`: not counted, a history past 20 000 commits) | as above |
+| `title`, `agent` | the map's row | as above |
+| `level` | the person's level on the tile | as above |
+
+- **`next`** is xbind's: `propose` — a `builtin.update` line (below);
+  `tile-agent` — the tile's own coding agent, with `brief`: a template
+  instance's merge, or a builtin update that was filed as a proposal
+  (`proposal`); `by-hand`, with `why` — what a workspace agent can't take
+  further: a tile whose agent level is `off` (the consoles always are), a
+  tile where the person has no terminal level (a tile agent opens as
+  them), the shell and `root` (no tile agent opens there).
+- **`brief`** is xbind's text for that tile agent — the goal, how to tell
+  it is done, what to leave alone, how to check, what is known with the
+  exact commands, which `commands` lists in order — built from xbind's own
+  names only: the tile's path, the template's catalog name, the builtin's
+  id, counts, a proposal's number. Never a title, a commit message or
+  anything else the tile wrote.
+- With `?tile=` the read is about that tile, held as any read that names
+  one (`403 {refusal: "tile" | "hidden"}`). Not audited (it carries no
+  code, log or diff). A system component is refused: it updates with xbin
+  itself.
+- It runs no merge: whether a builtin's update merges cleanly is said by
+  the line's description, which runs it dry.
 
 ## Web and MCP
 
@@ -1256,10 +1309,11 @@ POST   /delegate/changesets/<id>/approve
                                  {changed} when a trusted line's tile is
                                  no longer as shown — nothing applied;
                                  knows: the line kinds newer than the
-                                 eight every client knows — access.set —
-                                 that this client shows for what they
-                                 are: a chosen line of one not named is
-                                 409 {error, kinds}, nothing applied) →
+                                 eight every client knows — access.set,
+                                 builtin.update — that this client shows
+                                 for what they are: a chosen line of one
+                                 not named is 409 {error, kinds}, nothing
+                                 applied) →
                                  the set with each
                                  item's result. items is required and
                                  not empty: no body, null and [] apply
@@ -1291,6 +1345,7 @@ Kinds — a closed list; there is no kind that names a route:
 | `org.share` | `{org, tile, level}` (`""` stops sharing) | `PUT /access` |
 | `limits.set` | `{tile, kind, value}` — a raise | `POST /limits` |
 | `access.set` | `{tile, user, level}` — a person's own level on one tile: `user` their account id or display name, `level` `none` \| `read` \| `write` \| `terminal`, or `""` to remove their own entry (§A person's access) | `PUT /access {kind: "user"}` |
+| `builtin.update` | `{id}` — a builtin with an update (`GET /delegate/updates`' `id`: `tile:<name>`, `scaffold:<path>`, or the bare name), and nothing else (§A builtin's update) | `POST /builtins/update {id, mode: "safe"}` |
 
 What a kind can't express — refused as no change at all (`400` at the
 proposal, and again if it became true by the time the set is applied):
@@ -1460,6 +1515,56 @@ right person:
 - an act: counted in the 30 a minute, a row of the person's log (the
   path, never the name), and 10 at once a conversation, one more every
   6 s (`429` + `Retry-After`).
+
+### A builtin's update
+
+`builtin.update {id}` applies as the by-hand route's own call — `POST
+/builtins/update {id, mode: "safe"}`, its handler and its `xbin:writer`
+gate — as the approving person, with their rights read again when they
+apply it (D248). Mode `safe` never loses a local edit: it merges when
+every file merges cleanly (a file only upstream changed is taken, one
+only changed here is kept, one both changed is merged line by line), and
+where anything conflicts — a merge with markers, or upstream removing a
+file edited here — it writes nothing and files the update as a change
+proposal on the tile, as mode `pr` does; an adopted copy is updated only
+where every file it has is upstream's; a missing essential page is
+installed where nothing is.
+
+- **What the agent chooses is which builtin** — never the content, which
+  is the binary's embedded copy. The kind takes `{id}` and refuses any
+  other key (400); an id that is no builtin, and a system component's
+  path ("it is updated with xbin itself"), are no line at all (400).
+- **Always an admin's line**, never personal: for a workspace admin it
+  starts unticked and applies on their tick and a recent sign-in; for
+  anyone else — an org admin too — it is `needsAdmin`, with Ask an admin.
+  It never waits and is never deferred. Like every line it is no request,
+  so no standing approval or ticket covers it, and the agent's own `POST
+  /builtins/update` stays refused (`never`). A client applies it only
+  when its approve names `builtin.update` in `knows`.
+- **xbind's line** says the builtin, its path, the versions, how many
+  files change and the dry run's verdict: "… — your local changes are
+  kept" (or "no file here was edited"), "… — conflicts with your changes:
+  filed as a proposal for review instead", "Install … which this
+  workspace predates". The effects name the files and what follows (the
+  backend rebuilds; or the proposal, which the tile's agent merges). A
+  scaffold page (the shell, a console, a page every workspace has) is
+  warned — `SCAFFOLD: …` — so it starts unticked. A pinned builtin, one
+  with no update, one not installed, a missing page's path that holds
+  something: blocked, with the builtin's own reason. The line is pinned to
+  the installed files and the embedded copy: a file edited before Apply
+  makes it `stale`, and `safe` decides again as it runs.
+- **Held to the conversation** as a plan's lines are (the tile readable,
+  in scope, not `"off"`, its orgs letting the agent in) — in
+  `admin_propose` sets too. The consoles' level is `off`: refused; an
+  admin updates them by hand.
+- **Applied**, its `out` is `{update: "updated" | "installed" |
+  "proposed", files, tile, proposal?}`.
+- **What the agent reads**, whoever the person is: `n`, `kind`, `args`,
+  `why`, the flags, `needs`, `result`, `out`, and a line written from its
+  argument ("Update the builtin tile:llm-gw"); when it is blocked or
+  failed, the builtin's own reason (pinned, no update, not installed),
+  else one fixed sentence. Never xbind's line, the effects, the warnings,
+  `basis`, `pin` or `before`/`after`.
 
 ### Plans
 

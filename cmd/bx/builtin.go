@@ -8,13 +8,15 @@ import (
 // cmdBuiltin surfaces builtin-component updates (plans/builtin-updates.md):
 //
 //	bx builtin updates                      list builtins with an update available
-//	bx builtin update <id> [--replace|--merge|--pr]  apply one (default: replace);
+//	bx builtin update <id> [--replace|--merge|--safe|--pr]  apply one (default: replace);
 //	                                        --pr files it as a change proposal the
-//	                                        tile's own terminal/agent merges
+//	                                        tile's own terminal/agent merges;
+//	                                        --safe merges it when that is clean and
+//	                                        files it as --pr does otherwise (D248)
 //	bx builtin pin <id> | unpin <id>        stop/resume offering updates
 func cmdBuiltin(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: bx builtin updates | update <id> [--replace|--merge|--pr] | pin <id> | unpin <id>")
+		return fmt.Errorf("usage: bx builtin updates | update <id> [--replace|--merge|--safe|--pr] | pin <id> | unpin <id>")
 	}
 	switch args[0] {
 	case "updates", "ls":
@@ -49,12 +51,12 @@ func cmdBuiltin(args []string) error {
 			}
 			fmt.Printf("%-22s v%d→v%d  %s\n", u.ID, u.FromVersion, u.ToVersion, note)
 		}
-		fmt.Println("\napply: bx builtin update <id> [--replace|--merge|--pr]")
+		fmt.Println("\napply: bx builtin update <id> [--replace|--merge|--safe|--pr]  (--safe never overwrites your edits: a conflict becomes a proposal)")
 		return nil
 
 	case "update":
 		if len(args) < 2 {
-			return fmt.Errorf("usage: bx builtin update <id> [--replace|--merge|--pr]")
+			return fmt.Errorf("usage: bx builtin update <id> [--replace|--merge|--safe|--pr]")
 		}
 		id := args[1]
 		mode := "replace"
@@ -66,11 +68,41 @@ func cmdBuiltin(args []string) error {
 				mode = "replace"
 			case "--pr":
 				mode = "pr"
+			case "--safe":
+				mode = "safe"
 			default:
 				if err := unknownFlag("builtin update", a, true); err != nil {
 					return err
 				}
 			}
+		}
+		if mode == "safe" {
+			var out struct {
+				Applied string   `json:"applied"` // updated | installed | proposed
+				Files   []string `json:"files"`
+				Notes   []string `json:"notes"`
+				PR      *struct {
+					Target string `json:"target"`
+					Number int    `json:"number"`
+				} `json:"pr"`
+				Conflicts []string `json:"conflicts"`
+			}
+			if err := apiJSON("POST", "/api/xbin/builtins/update", map[string]string{"id": id, "mode": mode}, &out); err != nil {
+				if strings.Contains(err.Error(), "mode must be") {
+					return fmt.Errorf("%w — this xbind predates --safe: use --pr, which never writes a file", err)
+				}
+				return err
+			}
+			if out.Applied == "proposed" && out.PR != nil {
+				fmt.Printf("%s conflicts with your changes (%s): nothing was written; proposed as %s#%d — the tile's terminal/agent merges it:\n  bx code pr show %d %s\n",
+					id, strings.Join(out.Conflicts, ", "), out.PR.Target, out.PR.Number, out.PR.Number, out.PR.Target)
+				return nil
+			}
+			fmt.Printf("%s %s (%d file(s)); your edits are kept\n", out.Applied, id, len(out.Files))
+			for _, n := range out.Notes {
+				fmt.Println("note: " + n)
+			}
+			return nil
 		}
 		if mode == "pr" {
 			var out struct {

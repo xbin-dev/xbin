@@ -104,6 +104,7 @@ GET /delegate/sessions/{id}/connection	read
 GET /delegate/start-defaults	read	tile:byTileQuery
 GET /delegate/state	read
 GET /delegate/tile	read	audit	tile:byTileQuery
+GET /delegate/updates	read	tile:byTileQuery
 GET /delegate/workspace	never
 GET /deployments	refused
 GET /deployments/backups	refused

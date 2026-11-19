@@ -1,6 +1,7 @@
 package broker
 
 import (
+	"errors"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -131,16 +132,25 @@ func (b *Broker) apiBuiltinsImport(w http.ResponseWriter, r *http.Request) {
 // requireWriter gates workspace-mutating builtin endpoints on the same
 // capability as POST /create (owner or xbin:writer, which admin implies).
 func (b *Broker) requireWriter(w http.ResponseWriter, r *http.Request) bool {
-	p := auth.PrincipalOf(r)
+	if b.writerOK(auth.PrincipalOf(r)) {
+		return true
+	}
+	server.WriteError(w, http.StatusForbidden, writerRefusal, "/docs/auth.md")
+	return false
+}
+
+// writerRefusal is requireWriter's 403 — and a builtin.update line's
+// refusal for a person it refuses (builtinline.go).
+const writerRefusal = "this needs the workspace-management grant (xbin:writer) — the same as creating components"
+
+// writerOK is requireWriter's rule: an admin, or a component granted
+// xbin:writer (the Tile Manager).
+func (b *Broker) writerOK(p auth.Principal) bool {
 	if b.IsAdmin(p) {
 		return true
 	}
 	role, ok := b.governanceRole(p, "xbin") // never a non-primary deployment's (D127k)
-	if p.Component != "" && ok && roleSatisfies(role, "writer", nil) {
-		return true
-	}
-	server.WriteError(w, http.StatusForbidden, "this needs the workspace-management grant (xbin:writer) — the same as creating components", "/docs/auth.md")
-	return false
+	return p.Component != "" && ok && roleSatisfies(role, "writer", nil)
 }
 
 func (b *Broker) apiBuiltinsUpdates(w http.ResponseWriter, r *http.Request) {
@@ -169,7 +179,7 @@ func (b *Broker) apiBuiltinsUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	var body struct {
 		ID   string `json:"id"`
-		Mode string `json:"mode"` // "replace" | "merge" | "pr" | "pin" | "unpin"
+		Mode string `json:"mode"` // "replace" | "merge" | "safe" | "pr" | "pin" | "unpin"
 	}
 	derr := server.DecodeJSON(r, &body)
 	if derr == nil && sealedRefused(w, sealedNone(body.ID, "it is updated with xbin itself")) {
@@ -182,6 +192,10 @@ func (b *Broker) apiBuiltinsUpdate(w http.ResponseWriter, r *http.Request) {
 	body.ID = b.updater.ResolveID(body.ID) // accept bare names (tiles/organisations)
 	// Mode "pr" writes nothing to the workspace: the update is filed as a
 	// change proposal against the tile (D49); its own plane applies it.
+	if body.Mode == "safe" { // never loses a local edit: merged when clean, else filed as "pr" files it (safe.go, D248)
+		b.applySafe(w, body.ID, auth.PrincipalOf(r))
+		return
+	}
 	if body.Mode == "pr" {
 		m, notes, perr := b.ProposeBuiltinPR(body.ID, auth.PrincipalOf(r))
 		switch {
@@ -212,7 +226,7 @@ func (b *Broker) apiBuiltinsUpdate(w http.ResponseWriter, r *http.Request) {
 	case "unpin":
 		err = b.updater.Pin(body.ID, false)
 	default:
-		server.WriteError(w, http.StatusBadRequest, "mode must be replace|merge|pr|pin|unpin")
+		server.WriteError(w, http.StatusBadRequest, "mode must be replace|merge|safe|pr|pin|unpin")
 		return
 	}
 	if err != nil {
@@ -229,6 +243,57 @@ func (b *Broker) apiBuiltinsUpdate(w http.ResponseWriter, r *http.Request) {
 		b.Provision()
 	}
 	out := map[string]any{"files": applied.Files}
+	if len(applied.Notes) > 0 {
+		out["notes"] = applied.Notes
+	}
+	server.WriteJSON(w, http.StatusOK, out)
+}
+
+// applySafe is POST /builtins/update {id, mode: "safe"} (D248;
+// plans/wsagent/updates.md §2): the update merged — every file of it clean
+// — or, a missing essential page, installed where nothing is → {applied:
+// "updated" | "installed", files, notes?}; where it would conflict with
+// this workspace's changes nothing is written and the update is filed as a
+// change proposal on its tile, as mode "pr" files it → {applied:
+// "proposed", pr} (or, upstream having changed nothing but a partition,
+// {applied: "updated", files: [], notes}). A pinned unit, one with no
+// update, one not installed: 400 with why.
+func (b *Broker) applySafe(w http.ResponseWriter, id string, p auth.Principal) {
+	applied, how, err := b.updater.ApplySafe(id)
+	var ce *builtins.ConflictError
+	if errors.As(err, &ce) {
+		m, notes, perr := b.ProposeBuiltinPR(id, p)
+		switch {
+		case perr != nil:
+			server.WriteError(w, http.StatusBadRequest, perr.Error())
+		case m == nil:
+			out := map[string]any{"applied": "updated", "files": []string{}}
+			if len(notes) > 0 {
+				out["notes"] = notes
+			}
+			server.WriteJSON(w, http.StatusOK, out)
+		default:
+			server.WriteJSON(w, http.StatusOK, map[string]any{"applied": "proposed", "pr": m, "conflicts": ce.Files})
+		}
+		return
+	}
+	if err != nil {
+		server.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	_ = b.Reg.Rescan() // as replace and merge: a changed backend is live at once
+	if b.OnStructureChange != nil {
+		b.OnStructureChange()
+	}
+	b.Provision()
+	files, word := applied.Files, "updated"
+	if files == nil {
+		files = []string{}
+	}
+	if how == builtins.SafeInstall {
+		word = "installed"
+	}
+	out := map[string]any{"applied": word, "files": files}
 	if len(applied.Notes) > 0 {
 		out["notes"] = applied.Notes
 	}
