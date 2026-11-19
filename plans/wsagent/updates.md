@@ -431,6 +431,7 @@ Each rule was taken out and its test run (the log of 2026-11-19):
 | workspace templates read through `os.DirFS` | `TestInstantiateWorkspaceNeverReadsThroughALink` |
 | a tile's backend closes a builtin-update proposal merged | `TestBuiltinUpdateMergedCloseIsAPersonsAndRecordsWhatIsThere` |
 | a merged close records the whole update | `TestRecordAppliedRecordsOnlyWhatTheTileHolds`, the broker test above |
+| a change held beside an adjacent edit read as not held (found by `TestBuiltinProposalInATileSession`) | `TestHoldsChangeBesideAnAdjacentEdit` |
 | the approved pin not checked at the write | `TestApplySafeAppliesOnlyWhatWasApproved` |
 | a local deletion restored | `TestSafeUpdateKeepsLocalDeletions` |
 | the lock waited for without bound | `TestApplySafeAppliesOnlyWhatWasApproved/busy` |

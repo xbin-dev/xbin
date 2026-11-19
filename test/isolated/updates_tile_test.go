@@ -164,8 +164,10 @@ func TestTemplateUpdateInATileSession(t *testing.T) {
 // change: mode safe writes nothing and files the update as a proposal
 // on the tile; the commands of xbind's brief, in a terminal session on the
 // tile as its person, fetch it, `git am --3way` it in a clone, resolve,
-// bring it in and close it merged — which records the new version: the
-// update is no longer listed.
+// bring it in and close it merged — a person's terminal session may
+// (never the tile's own code) — which records what the tile then holds:
+// upstream's line, with the person's own right after it, holds the update,
+// so it is no longer listed.
 func TestBuiltinProposalInATileSession(t *testing.T) {
 	t.Parallel()
 	a := xbindtest.Require(t)
