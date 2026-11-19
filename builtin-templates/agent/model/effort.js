@@ -140,7 +140,7 @@ export function chip(v, ctx = {}) {
   const k = kindOf(rec);
   const intent = intentOf(config, cls, ctx.tileDefault ?? (ctx.catalog && ctx.catalog.defaultEffort));
   const out = { shown: !!k && !harness && !(cls && cls.id === WORKSPACE_CLASS), model, rec, notches: notches(rec), def: defaultLabel(rec),
-    always: !!k && rec.can_disable !== true, value: DEFAULT, label: '', title: '', note: '', disabled: !!v && ctx.talk === false };
+    always: !!k && rec.can_disable === false, value: DEFAULT, label: '', title: '', note: '', disabled: !!v && ctx.talk === false };
   if (!out.shown) return out;
   const bare = model.includes('|') ? model.slice(model.indexOf('|') + 1) : model;
   if (!intent.value) {

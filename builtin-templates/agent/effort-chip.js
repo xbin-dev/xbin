@@ -16,7 +16,7 @@ import { chip, step, DEFAULT } from './model/effort.js';
 import { access } from './model/rules.js';
 
 const $ = (id) => document.getElementById(id);
-const st = { open: false, busy: false, err: '' };
+const st = { open: false, busy: false, err: '', chip: null };
 let el, pop;
 
 function mount() {
@@ -31,7 +31,12 @@ function mount() {
     if (st.open && !pop.contains(e.target) && !el.contains(e.target)) { st.open = false; ctx.paint(); }
   });
   pop.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' || (e.key === 'Enter' && e.target.closest('.etrack'))) { e.preventDefault(); close(); }
+    if (e.key === 'Escape' || (e.key === 'Enter' && e.target.closest('.etrack'))) { e.preventDefault(); close(); return; }
+    const c = st.chip; // the track's keys work wherever the focus is in the popover (Default's button too)
+    const to = c && !st.busy && !c.disabled ? step(c, e.key) : null;
+    if (to == null) return;
+    e.preventDefault();
+    if (to !== c.value) pick(to);
   });
 }
 
@@ -57,7 +62,12 @@ async function pick(value) {
   try { await ctx.app.pickEffort(value); } catch (e) { st.err = e.message || String(e); }
   st.busy = false;
   ctx.paint();
-  pop.querySelector('[aria-checked="true"]')?.focus();
+  focusTrack();
+}
+
+// focusTrack: the checked notch — at Default, the track's first (its tab stop)
+function focusTrack() {
+  (pop.querySelector('.enotch[aria-checked="true"]') || pop.querySelector('.enotch[tabindex="0"]'))?.focus();
 }
 
 ext.register({
@@ -72,7 +82,7 @@ ext.register({
     if (!shown) { st.open = false; render(nothing, el); drawPop(null); return; }
     render(html`<button class="btn ghost echipb" type="button" aria-haspopup="dialog" aria-expanded=${st.open ? 'true' : 'false'}
       title=${c.title} data-effort=${c.value} ?disabled=${c.disabled}
-      @click=${(e) => { e.stopPropagation(); st.open = !st.open; st.err = ''; ctx.paint(); if (st.open) setTimeout(() => pop.querySelector('[aria-checked="true"]')?.focus(), 0); }}>
+      @click=${(e) => { e.stopPropagation(); st.open = !st.open; st.err = ''; ctx.paint(); if (st.open) setTimeout(focusTrack, 0); }}>
       <bx-icon name="thought"></bx-icon><span class="echipt">${c.label}</span><bx-icon name="caret-down"></bx-icon></button>`, el);
     drawPop(st.open ? c : null, v);
   },
@@ -80,23 +90,18 @@ ext.register({
 
 function drawPop(c, v) {
   if (!pop) return;
+  st.chip = c;
   if (!c) { pop.hidden = true; render(nothing, pop); return; }
   const r = el.getBoundingClientRect();
   pop.hidden = false;
   pop.style.left = Math.max(8, Math.min(r.left, innerWidth - 348)) + 'px';
   pop.style.bottom = Math.max(8, innerHeight - r.top + 6) + 'px';
   const bare = c.model.includes('|') ? c.model.slice(c.model.indexOf('|') + 1) : c.model;
-  const onKey = (e) => {
-    const to = step(c, e.key);
-    if (to == null) return;
-    e.preventDefault();
-    if (to !== c.value) pick(to);
-  };
   const long = !!v && (v.messages || []).length > 12;
   const isDefault = c.value === DEFAULT;
   render(html`
     <div class="esec">Reasoning · <span class="mono">${bare}</span></div>
-    <div class="etrack" role="radiogroup" aria-label="reasoning effort" @keydown=${onKey}>
+    <div class="etrack" role="radiogroup" aria-label="reasoning effort">
       ${c.notches.map((n, i) => html`<button type="button" class="enotch ${n.value === c.value ? 'on' : ''}" role="radio" data-notch=${n.value}
           aria-checked=${n.value === c.value ? 'true' : 'false'} tabindex=${n.value === c.value || (isDefault && i === 0) ? '0' : '-1'}
           ?disabled=${st.busy || c.disabled} @click=${() => pick(n.value)}><span class="edot"></span><span class="elab">${n.label}</span></button>`)}
