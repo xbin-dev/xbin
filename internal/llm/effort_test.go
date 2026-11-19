@@ -23,6 +23,9 @@ func TestEffortMapping(t *testing.T) {
 	alwaysOn := rec([]string{"low", "high", "max"}, "max", false, nil) // Kimi K3, GLM-5.3
 	openai := rec([]string{"low", "medium", "high"}, "medium", false, nil)
 	toggle := rec([]string{"high"}, "", true, nil)
+	// a router's glm-5.2 as an admin described it (2026-11-20: it takes none, medium, high, xhigh and 400s on
+	// minimal, low, max) — this gateway's behaviour, so an admin's entry, never the vendored table's
+	glm52 := &EffortRecord{Levels: []string{"medium", "high", "xhigh"}, CanDisable: boolp(true), Source: EffortFromAdmin}
 	off := &EffortRecord{Levels: []string{}}
 	type want struct{ sent, header string }
 	pass := func(w string) want { return want{w, ""} }
@@ -44,6 +47,8 @@ func TestEffortMapping(t *testing.T) {
 		{"OpenAI's three", openai, map[string]want{"minimal": {"low", "low; asked=minimal"}, "xhigh": {"high", "high; asked=xhigh"}, "max": {"high", "high; asked=max"},
 			"none": {"low", "low; asked=none"}}},
 		{"on or off", toggle, map[string]want{"none": {"none", "none"}, "low": {"high", "high; asked=low"}, "max": {"high", "high; asked=max"}, "high": {"high", "high"}}},
+		{"a router's glm-5.2", glm52, map[string]want{"none": {"none", "none"}, "minimal": {"medium", "medium; asked=minimal"}, "low": {"medium", "medium; asked=low"},
+			"medium": {"medium", "medium"}, "xhigh": {"xhigh", "xhigh"}, "max": {"xhigh", "xhigh; asked=max"}}},
 	}
 	for _, c := range cases {
 		for asked, w := range c.in {
@@ -95,6 +100,8 @@ func TestEffortRewriteWires(t *testing.T) {
 	}{
 		{"chat, mapped", deepseek, true, `{"reasoning_effort":"medium","model":"m"}`, map[string]string{"reasoning_effort": `"high"`, "model": `"m"`}, "", "high; asked=medium"},
 		{"chat, as it is", deepseek, true, `{"reasoning_effort":"max"}`, map[string]string{"reasoning_effort": `"max"`}, "", "max"},
+		{"chat, a template's own knob beside it untouched", deepseek, true, `{"reasoning_effort":"medium","chat_template_kwargs":{"thinking":true,"reasoning_effort":62}}`,
+			map[string]string{"reasoning_effort": `"high"`, "chat_template_kwargs": `{"reasoning_effort":62,"thinking":true}`}, "", "high; asked=medium"},
 		{"chat, an OpenRouter-style object beside it", deepseek, true, `{"reasoning":{"effort":"medium","exclude":true}}`, map[string]string{"reasoning": `{"effort":"high","exclude":true}`}, "", "high; asked=medium"},
 		{"chat, no reasoning", off, true, `{"reasoning_effort":"high"}`, map[string]string{"reasoning_effort": ""}, "reasoning_effort", "none; asked=high; can't"},
 		{"responses, mapped, summary kept", deepseek, false, `{"reasoning":{"effort":"medium","summary":"auto"}}`, map[string]string{"reasoning": `{"effort":"high","summary":"auto"}`}, "", "high; asked=medium"},
@@ -204,13 +211,12 @@ func TestEffortFromAnUntrustedListing(t *testing.T) {
 	}
 	long := `{"effort":{"supported_levels":[` + strings.Repeat(`"low",`, 40) + `"high"]}}`
 	for name, obj := range map[string]string{
-		"a huge array":                          long,
-		"no ladder word":                        `{"effort":{"supported_levels":["turbo","fast"]}}`,
-		"levels of a wrong type":                `{"effort":{"supported_levels":"low,high"}}`,
-		"an effort that is text":                `{"effort":"high"}`,
-		"an OpenRouter list of nothing":         `{"reasoning":{"supported_efforts":[]}}`,
-		"supported_parameters naming reasoning": `{"supported_parameters":["tools","reasoning"]}`,
-		"supported_parameters not a list":       `{"supported_parameters":"tools"}`,
+		"a huge array":                    long,
+		"no ladder word":                  `{"effort":{"supported_levels":["turbo","fast"]}}`,
+		"levels of a wrong type":          `{"effort":{"supported_levels":"low,high"}}`,
+		"an effort that is text":          `{"effort":"high"}`,
+		"an OpenRouter list of nothing":   `{"reasoning":{"supported_efforts":[]}}`,
+		"supported_parameters not a list": `{"supported_parameters":"tools"}`,
 	} {
 		if r, ok := read(obj); ok && r.kind() != "" {
 			t.Errorf("%s: read as %+v", name, r)
@@ -225,9 +231,24 @@ func TestEffortFromAnUntrustedListing(t *testing.T) {
 	if r.canDisable() {
 		t.Errorf("mandatory reasoning can be turned off: %+v", r)
 	}
-	// OpenRouter's supported_parameters without any reasoning parameter: the model has none
-	if r, ok := read(`{"supported_parameters":["tools","temperature"]}`); !ok || r.kind() != "off" {
-		t.Errorf("no reasoning parameter: %+v", r)
+	// a list's silence says nothing: a router left reasoning_effort out of a model that takes it (2026-11-20)
+	if r, ok := read(`{"supported_parameters":["tools","temperature"],"supported_sampling_parameters":["temperature","top_p"]}`); ok {
+		t.Errorf("no reasoning parameter listed, read as %+v", r)
+	}
+	// a router's listing as it came (OpenRouter-shaped, no effort member): it reasons, its levels unknown — a
+	// record that is no use alone, and fills in nothing over the table's levels
+	gw := `{"id":"deepseek/deepseek-v4.1-flash","context_length":1048576,"max_output_tokens":393216,"aliases":["deepseek/deepseek-v4-flash"],
+		"supported_features":["reasoning","json_mode","structured_outputs","logprobs","tools"],"supported_sampling_parameters":["temperature","top_p","max_tokens"]}`
+	if r, ok := read(gw); !ok || r.Reasons == nil || !*r.Reasons || r.Levels != nil || r.kind() != "" {
+		t.Errorf("a router's reasoning feature: %+v", r)
+	}
+	var extra map[string]json.RawMessage
+	_ = json.Unmarshal([]byte(gw), &extra)
+	if got := effortOf(effUpstream{Name: "gw"}, "deepseek/deepseek-v4.1-flash", extra); got == nil || strings.Join(got.Levels, ",") != "low,high,max" || got.Source != EffortFromXbin || got.Reasons == nil {
+		t.Errorf("the table's levels under a router's reasoning feature: %+v", got)
+	}
+	if got := effortOf(effUpstream{Name: "gw"}, "some/other-model", extra); got == nil || got.kind() != "" {
+		t.Errorf("a reasoning model nothing else describes: %+v", got)
 	}
 	// an explicit [] in the effort member: no reasoning
 	if r, ok := read(`{"effort":{"supported_levels":[]}}`); !ok || r.kind() != "off" {

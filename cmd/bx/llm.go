@@ -32,9 +32,11 @@ const llmUsage = `  bx llm [status] [--json]              the LLM connector: ups
                                         every model the upstream has no price for
   bx llm upstream set <name> [--url <u>] [--key…|--no-key] [--models a,b|--any-model]
                  [--private|--public] [--price …] [--responses-via auto|upstream|chat]
-                 [--reasoning <model>=openai|toggle|deepseek|none|-]…
+                 [--reasoning <model>=openai|toggle|deepseek|none|<levels>[/<default>]|-]…
                                         --reasoning describes a model's reasoning effort (or a
-                                        family: 'deepseek*=deepseek'); - forgets the description
+                                        family: 'deepseek*=deepseek'): a preset, or the levels it
+                                        takes ('none,medium,high,xhigh/high' — none: it can be
+                                        turned off; /high: its default); - forgets it
   bx llm upstream rm <name> | test <name> [<model>]
   bx llm models [--json]                the models offered (<upstream>/<model>, aliases),
                                         each with its reasoning effort when described
@@ -88,18 +90,22 @@ type llmEffort struct {
 	Levels     *[]string `json:"supported_levels"`
 	Default    string    `json:"default_level"`
 	CanDisable *bool     `json:"can_disable"`
+	Reasons    *bool     `json:"reasons"`
 	Source     string    `json:"source"`
 }
 
 // effortLine is "Reasoning: Low · High · Max (default High; can be off) ·
 // from the upstream" — or what is known instead.
 func effortLine(e *llmEffort) string {
-	if e == nil || e.Levels == nil {
+	if e == nil || (e.Levels == nil && (e.Reasons == nil || !*e.Reasons)) {
 		return "Reasoning: not described — no control is offered"
 	}
 	from := map[string]string{"upstream": "from the upstream", "xbin": "from xbin", "admin": "from the admin", "host": "set by your host"}[e.Source]
 	if from == "" {
 		from = "from " + e.Source
+	}
+	if e.Levels == nil {
+		return "Reasoning: yes, its levels not described — no control is offered (bx llm upstream set … --reasoning) · " + from
 	}
 	if len(*e.Levels) == 0 {
 		return "Reasoning: none (an effort sent is dropped) · " + from
@@ -122,6 +128,53 @@ func effortLine(e *llmEffort) string {
 		line += " (" + strings.Join(notes, "; ") + ")"
 	}
 	return line + " · " + from
+}
+
+// effortLadder is the connector's: OpenAI's words, cheapest first.
+var effortLadder = []string{"none", "minimal", "low", "medium", "high", "xhigh", "max"}
+
+// reasoningSpec is one --reasoning value as the API takes it: nil for "-"
+// (forget the entry), {preset} for a preset's name, else a record of the
+// levels listed ("none" among them: it can be turned off), with "/<level>"
+// its default.
+func reasoningSpec(v string) (any, error) {
+	switch v {
+	case "-":
+		return nil, nil
+	case "openai", "toggle", "deepseek", "none":
+		return map[string]string{"preset": v}, nil
+	}
+	list, def, _ := strings.Cut(v, "/")
+	rec := map[string]any{"can_disable": false}
+	levels := []string{}
+	for _, w := range strings.Split(list, ",") {
+		w = strings.TrimSpace(w)
+		switch {
+		case w == "none":
+			rec["can_disable"] = true
+		case w != "" && slicesIndex(effortLadder, w) > 0:
+			levels = append(levels, w)
+		default:
+			return nil, fmt.Errorf("%q is no preset (openai, toggle, deepseek, none) and no level (%s)", w, strings.Join(effortLadder, ", "))
+		}
+	}
+	sort.Slice(levels, func(i, j int) bool {
+		return slicesIndex(effortLadder, levels[i]) < slicesIndex(effortLadder, levels[j])
+	})
+	rec["supported_levels"] = levels
+	if def != "" {
+		rec["default_level"] = def
+	}
+	return rec, nil
+}
+
+func slicesIndex(l []string, w string) int {
+	for i, x := range l {
+		if x == w {
+			return i
+		}
+	}
+	return -1
 }
 
 // effortWord is a ladder word as the line says it.
@@ -596,10 +649,11 @@ func llmUpstreamCmd(args []string) error {
 				if !ok || model == "" || preset == "" {
 					return fmt.Errorf("--reasoning %q: want <model>=<preset> (openai, toggle, deepseek, none) or <model>=- to forget it", spec)
 				}
-				if preset == "-" {
-					reasoning[model] = nil
-				} else {
-					reasoning[model] = map[string]string{"preset": preset}
+				switch r, err := reasoningSpec(preset); {
+				case err != nil:
+					return fmt.Errorf("--reasoning %q: %v", spec, err)
+				default:
+					reasoning[model] = r
 				}
 			}
 			body["reasoning"] = reasoning
@@ -700,7 +754,7 @@ func llmModelsCmd(jsonOut bool) error {
 			continue
 		}
 		var e llmEffort
-		if len(m.Effort) == 0 || json.Unmarshal(m.Effort, &e) != nil || e.Levels == nil {
+		if len(m.Effort) == 0 || json.Unmarshal(m.Effort, &e) != nil || (e.Levels == nil && (e.Reasons == nil || !*e.Reasons)) {
 			fmt.Println(m.ID)
 			continue
 		}

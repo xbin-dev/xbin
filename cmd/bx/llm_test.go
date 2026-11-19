@@ -34,7 +34,7 @@ func TestBxLLMRequests(t *testing.T) {
 		case r.URL.Path == "/api/xbin/llm/v1/models":
 			_, _ = io.WriteString(w, `{"object":"list","data":[{"id":"main/gpt-5"},{"id":"fast","alias_of":"main/gpt-5"},
 				{"id":"main/deepseek-v4.1-flash","effort":{"supported_levels":["low","high","max"],"default_level":"high","can_disable":true,"source":"upstream"}},
-				{"id":"main/plain","effort":{"supported_levels":[],"source":"admin"}},{"id":"main/odd","effort":"junk"}],"upstream_errors":{"hosted":"its model list is unavailable"}}`)
+				{"id":"main/plain","effort":{"supported_levels":[],"source":"admin"}},{"id":"main/odd","effort":"junk"},{"id":"main/router","effort":{"reasons":true,"source":"upstream"}}],"upstream_errors":{"hosted":"its model list is unavailable"}}`)
 		case r.URL.Path == "/api/xbin/llm/usage":
 			_, _ = io.WriteString(w, `{"period":"day","from":"2026-11-01","to":"2026-11-14","scope":"all","rows":[{"day":"2026-11-14","user":"bob","component":"apps/agent","model":"main/gpt-5","requests":3,"inputTokens":300,"outputTokens":60,"cost":0.0009,"unpriced":1}],
 				"totals":{"requests":3,"inputTokens":300,"outputTokens":60,"cost":0.0009,"unpriced":1}}`)
@@ -75,7 +75,7 @@ func TestBxLLMRequests(t *testing.T) {
 		{"people", "everyone"},
 		{"concurrency", "8"},
 		{"upstream", "set", "main", "--price", "*=2:4"},
-		{"upstream", "set", "main", "--reasoning", "deepseek*=deepseek", "--reasoning=plain=-"},
+		{"upstream", "set", "main", "--reasoning", "deepseek*=deepseek", "--reasoning=plain=-", "--reasoning", "z-ai/glm-5.2=xhigh,none,medium,high/high"},
 		{"off"},
 		{"usage", "--month", "--user", "bob", "--from", "2026-01-01"},
 		{"quota"},
@@ -108,7 +108,7 @@ func TestBxLLMRequests(t *testing.T) {
 		`PUT /api/xbin/llm/config {"concurrency":8}`,
 		"GET /api/xbin/llm/config",
 		`PUT /api/xbin/llm/upstreams/main {"prices":{"*":{"in":2,"out":4},"gpt-5":{"in":1.25,"out":10}}}`,
-		`PUT /api/xbin/llm/upstreams/main {"reasoning":{"deepseek*":{"preset":"deepseek"},"plain":null}}`,
+		`PUT /api/xbin/llm/upstreams/main {"reasoning":{"deepseek*":{"preset":"deepseek"},"plain":null,"z-ai/glm-5.2":{"can_disable":true,"default_level":"high","supported_levels":["medium","high","xhigh"]}}}`,
 		`PUT /api/xbin/llm/config {"enabled":false}`,
 		"GET /api/xbin/llm/usage?from=2026-01-01&period=month&user=bob",
 		"GET /api/xbin/llm/quotas",
@@ -130,6 +130,7 @@ func TestBxLLMRequests(t *testing.T) {
 		"main/deepseek-v4.1-flash  Reasoning: Low · High · Max (default High; can be off) · from the upstream",
 		"main/plain  Reasoning: none (an effort sent is dropped) · from the admin",
 		"main/odd\n",
+		"main/router  Reasoning: yes, its levels not described — no control is offered (bx llm upstream set … --reasoning) · from the upstream",
 		"    gpt-5*: Reasoning: Low · Medium · High (default Medium; always thinks) · from the admin",
 		"agent model: main/gpt-5",
 		"alias fast → main/gpt-5",
@@ -167,7 +168,7 @@ func TestBxLLMRequests(t *testing.T) {
 		t.Errorf("--key= on the command line: %v", err)
 	}
 	for _, bad := range [][]string{{"upstream", "add", "x"}, {"quota", "set", "team:x", "tokens/day=5"}, {"quota", "set", "default", "tokens/day=lots"},
-		{"upstream", "add", "x", "http://y", "--no-key", "--price", "gpt-5=cheap"}, {"upstream", "set", "main", "--reasoning", "deepseek"}, {"usage", "--bogus"}, {"nonsense"}} {
+		{"upstream", "add", "x", "http://y", "--no-key", "--price", "gpt-5=cheap"}, {"upstream", "set", "main", "--reasoning", "deepseek"}, {"upstream", "set", "main", "--reasoning", "m=low,turbo"}, {"usage", "--bogus"}, {"nonsense"}} {
 		before := len(got)
 		if err := cmdLLM(bad); err == nil {
 			t.Errorf("bx llm %v: no error", bad)

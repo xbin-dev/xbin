@@ -138,7 +138,7 @@ bx llm upstream add <name> <base-url> [--key-file <f> | --key-stdin | --no-key]
           [--responses-via auto|upstream|chat]
           | set <name> [--url <u>] [--models a,b | --any-model] [--private | --public] [--key… | --no-key] [--price …]
             [--responses-via …]  (chat: Responses calls are translated for an upstream that has only chat completions, D244)
-            [--reasoning <model>=openai|toggle|deepseek|none|-]…  (a model's reasoning effort, D249)
+            [--reasoning <model>=openai|toggle|deepseek|none|<levels>[/<default>]|-]…  (a model's reasoning effort, D249)
           | rm <name> | test <name> [<model>]
                                        its providers (admin): the key goes to
                                        the vault; test makes a one-line call
@@ -545,8 +545,10 @@ gpt-5=1.25:10:0.125` prices a model in USD per million input, output and
 cached-input tokens (`--price '*=5:15'`: every model without a price of its
 own). `--reasoning 'deepseek*=deepseek'` describes a model's (or a
 family's) reasoning effort with a preset — `openai`, `toggle`, `deepseek`,
-`none` — and `--reasoning <model>=-` forgets it ([llm.md](/docs/llm.md)
-§Reasoning effort); `bx llm` lists an upstream's entries and `bx llm
+`none` — or with the levels it takes, `--reasoning
+'z-ai/glm-5.2=none,medium,high,xhigh/high'` (`none` among them: it can be
+turned off; `/high`: its default), and `--reasoning <model>=-` forgets it
+([llm.md](/docs/llm.md) §Reasoning effort); `bx llm` lists an upstream's entries and `bx llm
 models` each model's "Reasoning: Low · High · Max (default High; can be
 off) · from the upstream". `upstream test <name> [<model>]` makes the smallest call through it —
 metered to you, held by your quota, refused while the connector is off —

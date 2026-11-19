@@ -13,8 +13,12 @@ package llm
 //     table keyed like prices (exact id → the id after its last "/" → the
 //     longest "prefix*"); an entry replaces the rest whole;
 //  2. the upstream's own model list (GET /models: DeepSeek's effort,
-//     OpenRouter's reasoning and supported_parameters) — untrusted: only
-//     ladder words, booleans and a bounded alias map are read from it;
+//     OpenRouter's reasoning; a router's supported_features or
+//     supported_parameters naming reasoning says only that the model
+//     reasons) — untrusted: only ladder words, booleans and a bounded alias
+//     map are read from it, and a list's silence says nothing (a router
+//     that leaves reasoning_effort out of a model's parameters may well
+//     take it);
 //  3. a table vendored into xbind (effort_table.json), written from the
 //     providers' docs: 2 is laid over it member by member.
 //
@@ -82,8 +86,9 @@ type EffortRecord struct {
 	// ladder word, "none" for a model that thinks only when asked).
 	Default string
 	// CanDisable: "none" turns its reasoning off. ThinksByDefault: it
-	// reasons when nothing is sent. nil: not said.
-	CanDisable, ThinksByDefault *bool
+	// reasons when nothing is sent. Reasons: it reasons (an upstream's list
+	// that says so without its levels). nil: not said.
+	CanDisable, ThinksByDefault, Reasons *bool
 	// Aliases are the provider's own mapping of the ladder words the model
 	// lacks (DeepSeek: medium → high).
 	Aliases map[string]string
@@ -103,6 +108,7 @@ type effortJSON struct {
 	DefaultLevel    string            `json:"default_level,omitempty"`
 	CanDisable      *bool             `json:"can_disable,omitempty"`
 	ThinksByDefault *bool             `json:"thinks_by_default,omitempty"`
+	Reasons         *bool             `json:"reasons,omitempty"`
 	Aliases         map[string]string `json:"aliases,omitempty"`
 	Scale           json.RawMessage   `json:"scale,omitempty"`
 	Budget          json.RawMessage   `json:"budget,omitempty"`
@@ -112,7 +118,7 @@ type effortJSON struct {
 }
 
 func (r EffortRecord) toJSON(withSend bool) effortJSON {
-	j := effortJSON{DefaultLevel: r.Default, CanDisable: r.CanDisable, ThinksByDefault: r.ThinksByDefault,
+	j := effortJSON{DefaultLevel: r.Default, CanDisable: r.CanDisable, ThinksByDefault: r.ThinksByDefault, Reasons: r.Reasons,
 		Aliases: r.Aliases, Scale: r.Scale, Budget: r.Budget, Replay: r.Replay, Source: r.Source}
 	if r.Levels != nil {
 		l := slices.Clone(r.Levels)
@@ -160,10 +166,11 @@ func (r *EffortRecord) UnmarshalJSON(b []byte) error {
 	if err := dec.Decode(&j); err != nil {
 		return err
 	}
-	*r = EffortRecord{Default: j.DefaultLevel, CanDisable: j.CanDisable, ThinksByDefault: j.ThinksByDefault, Aliases: j.Aliases,
+	*r = EffortRecord{Default: j.DefaultLevel, CanDisable: j.CanDisable, ThinksByDefault: j.ThinksByDefault, Reasons: j.Reasons, Aliases: j.Aliases,
 		Scale: j.Scale, Budget: j.Budget, Send: j.Send, Replay: j.Replay, Source: j.Source}
 	if j.SupportedLevels != nil {
 		r.Levels = append([]string{}, *j.SupportedLevels...)
+		sort.SliceStable(r.Levels, func(a, b int) bool { return effortRank(r.Levels[a]) < effortRank(r.Levels[b]) }) // cheapest first, as the mapping reads them
 	}
 	return nil
 }
@@ -300,10 +307,13 @@ func (r EffortRecord) clone() EffortRecord {
 
 // effortFromListing reads what an upstream's model object says of its
 // reasoning: DeepSeek's effort member (or another xbind's), else
-// OpenRouter's reasoning object, else — from OpenRouter's
-// supported_parameters — that the model has none. Untrusted data: only
-// ladder words, booleans and a bounded alias map are read; a scale, a budget,
-// a send patch or a source in it are never taken.
+// OpenRouter's reasoning object, else — a router's supported_features or
+// supported_parameters naming reasoning — only that the model reasons (its
+// levels then come from xbind's table, or an admin). Untrusted data: only
+// ladder words, booleans and a bounded alias map are read; a scale, a
+// budget, a send patch or a source in it are never taken; and what a list
+// leaves out says nothing (a router lists a model without reasoning_effort
+// that takes it).
 func effortFromListing(extra map[string]json.RawMessage) (EffortRecord, bool) {
 	if raw, ok := extra["effort"]; ok {
 		if r, ok := effortFromUpstreamMember(raw); ok {
@@ -315,11 +325,16 @@ func effortFromListing(extra map[string]json.RawMessage) (EffortRecord, bool) {
 			return r, true
 		}
 	}
-	if raw, ok := extra["supported_parameters"]; ok {
-		var params []string
-		if json.Unmarshal(raw, &params) == nil && len(params) > 0 && len(params) <= 256 &&
-			!slices.ContainsFunc(params, func(p string) bool { return p == "reasoning" || p == "reasoning_effort" || p == "include_reasoning" }) {
-			return EffortRecord{Levels: []string{}, Source: EffortFromUpstream}, true // its list says it takes no reasoning parameter
+	for _, key := range []string{"supported_features", "supported_parameters", "supported_sampling_parameters"} {
+		var names []json.RawMessage
+		if json.Unmarshal(extra[key], &names) != nil || len(names) > 256 {
+			continue
+		}
+		for _, n := range names {
+			var s string
+			if json.Unmarshal(n, &s) == nil && (s == "reasoning" || s == "reasoning_effort") {
+				return EffortRecord{Reasons: boolp(true), Source: EffortFromUpstream}, true
+			}
 		}
 	}
 	return EffortRecord{}, false
@@ -399,11 +414,12 @@ func effortFromUpstreamMember(raw json.RawMessage) (EffortRecord, bool) {
 		r.CanDisable = rawBool(m["can_disable"])
 	}
 	r.ThinksByDefault = rawBool(m["thinks_by_default"])
+	r.Reasons = rawBool(m["reasons"])
 	r.Aliases = untrustedAliases(m["aliases"], r.Levels)
 	if s := ""; json.Unmarshal(m["replay"], &s) == nil && s == ReplayNever {
 		r.Replay = ReplayNever
 	}
-	if r.Levels == nil && r.Default == "" && r.CanDisable == nil && r.ThinksByDefault == nil {
+	if r.Levels == nil && r.Default == "" && r.CanDisable == nil && r.ThinksByDefault == nil && r.Reasons == nil {
 		return EffortRecord{}, false
 	}
 	return r, true
@@ -481,6 +497,9 @@ func overlay(hi, lo EffortRecord) EffortRecord {
 	}
 	if hi.ThinksByDefault != nil {
 		out.ThinksByDefault = hi.ThinksByDefault
+	}
+	if hi.Reasons != nil {
+		out.Reasons = hi.Reasons
 	}
 	for k, v := range hi.Aliases {
 		if out.Aliases == nil {

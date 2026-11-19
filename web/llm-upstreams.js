@@ -17,15 +17,16 @@
  * "reasoning…" opens a provider's models with what is known of their
  * reasoning effort (D249: "Reasoning: Low · High · Max (default High) ·
  * from the upstream", or "not described") and, unless the host holds the
- * provider, one pick per model among the presets — no JSON, no request
- * patches.
+ * provider, "describe…" per model: the levels it takes ticked, whether it
+ * can be turned off, its default — a preset pre-ticks them — or "forget"
+ * the description. No JSON, no request patches.
  */
 import { LitElement, html, css, nothing } from '/vendor/lit-all.min.js';
 import '/vendor/bx-icons.js';
 import { limitsCss } from '/vendor/bx-limits.js';
 import { llmCss, lockTpl, errTpl } from '/vendor/llm-css.js';
 import { lockOf, fullyLocked, keyWords, modelsWords, testWords, upstreamBody, upstreamDraft, addressChanged, vaultShut, vaultWords, plural,
-  effortLine, presetOf, upstreamModels, REASONING_PRESETS } from '/vendor/llm-kit.js';
+  effortLine, upstreamModels, REASONING_PRESETS, EFFORT_LEVELS, effortDraft, effortRecord, effortDraftWords } from '/vendor/llm-kit.js';
 
 const NEW = '+';
 
@@ -39,6 +40,7 @@ export class BxLlmUpstreams extends LitElement {
     _tests: { state: true },       // name → the test's answer, {running} meanwhile
     _reason: { state: true },      // the upstream whose models' reasoning is shown, or null
     _models: { state: true },      // GET /v1/models while that is open ({data}), null before it came
+    _desc: { state: true },        // the model being described ({model, draft}), or null
     _busy: { state: true }, _err: { state: true },
   };
   static styles = [limitsCss, llmCss, css`
@@ -46,8 +48,10 @@ export class BxLlmUpstreams extends LitElement {
     td.url { max-width: 22em; }
     .prices { display: grid; grid-template-columns: minmax(8em, 1.6fr) repeat(3, minmax(5em, 1fr)) max-content; gap: 4px 8px; align-items: center; }
     .result { display: flex; gap: 6px; align-items: baseline; }
-    .reason { display: grid; grid-template-columns: minmax(8em, max-content) 1fr minmax(10em, max-content); gap: 4px 12px; align-items: center; }
-    .reason select { max-width: 100%; }
+    .reason { display: grid; grid-template-columns: minmax(8em, max-content) 1fr max-content; gap: 4px 12px; align-items: center; }
+    .describe { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; padding: 6px 0 10px; }
+    .describe .levels { display: flex; flex-wrap: wrap; gap: 4px 10px; }
+    .describe select { max-width: 100%; }
     @media (max-width: 640px) { .reason { grid-template-columns: 1fr; } }
   `];
   constructor() { super(); this._edit = null; this._tests = {}; this._err = ''; }
@@ -85,30 +89,52 @@ export class BxLlmUpstreams extends LitElement {
     const r = await this.client.models();
     this._models = r.ok ? r.data : { data: [], error: r.error };
   }
-  async _setReason(u, model, preset) {
+  async _setReason(u, model, rec) {
     this._busy = true;
-    const r = await this.client.putUpstream(u.name, { reasoning: { [model]: preset ? { preset } : null } });
+    const r = await this.client.putUpstream(u.name, { reasoning: { [model]: rec } });
     this._busy = false;
     if (!r.ok) { this._err = `${u.name}: ${r.error}`; return; }
-    this._err = '';
+    this._err = ''; this._desc = null;
     this.dispatchEvent(new CustomEvent('llm-config', { detail: r.data, bubbles: true, composed: true }));
     const m = await this.client.models();
     if (m.ok) this._models = m.data;
   }
-  // _reasonTpl: the provider's models, each with its reasoning and (unless locked) the preset picker; then the
+  _draft(patch) { this._desc = { ...this._desc, draft: { ...this._desc.draft, ...patch } }; }
+  // _describeTpl: the levels a model takes, ticked; whether it can be turned off; its default — a preset pre-ticks them
+  _describeTpl(u, model) {
+    const d = this._desc.draft, ticked = EFFORT_LEVELS.filter((w) => d.levels[w]);
+    const presets = this.cfg?.reasoningPresets ?? [];
+    return html`<div class="describe" data-describe=${model}>
+      <span class="k">presets</span>${REASONING_PRESETS.filter((p) => p.id).map((p) => html`<button type="button" class="small quiet" data-preset=${p.id}
+        @click=${() => { this._desc = { ...this._desc, draft: effortDraft(presets.find((x) => x.name === p.id)?.effort) }; }}>${p.label}</button>`)}
+      <span class="levels" role="group" aria-label=${`the levels ${model} takes`}>${EFFORT_LEVELS.map((w) => html`<label class="sw"><input type="checkbox" data-level=${w}
+        .checked=${!!d.levels[w]} @change=${(e) => this._draft({ levels: { ...d.levels, [w]: e.target.checked } })}><span>${w}</span></label>`)}</span>
+      <label class="sw"><input type="checkbox" data-off .checked=${d.off} @change=${(e) => this._draft({ off: e.target.checked })}><span>can be turned off (none)</span></label>
+      <label>default <select data-default aria-label="its default" @change=${(e) => this._draft({ def: e.target.value })}>
+        <option value="" ?selected=${!d.def}>unknown</option>
+        ${d.off ? html`<option value="none" ?selected=${d.def === 'none'}>off</option>` : nothing}
+        ${ticked.map((w) => html`<option value=${w} ?selected=${d.def === w}>${w}</option>`)}</select></label>
+      <span class="meta" data-describe-words>${effortDraftWords(d)}</span>
+      <button class="small primary" data-describe-save ?disabled=${this._busy} @click=${() => this._setReason(u, model, effortRecord(d))}>Save</button>
+      <button class="small quiet" @click=${() => { this._desc = null; }}>Cancel</button>
+    </div>`;
+  }
+  // _reasonTpl: the provider's models, each with its reasoning and (unless locked) describe… / forget; then the
   // admin's own entries that name no listed model (a family: "deepseek*").
   _reasonTpl(u, lock) {
     if (!this._models) return html`<div class="meta">loading the models…</div>`;
-    const presets = this.cfg?.reasoningPresets ?? [];
     const models = upstreamModels(this._models, u.name);
     const own = u.reasoning ?? {};
-    const pick = (model, cur) => html`<select data-reason-pick=${model} aria-label=${`reasoning of ${model}`} ?disabled=${lock.locked || this._busy}
-        @change=${(e) => this._setReason(u, model, e.target.value)}>
-      ${REASONING_PRESETS.map((p) => html`<option value=${p.id} ?selected=${p.id === cur}>${p.label}</option>`)}</select>`;
+    const acts = (model, e) => html`<span class="line">
+      <button class="small" data-describe-open=${model} ?disabled=${lock.locked || this._busy} title=${lock.locked ? 'set by your host — it can’t be changed here' : 'the levels it takes, whether it can be turned off, its default'}
+        @click=${() => { this._desc = { model, draft: effortDraft(e) }; }}>describe…</button>
+      ${own[model] ? html`<button class="small quiet" data-forget=${model} ?disabled=${lock.locked || this._busy} title="forget your description: the upstream's or xbin's applies"
+        @click=${() => this._setReason(u, model, null)}>forget</button>` : nothing}</span>
+      ${this._desc?.model === model ? this._describeTpl(u, model) : nothing}`;
     const rows = models.map((m) => html`<span class="mono">${m.id}</span><span data-reason-line=${m.id}>${effortLine(m.effort)}</span>
-      ${pick(m.id, own[m.id] ? presetOf({ ...own[m.id], source: 'admin' }, presets) : '')}`);
+      ${acts(m.id, own[m.id] ?? m.effort)}`);
     const families = Object.keys(own).filter((k) => !models.some((m) => m.id === k)).sort().map((k) => html`<span class="mono">${k}</span>
-      <span data-reason-line=${k}>${effortLine(own[k])}</span>${pick(k, presetOf({ ...own[k], source: 'admin' }, presets))}`);
+      <span data-reason-line=${k}>${effortLine(own[k])}</span>${acts(k, own[k])}`);
     return html`<div class="wide">
       <div class="meta">What the connector knows of each model's reasoning effort: what you describe here, else the provider's own list, else xbin's table. A model nothing describes gets no effort control, and the efforts callers send pass to it untouched.${this._models.error ? ` (The model list could not be read: ${this._models.error}.)` : ''}</div>
       ${rows.length || families.length ? html`<div class="reason" data-reason=${u.name}>${rows}${families}</div>` : html`<div class="meta">The provider lists no models.</div>`}
@@ -232,6 +258,7 @@ export class BxLlmUpstreams extends LitElement {
     return {
       get editing() { return s._edit; },
       get reasoning() { return s._reason; },
+      get describing() { return s._desc?.model ?? null; },
       openReasoning: (name) => s._openReason(name),
       get error() { return s._err; },
       test: (name) => s._tests[name] ?? null,

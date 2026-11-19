@@ -419,3 +419,17 @@ test('reasoning effort: the line a model is described by, the presets, an upstre
   assert.deepEqual(upstreamModels({ data: [{ id: 'h/a', effort: { supported_levels: [] } }, { id: 'h/b', effort: 'x' }, { id: 'xbin/default', owned_by: 'alias' }, { id: 'o/c' }] }, 'h'),
     [{ id: 'a', effort: { supported_levels: [] } }, { id: 'b', effort: null }]);
 });
+
+test('reasoning effort: the Describe form ↔ the record it saves (D249)', async () => {
+  const { effortDraft, effortRecord, effortDraftWords, effortLine } = await import('../web/llm-kit.js');
+  // a router's glm-5.2: medium, high, xhigh, and it can be turned off — no preset fits
+  const d = effortDraft(null);
+  d.levels.medium = d.levels.high = d.levels.xhigh = true; d.off = true; d.def = 'high';
+  assert.deepEqual(effortRecord(d), { supported_levels: ['medium', 'high', 'xhigh'], can_disable: true, default_level: 'high' });
+  assert.equal(effortDraftWords(d), 'Reasoning: Medium · High · Extra high (default High; can be off) · from the admin');
+  assert.deepEqual(effortRecord(effortDraft(effortRecord(d))), effortRecord(d), 'a record round-trips');
+  // a default it doesn't tick is dropped; nothing ticked is "no reasoning"; off with no level is no reasoning
+  assert.deepEqual(effortRecord({ levels: { low: true }, off: false, def: 'max' }), { supported_levels: ['low'], can_disable: false });
+  assert.deepEqual(effortRecord({ levels: {}, off: true, def: '' }), { supported_levels: [], can_disable: false });
+  assert.equal(effortLine({ reasons: true, source: 'upstream' }), 'Reasoning: yes, its levels not described — no control is offered · from the upstream');
+});

@@ -257,17 +257,28 @@ reasoning at all. What the connector knows of an upstream's model is its
 
 1. **the host's file or the admin's entry** — the upstream's `reasoning`,
    keyed like `prices` (an exact id, the id after its last `/`, the longest
-   `prefix*`): an entry is the whole truth for its models. An admin picks a
-   preset on `/xbin/llm` (*reasoning…* on a provider) or with `bx llm
-   upstream set <name> --reasoning '<model>=<preset>'`: `openai` (low ·
-   medium · high, default medium), `toggle` (on or off), `deepseek` (low ·
-   high · max, default high, medium → high), `none` (no reasoning); `-`
-   forgets the entry. The host's file may write records whole, locked with
-   its upstream;
+   `prefix*`): an entry is the whole truth for its models. An admin
+   describes a model on `/xbin/llm` (*reasoning…* on a provider, then
+   *describe…*): the levels it takes, ticked; whether it can be turned off;
+   its default — a preset pre-ticks them: OpenAI-style (low · medium ·
+   high, default medium), on / off, DeepSeek-style (low · high · max,
+   default high, medium → high), no reasoning. The same with `bx llm
+   upstream set <name> --reasoning '<model>=<preset>'` (`openai`,
+   `toggle`, `deepseek`, `none`) or `--reasoning
+   'z-ai/glm-5.2=none,medium,high,xhigh/high'` (the levels; `none` among
+   them: it can be turned off; `/high`: its default); `-` forgets the entry.
+   A router can take a model's levels differently from its maker's own API
+   — one served `glm-5.2` refusing `low`, which GLM's own API takes — and
+   only an entry here says so. The host's file may write records whole,
+   locked with its upstream;
 2. **the upstream's own model list** — DeepSeek's `effort`, OpenRouter's
-   `reasoning` (and, from its `supported_parameters`, a model that takes
-   none). It is the provider's data, so only ladder words, booleans and a
-   short alias map are read from it — never more;
+   `reasoning`; a router that lists `reasoning` among a model's
+   `supported_features` (or parameters) says only that the model reasons
+   (`"reasons": true`): its levels come from below or from an admin. What
+   such a list leaves out says nothing — a router can leave
+   `reasoning_effort` out of a model that takes it. It is the provider's
+   data, so only ladder words, booleans and a short alias map are read
+   from it — never more;
 3. **xbind's table**, written from the providers' own pages and refreshed
    by releases (`internal/llm/effort_table.json`): DeepSeek's API, xAI Grok
    4.5–4.7, Gemini 4's two thinking models, Kimi K3, GLM-5.2 and 5.3,

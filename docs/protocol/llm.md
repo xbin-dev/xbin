@@ -141,7 +141,9 @@ GET    /llm/v1/models              a caller. {object: "list", data: [{id,
                                    target's) — {supported_levels: [ladder
                                    words, cheapest first; [] = no
                                    reasoning], default_level?, can_disable?,
-                                   thinks_by_default?, aliases?, replay?:
+                                   thinks_by_default?, reasons? (the
+                                   upstream's list says it reasons, its
+                                   levels unknown), aliases?, replay?:
                                    "never", source: upstream | xbin | admin
                                    | host}; it replaces an upstream's own
                                    member of that name, whose valid values
