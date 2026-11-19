@@ -100,20 +100,38 @@ func (m *Manager) sandboxEnv(rel string, relayNet bool, homeDir, termTok string)
 	return env
 }
 
-// sessionEnv is a sandboxed session's env: sandboxEnv, with the session's
-// XBIN_DEPLOYMENT right after XBIN_COMPONENT when its target isn't the
-// primary at session start (11-contract §5), then XBIN_PARTITION on a
-// partitioned tile (partition.go), and a plain terminal's XBIN_LLM_* at the
-// end while the workspace has an LLM connector; otherwise exactly sandboxEnv.
+// sessionEnv is a sandboxed session's env: sandboxEnv, then the person's
+// fallback EMAIL (gitIdentityEnv), with the session's XBIN_DEPLOYMENT right
+// after XBIN_COMPONENT when its target isn't the primary at session start
+// (11-contract §5), then XBIN_PARTITION on a partitioned tile
+// (partition.go), and a plain terminal's XBIN_LLM_* at the end while the
+// workspace has an LLM connector.
 func (m *Manager) sessionEnv(rel string, relayNet bool, homeDir, termTok string, o openOpts) []string {
 	env := m.sandboxEnv(rel, relayNet, homeDir, termTok)
-	env = append(env, o.llmShellEnv(env)...) // a terminal's XBIN_LLM_* with a connector configured (llmhook.go)
+	env = append(env, gitIdentityEnv(o.homeKey)...) // git commits work in a sandbox: the person's fallback address
+	env = append(env, o.llmShellEnv(env)...)        // a terminal's XBIN_LLM_* with a connector configured (llmhook.go)
 	dep := append(o.deploymentEnv(), o.partitionEnv()...)
 	if len(dep) == 0 {
 		return env
 	}
 	at := slices.IndexFunc(env, func(e string) bool { return strings.HasPrefix(e, "XBIN_COMPONENT=") }) + 1
 	return slices.Insert(env, at, dep...)
+}
+
+// gitIdentityEnv is a sandboxed session's fallback address for git:
+// EMAIL=<person>@xbin.invalid. In the sandbox git can't make one up (the
+// host name has no domain: "unable to auto-detect email address"), so a
+// commit — a merge of a tile's template, a tile agent's `git am` (D248) —
+// failed in every session whose person set no identity. EMAIL is git's
+// last resort, below user.email in any config file and GIT_*_EMAIL, so an
+// identity the person set wins; the name stays git's own (the sandbox's
+// user) unless they set one. .invalid never delivers (RFC 2606). Nothing
+// for a session with no person.
+func gitIdentityEnv(person string) []string {
+	if person == "" || strings.ContainsAny(person, " \t\r\n<>@") {
+		return nil
+	}
+	return []string{"EMAIL=" + person + "@xbin.invalid"}
 }
 
 // deployRemote is the checkpoint fetch remote, `xbin-deploy`, as the two

@@ -251,3 +251,25 @@ func resolveNet(net string, g TermNet) (host bool, rules []string, label string)
 	}
 	return false, []string{"net:internet"}, "internet"
 }
+
+// SessionReachesXbind reports whether a session p opens on tile with the
+// defaults — the tile-API access a session asks for unless told not to,
+// and the tile's default network for p — can call xbind: a tile-API token
+// (an admin's, or D17's term-api grant) and a network that reaches xbind
+// (anything but offline). Without isolation every session runs on the
+// host and reaches it. why says what it lacks. A workspace agent's update
+// brief (D248) asks it: a tile agent that can't reach xbind can't fetch a
+// template's update or a proposal.
+func (m *Manager) SessionReachesXbind(p auth.Principal, tile string) (bool, string) {
+	if !m.Isolate {
+		return true, ""
+	}
+	api, net := clampTermScopes(p, true, "", m.termNetFor(p, tile))
+	switch {
+	case !api:
+		return false, "its sessions there get no xbin API access (an admin's terminal API grant, term-api, gives it)"
+	case net == NetNone:
+		return false, "its sessions there are offline (an admin's terminal network grant, term-net, or the tile's org's network gives them one)"
+	}
+	return true, ""
+}

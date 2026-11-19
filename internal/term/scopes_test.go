@@ -92,3 +92,38 @@ func TestPersonalOwnerScope(t *testing.T) {
 		t.Fatalf("note: %q", n)
 	}
 }
+
+// covers D248 — whether a tile agent's session can fetch an update through
+// xbind: an admin's, and a person's with the terminal grants, reach it; a
+// person's without the API grant, or offline on the tile, don't — and say
+// which; without isolation every session does.
+func TestSessionReachesXbind(t *testing.T) {
+	m := &Manager{Isolate: true}
+	admin := auth.Principal{Owner: true}
+	plain := auth.Principal{UserID: "u", User: &users.User{ID: "u", Role: "user"}}
+	apiOnly := auth.Principal{UserID: "a", User: &users.User{ID: "a", Role: "user", TermAPI: true}}
+	granted := auth.Principal{UserID: "g", User: &users.User{ID: "g", Role: "user", TermAPI: true, TermNet: true}}
+	for _, c := range []struct {
+		name string
+		p    auth.Principal
+		ok   bool
+		why  string
+	}{
+		{"an admin", admin, true, ""},
+		{"a person with both grants", granted, true, ""},
+		{"no API grant", plain, false, "no xbin API access"},
+		{"the API, offline", apiOnly, false, "offline"},
+	} {
+		ok, why := m.SessionReachesXbind(c.p, "apps/x")
+		if ok != c.ok || !strings.Contains(why, c.why) {
+			t.Errorf("%s: %v %q", c.name, ok, why)
+		}
+	}
+	m.TermNet = func(auth.Principal, string) TermNet { return TermNet{OrgOK: true, Rules: []string{"net:internet"}} }
+	if ok, why := m.SessionReachesXbind(apiOnly, "apps/x"); !ok {
+		t.Errorf("an org network reaches xbind through the relay: %q", why)
+	}
+	if ok, _ := (&Manager{}).SessionReachesXbind(plain, "apps/x"); !ok {
+		t.Error("without isolation every session runs on the host")
+	}
+}

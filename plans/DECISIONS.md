@@ -6258,6 +6258,16 @@ here: cut from the old end, never reword.
     of an isolated xbind (`TestTemplateUpdateInATileSession`,
     `TestBuiltinProposalInATileSession`). The prompt is unchanged (at its
     cap): the tool's description and every result row carry the rule.
+  - **What a tile session lacked, added under the existing rules** (found
+    by the two isolated tests): a git identity — a sandboxed session's env
+    carries `EMAIL=<person>@xbin.invalid`, git's last resort, below any
+    identity the person set (every commit, a merge included, failed
+    before); the proposal's copy is cloned into the tile's own `.git`, not
+    `/tmp` (the Landlock read guard grants a sandbox's `/tmp` only as it is
+    at session start when the workspace lives under `/tmp`); and the read
+    sends an update `by-hand` where the person's sessions can't reach xbind
+    (no terminal API grant, or offline — D17), saying which. No grant is
+    widened.
   - **Not done:** sealed components (they update with xbind), the
     consoles through the agent (their level is `off`), listing pinned
     builtins (the by-hand listing doesn't either).

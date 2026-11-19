@@ -149,6 +149,7 @@ with the workspace toolchains on PATH, `git`, `vim`, and:
 | `XBIN_URL`, `XBIN_TOKEN` | how to call xbind **as this tile** — a per-session token scoped to the component (`bx` uses these) |
 | `HOME` | `<workspace>/homes/<you>` — your own home; dotfiles persist across upgrades |
 | `IN_SANDBOX=1`, `IS_SANDBOX=1` | set when the terminal runs in the rootfs sandbox (isolated mode) |
+| `EMAIL` | `<you>@xbin.invalid` in a sandboxed terminal (and a tile agent's session): git's last-resort address, so a commit or a merge works where git can't make one up — an identity you set (`git config user.email`) wins; `.invalid` never delivers |
 
 `homes/<you>` is deliberately **not** your host home: it's a contained,
 persistent, **per-user** $HOME seeded with a minimal `.zshrc`/`.bashrc`

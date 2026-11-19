@@ -351,7 +351,7 @@ func TestSessionTarget(t *testing.T) {
 	if toks.take() != "apps/x|" || slices.ContainsFunc(append(host, sbx...), func(e string) bool { return strings.HasPrefix(e, "XBIN_DEPLOYMENT=") }) {
 		t.Errorf("a session that follows the primary: minted, or got XBIN_DEPLOYMENT: %q %q", host, sbx)
 	}
-	if want := m.sandboxEnv("apps/x", false, HomeDir(root, "owner"), "TERMTOKEN"); !reflect.DeepEqual(sbx, want) {
+	if want := append(m.sandboxEnv("apps/x", false, HomeDir(root, "owner"), "TERMTOKEN"), "EMAIL=owner@xbin.invalid"); !reflect.DeepEqual(sbx, want) { // (git's fallback address, D248)
 		t.Errorf("a follower's sandboxed env:\n%q\nwant today's\n%q", sbx, want)
 	}
 	o, _, _ = pick("dev", true)

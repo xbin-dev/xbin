@@ -160,7 +160,7 @@ neither is the line's. `safe`:
   updates — unpin it first"), as is a unit with no update, an unknown id
   and a sealed path (the by-hand route's own refusals).
 
-→ `{applied: "merged" | "installed" | "proposed", files, notes?, pr?}`.
+→ `{applied: "updated" | "installed" | "proposed", files, notes?, pr?, conflicts?}`.
 `merge` and `replace` are unchanged; `safe` is added (additive, D248):
 `bx builtin update <id> --safe` is the same call by hand. **Local edits are
 never overwritten by `safe`** (`TestSafeUpdateNeverOverwritesLocalEdits`).
@@ -228,7 +228,7 @@ in `admin_propose` sets too. The consoles are `off`: refused.
 
 **What the agent reads** of such a line, whoever the person is: `n`,
 `kind`, `args`, `why`, the flags, `needs`, `result`, `out` — `{update:
-"merged" | "installed" | "proposed", files, tile, proposal?}` — a line
+"updated" | "installed" | "proposed", files, tile, proposal?}` — a line
 written from its arguments ("Update the builtin tile:llm-gw"), and, when
 it is blocked or failed, xbind's reason where it is one of the builtin's
 own (pinned, no update, not installed), else the fixed sentence. Never
@@ -272,9 +272,32 @@ clone, resolve, `git am --continue`, pull the result into the tile,
 close it merged (`canDecidePR`), and closing it merged records the new
 version (`RecordApplied`): the update is no longer listed.
 
-What was missing for a tile session, and is added (each the smallest
-thing, under the existing rules): see "What was added for the tile
-session" below — filled in from what the integration tests found.
+**What was missing for a tile session, and is added** — found by those
+two tests, each the smallest thing under the existing rules:
+
+- **A git identity.** In the sandbox git can't make up an address (the
+  host name has no domain: "unable to auto-detect email address"), so every
+  commit — the template's merge commit, `git am`, `git am --continue` —
+  failed in a session whose person set none. A sandboxed session's
+  environment now carries `EMAIL=<person>@xbin.invalid`: git's last
+  resort, below `user.email` in any config file and `GIT_*_EMAIL`, so an
+  identity the person set wins (`TestGitIdentityIsAFallback`); the name
+  stays git's own (the sandbox user's, `root`) unless they set one.
+  `.invalid` never delivers. No tool runs; nothing is written.
+- **The proposal's copy lives in the tile's own `.git`**, not `/tmp`: the
+  terminal read guard (Landlock) grants the sandbox's `/tmp` only as it is
+  when the session starts where the workspace itself lives under `/tmp`
+  (a test's, a demo's), so a clone there failed ("could not lock config
+  file … Permission denied"); the tile's `.git` is readable and writable
+  in every session on the tile, holds no live file and nothing git tracks.
+- **The read says when a tile agent of the person's can't reach xbin.**
+  The brief fetches through xbind — the template remote, `bx code pr` —
+  and a non-admin's sessions get a tile-API token only with the terminal
+  API grant and a network only with the terminal network grant or the
+  tile's org's network (D17). Where they lack either, the row's next step
+  is `by-hand`, saying which (`SessionReachesXbind`); no grant is widened.
+  An admin's sessions always reach it — and `builtin.update` is an
+  admin's line, so a builtin's proposal is merged by an admin's tile agent.
 
 **Where the agent reads it:** the `updates` result's row for the tile
 carries the brief; `tile_agent_brief {tile, template: "update"}` writes

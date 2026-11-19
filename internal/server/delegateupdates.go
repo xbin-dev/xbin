@@ -219,6 +219,11 @@ func (s *Server) tileAgentNext(person auth.Principal, tile string, brief func() 
 	case levelOf(person, tile) != "terminal":
 		return updateNextByHand, person.UserID + " has no terminal access to " + tile + ", and a tile agent opens as them: whoever has (its owner, an admin) merges it there", nil
 	}
+	if s.Term != nil { // the brief fetches through xbind: a session that can't reach it can't do the work (D17's terminal grants)
+		if ok, why := s.Term.SessionReachesXbind(person, tile); !ok {
+			return updateNextByHand, "a tile agent opens as " + person.UserID + ", and " + why + ": whoever's sessions reach xbin there (an admin) merges it", nil
+		}
+	}
 	b := brief()
 	return updateNextTileAgent, "", &b
 }
@@ -272,21 +277,27 @@ func TemplateUpdateBrief(tile, template string, behind int, legacy bool) UpdateB
 // conflicts with the tile's own changes. Built from those names alone;
 // TestBuiltinProposalInATileSession runs exactly its commands.
 func BuiltinProposalBrief(tile, id string, n int) UpdateBrief {
+	// the copy lives in the tile's own .git: writable and readable in every
+	// session on the tile (the session's /tmp may not be — a workspace that
+	// lives under /tmp), never a live file, and nothing git tracks
 	dir := `"$XBIN_WORKSPACE/` + tile + `"`
+	work := `"$XBIN_WORKSPACE/` + tile + `/.git/xbin-update"`
+	mbox := `"$XBIN_WORKSPACE/` + tile + `/.git/xbin-update.mbox"`
 	cmds := []string{
 		"git status --short",
-		"rm -rf /tmp/xbin-update /tmp/xbin-update.mbox && git clone -q " + dir + " /tmp/xbin-update",
-		fmt.Sprintf("bx code pr fetch %d %s > /tmp/xbin-update.mbox", n, tile),
-		"git -C /tmp/xbin-update am --3way /tmp/xbin-update.mbox",
-		"git -C " + dir + " pull --ff-only /tmp/xbin-update",
+		"rm -rf " + work + " " + mbox + " && git clone -q " + dir + " " + work,
+		fmt.Sprintf("bx code pr fetch %d %s > %s", n, tile, mbox),
+		"git -C " + work + " am --3way " + mbox,
+		"git -C " + dir + " pull --ff-only " + work,
 		fmt.Sprintf(`bx code pr close %d %s --merged -m "merged: <what you resolved>"`, n, tile),
+		"rm -rf " + work + " " + mbox,
 		"bx status",
 	}
 	known := fmt.Sprintf("xbin filed the update of the builtin %s as change proposal #%d on this tile, because it conflicts with changes made here; nothing of it is applied yet. "+
-		"Merge it in a copy, so no conflict marker lands in the live files: (1) `%s` — if anything is uncommitted, commit it first and say so; (2) `%s`; (3) `%s`; (4) `%s` — on a conflict: resolve each file in /tmp/xbin-update, `git -C /tmp/xbin-update add <file>`, `git -C /tmp/xbin-update am --continue`; on one you can't resolve with confidence: `git -C /tmp/xbin-update am --abort`, and report which files and why — don't guess; "+
-		"(5) `%s` brings the merged result into the tile; (6) `%s` — closing it merged is what completes the update in xbin. "+
-		"xbin builds and restarts the backend by itself: (7) `%s` says where it stands; a build error is in `bx logs $XBIN_COMPONENT`. `bx code pr show %d %s` shows the proposal.",
-		id, n, cmds[0], cmds[1], cmds[2], cmds[3], cmds[4], cmds[5], cmds[6], n, tile)
+		"Merge it in a copy, so no conflict marker lands in the live files: (1) `%s` — if anything is uncommitted, commit it first and say so; (2) `%s`; (3) `%s`; (4) `%s` — on a conflict: resolve each file in the copy, `git -C %s add <file>`, `git -C %s am --continue`; on one you can't resolve with confidence: `git -C %s am --abort`, and report which files and why — don't guess; "+
+		"(5) `%s` brings the merged result into the tile; (6) `%s` — closing it merged is what completes the update in xbin; (7) `%s` removes the copy. "+
+		"xbin builds and restarts the backend by itself: (8) `%s` says where it stands; a build error is in `bx logs $XBIN_COMPONENT`. `bx code pr show %d %s` shows the proposal.",
+		id, n, cmds[0], cmds[1], cmds[2], cmds[3], work, work, work, cmds[4], cmds[5], cmds[6], cmds[7], n, tile)
 	return UpdateBrief{
 		Goal:       fmt.Sprintf("Merge xbin's update of this tile — the builtin %s — which xbin filed as change proposal #%d on this tile because it conflicts with this tile's own changes: take the update and keep this tile's changes.", id, n),
 		DoneWhen:   fmt.Sprintf("proposal #%d is closed merged (`bx code pr show %d %s` says so), the tile holds the merged files with no conflict marker, its backend (if it has one) builds and answers, and you reported how each conflict was resolved.", n, n, tile),
