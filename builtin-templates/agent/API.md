@@ -5986,7 +5986,12 @@ plans this conversation proposed, never another session's); `preview`;
 `mcp_call` (while it has MCP); `account_lookup` (whether an account of a
 name exists, for an `access.set` line: xbind's `POST
 /delegate/accounts/lookup`, which answers only a person who sees the
-workspace's accounts) —
+workspace's accounts); `updates` (what has an update waiting, D248:
+xbind's `GET /delegate/updates` — each row's next step is xbind's: a
+builtin's update is a `builtin.update {id}` line, anything else that
+tile's own agent's, started with xbind's brief; its description and every
+answer say so, and that it never merges or edits code itself; on an xbind
+before the read it says it can't tell) —
 with the core `ask_user` (here it takes `choices`, a `kind` and a `tile`),
 notes and `recall`.
 
@@ -6000,7 +6005,18 @@ with a brief's fields (`{tile, goal, done_when, …}` or `{tile, template:
 argument, shown by xbin "exactly as sent"), `binding.set`, and
 `admin_propose`'s kinds — `access.set {tile, user, level}` among them, one
 person's own level on a tile (the tile as the map names it; of such a line
-the agent reads its own arguments and the result, never anyone's access). The request's card is a change set's
+the agent reads its own arguments and the result, never anyone's access),
+and `builtin.update {id}` (D248), a builtin's update, which takes the id and
+nothing else (a line that carries more is refused before anything is
+filed) and is always an admin's: applied, its `out` says what xbind made —
+`updated` and `installed` tell the conversation to check the tile with
+`tile_status`, `proposed` that the update waits on the tile as change
+proposal #n and that the next step is that tile's own agent
+(`tile_agent_brief {tile, template: "update"}`). The brief template
+`update` (`tile_agent_brief`, and a plan's `agent.start {tile, template:
+"update"}`) takes xbind's brief for the tile's update word for word, from
+`GET /delegate/updates?tile=`; a tile with no such update is an error
+saying what to do instead. The request's card is a change set's
 (`cards.requests[]`, kind `changeset`, titled "a plan of N change(s): …").
 When xbind says it was decided, each applied `agent.start` line's session
 (`out.session`) becomes a tile agent of this conversation (`cards.agents[]`,

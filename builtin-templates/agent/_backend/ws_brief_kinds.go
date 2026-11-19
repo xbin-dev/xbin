@@ -33,7 +33,7 @@ const wsMCPProvide = `"provides": {"mcp": {"kind": "http", "service": "mcp", "ro
 const wsBriefTemplateMCPTool = "mcp-tool"
 
 // wsBriefTemplates are the ids tile_agent_brief's `template` takes.
-var wsBriefTemplates = []string{wsBriefTemplateMCPTool}
+var wsBriefTemplates = []string{wsBriefTemplateMCPTool, wsBriefTemplateUpdate}
 
 // wsBriefTool is the tool a "mcp-tool" brief is for.
 type wsBriefToolAsk struct {
@@ -53,7 +53,7 @@ var wsToolNameRe = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 func wsBriefTemplateProps() map[string]any {
 	return map[string]any{
 		"template": map[string]any{"type": "string", "enum": wsBriefTemplates,
-			"description": "a brief template for a known kind of work; its fields fill what you leave out. \"mcp-tool\": a tool an agent instance (an assistant) should get, built as an MCP server in a tile of its own (an empty tile will do: the brief says what to write) — give `tool`, and goal and done_when may be left out"},
+			"description": "a brief template for a known kind of work; its fields fill what you leave out. \"mcp-tool\": a tool an agent instance (an assistant) should get, built as an MCP server in a tile of its own (an empty tile will do: the brief says what to write) — give `tool`, and goal and done_when may be left out. \"update\": the tile's update as updates lists it (a template's merge, a builtin update filed as a proposal) — the brief is xbin's, word for word: give only `tile`"},
 		"tool": obj([]string{"name", "result"}, map[string]any{
 			"name":      strProp("the tool's name as a model calls it: a–z, 0–9, _ and - (roll_dice)"),
 			"arguments": strProp("its arguments, each with its type and default (sides: integer, default 6; count: integer, default 1) — or \"none\""),
@@ -81,6 +81,8 @@ func wsApplyBriefTemplate(id string, tool *wsBriefToolAsk, f *wsBriefFields) err
 		}
 		return nil
 	case wsBriefTemplateMCPTool:
+	case wsBriefTemplateUpdate:
+		return errors.New(`template "update": the brief is xbin's — give only the tile`) // (filled before this, from xbind: wsUpdateBriefFor)
 	default:
 		return fmt.Errorf("template: one of %s", strings.Join(wsBriefTemplates, ", "))
 	}

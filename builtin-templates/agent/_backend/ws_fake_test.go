@@ -61,6 +61,8 @@ type fakeXbin struct {
 
 	access fakeAccess // a person's access and where a tile stands (ws_fake_access_test.go; D246)
 
+	updates fakeUpdates // what has an update waiting, and a builtin.update line's outcome (ws_fake_updates_test.go; D248)
+
 	said  map[string][]string // messages delivered to each tile agent
 	calls []string            // every call made, in order ("Request r-1", "Call POST /api/…")
 }
@@ -940,6 +942,8 @@ func (f *fakeXbin) plan(sid, title string, items []xbin.Change, dry bool) (wsCha
 			blank[str(args["path"])] = str(args["template"]) == "starter"
 		case "access.set":
 			f.accessLine(&item, args) // as an agent reads it (ws_fake_access_test.go)
+		case "builtin.update":
+			f.builtinLine(&item, args) // as an agent reads it (ws_fake_updates_test.go)
 		case "agent.start":
 			started[str(args["tile"])] = item.N
 			item.Line = "Start a tile agent in " + str(args["tile"]) + " — Claude Code, in its mode \"default\""
@@ -1030,6 +1034,8 @@ func (f *fakeXbin) applyPlan(id string, ticks []int, failAt int) {
 			case "tile.create":
 				f.addTile(wsTile{Path: str(args["path"]), Title: str(args["path"]), Status: "running", Agent: "full", Level: "terminal"})
 				it.Out, _ = json.Marshal(map[string]string{"path": str(args["path"])})
+			case "builtin.update":
+				it.Out = f.builtinOut(str(args["id"]))
 			case "agent.start":
 				a := &wsAgent{ID: f.id("s"), Tile: str(args["tile"]), Provider: "claude", Name: "Claude Code", Mode: "default", Asks: true, Status: "running", Origin: "agent", Mine: true, Turn: 1}
 				f.agents[a.ID] = a

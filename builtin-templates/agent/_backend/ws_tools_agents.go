@@ -39,6 +39,7 @@ func wsAgentTools() []coordTool {
 				"Use it whenever an outcome needs something built, changed or fixed in a tile: you don't change code, a tile's agent does. " +
 				"Write the brief for someone who saw none of this conversation: the outcome wanted (not the steps), how anyone can tell it is done, what must not be touched, how to check, and what you already found out. " +
 				"For a tool an agent instance should get (an MCP server in a tile of its own, bound to the instance's mcp slot): template \"mcp-tool\" with tool {name, arguments, result} — it fills done_when, check_by, what is known and what to leave alone. " +
+				"For a tile's update (updates lists them: a tile made from a template, a builtin update filed as a proposal): template \"update\" with only the tile — the brief is xbin's, word for word. " +
 				"Next: tile_agent_start with the brief's number.",
 			Parameters: obj([]string{"tile"}, withBriefTemplate(map[string]any{
 				"tile":        strProp("the tile's path, as workspace_map lists it"),
@@ -140,6 +141,16 @@ func wsBriefTool(ctx context.Context, ag *Agent, s *wsSession, c coordCall) (str
 		return "", err
 	}
 	f := wsBriefFields{Goal: a.Goal, DoneWhen: a.DoneWhen, LeaveAlone: a.LeaveAlone, CheckBy: a.CheckBy, Known: a.Known}
+	if a.Template == wsBriefTemplateUpdate { // xbind's brief for the tile's update, word for word (ws_tools_updates.go)
+		t, err := wsFindTile(ctx, ag, s, a.Tile)
+		if err != nil {
+			return "", err
+		}
+		if f, err = wsUpdateBriefFor(ctx, ag, s, t.Path); err != nil {
+			return "", err
+		}
+		a.Template, a.Tool = "", nil
+	}
 	if err := wsApplyBriefTemplate(a.Template, a.Tool, &f); err != nil {
 		return "", err
 	}

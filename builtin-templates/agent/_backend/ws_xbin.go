@@ -60,6 +60,11 @@ type wsXbin interface {
 	// who sees the workspace's accounts — and nothing to anyone else
 	// (D246; POST /delegate/accounts/lookup).
 	AccountLookup(ctx context.Context, sid, name string) (wsAccount, error)
+	// Updates is what has an update waiting, as the person's own update
+	// listings give it under the conversation's gates, with the next step
+	// and xbind's brief (D248; GET /delegate/updates[?tile=]).
+	// errWsUnavailable from an xbind before it.
+	Updates(ctx context.Context, sid, tile string) (wsUpdates, error)
 	Logs(ctx context.Context, sid, tile string, lines int) (string, error)
 	DocsSearch(ctx context.Context, sid, q string, limit int) ([]wsDocHit, error)
 	DocsPage(ctx context.Context, sid, path, section string) (wsDocPage, error)

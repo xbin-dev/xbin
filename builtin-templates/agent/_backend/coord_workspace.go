@@ -53,6 +53,7 @@ func init() {
 			"web_read",              // the web, through xbind (ws_tools_web.go; D239)
 			"mcp_tools", "mcp_call", // MCP tiles, through xbind (ws_tools_mcp.go)
 			"account_lookup", // whether an account of a name exists, for an access.set line (ws_tools_access.go; D246)
+			"updates",        // what has an update waiting, and who applies it (ws_tools_updates.go; D248)
 		},
 		Limits: coordBounds{Research: wsResearchMax, ResearchTimeout: wsResearchTimeout, Wakes: wsWakeBurst},
 		Is: func(d *DB, run *Run) bool {
@@ -74,6 +75,7 @@ func init() {
 	coordWorkspace.mustRegister(wsNetTools()...)
 	coordWorkspace.mustRegister(wsMCPTools()...)
 	coordWorkspace.mustRegister(wsAccessTools()...)
+	coordWorkspace.mustRegister(wsUpdateTools()...)
 }
 
 // wsResolve is the coordinator's boundary, on every tool call: the

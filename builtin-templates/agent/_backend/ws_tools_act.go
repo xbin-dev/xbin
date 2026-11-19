@@ -75,12 +75,13 @@ func wsOtherTools() []coordTool {
 			Description: "Propose a batch of admin changes — access between tiles, bindings, an org's share of a tile, a tile's limits, one person's access to a tile — for your person to review. Only for a person who is an admin and turned on \"Let my agent propose admin changes\"; for anyone else, or for changes that belong to work being set up, use plan_propose (no such setting). " +
 				"Nothing is applied: xbin writes what each change does, its before and after and its warnings, and your person approves all, some or none; xbin then applies those as them. " +
 				"This returns xbin's description at once and does not wait; the decision reaches you as a workspace update. Put related changes in one batch, each with a plain reason. " +
-				"One person's access (\"let Dave see Orders\"): access.set — account_lookup first when your person may see accounts. You never learn anyone's access: of such a line you are told only whether it was applied. Your own person's access isn't yours to change.",
+				"One person's access (\"let Dave see Orders\"): access.set — account_lookup first when your person may see accounts. You never learn anyone's access: of such a line you are told only whether it was applied. Your own person's access isn't yours to change. " +
+				"A builtin's update: builtin.update {id}, only the id (updates lists them).",
 			Parameters: obj([]string{"title", "changes"}, map[string]any{
 				"title": strProp("what the batch is for, in a few words (shown as yours)"),
 				"changes": map[string]any{"type": "array", "minItems": 1, "maxItems": 20, "items": obj([]string{"kind", "args", "why"}, map[string]any{
 					"kind": map[string]any{"type": "string", "enum": wsChangeKinds,
-						"description": "grant.add / grant.revoke {from, target, role}; binding.set {component, slot, provider}; binding.remove {component, slot}; org.share {org, tile, level}; limits.set {tile, kind, value}; access.set {tile, user, level} — one person's own level on a tile (user: their account id, or the name your person gave; level none, read, write or terminal)"},
+						"description": "grant.add / grant.revoke {from, target, role}; binding.set {component, slot, provider}; binding.remove {component, slot}; org.share {org, tile, level}; limits.set {tile, kind, value}; access.set {tile, user, level} — one person's own level on a tile (user: their account id, or the name your person gave; level none, read, write or terminal); builtin.update {id} — a builtin's update, as updates lists it (only the id)"},
 					"args": map[string]any{"type": "object", "description": "the kind's arguments"},
 					"why":  strProp("the reason for this one change, in plain words (shown as yours)"),
 				})},
@@ -103,7 +104,7 @@ func wsOtherTools() []coordTool {
 	}
 }
 
-var wsChangeKinds = []string{"grant.add", "grant.revoke", "binding.set", "binding.remove", "org.share", "limits.set", "access.set"}
+var wsChangeKinds = []string{"grant.add", "grant.revoke", "binding.set", "binding.remove", "org.share", "limits.set", "access.set", "builtin.update"}
 
 // --- filing a request ---------------------------------------------------------------
 
@@ -407,6 +408,7 @@ func wsChangeSetText(cs wsChangeSet) string {
 			if it.Error != "" {
 				fmt.Fprintf(&b, " (xbin said: %s)", wsPlain(it.Error))
 			}
+			b.WriteString(wsBuiltinOutcome(it)) // what a builtin's update made, and the next step (ws_tools_updates.go)
 		}
 		b.WriteString("\n")
 	}
@@ -463,8 +465,15 @@ func wsProposeTool(ctx context.Context, ag *Agent, s *wsSession, c coordCall) (s
 			return "", fmt.Errorf("change %d has no \"why\": add the reason for this change, in plain words (the admin reads it on the review)", i+1)
 		}
 		args := ch.Args
-		if ch.Kind == "access.set" {
+		switch ch.Kind {
+		case "access.set":
 			line, err := wsAccessArgs(ctx, ag, s, ch.Args)
+			if err != nil {
+				return "", fmt.Errorf("change %d: %w", i+1, err)
+			}
+			args = line
+		case "builtin.update":
+			line, err := wsBuiltinArgs(ch.Args)
 			if err != nil {
 				return "", fmt.Errorf("change %d: %w", i+1, err)
 			}

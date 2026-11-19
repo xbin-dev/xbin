@@ -22,7 +22,7 @@ var wsTools = []string{
 	"note", "notebook_archive", "notebook_edit", "notebook_read", "notebook_search", "notebook_write", "plan", "plan_propose", "preview", "recall", "research",
 	"subagent_cancel", "subagent_result", "subagent_status", "subagent_wait",
 	"tile_agent_brief", "tile_agent_cancel", "tile_agent_message", "tile_agent_result", "tile_agent_start", "tile_agents",
-	"tile_api_doc", "tile_call", "tile_create", "tile_logs", "tile_status", "workspace_map",
+	"tile_api_doc", "tile_call", "tile_create", "tile_logs", "tile_status", "updates", "workspace_map",
 }
 
 // In workspace mode only the workspace profile's surface exists: every

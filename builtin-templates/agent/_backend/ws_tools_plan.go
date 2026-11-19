@@ -41,7 +41,7 @@ func wsPlanTools() []coordTool {
 					"kind": map[string]any{"type": "string", "enum": wsPlanKinds,
 						"description": "tile.create {template, name} — a new tile, your person's (name: \"Dice\" or a path, apps/dice); " +
 							"agent.start {tile, goal, done_when, leave_alone?, check_by?, known?} or {tile, template: \"mcp-tool\", tool: {name, arguments, result}} — a tile agent with that brief (tile: an existing tile, or the path of one this plan creates; harness only when your person named the coding agent: it is theirs to choose); " +
-							"binding.set {component, slot, provider} — provider a tile's path, or xbin:llm for the workspace's LLM connector; access.set {tile, user, level} — one person's own level on a tile (user: their account id — account_lookup — or the name your person gave; level none, read, write or terminal: terminal starts unticked); and admin_propose's other kinds. " +
+							"binding.set {component, slot, provider} — provider a tile's path, or xbin:llm for the workspace's LLM connector; access.set {tile, user, level} — one person's own level on a tile (user: their account id — account_lookup — or the name your person gave; level none, read, write or terminal: terminal starts unticked); builtin.update {id} — a builtin's update as updates lists it, only the id (an admin's line; xbin applies it only where it merges cleanly, else files it as a proposal on the tile); agent.start {tile, template: \"update\"} — a tile's agent on xbin's brief for its update; and admin_propose's other kinds. " +
 							"A tile that reads another tile's API needs a grant.add {from, target, role} line beside its start: tile_status says when a use is pending"},
 					"args": map[string]any{"type": "object", "description": "the kind's arguments"},
 					"why":  strProp("the reason for this one line, in plain words (shown as yours)"),
@@ -193,6 +193,16 @@ func wsPlanStart(ctx context.Context, ag *Agent, s *wsSession, args map[string]a
 		return nil, "", err
 	}
 	f := wsBriefFields{Goal: a.Goal, DoneWhen: a.DoneWhen, LeaveAlone: a.LeaveAlone, CheckBy: a.CheckBy, Known: a.Known}
+	if a.Template == wsBriefTemplateUpdate { // xbind's brief for the tile's update, word for word (ws_tools_updates.go)
+		t, err := wsFindTile(ctx, ag, s, a.Tile)
+		if err != nil {
+			return nil, "", err
+		}
+		if f, err = wsUpdateBriefFor(ctx, ag, s, t.Path); err != nil {
+			return nil, "", err
+		}
+		a.Template, a.Tool = "", nil
+	}
 	if err := wsApplyBriefTemplate(a.Template, a.Tool, &f); err != nil {
 		return nil, "", err
 	}
@@ -293,6 +303,12 @@ func wsPlanProposeTool(ctx context.Context, ag *Agent, s *wsSession, c coordCall
 			args = line
 		case "access.set":
 			line, err := wsAccessArgs(ctx, ag, s, ch.Args)
+			if err != nil {
+				return "", fmt.Errorf("line %d: %w", n, err)
+			}
+			args = line
+		case "builtin.update":
+			line, err := wsBuiltinArgs(ch.Args)
 			if err != nil {
 				return "", fmt.Errorf("line %d: %w", n, err)
 			}
