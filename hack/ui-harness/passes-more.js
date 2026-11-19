@@ -8,6 +8,7 @@ function register(P) {
   P.appearance = require('./passes/appearance').appearance; // D184: no flash, the relay, a second tab, the hint cookie, density, fonts
   P.themeCanary = require('./passes/themecanary').themeCanary; // D184: every colour, font and radius on screen from a token, in both themes
   P.docMode = require('./passes/docmode').docMode; // D187: Document mode — rows, growing tiles, the top bar, a phone, back to Canvas
+  P.topbarMenu = require('./passes/topbarmenu').topbarMenu; // D247: the top bar stays in every mode and at a phone's width; a tile's menu holds the workspace section above Admin ▸ in every mode, where a tile opened from it lands, the keyboard through a submenu, the phone sheet inside 390 px
   P.fixedGrid = require('./passes/fixedgrid').fixedGrid; // D193: Fixed width — 48 stretched columns, the right edge, back to Canvas
   P.termTheme = require('./passes/termtheme').termTheme; // D184: an open terminal follows the person's theme; a picked palette stays
   P.themeCompat = require('./passes/themecompat').themeCompat; // D184: a tile from before the theme — its own palette carries, its own buttons keep their colours

@@ -28,7 +28,10 @@ const overlap = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h 
 // the canvas menu at a point of the empty canvas, then one of its lines
 async function canvasMenu(page, x, y, label) {
   await page.mouse.click(x, y, { button: 'right' });
-  await page.locator('bx-menu .it', { hasText: label }).first().click();
+  if (/^Add (heading|text)$/.test(label)) { // behind one row since D247: Add heading or text ▸
+    await page.locator('bx-menu .panel.main .it', { hasText: 'Add heading or text' }).click();
+    await page.locator('bx-menu .panel.sub .it', { hasText: label }).click();
+  } else await page.locator('bx-menu .it', { hasText: label }).first().click();
   await settle(page);
 }
 // a block's ⋯ menu, then a line (and a submenu line)
@@ -234,8 +237,8 @@ async function blocksPass(browser) {
     await waitFor(page, (t, id) => t.orgScreens.some((s) => s.id === id), oid, { label: 'the org screen arrives' });
     await sh(page, (t, id) => t.openOrgScreen(id), oid);
     await settle(page);
-    const lines = await sh(page, (t) => t.canvasMenuItems().filter((x) => /^Add /.test(x.label ?? '')).map((x) => [x.label, x.hint, !!x.disabled]));
-    check(lines.length === 2 && lines.every((l) => l[1] === 'starts a draft' && !l[2]), `on an org screen in view mode the Add lines start a draft (${JSON.stringify(lines)})`);
+    const lines = await sh(page, (t) => { const r = t.canvasMenuItems().find((x) => x.label === 'Add heading or text'); return r ? [r, ...r.items].map((x) => [x.label, x.hint, !!x.disabled]) : []; });
+    check(lines.length === 3 && lines.every((l) => l[1] === 'starts a draft' && !l[2]), `on an org screen in view mode the Add lines start a draft (${JSON.stringify(lines)})`);
     await sh(page, (t) => t.addBlock('heading', { x: 0, y: 0 }));
     await waitFor(page, (t, id) => !!t.orgDraft(id), oid, { label: 'a draft' });
     await waitFor(page, () => !!document.querySelector('bx-shell')?.renderRoot?.querySelector('bx-canvas')?.renderRoot?.querySelector('input.bedit'), null, { label: 'the org heading editor' });

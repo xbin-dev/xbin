@@ -68,12 +68,6 @@ export const clamped = (s0, s, scrollHeight, client) => s < s0 && s >= scrollHei
 // inView(card, view) → whether any of the card's rect is inside the view's.
 export const inView = (r, v) => r.bottom > v.top && r.top < v.bottom;
 
-// held(main) → the scroll position the anchor last set on that scroller
-// (a scroll event at it is the anchor's, not the person's: the Document
-// mode top bar ignores it).
-const ours = new WeakMap();
-export const heldScroll = (el) => ours.get(el);
-
 // FocusAnchor: a reactive controller on <bx-canvas>. The host provides
 // renderRoot (the cards), `dragging` (a card or handle drag in flight) and
 // sits inside the shell's <main>, the scroller.
@@ -176,6 +170,11 @@ export class FocusAnchor {
     const s = m.scrollTop;
     if (s === this.s0) return;
     if (this._drag || this._settling) { this.s0 = s; return; }
+    // the layout's own clamp (the page got shorter under it) reaching us as
+    // a scroll event before the resize does — a layout forced between the
+    // change and the frame: not the person's, put the head back (seen once
+    // the top bar stayed in the page's flow, D247)
+    if (this.y0 != null && clamped(this.s0, s, m.scrollHeight, m.clientHeight)) { this.sync(); return; }
     const card = this._card();
     if (!card || !inView(card.getBoundingClientRect(), m.getBoundingClientRect())) this._setHeld(null);
     else if (this.y0 == null) this._setHeld(card.querySelector('.head').getBoundingClientRect().top);
@@ -207,7 +206,6 @@ export class FocusAnchor {
     this._setSpacer(h.spacer);
     m.scrollTop = h.top;
     s = m.scrollTop;
-    ours.set(m, s);
     this.s0 = s;
     if (!h.kept) this.y0 = head.getBoundingClientRect().top;
   }

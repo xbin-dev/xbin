@@ -91,16 +91,6 @@ export const shellCss = [scrollCss, baseCss, chromeCss, css`
       color: var(--bx-muted, #A3A6B6); border: 1px solid var(--bx-border, #33353F); border-radius: var(--bx-radius, 2px);
     }
     .top .spacer { flex: 1; }
-    /* Document mode (D187), wider than 820px: the bar floats over the page
-       and slides away while reading (shell-doc.js TopReveal: back at the
-       top edge, on a scroll up, with focus or a menu in it) */
-    .top.docmode {
-      position: fixed; top: 0; left: 0; right: 0; z-index: 3200;
-      box-shadow: var(--bx-shadow-rest, 0 10px 28px rgba(0, 0, 0, 0.4));
-      transition: transform var(--bx-dur-panel, 200ms) var(--bx-ease-out, cubic-bezier(0.16, 1, 0.3, 1));
-    }
-    .top.docmode.away { transform: translateY(-100%); box-shadow: none; }
-    .topedge { position: fixed; top: 0; left: 0; right: 0; height: 8px; z-index: 3150; }
     .top a.chip, .top button.chip {
       display: inline-flex; align-items: center; gap: 6px; flex: none; box-sizing: border-box;
       height: var(--bx-control-h, 28px); padding: 0 10px; white-space: nowrap; cursor: pointer; text-decoration: none;

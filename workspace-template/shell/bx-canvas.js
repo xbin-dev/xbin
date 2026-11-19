@@ -469,7 +469,7 @@ export class BxCanvas extends LitElement {
     const meta = this.frameFor(o.path)?.tileMeta, name = titleOf(o.path, c, meta), icon = iconOf(c, meta, hasIcon);
     const pin = floating ? 'pin back onto the grid' : 'unpin into a floating window';
     const admin = 'tile admin (lifecycle · access · runtime · vault · grants · interfaces · backup · cron)';
-    const menu = 'tile menu (terminal · logs · source · proposals · admin)';
+    const menu = 'tile menu (terminal · logs · source · proposals · workspace · admin)';
     return html`
       <div class="card ${this._isActive(o.path) ? 'active' : ''}" data-path=${o.path} data-part=${o.path === 'tiles/admin' ? 'admin' : nothing}
            @bx-contextmenu=${(e) => { e.stopPropagation(); this._tileMenu({ clientX: e.detail.x, clientY: e.detail.y }, o.path, null, e.detail.selection || '', e.detail.html || ''); }}>

@@ -27,7 +27,9 @@
  * right-aligned. Keyboard: arrows / Home / End, Enter / Space, ArrowRight /
  * ArrowLeft for submenus, Escape, Tab closes, type-ahead on labels. Fires
  * `bx-menu-close` (dismissed or chosen — before the action runs) and
- * `bx-menu-select` {item} for items without an action.
+ * `bx-menu-select` {item} for items without an action. A row with `items`
+ * says so to assistive tech (aria-haspopup="menu", aria-expanded while its
+ * flyout is open).
  *
  * An item's or a cell's `icon` is a /vendor/bx-icons.js name (D184:
  * 'terminal', 'pencil', …), drawn as <bx-icon>; any other string is shown
@@ -199,8 +201,12 @@ export class BxMenu extends LitElement {
     document.addEventListener('scroll', this._onScroll, { capture: true, passive: true });
     document.addEventListener('keydown', this._onDocKey, true);
     window.addEventListener('resize', this._onResize);
-    this.updateComplete.then(() => {
-      this._place();
+    this.updateComplete.then(async () => {
+      // placed and drawn first: a panel is `visibility: hidden` until it is
+      // measured, and a hidden panel can't take the focus (the keys stayed
+      // with the opener)
+      await this._place();
+      await this.updateComplete;
       // A menu opened from inside a tile's iframe: pull keyboard focus out of
       // the frame so Escape / arrows reach the menu, not the tile document.
       if (this._opener?.tagName === 'IFRAME') { try { this._opener.blur(); } catch { /* fine */ } }
@@ -334,7 +340,7 @@ export class BxMenu extends LitElement {
         if (inInput) return;
         if (cur?.classList?.contains('cell')) { stop(); focusAt(i + 1); return; }
         const it = this._itemOf(cur);
-        if (it?.items && !this.sheet) { stop(); this._openSub(it, cur); this.updateComplete.then(() => this._focusables(this.renderRoot.querySelector('.panel.sub'))[0]?.focus()); }
+        if (it?.items && !this.sheet) { stop(); this._openSub(it, cur); this._focusSub(); }
         else if (it?.items) { stop(); this._choose(it, cur); }
         return;
       }
@@ -357,7 +363,15 @@ export class BxMenu extends LitElement {
         hit?.focus({ preventScroll: true });
     }
   }
-  _focusOpenItem() { this.renderRoot.querySelector('.panel.main .it.open, .panel.main .it')?.focus({ preventScroll: true }); }
+  // the flyout's first line, once it is placed and drawn (hidden until then)
+  async _focusSub() {
+    await this._placeSub();
+    await this.updateComplete;
+    const sub = this.renderRoot.querySelector('.panel.sub');
+    if (sub) this._focusables(sub)[0]?.focus({ preventScroll: true });
+  }
+  // back on the row the flyout hung off (not the first row: a selector list matches in document order)
+  _focusOpenItem() { (this.renderRoot.querySelector('.panel.main .it.open') ?? this.renderRoot.querySelector('.panel.main .it'))?.focus({ preventScroll: true }); }
   _back() { this._stack = this._stack.slice(0, -1); this._q = ''; }
 
   // ---- templates ----
@@ -365,6 +379,7 @@ export class BxMenu extends LitElement {
     const submenu = !!it.items;
     return html`<button class="it ${it.danger ? 'danger' : ''} ${it.mono ? 'mono' : ''} ${this._sub === it ? 'open' : ''}"
         role="menuitem" ?disabled=${!!it.disabled} title=${it.title ?? nothing}
+        aria-haspopup=${submenu ? 'menu' : nothing} aria-expanded=${submenu ? String(this._sub === it) : nothing}
         data-l=${level} data-i=${idx}
         @pointerenter=${(e) => this._hoverItem(it, e.currentTarget, level)}
         @click=${(e) => this._choose(it, e.currentTarget)}>

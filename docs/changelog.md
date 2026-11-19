@@ -12,6 +12,33 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-18
 
+- shell: **the top bar stays put, and a tile's menu reaches the
+  workspace** (D247). The bar no longer slides away in Document and Tiled
+  mode (it floated over the page there and came back at the top edge or
+  on a scroll up); in every mode and at every width it sits above the
+  page, so a Document or Tiled screen gives its tiles 40 px less height
+  than before. A tile's menu — its title bar, its ⋯, a sidebar row, a
+  right-click inside its page — now holds the canvas menu's workspace
+  lines under a *workspace* heading: **Open tile ▸, Create a new tile,
+  Add heading or text ▸, New screen**, the same words and order as the
+  canvas menu, so they are in reach on a Tiled screen with no canvas to
+  right-click. What they open lands beside that tile: on a Tiled screen it
+  splits that tile (not the focused one), on a Document screen it is the
+  row after that tile's, on a canvas it goes near the click as before.
+  The tile's admin lines (Disable/Enable/Unhide, Hide, Access…, Runtime…,
+  Vault…, Roles & grants…, Interfaces…, Backup…, Cron…) moved into one
+  **Admin ▸** submenu at the bottom; the canvas menu's Add heading and Add
+  text sit behind **Add heading or text ▸**. Nothing was added or
+  removed, and who sees what is unchanged. `<bx-menu>` (served at
+  `/vendor/bx-menu.js`, so every shell gets this with the binary): a
+  menu opened by the mouse now takes the keyboard focus (it stayed with
+  the opener, so the arrows did nothing until a row was hovered),
+  ArrowRight into a flyout focuses its first line, ArrowLeft returns to
+  the row it hung off, and a row with a submenu carries
+  `aria-haspopup="menu"` / `aria-expanded`. An existing workspace gets the
+  new top bar and menus with the shell scaffold (`bx builtin update`);
+  until then its shell behaves as before.
+
 - terminals, coding agents: **BREAKING — on a tile that isn't only yours
   and that you haven't trusted, your home is this tile's copy.** A
   security fix for every release so far: every session mounted its

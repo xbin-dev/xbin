@@ -6127,3 +6127,71 @@ here: cut from the old end, never reword.
     sentence naming nothing; an admin's copy of an ask reads it as "xbin
     refuses this one", and the asker's outcome stays one. Unticked is a
     client default; the server applies what an approve names.
+
+- **D247 — The top bar always visible; the tile menu carries the workspace
+  section, admin folded (2026-11-18; the owner's UX request of that day).**
+  workspace-template/shell/menus.js, shell-doc.js, shell-css.js,
+  shell-anchor.js, bx-shell.js, shell-tiled.js, shell-blocks.js,
+  doc-layout.js, shell-agent.js, bx-canvas.js; web/bx-menu.js;
+  hack/menus.test.mjs, hack/doc-layout.test.mjs,
+  hack/ui-harness/passes/topbarmenu.js (+ docmode, tiled, focusanchor,
+  blocks).
+  - **The owner's words:** the top bar "shouldn't slide up … should be
+    always visible"; "especially in tiled mode, right-click even in a tile
+    should have a section … 'create new tile/open tile/new screen' … above
+    the 'admin' section, or think about some alternate layout … it's
+    starting to get pretty busy, we need to keep it ergonomic".
+  - **The bar.** D187 made it float over a Document screen (wider than
+    820 px) and slide away while reading — back at an 8 px top-edge strip,
+    on a scroll up, with focus or a menu in it — and D193 did the same on
+    a Tiled screen (also away when the pointer left it downwards); Canvas,
+    Fixed width and every phone kept it in the page's flow. That was 40 px
+    of height for the tiles. TopReveal, its CSS and the anchor's
+    scroll bookkeeping for it (`heldScroll`) are gone: the bar is in the
+    flow in every mode and width. D187's other space saving — the screen
+    tabs inside the bar on a wide screen — stays. Nothing else assumed the
+    bar could be gone: popovers anchor to `--bx-topbar-h`, the org bar is
+    below it in the flow, Tiled measures its pane, the iOS app draws its
+    own chrome and embeds no shell.
+  - **One section, both menus.** `workspaceItems` — Open tile ▸, Create a
+    new tile (… or ▸ per owner), Add heading or text ▸, New screen — leads
+    the canvas menu and sits in every tile menu (title bar, ⋯, sidebar
+    row, right-click inside the page) under a `workspace` header, after the
+    tile's own lines; the same words, the same order, the same
+    disabled/absent rules. D192's two block lines fold into one row in
+    both (the canvas menu goes from 7 rows to 6); the tab menu keeps its
+    own two lines (it adds to that screen).
+  - **Admin ▸.** The tile's nine admin lines become one submenu, last:
+    lifecycle (Disable/Enable/Unhide, Hide — still confirmed) then the
+    admin window's sections. Its row's hint names a state other than
+    enabled. A tile menu's top level is now the four panel squares, the
+    tile's lines (Close/Open, Pin/Unpin, Row ▸ or Rotate/Swap, Open full
+    page, Deployments…, Ask my agent), four workspace rows and Admin ▸:
+    8 rows on a canvas, 10 on a Tiled screen (was 12 and 14 for an
+    admin), ≤ 12 with every optional line. "Ask my agent about this tile" stays
+    the last of the tile's own lines.
+  - **Where it lands** (the menu's tile travels as `near` through
+    `_menuActions`, the new-tile dialog and `addBlock`): Tiled — splits
+    *that* tile's space (D205's "a new tile splits the focused tile",
+    with the menu's tile as the focus: the menu's tile need not be the
+    focused one — another tile's ⋯ or title bar was right-clicked); Document —
+    a row of its own right after that tile's row (`placeAfter`), not the
+    last row; Canvas and Fixed width — near the click, as the canvas menu
+    already does (D80). A sidebar row's tile that isn't on the screen has
+    no place to be beside: the old rules apply.
+  - **`<bx-menu>`, fixed, not grown:** a desktop panel is
+    `visibility: hidden` until measured, and the focus call ran before
+    that, so a menu opened by the mouse never had the keyboard (the same
+    for a flyout opened with ArrowRight); it now focuses after placing.
+    ArrowLeft returned to the first row (a selector list matches in
+    document order), now to the row the flyout hung off. Rows with a
+    submenu carry `aria-haspopup="menu"` and `aria-expanded`. No item
+    field was added; an older shell's menus work unchanged.
+  - **Rejected:** the workspace actions as a second row of squares
+    (open tile · new tile · add text · new screen) at the top of the tile
+    menu — squares can't hold the find-a-tile and per-owner flyouts, so
+    two of the four would need a dialog, and a second row of look-alike
+    squares under the tile's own panel squares invites the wrong click
+    (mocks in the change's screenshots). Also not chosen: a `Tile ▸`
+    submenu for the tile's own lines — they are the frequent ones and
+    must stay one click away.

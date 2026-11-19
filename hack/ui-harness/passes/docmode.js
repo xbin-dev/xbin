@@ -6,8 +6,8 @@
 // kept with the screen, until two clicks lift it (D193);
 // a tall tile grows to its content with no scrollbar inside it, a tile
 // pinned to its viewport settles at 480 px and takes a fixed height from
-// its handle; the top bar hides on a scroll down and comes back on a scroll
-// up and at the top edge; a phone stacks the rows in reading order; and
+// its handle; the top bar stays put on a scroll down (D247; it used to
+// slide away); a phone stacks the rows in reading order; and
 // switching back to Canvas shows every tile exactly where it was. The
 // screen tabs sit in the top bar on a wide screen and in a row of their own
 // on a phone. Run it in both themes (HARNESS_THEME=light); screenshots go
@@ -94,8 +94,7 @@ async function docMode(browser) {
   check(rs.length === TILES.length && rs.every((r) => r.cols === 1 && r.paths.length === 1), `one tile per row (${shape(rs)})`);
   check(await fullWidth(page, rs[0].paths[0]), 'a row of one tile spans the whole page');
   check(await sh(page, (t) => t.screenMode) === 'doc', 'the screen says Document');
-  check((await sh(page, (t) => t.topBar)).hidden, 'the top bar starts out of the way');
-  check((await sh(page, (t) => t.query('.top')?.className ?? '')).includes('away'), 'the bar is drawn away');
+  check(await sh(page, BAR_SHOWN), 'the top bar stays in its place, above the page (D247: it no longer slides away)');
 
   // a 2-wide row: drag offline's title bar onto pinned's right edge
   const order = rs.map((r) => r.paths[0]);
@@ -218,19 +217,12 @@ async function docMode(browser) {
   await sleep(300);
   check(!(await sh(page, (t, p) => t.openTiles.find((o) => o.path === p)?.doc?.h ?? null, VH)), 'a double-click on the handle fits the content again');
 
-  // the top bar: hides on a scroll down, back on a scroll up and at the top edge
+  // the top bar stays put while reading (D247; it used to slide away on a scroll down)
   await page.mouse.move(700, 500);
   await mainScroll(page, 0); await sleep(150);
   await mainScroll(page, 700); await sleep(250);
-  check((await sh(page, (t) => t.topBar)).hidden, 'a scroll down keeps the bar away');
-  await snap(page, `docmode-top-hidden-${THEME}`);
-  await mainScroll(page, 400); await sleep(250);
-  check(!(await sh(page, (t) => t.topBar)).hidden, 'a scroll up brings the bar back');
-  await mainScroll(page, 1200); await sleep(250);
-  check((await sh(page, (t) => t.topBar)).hidden, 'scrolling down again sends it away');
-  await page.mouse.move(700, 3); await sleep(300);
-  check(!(await sh(page, (t) => t.topBar)).hidden, 'the pointer at the top edge brings it back');
-  await snap(page, `docmode-top-revealed-${THEME}`);
+  check(await sh(page, BAR_SHOWN), 'a scroll down leaves the bar where it is');
+  await snap(page, `docmode-top-scrolled-${THEME}`);
   // the rows: a 2-wide and the 4-wide in one view
   const row2 = rs.find((r) => r.cols === 2);
   if (row2) await sh(page, (t, p) => t.query(`.dcell[data-path="${p}"]`).scrollIntoView({ block: 'start' }), row2.paths[0]);
@@ -255,7 +247,7 @@ async function docMode(browser) {
   const back = await sh(page, (t) => t.openTiles.map(({ path, x, y, w, h, float }) => ({ path, x, y, w, h, float: float ?? null })));
   const key = (l) => JSON.stringify([...l].sort((p, q) => (p.path < q.path ? -1 : 1)));
   check(key(back) === key(canvas), 'Canvas shows every tile at its old place and size');
-  check(!!(await rectIn(page, '.canvas')) && !(await sh(page, (t) => t.topBar)).on, 'the canvas is back, the bar in its place');
+  check(!!(await rectIn(page, '.canvas')) && await sh(page, BAR_SHOWN), 'the canvas is back, the bar in its place');
 
   // an org screen carries its mode for every member, and switching it is
   // no new revision (the seed's Devs HQ; the admin may rename it)
@@ -283,6 +275,8 @@ async function docMode(browser) {
   done();
 }
 
+// the top bar drawn in the page's flow, above <main>, untransformed (D247)
+const BAR_SHOWN = (t) => { const b = t.query('.top').getBoundingClientRect(), m = t.query('main').getBoundingClientRect(); return b.top >= 0 && b.height >= 30 && m.top >= b.bottom - 1 && getComputedStyle(t.query('.top')).transform === 'none'; };
 // the doc view rendered (a waitSel on the shadow DOM)
 async function waitSel(page) {
   await page.waitForSelector('.doc .dcell', { timeout: 10000, state: 'attached' });

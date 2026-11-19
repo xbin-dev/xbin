@@ -6,7 +6,7 @@
 // tile's canvas geometry.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { docRows, normalise, where, placeNew, moveTile, setCols, step, setHeight, removeTile } from '../workspace-template/shell/doc-layout.js';
+import { docRows, normalise, where, placeNew, placeAfter, moveTile, setCols, step, setHeight, removeTile } from '../workspace-template/shell/doc-layout.js';
 
 const T = (path, x, y, extra = {}) => ({ path, x, y, w: 576, h: 384, ...extra });
 const D = (row, col = 0, cols = 1, h) => (h ? { row, col, cols, h } : { row, col, cols });
@@ -52,6 +52,16 @@ test('placeNew appends the tile as the last row', () => {
   const out = placeNew(tiles, 'n');
   assert.equal(shape(out), '1:a | 1:b | 1:c | 1:d | 1:e | 1:n');
   sameCanvas(tiles, out);
+});
+
+test('placeAfter puts the tile in a row of its own right after near\'s row (D247); at the end without one', () => {
+  const tiles = [...screen(), T('n', 0, 0)];
+  assert.equal(shape(placeAfter(tiles, 'n', 'b')), '1:a | 1:b | 1:n | 1:c | 1:d | 1:e');
+  assert.equal(shape(placeAfter(tiles, 'n', 'e')), '1:a | 1:b | 1:c | 1:d | 1:e | 1:n');
+  assert.equal(shape(placeAfter(tiles, 'n', 'gone')), '1:a | 1:b | 1:c | 1:d | 1:e | 1:n');
+  const two = moveTile(screen(), 'b', { row: 0, col: 1 });
+  assert.equal(shape(placeAfter([...two, T('n', 0, 0)], 'n', 'b')), '2:a,b | 1:n | 1:c | 1:d | 1:e', 'after the whole row, not inside it');
+  sameCanvas(tiles, placeAfter(tiles, 'n', 'b'));
 });
 
 test('moveTile beside a tile widens its row 1 → 2 → 4, and a full 4-wide row pushes its last tile down', () => {
