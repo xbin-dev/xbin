@@ -10,6 +10,33 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-11-20
+
+- builtin updates: **a tile's links, FIFOs and nested tiles are never
+  followed, read or written through.** `GET /builtins/updates`, every
+  `POST /builtins/update` mode and a `pr` proposal's series read each of
+  a unit's files as the file at its path: a symbolic link (anywhere on
+  the path), a FIFO, socket or device, a directory, a file over 32 MiB or
+  a file inside a component nested in the unit that it doesn't ship is a
+  `conflict` with a `note` saying why, which no update writes (a replace
+  puts upstream's regular file in place of a link or a FIFO at a file's
+  path, never following it). Before, an adopted unit's proposal read
+  through a link into its series — which the tile's readers can fetch —
+  and a FIFO hung the listing. Files are written beside themselves and
+  renamed in, never through a link; a merge writes a file only while it
+  is what it read (an edit made meanwhile stops it, 400 naming the file
+  and what was written before) and no longer rewrites files it leaves as
+  they are. Instantiating a workspace template reads its files the same
+  way: a link in it fails the copy.
+  ([tiles.md](/docs/protocol/tiles.md), [lifecycle](/docs/overview/14-lifecycle.md#keeping-code-fresh))
+- code PRs: **closing a builtin-update proposal merged is a person's
+  call, and records what the tile holds.** The tile's backend, a frame of
+  it or another tile's code gets 403 (an admin, a user who may write the
+  tile, or their terminal session in it may); the close records as
+  updated only the files that hold upstream's change, the update stays
+  offered for the rest, and the PR's meta names them (`pending`).
+  ([code.md](/docs/protocol/code.md))
+
 ## 2026-11-19
 
 - workspace agent: **it sees what has an update, proposes a builtin's

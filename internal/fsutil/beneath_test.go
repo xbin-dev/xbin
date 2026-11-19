@@ -238,3 +238,72 @@ func TestMkdirAllInAndOpenRootInRefuseSymlinks(t *testing.T) {
 		r.Close()
 	}
 }
+
+// OpenNoSymlinks: no link anywhere on the path — an in-tree one, a dangling
+// one, a parent directory swapped for one — and no FIFO; it never blocks.
+func TestOpenNoSymlinks(t *testing.T) {
+	root := t.TempDir()
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	tile := filepath.Join(root, "apps", "x")
+	must(os.MkdirAll(filepath.Join(tile, "dist"), 0o755))
+	must(os.WriteFile(filepath.Join(tile, "dist", "app.js"), []byte("ok"), 0o644))
+	must(os.WriteFile(filepath.Join(root, "secret"), []byte("s3cret"), 0o600))
+	must(os.Symlink("dist", filepath.Join(tile, "assets")))                   // in-tree dir link
+	must(os.Symlink("dist/app.js", filepath.Join(tile, "same.js")))           // in-tree file link
+	must(os.Symlink(filepath.Join(root, "secret"), filepath.Join(tile, "a"))) // escaping
+	must(os.Symlink("nowhere", filepath.Join(tile, "dangling")))
+	fifo := mkfifo(filepath.Join(tile, "pipe.js")) == nil
+
+	for name, open := range map[string]func(root, rel string) (*os.File, error){
+		"openat2": OpenNoSymlinks, "fallback": openNoSymlinksFallback,
+	} {
+		f, err := open(root, "apps/x/dist/app.js")
+		if err != nil {
+			t.Fatalf("%s: a plain file: %v", name, err)
+		}
+		b, _ := io.ReadAll(f)
+		f.Close()
+		if string(b) != "ok" {
+			t.Fatalf("%s: read %q", name, b)
+		}
+		for _, rel := range []string{"apps/x/assets/app.js", "apps/x/same.js", "apps/x/a", "apps/x/dangling"} {
+			if f, err := open(root, rel); err == nil {
+				f.Close()
+				t.Errorf("%s: %s: opened through a link", name, rel)
+			} else if errors.Is(err, os.ErrNotExist) {
+				t.Errorf("%s: %s: a link read as missing: %v", name, rel, err)
+			}
+		}
+		if _, err := open(root, "apps/x/nope"); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("%s: missing: %v", name, err)
+		}
+		if fifo {
+			done := make(chan error, 1)
+			go func() { _, err := open(root, "apps/x/pipe.js"); done <- err }()
+			select {
+			case err := <-done:
+				if !errors.Is(err, ErrNotRegular) {
+					t.Errorf("%s: FIFO: %v", name, err)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatalf("%s: blocked on a FIFO", name)
+			}
+		}
+	}
+	if _, err := OpenNoSymlinks(root, "../secret"); !errors.Is(err, ErrEscapes) {
+		t.Errorf("a non-local rel: %v", err)
+	}
+	// The trust root itself may be a symlink.
+	link := filepath.Join(t.TempDir(), "ws")
+	must(os.Symlink(root, link))
+	if f, err := OpenNoSymlinks(link, "apps/x/dist/app.js"); err != nil {
+		t.Fatalf("symlinked root: %v", err)
+	} else {
+		f.Close()
+	}
+}

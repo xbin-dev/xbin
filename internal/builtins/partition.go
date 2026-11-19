@@ -214,7 +214,6 @@ func keptNote(installPath, rel string, inst pval, how string, up pval) string {
 // stands. whole is false when a manifest was left out — its installed
 // partition can't be told — so the caller keeps the update offered.
 func (u *Updater) keepPartition(installPath string, theirs map[string][]byte, notes *[]string) (out map[string][]byte, whole bool) {
-	dir := filepath.Join(u.root, filepath.FromSlash(installPath))
 	out, whole = make(map[string][]byte, len(theirs)), true
 	var n []string
 	for rel, th := range theirs {
@@ -222,9 +221,16 @@ func (u *Updater) keepPartition(installPath string, theirs map[string][]byte, no
 		if !isManifest(rel) {
 			continue
 		}
-		ours, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(rel)))
+		tf := readTile(u.root, installPath, rel)
+		if tf.refused != "" { // a link, a FIFO…: left as it is, and said
+			delete(out, rel)
+			whole = false
+			n = append(n, refusedNote(installPath, rel, tf.refused))
+			continue
+		}
+		ours := tf.data
 		up, upOK := readPartition(th)
-		if err != nil || !upOK {
+		if !tf.present || !upOK {
 			continue // no installed copy (an install), or upstream's own can't be read
 		}
 		inst, how, like := u.installedPartition(installPath, rel, ours)
@@ -282,7 +288,6 @@ func undoPartition(base, theirs []byte, inst func() (pval, string, []byte)) (out
 // left as it is — and whole is false, so the caller keeps the update
 // offered.
 func (u *Updater) mergeTheirs(installPath, snap string, theirs map[string][]byte, notes *[]string) (out map[string][]byte, whole bool) {
-	dir := filepath.Join(u.root, filepath.FromSlash(installPath))
 	out, whole = make(map[string][]byte, len(theirs)), true
 	var n []string
 	for rel, th := range theirs {
@@ -290,11 +295,12 @@ func (u *Updater) mergeTheirs(installPath, snap string, theirs map[string][]byte
 		if !isManifest(rel) {
 			continue
 		}
-		ours, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(rel)))
-		if err != nil {
-			continue // no installed copy: an install, upstream's stands
+		tf := readTile(u.root, installPath, rel)
+		if !tf.present {
+			continue // no installed copy: an install, upstream's stands (a refused one: the merge leaves it, and says so)
 		}
-		base, _ := os.ReadFile(filepath.Join(snap, filepath.FromSlash(rel)))
+		ours := tf.data
+		base, _ := os.ReadFile(filepath.Join(snap, filepath.FromSlash(rel))) // walk-ok: the base snapshot is xbind's own (.xbin/builtins)
 		inst := func() (pval, string, []byte) { return u.installedPartition(installPath, rel, ours) }
 		undone, changed, ok := undoPartition(base, th, inst)
 		if !ok {
@@ -321,7 +327,6 @@ func (u *Updater) mergeTheirs(installPath, snap string, theirs map[string][]byte
 // (a manifest whose change can't be undone keeps base's bytes); and the
 // notes, against the installed copy.
 func (u *Updater) proposalPartition(installPath string, base, theirs map[string][]byte) (map[string][]byte, []string) {
-	dir := filepath.Join(u.root, filepath.FromSlash(installPath))
 	to := make(map[string][]byte, len(theirs))
 	var notes []string
 	for rel, th := range theirs {
@@ -330,9 +335,10 @@ func (u *Updater) proposalPartition(installPath string, base, theirs map[string]
 		if !isManifest(rel) || !inBase {
 			continue
 		}
-		ours, oursErr := os.ReadFile(filepath.Join(dir, filepath.FromSlash(rel)))
+		tf := readTile(u.root, installPath, rel)
+		ours := tf.data
 		inst := func() (pval, string, []byte) {
-			if oursErr != nil {
+			if !tf.present {
 				return pval{}, "", nil
 			}
 			return u.installedPartition(installPath, rel, ours)
@@ -342,7 +348,7 @@ func (u *Updater) proposalPartition(installPath string, base, theirs map[string]
 			undone = b
 		}
 		to[rel] = undone
-		if up, _ := readPartition(th); changed && oursErr == nil {
+		if up, _ := readPartition(th); changed && tf.present {
 			if v, how, _ := inst(); !v.same(up) || how == "" {
 				notes = append(notes, keptNote(installPath, rel, v, how, up))
 			}

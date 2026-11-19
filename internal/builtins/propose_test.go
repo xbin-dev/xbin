@@ -83,11 +83,11 @@ func TestProposeAppliesAndRecords(t *testing.T) {
 
 	// Wrong hash (embed moved on) refuses; right hash records — and the
 	// unit stops being offered (user edits read as user-only now).
-	if err := u2.RecordApplied("scaffold:shell", "sha256:nope"); err == nil {
+	if _, err := u2.RecordApplied("scaffold:shell", "sha256:nope"); err == nil {
 		t.Fatal("stale-hash RecordApplied must refuse")
 	}
-	if err := u2.RecordApplied("scaffold:shell", prop.ToHash); err != nil {
-		t.Fatal(err)
+	if pending, err := u2.RecordApplied("scaffold:shell", prop.ToHash); err != nil || len(pending) > 0 {
+		t.Fatal(pending, err)
 	}
 	ups, err := u2.Updates()
 	if err != nil {
@@ -128,5 +128,54 @@ func TestProposeAdopted(t *testing.T) {
 	}
 	if !strings.Contains(prop.Title, "adopted") {
 		t.Fatalf("title should flag the adopted case: %s", prop.Title)
+	}
+}
+
+// covers the review of 2026-11-20, finding 5 — closing a proposal merged
+// records what the tile holds, file by file: a file carrying upstream's
+// change (beside edits of its own) is updated; a file still without it
+// keeps its recorded base, so the unit stays offered for it until it holds
+// the change, and the version doesn't move until then.
+func TestRecordAppliedRecordsOnlyWhatTheTileHolds(t *testing.T) {
+	root := t.TempDir()
+	v1 := fstest.MapFS{
+		"shell/index.html": {Data: []byte("<html>v1</html>\n")},
+		"shell/app.js":     {Data: []byte("l1\nl2\nl3\nl4\nl5\n")},
+	}
+	if _, err := NewUpdater(root, nil, v1).ApplyReplace("scaffold:shell"); err != nil {
+		t.Fatal(err)
+	}
+	tile := filepath.Join(root, "shell")
+	v2 := fstest.MapFS{
+		"shell/index.html": {Data: []byte("<html>v2</html>\n")},
+		"shell/app.js":     {Data: []byte("l1-upstream\nl2\nl3\nl4\nl5\n")},
+	}
+	u := NewUpdater(root, nil, v2)
+	prop, err := u.Propose("scaffold:shell")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The tile's agent takes app.js's change beside an edit of its own and
+	// keeps its own index.html: closing merged now records app.js only.
+	must(t, os.WriteFile(filepath.Join(tile, "app.js"), []byte("l1-upstream\nl2\nl3\nl4\nl5\nl6-mine\n"), 0o644))
+	must(t, os.WriteFile(filepath.Join(tile, "index.html"), []byte("<html>mine</html>\n"), 0o644))
+	pending, err := u.RecordApplied("scaffold:shell", prop.ToHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pending) != 1 || pending[0] != "shell/index.html" {
+		t.Fatalf("pending: %v", pending)
+	}
+	uu := unitOf(t, u, "scaffold:shell")
+	if uu == nil || uu.FromVersion != 1 || noteOf(uu, "index.html") == "" || noteOf(uu, "app.js") != "user: " {
+		t.Fatalf("after a partial merge: %+v", uu)
+	}
+	// It takes index.html's change too: the update is applied.
+	must(t, os.WriteFile(filepath.Join(tile, "index.html"), []byte("<html>v2</html>\n"), 0o644))
+	if pending, err := u.RecordApplied("scaffold:shell", prop.ToHash); err != nil || len(pending) > 0 {
+		t.Fatal(pending, err)
+	}
+	if uu := unitOf(t, u, "scaffold:shell"); uu != nil {
+		t.Fatalf("still offered once the tile holds the update: %+v", uu)
 	}
 }

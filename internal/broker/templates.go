@@ -6,13 +6,13 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
-	"os"
 	"path"
 	"path/filepath"
 	"strings"
 
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/builtins"
+	"github.com/xbin-dev/xbin/internal/fsutil"
 	"github.com/xbin-dev/xbin/internal/registry"
 	"github.com/xbin-dev/xbin/internal/server"
 )
@@ -291,7 +291,9 @@ func instantiateWorkspace(root, srcPath, targetPath string, opts builtins.Instan
 	if targetPath == "" {
 		targetPath = "apps/" + path.Base(srcPath)
 	}
-	written, err := builtins.CopyTree(os.DirFS(root), srcPath, root, targetPath, srcPath, &opts)
+	// The template is a tile someone writes: its files are read as they
+	// are, never through a link (to a home, to another tile) or from a FIFO.
+	written, err := builtins.CopyTree(fsutil.NoSymlinksFS(root), srcPath, root, targetPath, srcPath, &opts)
 	if err != nil {
 		return "", written, err
 	}

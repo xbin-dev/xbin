@@ -9,8 +9,10 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 	"testing/fstest"
+	"time"
 )
 
 // safeFixture installs v1 of a scaffold unit "app" (files a.txt, b.txt,
@@ -84,7 +86,7 @@ func TestSafeUpdateNeverOverwritesLocalEdits(t *testing.T) {
 		if !slices.Equal(sp.Changes, []string{"a.txt", "new.txt", "xbin.json"}) && !slices.Equal(sp.Changes, []string{"a.txt", "gone.txt", "new.txt", "xbin.json"}) {
 			t.Errorf("changes: %v", sp.Changes)
 		}
-		if _, how, err := u.ApplySafe("scaffold:app"); err != nil || how != SafeMerge {
+		if _, how, err := u.ApplySafe("scaffold:app", ""); err != nil || how != SafeMerge {
 			t.Fatalf("apply: %q %v", how, err)
 		}
 		got := snapshot(t, app)
@@ -110,7 +112,7 @@ func TestSafeUpdateNeverOverwritesLocalEdits(t *testing.T) {
 		if sp.Mode != SafePropose || !slices.Equal(sp.Conflicts, []string{"a.txt"}) {
 			t.Fatalf("plan: %+v", sp)
 		}
-		_, _, err = u.ApplySafe("scaffold:app")
+		_, _, err = u.ApplySafe("scaffold:app", "")
 		var ce *ConflictError
 		if !errors.As(err, &ce) || !slices.Equal(ce.Files, []string{"a.txt"}) {
 			t.Fatalf("apply: %v", err)
@@ -128,7 +130,7 @@ func TestSafeUpdateNeverOverwritesLocalEdits(t *testing.T) {
 			t.Fatalf("plan: %+v %v", sp, err)
 		}
 		var ce *ConflictError
-		if _, _, err := u.ApplySafe("scaffold:app"); !errors.As(err, &ce) {
+		if _, _, err := u.ApplySafe("scaffold:app", ""); !errors.As(err, &ce) {
 			t.Fatalf("apply: %v", err)
 		}
 		if after := snapshot(t, app); fmt.Sprint(after) != fmt.Sprint(before) {
@@ -136,36 +138,23 @@ func TestSafeUpdateNeverOverwritesLocalEdits(t *testing.T) {
 		}
 	})
 	t.Run("adopted", func(t *testing.T) {
+		// no recorded base: nothing tells a change made here from upstream's,
+		// so even a copy that only lacks files is a proposal — nothing written
 		root := t.TempDir()
 		app := filepath.Join(root, "app")
 		if err := os.MkdirAll(app, 0o755); err != nil {
 			t.Fatal(err)
 		}
 		v2 := v2FS()
-		write(t, filepath.Join(app, "xbin.json"), string(v2["app/xbin.json"].Data)) // identical: it only gains files
+		write(t, filepath.Join(app, "xbin.json"), string(v2["app/xbin.json"].Data))
 		u := NewUpdater(root, nil, v2)
+		before := snapshot(t, app)
 		sp, err := u.SafePlan("scaffold:app")
-		if err != nil || sp.Mode != SafeReplace || len(sp.Conflicts) != 0 {
-			t.Fatalf("identical adopted: %+v %v", sp, err)
-		}
-		if _, _, err := u.ApplySafe("scaffold:app"); err != nil {
-			t.Fatal(err)
-		}
-		if got := snapshot(t, app); got["a.txt"] == "" || got["xbin.json"] != string(v2["app/xbin.json"].Data) {
-			t.Fatalf("%q", got)
-		}
-		// an adopted copy that differs: nothing written
-		root2 := t.TempDir()
-		app2 := filepath.Join(root2, "app")
-		_ = os.MkdirAll(app2, 0o755)
-		write(t, filepath.Join(app2, "xbin.json"), "{\"title\": \"mine\"}\n")
-		u2 := NewUpdater(root2, nil, v2)
-		before := snapshot(t, app2)
-		if sp, err := u2.SafePlan("scaffold:app"); err != nil || sp.Mode != SafePropose {
-			t.Fatalf("a differing adopted copy: %+v %v", sp, err)
+		if err != nil || sp.Mode != SafePropose || !sp.Adopted || !slices.Contains(sp.Conflicts, "a.txt") {
+			t.Fatalf("an adopted copy: %+v %v", sp, err)
 		}
 		var ce *ConflictError
-		if _, _, err := u2.ApplySafe("scaffold:app"); !errors.As(err, &ce) || fmt.Sprint(snapshot(t, app2)) != fmt.Sprint(before) {
+		if _, _, err := u.ApplySafe("scaffold:app", ""); !errors.As(err, &ce) || fmt.Sprint(snapshot(t, app)) != fmt.Sprint(before) {
 			t.Fatalf("apply: %v", err)
 		}
 	})
@@ -182,7 +171,7 @@ func TestSafeUpdateRefusals(t *testing.T) {
 	if _, err := u.SafePlan("scaffold:app"); !errors.Is(err, ErrPinned) {
 		t.Fatalf("pinned: %v", err)
 	}
-	if _, _, err := u.ApplySafe("scaffold:app"); !errors.Is(err, ErrPinned) {
+	if _, _, err := u.ApplySafe("scaffold:app", ""); !errors.Is(err, ErrPinned) {
 		t.Fatalf("pinned apply: %v", err)
 	}
 	_ = u.Pin("scaffold:app", false)
@@ -204,7 +193,7 @@ func TestSafeUpdateRefusals(t *testing.T) {
 		t.Fatalf("occupied: %v", err)
 	}
 	_ = os.Remove(filepath.Join(root, "tiles", "organisations", "notes.md"))
-	if _, how, err := u3.ApplySafe("scaffold:tiles/organisations"); err != nil || how != SafeInstall {
+	if _, how, err := u3.ApplySafe("scaffold:tiles/organisations", ""); err != nil || how != SafeInstall {
 		t.Fatalf("install: %q %v", how, err)
 	}
 	if b, _ := os.ReadFile(filepath.Join(root, "tiles", "organisations", "index.html")); string(b) != "<p>orgs</p>\n" {
@@ -273,7 +262,7 @@ func TestSafeUpdateProperty(t *testing.T) {
 		write(t, f, join(mine))
 		before := snapshot(t, filepath.Join(root, "app"))
 		u := NewUpdater(root, nil, v2)
-		_, _, err := u.ApplySafe("scaffold:app")
+		_, _, err := u.ApplySafe("scaffold:app", "")
 		after := snapshot(t, filepath.Join(root, "app"))
 		var ce *ConflictError
 		switch {
@@ -299,5 +288,144 @@ func TestSafeUpdateProperty(t *testing.T) {
 	}
 	if conflicts == 0 || merged == 0 {
 		t.Fatalf("the generator reached %d conflicts and %d clean merges: both are wanted", conflicts, merged)
+	}
+}
+
+// covers the review of 2026-11-20, finding 4 — a file deleted here is a
+// change made here: kept deleted while upstream didn't change it (and said
+// as kept), a conflict — so a proposal, nothing written — where upstream
+// changed it.
+func TestSafeUpdateKeepsLocalDeletions(t *testing.T) {
+	t.Run("upstream unchanged: stays deleted", func(t *testing.T) {
+		root, u := safeFixture(t, v2FS())
+		app := filepath.Join(root, "app")
+		if err := os.Remove(filepath.Join(app, "b.txt")); err != nil { // upstream leaves b.txt as it was
+			t.Fatal(err)
+		}
+		sp, err := u.SafePlan("scaffold:app")
+		if err != nil || sp.Mode != SafeMerge || !slices.Equal(sp.Deleted, []string{"b.txt"}) || !slices.Contains(sp.Kept, "b.txt") || slices.Contains(sp.Changes, "b.txt") {
+			t.Fatalf("plan: %+v %v", sp, err)
+		}
+		if _, _, err := u.ApplySafe("scaffold:app", sp.Pin); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := os.Lstat(filepath.Join(app, "b.txt")); err == nil {
+			t.Fatal("a file deleted here came back")
+		}
+	})
+	t.Run("upstream changed it: a proposal", func(t *testing.T) {
+		root, u := safeFixture(t, v2FS())
+		app := filepath.Join(root, "app")
+		if err := os.Remove(filepath.Join(app, "a.txt")); err != nil { // upstream changes a.txt
+			t.Fatal(err)
+		}
+		before := snapshot(t, app)
+		sp, err := u.SafePlan("scaffold:app")
+		if err != nil || sp.Mode != SafePropose || !slices.Equal(sp.Conflicts, []string{"a.txt"}) {
+			t.Fatalf("plan: %+v %v", sp, err)
+		}
+		var ce *ConflictError
+		if _, _, err := u.ApplySafe("scaffold:app", ""); !errors.As(err, &ce) || fmt.Sprint(snapshot(t, app)) != fmt.Sprint(before) {
+			t.Fatalf("apply: %v", err)
+		}
+	})
+}
+
+// covers the review of 2026-11-20, finding 3 — ApplySafe applies only what
+// was approved: with the approved pin, an edit made since (here: one that
+// turns an approved proposal into a clean merge) is stale and writes
+// nothing; a file the tile's agent edits between the plan reading it and
+// the write is left as the agent made it, the update stops there and says
+// what it wrote before; and another safe update holding the lock past the
+// wait is ErrBusy, never a hang.
+func TestApplySafeAppliesOnlyWhatWasApproved(t *testing.T) {
+	t.Run("stale pin", func(t *testing.T) {
+		root, u := safeFixture(t, v2FS())
+		app := filepath.Join(root, "app")
+		write(t, filepath.Join(app, "a.txt"), "a1-mine\na2\na3\na4\na5\n") // conflicts: approved as a proposal
+		sp, err := u.SafePlan("scaffold:app")
+		if err != nil || sp.Mode != SafePropose {
+			t.Fatalf("plan: %+v %v", sp, err)
+		}
+		write(t, filepath.Join(app, "a.txt"), "a1\na2\na3\na4\na5\n") // now it would merge cleanly
+		before := snapshot(t, app)
+		if _, _, err := u.ApplySafe("scaffold:app", sp.Pin); !errors.Is(err, ErrStale) {
+			t.Fatalf("an approved proposal became: %v", err)
+		}
+		if fmt.Sprint(snapshot(t, app)) != fmt.Sprint(before) {
+			t.Fatal("a stale update wrote")
+		}
+	})
+	t.Run("an edit during the write", func(t *testing.T) {
+		root, u := safeFixture(t, v2FS())
+		app := filepath.Join(root, "app")
+		sp, err := u.SafePlan("scaffold:app")
+		if err != nil || sp.Mode != SafeMerge {
+			t.Fatalf("plan: %+v %v", sp, err)
+		}
+		beforeWrite = func(full string) {
+			if full == "app/new.txt" { // the tile's agent writes the file meanwhile
+				_ = os.WriteFile(filepath.Join(app, "new.txt"), []byte("the agent's\n"), 0o644)
+			}
+		}
+		defer func() { beforeWrite = nil }()
+		_, _, err = u.ApplySafe("scaffold:app", sp.Pin)
+		var ce *ChangedError
+		if !errors.As(err, &ce) || ce.Path != "app/new.txt" || !strings.Contains(err.Error(), "written before it stopped: app/a.txt") {
+			t.Fatalf("apply: %v", err)
+		}
+		got := snapshot(t, app)
+		if got["new.txt"] != "the agent's\n" || got["xbin.json"] != "{\n  \"title\": \"v1\"\n}\n" {
+			t.Fatalf("after the stop: %q", got)
+		}
+	})
+	t.Run("busy", func(t *testing.T) {
+		_, u := safeFixture(t, v2FS())
+		safeSem <- struct{}{}
+		defer func() { <-safeSem }()
+		old := safeWait
+		safeWait = 50 * time.Millisecond
+		defer func() { safeWait = old }()
+		if _, _, err := u.ApplySafe("scaffold:app", ""); !errors.Is(err, ErrBusy) {
+			t.Fatalf("held: %v", err)
+		}
+	})
+}
+
+// covers the review of 2026-11-20, finding 2 — safe mode never follows a
+// link or blocks on a FIFO: each is a conflict, said, and the update a
+// proposal, nothing written.
+func TestSafeUpdateNeverFollowsOrBlocks(t *testing.T) {
+	root, u := safeFixture(t, v2FS())
+	app := filepath.Join(root, "app")
+	secret := filepath.Join(root, "secret")
+	write(t, secret, "s3cret\n")
+	_ = os.Remove(filepath.Join(app, "b.txt"))
+	if err := os.Symlink(secret, filepath.Join(app, "b.txt")); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.Remove(filepath.Join(app, "a.txt"))
+	if err := syscall.Mkfifo(filepath.Join(app, "a.txt"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var sp *SafePlanned
+	var err, aerr error
+	within(t, "safe mode", func() {
+		sp, err = u.SafePlan("scaffold:app")
+		_, _, aerr = u.ApplySafe("scaffold:app", "")
+	})
+	if err != nil || sp.Mode != SafePropose || !slices.Contains(sp.Conflicts, "a.txt") || !slices.Contains(sp.Conflicts, "b.txt") {
+		t.Fatalf("plan: %+v %v", sp, err)
+	}
+	said := strings.Join(sp.Notes, "\n")
+	if !strings.Contains(said, "app/b.txt is a symbolic link") || !strings.Contains(said, "app/a.txt is not a regular file") {
+		t.Fatalf("not said:\n%s", said)
+	}
+	var ce *ConflictError
+	if !errors.As(aerr, &ce) {
+		t.Fatalf("apply: %v", aerr)
+	}
+	if b, _ := os.ReadFile(secret); string(b) != "s3cret\n" {
+		t.Fatal("written through the link")
 	}
 }

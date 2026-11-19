@@ -180,6 +180,9 @@ func (b *Broker) apiBuiltinsUpdate(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		ID   string `json:"id"`
 		Mode string `json:"mode"` // "replace" | "merge" | "safe" | "pr" | "pin" | "unpin"
+		// Pin (mode "safe" only): the update as it was approved — a
+		// builtin.update line's pin; one that no longer holds writes nothing (409)
+		Pin string `json:"pin,omitempty"`
 	}
 	derr := server.DecodeJSON(r, &body)
 	if derr == nil && sealedRefused(w, sealedNone(body.ID, "it is updated with xbin itself")) {
@@ -193,7 +196,7 @@ func (b *Broker) apiBuiltinsUpdate(w http.ResponseWriter, r *http.Request) {
 	// Mode "pr" writes nothing to the workspace: the update is filed as a
 	// change proposal against the tile (D49); its own plane applies it.
 	if body.Mode == "safe" { // never loses a local edit: merged when clean, else filed as "pr" files it (safe.go, D248)
-		b.applySafe(w, body.ID, auth.PrincipalOf(r))
+		b.applySafe(w, body.ID, body.Pin, auth.PrincipalOf(r))
 		return
 	}
 	if body.Mode == "pr" {
@@ -257,9 +260,12 @@ func (b *Broker) apiBuiltinsUpdate(w http.ResponseWriter, r *http.Request) {
 // change proposal on its tile, as mode "pr" files it → {applied:
 // "proposed", pr} (or, upstream having changed nothing but a partition,
 // {applied: "updated", files: [], notes}). A pinned unit, one with no
-// update, one not installed: 400 with why.
-func (b *Broker) applySafe(w http.ResponseWriter, id string, p auth.Principal) {
-	applied, how, err := b.updater.ApplySafe(id)
+// update, one not installed: 400 with why. pin: the update as approved —
+// one that changed since writes nothing (409); a file changed while it is
+// written stops it (409, naming the files written before); another safe
+// update holding it past the wait: 503.
+func (b *Broker) applySafe(w http.ResponseWriter, id, pin string, p auth.Principal) {
+	applied, how, err := b.updater.ApplySafe(id, pin)
 	var ce *builtins.ConflictError
 	if errors.As(err, &ce) {
 		m, notes, perr := b.ProposeBuiltinPR(id, p)
@@ -277,15 +283,22 @@ func (b *Broker) applySafe(w http.ResponseWriter, id string, p auth.Principal) {
 		}
 		return
 	}
-	if err != nil {
+	var changed *builtins.ChangedError
+	switch {
+	case errors.Is(err, builtins.ErrStale), errors.As(err, &changed):
+		if len(applied.Files) > 0 || changed != nil {
+			b.afterUpdate() // what was written before the stop is live, as any update's
+		}
+		server.WriteError(w, http.StatusConflict, err.Error())
+		return
+	case errors.Is(err, builtins.ErrBusy):
+		server.WriteError(w, http.StatusServiceUnavailable, err.Error())
+		return
+	case err != nil:
 		server.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	_ = b.Reg.Rescan() // as replace and merge: a changed backend is live at once
-	if b.OnStructureChange != nil {
-		b.OnStructureChange()
-	}
-	b.Provision()
+	b.afterUpdate()
 	files, word := applied.Files, "updated"
 	if files == nil {
 		files = []string{}
@@ -298,6 +311,16 @@ func (b *Broker) applySafe(w http.ResponseWriter, id string, p auth.Principal) {
 		out["notes"] = applied.Notes
 	}
 	server.WriteJSON(w, http.StatusOK, out)
+}
+
+// afterUpdate makes a builtin update's written files live, as replace and
+// merge do: a changed backend rebuilds at once.
+func (b *Broker) afterUpdate() {
+	_ = b.Reg.Rescan()
+	if b.OnStructureChange != nil {
+		b.OnStructureChange()
+	}
+	b.Provision()
 }
 
 type registryGrantLite struct {

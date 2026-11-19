@@ -72,6 +72,10 @@ type prMeta struct {
 	Builtin   string `json:"builtin,omitempty"` // unit id ("scaffold:shell", "tile:llm-gw")
 	ToVersion int    `json:"toVersion,omitempty"`
 	ToHash    string `json:"toHash,omitempty"` // embed rollup the series was rendered from
+	// Pending: a builtin-update proposal closed merged — the files that
+	// still differ from the update then (RecordApplied): the unit is still
+	// offered for them.
+	Pending []string `json:"pending,omitempty"`
 }
 
 func (b *Broker) registerPRs(srv *server.Server) {
@@ -109,6 +113,18 @@ func (b *Broker) canReadPRs(p auth.Principal, target string) bool {
 // user holds write on the tile.
 func (b *Broker) canDecidePR(p auth.Principal, target string) bool {
 	return p.IsAdmin() || p.Component == target || p.CanWriteTile(target)
+}
+
+// canMergeBuiltinUpdate gates closing a builtin-update proposal merged — a
+// security update the tile's own code must not be able to bury: a person
+// (an admin, or one who may write the tile), or a person's terminal
+// session in the tile (its coding agent's); never the tile's backend, a
+// frame of it or another tile's code.
+func canMergeBuiltinUpdate(p auth.Principal, target string) bool {
+	if p.Component == "" {
+		return p.IsAdmin() || p.CanWriteTile(target)
+	}
+	return p.Component == target && p.Via == "terminal" && p.UserID != ""
 }
 
 // prIsAuthor gates withdrawn: element-filed PRs belong to that element
@@ -345,7 +361,8 @@ func (b *Broker) ProposeBuiltinPR(id string, p auth.Principal) (*prMeta, []strin
 		return nil, nil, err
 	}
 	if prop.Series == "" {
-		return nil, prop.Notes, b.updater.RecordApplied(id, prop.ToHash)
+		_, err := b.updater.RecordApplied(id, prop.ToHash)
+		return nil, prop.Notes, err
 	}
 	m, err := b.fileBuiltinPR(id, p, prop)
 	return m, nil, err
@@ -602,17 +619,17 @@ func (b *Broker) apiPRState(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	allowed := false
-	if body.State == "withdrawn" {
-		allowed = prIsAuthor(p, m) || p.IsAdmin()
-	} else {
+	who := "the target side (its terminal, a write-level user, or an admin)"
+	switch {
+	case body.State == "withdrawn":
+		allowed, who = prIsAuthor(p, m) || p.IsAdmin(), "the PR's author"
+	case body.State == "merged" && m.Kind == "builtin-update":
+		allowed, who = canMergeBuiltinUpdate(p, target), "a person's (an admin, someone who may write the tile, or their terminal session in it) — never the tile's own code"
+	default:
 		allowed = b.canDecidePR(p, target)
 	}
 	if !allowed {
 		b.prsMu.Unlock()
-		who := "the target side (its terminal, a write-level user, or an admin)"
-		if body.State == "withdrawn" {
-			who = "the PR's author"
-		}
 		server.WriteError(w, http.StatusForbidden, body.State+" is "+who+"'s call")
 		return
 	}
@@ -637,9 +654,20 @@ func (b *Broker) apiPRState(w http.ResponseWriter, r *http.Request) {
 	// ApplyMerge recorded eagerly, leaving markers behind a "current" base).
 	// Failure (e.g. the embed moved on) keeps the update offered — log only.
 	if body.State == "merged" && m.Kind == "builtin-update" && b.updater != nil {
-		if rerr := b.updater.RecordApplied(m.Builtin, m.ToHash); rerr != nil {
+		pending, rerr := b.updater.RecordApplied(m.Builtin, m.ToHash)
+		if rerr != nil {
 			slog.Warn("builtin-update PR merged, provenance not refreshed",
 				"builtin", m.Builtin, "pr", m.Number, "err", rerr)
+		}
+		if len(pending) > 0 { // what the tile doesn't hold stays offered (RecordApplied)
+			b.prsMu.Lock()
+			if cur, err := b.prLoad(target, body.N); err == nil {
+				cur.Pending = pending
+				if err := b.prSave(cur); err == nil {
+					m = cur
+				}
+			}
+			b.prsMu.Unlock()
 		}
 	}
 	b.prPublish("state", target, body.N, body.State)

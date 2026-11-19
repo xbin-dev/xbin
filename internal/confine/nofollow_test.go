@@ -48,6 +48,7 @@ var nofollowScope = []string{
 	"internal/deps/modfile.go",
 	"internal/runner/gowork.go",
 	"internal/broker/code.go", // the code API: a tile's files read on a caller's behalf
+	"internal/builtins/",      // a builtin's update: a tile's files read to compare, merge and propose, and written (tilefs.go)
 }
 
 // walkOK is the escape hatch: `// walk-ok: <why>` on the call's line or one

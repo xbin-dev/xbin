@@ -311,19 +311,17 @@ func CopyTree(srcFS fs.FS, srcRoot, workspaceRoot, targetPath, defaultPath strin
 	if !util.ComponentPathOK(targetPath) {
 		return nil, fmt.Errorf("invalid target path %q", targetPath)
 	}
-	dstRoot, _, err := util.SafeJoin(workspaceRoot, targetPath)
-	if err != nil {
+	if _, _, err := util.SafeJoin(workspaceRoot, targetPath); err != nil {
 		return nil, err
 	}
-	if _, err := os.Stat(filepath.Join(dstRoot, "xbin.json")); err == nil {
+	if hasTile(workspaceRoot, targetPath, "xbin.json") {
 		return nil, fmt.Errorf("%s already exists", targetPath)
 	}
 	files, err := RenderTree(srcFS, srcRoot, targetPath, defaultPath, tpl)
 	if err != nil {
 		return nil, err
 	}
-	written, err := WriteTree(dstRoot, targetPath, files)
-	return written, err
+	return writeTreeIn(workspaceRoot, targetPath, files, "")
 }
 
 // RenderTree produces the *installed form* of a component tree from srcFS
@@ -375,9 +373,24 @@ func RenderTree(srcFS fs.FS, srcRoot, targetPath, defaultPath string, tpl *Insta
 	return out, err
 }
 
-// WriteTree writes a rendered file set under dstRoot. Returns the workspace-
-// relative paths written (targetPath/<rel>).
+// WriteTree writes a rendered file set under dstRoot, never through a
+// symbolic link below it (tilefs.go). Returns the workspace-relative paths
+// written (targetPath/<rel>).
 func WriteTree(dstRoot, targetPath string, files map[string][]byte) ([]string, error) {
+	if err := os.MkdirAll(dstRoot, 0o755); err != nil { // dstRoot is the caller's: the trust boundary
+		return nil, err
+	}
+	written, err := writeTreeIn(dstRoot, "", files, targetPath)
+	return written, writtenSoFar(err, written)
+}
+
+// writeTreeIn writes files beneath root/installPath (tilefs.go: no link on
+// the way, one file at a time through a rename), sorted; each path written
+// is named as as/<rel> (installPath/<rel> when as is "").
+func writeTreeIn(root, installPath string, files map[string][]byte, as string) ([]string, error) {
+	if as == "" {
+		as = installPath
+	}
 	rels := make([]string, 0, len(files))
 	for rel := range files {
 		rels = append(rels, rel)
@@ -385,14 +398,10 @@ func WriteTree(dstRoot, targetPath string, files map[string][]byte) ([]string, e
 	sort.Strings(rels)
 	written := make([]string, 0, len(files))
 	for _, rel := range rels {
-		out := filepath.Join(dstRoot, filepath.FromSlash(rel))
-		if err := os.MkdirAll(filepath.Dir(out), 0o755); err != nil {
+		if _, err := writeTile(root, installPath, rel, files[rel], ""); err != nil {
 			return written, err
 		}
-		if err := os.WriteFile(out, files[rel], 0o644); err != nil {
-			return written, err
-		}
-		written = append(written, targetPath+"/"+rel)
+		written = append(written, as+"/"+rel)
 	}
 	return written, nil
 }
