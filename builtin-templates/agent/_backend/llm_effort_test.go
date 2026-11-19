@@ -394,6 +394,11 @@ func TestEffortModelSwitchLine(t *testing.T) {
 	if n := runNotes(db, id); !strings.Contains(n, "model → m2 · effort Max → High") {
 		t.Errorf("notes: %q", n)
 	}
+	var detail string
+	_ = db.q.QueryRow(`SELECT detail FROM steps WHERE run_id=? AND kind='llm_call' ORDER BY seq DESC LIMIT 1`, id).Scan(&detail)
+	if !strings.Contains(detail, `"effort":"high; asked=max"`) {
+		t.Errorf("the call's journal row: %s", detail)
+	}
 	if calls := f.callsFor(id); calls[len(calls)-1].ReasoningEffort != "max" {
 		t.Errorf("the level is the intent, kept: %q", calls[len(calls)-1].ReasoningEffort)
 	}

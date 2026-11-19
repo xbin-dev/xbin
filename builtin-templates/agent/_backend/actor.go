@@ -740,11 +740,15 @@ func (e *Engine) recordAssistant(ts *turnState, reply LLMReply, calls []toolCall
 		if _, err := t.q.Exec(`UPDATE runs SET turn_steps=turn_steps+1 WHERE id=?`, run.ID); err != nil {
 			return err
 		}
-		t.journal(run.ID, "llm_call", map[string]any{
+		call := map[string]any{
 			"model": reply.Model, "wire": reply.Wire, "latencyMs": ts.lastLatency.Milliseconds(),
 			"promptTokens": reply.Usage.PromptTokens, "completionTokens": reply.Usage.CompletionTokens,
 			"reasoningTokens": reply.Usage.ReasoningTokens, "toolCalls": len(calls), "finishReason": reply.Finish,
-		})
+		}
+		if reply.Effort != "" {
+			call["effort"] = reply.Effort // what the LLM connector sent the model (X-XBin-LLM-Effort, D249)
+		}
+		t.journal(run.ID, "llm_call", call)
 		e.emitRun(t, run.ID)
 		return nil
 	})
