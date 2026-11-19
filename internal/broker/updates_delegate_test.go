@@ -61,7 +61,7 @@ func updTiles(t *testing.T, version int, main string) *builtins.Set {
 func updatesWorld(t *testing.T) *csWorld {
 	t.Helper()
 	w := accessWorld(t)
-	old := builtins.NewUpdater(w.root, updTiles(t, 1, "<p>gw v1</p>\n<p>keep</p>\n"), updV1Scaffold)
+	old := builtins.NewUpdater(w.root, updTiles(t, 1, "<p>gw v1</p>\n<p>a</p>\n<p>b</p>\n<p>keep</p>\n"), updV1Scaffold)
 	for _, id := range []string{"scaffold:tiles/apidocs", "scaffold:shell", "scaffold:tiles/manager"} {
 		if _, err := old.ApplyReplace(id); err != nil {
 			t.Fatal(err)
@@ -73,7 +73,7 @@ func updatesWorld(t *testing.T) *csWorld {
 	if _, err := old.ApplyReplace("tile:gw"); err != nil {
 		t.Fatal(err)
 	}
-	w.b.SetUpdater(builtins.NewUpdater(w.root, updTiles(t, 2, "<p>gw v2</p>\n<p>keep</p>\n"), updV2Scaffold))
+	w.b.SetUpdater(builtins.NewUpdater(w.root, updTiles(t, 2, "<p>gw v2</p>\n<p>a</p>\n<p>b</p>\n<p>keep</p>\n"), updV2Scaffold))
 	updInstance(t, w)
 	w.rescan()
 	return w
@@ -423,7 +423,7 @@ func TestBuiltinLineAppliesThroughTheRouteAsTheApproverNow(t *testing.T) {
 	if o := builtinOutOf(t, done.Items[0]); o.Update != "updated" || o.Files != 1 || o.Tile != "apps/gw" || o.Proposal != 0 {
 		t.Errorf("out: %+v", o)
 	}
-	if got := string(readFile(t, filepath.Join(w.root, "apps/gw/index.html"))); got != "<p>gw v2</p>\n<p>keep</p>\n" {
+	if got := string(readFile(t, filepath.Join(w.root, "apps/gw/index.html"))); got != "<p>gw v2</p>\n<p>a</p>\n<p>b</p>\n<p>keep</p>\n" {
 		t.Errorf("apps/gw: %q", got)
 	}
 	// bob loses the admin role between proposal and Apply
@@ -488,9 +488,14 @@ func TestBuiltinLineConflictBecomesAProposal(t *testing.T) {
 		t.Fatalf("after the proposal: %+v", got.Builtins)
 	}
 
-	// stale: described, then edited
+	// stale: described, then edited — where the line's words stay the same (an edit here before, another after),
+	// the pin on the installed files is what says so
+	w.write(map[string]string{"apps/gw/index.html": "<p>gw v1</p>\n<p>a</p>\n<p>b</p>\n<p>keep — edited before</p>\n"})
 	cs = w.builtinPlan(t, "bob", "tile:gw")
-	w.write(map[string]string{"apps/gw/index.html": "<p>gw v1</p>\n<p>keep — edited after</p>\n"})
+	if !strings.HasSuffix(cs.Items[0].Line, "your local changes are kept") {
+		t.Fatalf("the line before the second edit: %q", cs.Items[0].Line)
+	}
+	w.write(map[string]string{"apps/gw/index.html": "<p>gw v1</p>\n<p>a</p>\n<p>b</p>\n<p>keep — edited after</p>\n"})
 	done = w.approve(t, cs.ID, `{"items":[1],"password":"password1","knows":["access.set","builtin.update"]}`, bob)
 	if results(done) != "stale" {
 		t.Fatalf("an edit after the proposal: %s %+v", results(done), done.Items[0])
