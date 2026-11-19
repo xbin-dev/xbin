@@ -24,6 +24,8 @@ package server
 // listings for every agent level, scope and org rule.
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -135,10 +137,28 @@ func (s *Server) apiDelegateUpdates(w http.ResponseWriter, r *http.Request) {
 		delegateRefuse(w, http.StatusForbidden, "tile", DelegateRead.String(), noTileFor(p.UserID))
 		return
 	}
+	u, err := s.delegateUpdates(p, only)
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, "the builtins' updates can't be read: "+err.Error(), delegationDocs)
+		return
+	}
+	WriteJSON(w, http.StatusOK, map[string]any{"builtins": u.builtins, "instances": u.instances,
+		"leftOut": map[string]int{"hiddenByYou": u.hidden, "blocked": u.blocked}})
+}
+
+// updatesRead is GET /delegate/updates' answer.
+type updatesRead struct {
+	builtins        []builtinUpdateView
+	instances       []instanceUpdateView
+	hidden, blocked int
+}
+
+// delegateUpdates is the read for p's agent (only: one tile, "" all) —
+// each row held to the agent's gates (the file comment).
+func (s *Server) delegateUpdates(p auth.Principal, only string) (updatesRead, error) {
 	src, ok := s.ChangeSets.(UpdatesSource)
 	if !ok {
-		WriteJSON(w, http.StatusOK, map[string]any{"builtins": []any{}, "instances": []any{}, "leftOut": map[string]int{"hiddenByYou": 0, "blocked": 0}})
-		return
+		return updatesRead{builtins: []builtinUpdateView{}, instances: []instanceUpdateView{}}, nil
 	}
 	person := personOf(p)
 	h, hasHandle := s.handleOf(p)
@@ -164,8 +184,7 @@ func (s *Server) apiDelegateUpdates(w http.ResponseWriter, r *http.Request) {
 	}
 	rows, err := src.BuiltinUpdateRows()
 	if err != nil {
-		WriteError(w, http.StatusInternalServerError, "the builtins' updates can't be read: "+err.Error(), delegationDocs)
-		return
+		return updatesRead{}, err
 	}
 	builtinsOut := []builtinUpdateView{}
 	for _, row := range rows {
@@ -206,8 +225,112 @@ func (s *Server) apiDelegateUpdates(w http.ResponseWriter, r *http.Request) {
 		}
 		instances = append(instances, v)
 	}
-	WriteJSON(w, http.StatusOK, map[string]any{"builtins": builtinsOut, "instances": instances,
-		"leftOut": map[string]int{"hiddenByYou": hidden, "blocked": blocked}})
+	return updatesRead{builtins: builtinsOut, instances: instances, hidden: hidden, blocked: blocked}, nil
+}
+
+// updateBriefOf is xbind's brief for the update of tile that a tile agent
+// applies — the brief of tile's row in p's agent's read — or why there is
+// none.
+func (s *Server) updateBriefOf(p auth.Principal, tile string) (*UpdateBrief, string) {
+	if s.tileHidden(p, tile) || s.delegateHides(p, tile) {
+		return nil, noTileFor(p.UserID)
+	}
+	u, err := s.delegateUpdates(p, tile)
+	if err != nil {
+		return nil, "the updates can't be read: " + err.Error()
+	}
+	why := ""
+	for _, r := range u.builtins {
+		switch {
+		case r.Brief != nil:
+			return r.Brief, ""
+		case r.Next == updateNextPropose:
+			why = "its update is a builtin.update line, not a tile agent's"
+		case why == "":
+			why = r.Why
+		}
+	}
+	for _, r := range u.instances {
+		if r.Brief != nil {
+			return r.Brief, ""
+		}
+		why = cmpOr(why, r.Why)
+	}
+	return nil, cmpOr(why, "xbin lists no update for "+tile+" that a tile agent applies")
+}
+
+// The brief a start names instead of its text (D248 review, finding 7):
+// {"template": "update"} is xbind's update brief for the start's tile,
+// written by xbind — so the person's review can tell xbin's words from
+// the agent's.
+const briefTemplateUpdate = "update"
+
+// Who wrote a start's first prompt, as the review labels it.
+const (
+	BriefByXbin  = "xbin"  // xbind's update brief, resolved from {"template": "update"}
+	BriefByAgent = "agent" // text the agent sent — whatever it looks like
+)
+
+// startBrief resolves a start body's {"brief": {"template": "update"}}:
+// the body with xbind's brief as its "prompt" (and no "brief"), and who
+// wrote the prompt — xbind, or the agent for a body that carries its own
+// text. A body with neither is returned as it is, by "". The rewrite is
+// deterministic: the same body and the same update give the same bytes
+// (a ticket binds them).
+func (s *Server) startBrief(p auth.Principal, body []byte) ([]byte, string, string) {
+	var m map[string]json.RawMessage
+	if json.Unmarshal(body, &m) != nil {
+		return body, "", ""
+	}
+	ref, named := m["brief"]
+	if !named {
+		var prompt string
+		if json.Unmarshal(m["prompt"], &prompt) == nil && strings.TrimSpace(prompt) != "" {
+			return body, BriefByAgent, ""
+		}
+		return body, "", ""
+	}
+	var r struct {
+		Template string `json:"template"`
+	}
+	dec := json.NewDecoder(bytes.NewReader(ref))
+	dec.DisallowUnknownFields()
+	if dec.Decode(&r) != nil || r.Template != briefTemplateUpdate {
+		return nil, "", `a start's brief is {"template": "update"} (xbin's update brief for its tile), or its text as "prompt"`
+	}
+	if _, both := m["prompt"]; both {
+		return nil, "", `a start names its brief or sends its text as "prompt" — not both`
+	}
+	var cwd string
+	_ = json.Unmarshal(m["cwd"], &cwd)
+	tile := strings.Trim(cwd, "/")
+	b, why := s.updateBriefOf(p, tile)
+	if b == nil {
+		return nil, "", `the brief {"template": "update"}: ` + why
+	}
+	delete(m, "brief")
+	m["prompt"], _ = json.Marshal(updateBriefText(personOf(p).UserID, *b))
+	out, err := json.Marshal(m)
+	if err != nil {
+		return nil, "", err.Error()
+	}
+	return out, BriefByXbin, ""
+}
+
+// updateBriefText is an update brief as the tile agent is told it — the
+// layout the workspace agent's own briefs have (wsBriefText).
+func updateBriefText(person string, b UpdateBrief) string {
+	var t strings.Builder
+	fmt.Fprintf(&t, "This is a piece of work in this tile, handed to you by %s's workspace agent on their behalf, with xbin's own brief for it.\n\n", cmpOr(person, "your person"))
+	fmt.Fprintf(&t, "Goal: %s\nDone when: %s\n", b.Goal, b.DoneWhen)
+	for _, f := range [][2]string{{"Leave alone", b.LeaveAlone}, {"Check by", b.CheckBy}, {"Already known", b.Known}} {
+		if strings.TrimSpace(f[1]) != "" {
+			fmt.Fprintf(&t, "%s: %s\n", f[0], f[1])
+		}
+	}
+	t.WriteString("\nWork inside this tile only. When you are done, answer with: what you changed (each file in a sentence), what you ran to check it and how it ended, and anything you could not do or could not verify. " +
+		"If you need a decision or a permission, ask: your questions go to " + cmpOr(person, "the person") + ", not to the workspace agent.")
+	return t.String()
 }
 
 // tileAgentNext is the next step of a row whose update is a tile agent's

@@ -6271,3 +6271,20 @@ here: cut from the old end, never reword.
   - **Not done:** sealed components (they update with xbind), the
     consoles through the agent (their level is `off`), listing pinned
     builtins (the by-hand listing doesn't either).
+  - **Review of 2026-11-20** (plans/wsagent/updates.md §The review): a
+    tile's files are read and written as the files at their paths — no
+    link followed, no FIFO opened, a parent swapped for a link refused,
+    each write a rename of a temp file, only while the file is what was
+    read — in every mode and the proposal's series (master's code too:
+    security commits 5abfa67c, c80e622e, on a branch of master); a
+    builtin-update proposal closes merged only by a person (never the
+    tile's code) and records only the files that hold the update. Safe
+    mode: the approved pin travels with the call and is checked under the
+    lock; a file deleted here is a local edit; an adopted unit is always a
+    proposal. The template row needs xbind's exact remote URL and the brief
+    fetches that URL with git's hooks off; xbin's brief is named by the
+    start and written by xbind, the review labelling it xbin's and any
+    other text the agent's. A proposal's words promise no review: the
+    tile's coding agent applies it, its changes showing in the tile's
+    Agent tab and history. A merged manifest raises nothing in force (the
+    agent level and cross-scope grants stay pending).

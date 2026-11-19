@@ -120,7 +120,7 @@ async function planChecks({ page, S, check, refresh, sentTo, armed, text, shot, 
     { n: 1, kind: 'builtin.update', args: { id: 'tile:gw' }, line: 'Update the builtin tile gw (apps/gw) from v1 to v2: 1 file change — no file here was edited', admin: true,
       before: { version: 1 }, after: { version: 2 }, beforeText: 'v1', afterText: 'v2', effects: ['files written or removed in apps/gw: index.html'], why: 'a newer Gateway ships with xbin',
       applyOut: { update: 'updated', files: 1, tile: 'apps/gw' } },
-    { n: 2, kind: 'builtin.update', args: { id: 'scaffold:tiles/apidocs' }, line: "Update the workspace's own page tiles/apidocs to this xbin's copy: 2 files change — conflicts with your changes: filed as a proposal for review instead", admin: true,
+    { n: 2, kind: 'builtin.update', args: { id: 'scaffold:tiles/apidocs' }, line: "Update the workspace's own page tiles/apidocs to this xbin's copy: 2 files change — conflicts with changes made here, so nothing is written: it is filed as a proposal on tiles/apidocs, which the tile's coding agent applies there", admin: true,
       before: { version: 1 }, after: { version: 1, proposal: true }, beforeText: "this workspace's copy", afterText: 'unchanged until the proposal is merged', why: 'a newer docs page',
       warnings: ["SCAFFOLD: tiles/apidocs is part of this workspace's own chrome — the shell, a console or a page everyone has: updating it changes what everyone here sees"],
       applyOut: { update: 'proposed', files: 2, tile: 'tiles/apidocs', proposal: 3 } }] });
@@ -130,7 +130,7 @@ async function planChecks({ page, S, check, refresh, sentTo, armed, text, shot, 
   const bu = await text(`${DLG} [role="dialog"]`);
   check((await ticks()) === '1- 2-' && (await page.getAttribute(`${DLG} .item[data-n="1"]`, 'data-line')) === 'ok' && (await page.getAttribute(`${DLG} .item[data-n="2"]`, 'data-line')) === 'ok'
     && (await text(`${DLG} .item[data-n="1"] .line .tag`)) === 'update' && (await text(`${DLG} .item[data-n="2"] [data-warning]`)).startsWith('SCAFFOLD')
-    && /conflicts with your changes: filed as a proposal for review instead/.test(bu) && /An admin change — applied as you\./.test(await text(`${DLG} .item[data-n="1"] [data-why]`)),
+    && /conflicts with changes made here, so nothing is written: it is filed as a proposal on tiles\/apidocs, which the tile's coding agent applies there/.test(bu) && /An admin change — applied as you\./.test(await text(`${DLG} .item[data-n="1"] [data-why]`)),
   `[${width}] a builtin's update: an admin's line, unticked; a scaffold page's warned; xbind's verdict in the line (${await ticks()})`);
   await shot(page, `agent-plan-builtin${tag}`, { fullPage: false });
   await page.check(`${DLG} .item[data-n="1"] input`); await page.check(`${DLG} .item[data-n="2"] input`);

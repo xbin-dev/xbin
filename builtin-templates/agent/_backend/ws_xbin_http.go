@@ -481,7 +481,11 @@ func (wsHTTP) startCall(a wsAgentStart) wsCall {
 	if a.Resume != "" {
 		in["resume"] = a.Resume
 	} else {
-		in["prompt"] = a.Prompt
+		if a.Brief != "" { // xbind writes it, and the person's review says so
+			in["brief"] = map[string]string{"template": a.Brief}
+		} else {
+			in["prompt"] = a.Prompt
+		}
 		if a.Name != "" {
 			in["name"] = a.Name
 		}

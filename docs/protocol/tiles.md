@@ -201,7 +201,7 @@ GET    /builtins/updates            any. builtins (scaffold + imported tiles) wi
                                    why ("apps/chat/index.html is a symbolic
                                    link: not read, and no update writes it").
 POST   /builtins/update             xbin:writer. body {id, mode:
-                                   replace|merge|safe|pr|pin|unpin}. replace
+                                   replace|merge|safe|pr|pin|unpin, pin?}. replace
                                    overwrites, merge 3-way-merges (git merge-file);
                                    both → {files, notes?} and re-record provenance
                                    eagerly. safe (D248) never loses a local
@@ -209,13 +209,21 @@ POST   /builtins/update             xbin:writer. body {id, mode:
                                    file merges cleanly → {applied: "updated",
                                    files, notes?}; a missing essential page is
                                    installed where nothing is → {applied:
-                                   "installed", files}; where anything would
-                                   conflict (markers, or upstream removing a
-                                   file edited here) nothing is written and
+                                   "installed", files}; a file deleted here
+                                   stays deleted while upstream didn't change
+                                   it; where anything would conflict
+                                   (markers, upstream removing a file edited
+                                   here or changing one deleted here, a file
+                                   no update reads) nothing is written and
                                    the update is filed as "pr" files it →
                                    {applied: "proposed", pr, conflicts}; an
-                                   adopted copy is updated only where every
-                                   file it has is upstream's. A pinned unit,
+                                   adopted copy is always filed so. pin (safe
+                                   only): the update as approved — one that
+                                   no longer holds writes nothing (409); a
+                                   file changed while it is written stops it
+                                   there (409, naming what was written
+                                   before); another safe update being
+                                   written past 30 s: 503. A pinned unit,
                                    one with no update, one not installed: 400
                                    with why. A workspace agent's
                                    builtin.update line applies this mode

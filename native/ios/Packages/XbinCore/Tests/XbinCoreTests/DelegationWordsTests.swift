@@ -90,6 +90,7 @@ import Testing
                 #expect(r.neverAsks == !rows.modeAsks && rows.danger.isEmpty == rows.modeAsks, "\(id)")
                 #expect(rows.network == s(want, "network") && rows.others == s(want, "others"), "\(id)")
                 #expect(rows.brief == s(want, "brief") && rows.danger == s(want, "danger") && rows.comes == s(want, "comes"), "\(id)")
+                #expect(rows.briefBy == s(want, "briefBy"), "\(id) briefBy")
                 // the sign-in a start would use is said before it is allowed, with who will hold it (D230)
                 // a saved sign-in is only offered — a line ticked on the web: the app says what the session runs on (the
                 // web's words) and where to go; whose tile it is, in the web's words, where the tile's trust is asked too

@@ -141,6 +141,7 @@ func wsBriefTool(ctx context.Context, ag *Agent, s *wsSession, c coordCall) (str
 		return "", err
 	}
 	f := wsBriefFields{Goal: a.Goal, DoneWhen: a.DoneWhen, LeaveAlone: a.LeaveAlone, CheckBy: a.CheckBy, Known: a.Known}
+	xbinBrief := ""
 	if a.Template == wsBriefTemplateUpdate { // xbind's brief for the tile's update, word for word (ws_tools_updates.go)
 		t, err := wsFindTile(ctx, ag, s, a.Tile)
 		if err != nil {
@@ -149,7 +150,7 @@ func wsBriefTool(ctx context.Context, ag *Agent, s *wsSession, c coordCall) (str
 		if f, err = wsUpdateBriefFor(ctx, ag, s, t.Path); err != nil {
 			return "", err
 		}
-		a.Template, a.Tool = "", nil
+		a.Template, a.Tool, xbinBrief = "", nil, wsBriefTemplateUpdate
 	}
 	if err := wsApplyBriefTemplate(a.Template, a.Tool, &f); err != nil {
 		return "", err
@@ -172,14 +173,14 @@ func wsBriefTool(ctx context.Context, ag *Agent, s *wsSession, c coordCall) (str
 		}
 	}
 	b := &wsBrief{Run: s.Run, Tile: t.Path, Goal: a.Goal, DoneWhen: a.DoneWhen, LeaveAlone: strings.TrimSpace(a.LeaveAlone),
-		CheckBy: strings.TrimSpace(a.CheckBy), Known: strings.TrimSpace(a.Known), State: "draft", CallID: toolCallOf(ctx), Created: nowMs()}
+		CheckBy: strings.TrimSpace(a.CheckBy), Known: strings.TrimSpace(a.Known), State: "draft", CallID: toolCallOf(ctx), Created: nowMs(), Xbin: xbinBrief}
 	err = ag.db.Tx(func(tx *DB) error {
 		// a newer brief for the tile replaces drafts nobody started
 		if _, err := tx.q.Exec(`UPDATE ws_briefs SET state='replaced', updated_ms=? WHERE run_id=? AND tile=? AND state='draft'`, nowMs(), s.Run, t.Path); err != nil {
 			return err
 		}
-		return tx.q.QueryRow(`INSERT INTO ws_briefs (run_id, tile, goal, done_when, leave_alone, check_by, known, state, call_id, created_ms, updated_ms)
-			VALUES (?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?) RETURNING id`, s.Run, b.Tile, b.Goal, b.DoneWhen, b.LeaveAlone, b.CheckBy, b.Known, b.CallID, b.Created, b.Created).Scan(&b.ID)
+		return tx.q.QueryRow(`INSERT INTO ws_briefs (run_id, tile, goal, done_when, leave_alone, check_by, known, state, call_id, created_ms, updated_ms, xbin)
+			VALUES (?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?) RETURNING id`, s.Run, b.Tile, b.Goal, b.DoneWhen, b.LeaveAlone, b.CheckBy, b.Known, b.CallID, b.Created, b.Created, b.Xbin).Scan(&b.ID)
 	})
 	if err != nil {
 		return "", err
@@ -198,7 +199,12 @@ func wsBriefTool(ctx context.Context, ag *Agent, s *wsSession, c coordCall) (str
 
 // wsStartOf is the start a brief asks for: the tile, the brief as the
 // session's first prompt, and the harness only when its person picked one.
+// xbind's own brief (Xbin) is named, not sent: xbind writes its text, and
+// the person's review labels it xbin's (D248 review, finding 7).
 func wsStartOf(b *wsBrief, person string) wsAgentStart {
+	if b.Xbin != "" {
+		return wsAgentStart{Tile: b.Tile, Harness: b.Harness, Brief: b.Xbin, Name: clip(oneLineTitle(b.Goal), 60)}
+	}
 	return wsAgentStart{Tile: b.Tile, Harness: b.Harness, Prompt: wsBriefText(b, person), Name: clip(oneLineTitle(b.Goal), 60)}
 }
 

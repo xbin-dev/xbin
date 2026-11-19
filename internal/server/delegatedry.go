@@ -76,6 +76,13 @@ func dryCreate(s *Server, p auth.Principal, _ *http.Request, body []byte, row *d
 // dryStart: what THIS start would need — the person's preference may start
 // it unasked — or why it is refused whatever approves it.
 func dryStart(s *Server, p auth.Principal, _ *http.Request, body []byte, row *delegation.Call, preview map[string]any) (string, string) {
+	body, by, bad := s.startBrief(p, body) // xbind's update brief, named by the start (startBrief)
+	if bad != "" {
+		return "brief", bad
+	}
+	if by != "" {
+		preview["briefBy"] = by
+	}
 	ask := sessionAskOf(body)
 	row.Tile, preview["tile"] = ask.Cwd, ask.Cwd
 	if code, why := s.startRefusal(p, ask); why != "" {

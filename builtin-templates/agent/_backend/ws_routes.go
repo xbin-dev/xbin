@@ -456,10 +456,14 @@ func handleWsBriefPut(w http.ResponseWriter, r *http.Request) {
 			*dst = clip(strings.TrimSpace(*v), wsBriefField)
 		}
 	}
+	was := [4]string{b.Goal, b.DoneWhen, b.LeaveAlone, b.CheckBy}
 	set(&b.Goal, body.Goal)
 	set(&b.DoneWhen, body.DoneWhen)
 	set(&b.LeaveAlone, body.LeaveAlone)
 	set(&b.CheckBy, body.CheckBy)
+	if was != [4]string{b.Goal, b.DoneWhen, b.LeaveAlone, b.CheckBy} {
+		b.Xbin = "" // the person's words now: sent as text, labelled the agent's brief as edited
+	}
 	if b.Goal == "" || b.DoneWhen == "" {
 		xbin.WriteError(w, http.StatusBadRequest, "a brief needs a goal and a done-when")
 		return
@@ -479,8 +483,8 @@ func handleWsBriefPut(w http.ResponseWriter, r *http.Request) {
 		}
 		b.Harness = pick
 	}
-	if _, err := agent.db.q.Exec(`UPDATE ws_briefs SET goal=?, done_when=?, leave_alone=?, check_by=?, harness=?, edited=1, updated_ms=? WHERE id=?`,
-		b.Goal, b.DoneWhen, b.LeaveAlone, b.CheckBy, b.Harness, nowMs(), b.ID); err != nil {
+	if _, err := agent.db.q.Exec(`UPDATE ws_briefs SET goal=?, done_when=?, leave_alone=?, check_by=?, harness=?, edited=1, xbin=?, updated_ms=? WHERE id=?`,
+		b.Goal, b.DoneWhen, b.LeaveAlone, b.CheckBy, b.Harness, b.Xbin, nowMs(), b.ID); err != nil {
 		xbin.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}

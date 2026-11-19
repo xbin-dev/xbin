@@ -32,7 +32,7 @@ export function builtinText(item) {
   if (!o || typeof o !== 'object') return '';
   const tile = String(o.tile || 'its tile'), files = Number(o.files) || 0, f = `${files} file${files === 1 ? '' : 's'}`;
   switch (o.update) {
-    case 'proposed': return `It conflicts with changes made in ${tile}, so xbin filed it there as change proposal #${Number(o.proposal) || 0} instead: nothing in the tile changed. Its tile agent (or a terminal there) merges it — your agent can start one with xbin's brief.`;
+    case 'proposed': return `It conflicts with changes made in ${tile}, so xbin filed it there as change proposal #${Number(o.proposal) || 0} instead: nothing in the tile changed. The tile's coding agent applies it in the tile — your agent can start one on xbin's brief — and its changes show in the tile's Agent tab and history.`;
     case 'installed': return `Installed in ${tile}: ${f}.`;
     case 'updated': return `Updated ${tile}: ${f}, keeping its own changes.`;
   }

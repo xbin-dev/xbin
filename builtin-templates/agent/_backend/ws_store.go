@@ -159,6 +159,9 @@ func (d *DB) addWsSchema() error {
 		`ALTER TABLE ws_sessions ADD COLUMN held TEXT NOT NULL DEFAULT ''`,
 		// why xbind refused the messages held for a tile agent ('': none): told once, then cleared
 		`ALTER TABLE ws_agents ADD COLUMN refused TEXT NOT NULL DEFAULT ''`,
+		// the brief template xbind writes this brief from, word for word ('': the agent's own words, or a person's
+		// edit of xbind's): its start names the template, and xbind writes the text (D248 review)
+		`ALTER TABLE ws_briefs ADD COLUMN xbin TEXT NOT NULL DEFAULT ''`,
 	} {
 		_, _ = d.q.Exec(q)
 	}
@@ -542,16 +545,20 @@ type wsBrief struct {
 	State      string `json:"state"`
 	Session    string `json:"session,omitempty"`
 	Edited     bool   `json:"edited,omitempty"`
-	CallID     string `json:"callId,omitempty"` // the tile_agent_brief call that wrote it
-	Created    int64  `json:"createdMs"`
-	Updated    int64  `json:"updatedMs"`
+	// Xbin is the brief template xbind writes it from ("update"), word for
+	// word; "" for the agent's words or a person's edit of xbind's. A start
+	// of such a brief names the template, and xbind writes the text.
+	Xbin    string `json:"xbin,omitempty"`
+	CallID  string `json:"callId,omitempty"` // the tile_agent_brief call that wrote it
+	Created int64  `json:"createdMs"`
+	Updated int64  `json:"updatedMs"`
 }
 
-const wsBriefCols = `id, run_id, tile, goal, done_when, leave_alone, check_by, known, state, session, edited, created_ms, updated_ms, harness, call_id`
+const wsBriefCols = `id, run_id, tile, goal, done_when, leave_alone, check_by, known, state, session, edited, created_ms, updated_ms, harness, call_id, xbin`
 
 func scanWsBrief(scan func(...any) error) (*wsBrief, error) {
 	var b wsBrief
-	err := scan(&b.ID, &b.Run, &b.Tile, &b.Goal, &b.DoneWhen, &b.LeaveAlone, &b.CheckBy, &b.Known, &b.State, &b.Session, &b.Edited, &b.Created, &b.Updated, &b.Harness, &b.CallID)
+	err := scan(&b.ID, &b.Run, &b.Tile, &b.Goal, &b.DoneWhen, &b.LeaveAlone, &b.CheckBy, &b.Known, &b.State, &b.Session, &b.Edited, &b.Created, &b.Updated, &b.Harness, &b.CallID, &b.Xbin)
 	return &b, err
 }
 

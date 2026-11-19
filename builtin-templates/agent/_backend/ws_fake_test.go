@@ -25,6 +25,8 @@ type fakeXbin struct {
 
 	noDryRun bool // an xbind from before plans had a dry run: DescribePlan is unavailable
 
+	startArgs []map[string]any // each agent.start line's arguments as proposed, in order
+
 	tiles     map[string]*wsTile
 	orgs      map[string]*fakeOrg
 	private   map[string]bool // models that are private
@@ -946,6 +948,9 @@ func (f *fakeXbin) plan(sid, title string, items []xbin.Change, dry bool) (wsCha
 			f.builtinLine(&item, args) // as an agent reads it (ws_fake_updates_test.go)
 		case "agent.start":
 			started[str(args["tile"])] = item.N
+			if !dry {
+				f.startArgs = append(f.startArgs, args)
+			}
 			item.Line = "Start a tile agent in " + str(args["tile"]) + " — Claude Code, in its mode \"default\""
 			if f.tiles[str(args["tile"])] == nil && made[str(args["tile"])] == 0 {
 				item.Blocked = "no such tile"

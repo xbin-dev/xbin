@@ -387,6 +387,10 @@ public enum DelegationWords {
         public var brief: String
         public var danger: String
         public var comes: String
+        /// Who wrote what it is told first, as xbind says (the web's
+        /// `briefBy`): xbind's update brief, or the agent — whatever the
+        /// text says. "" with no brief.
+        public var briefBy: String = ""
         /// What the session would sign in with, when that is the person's
         /// to know before allowing (D230): "Uses your saved … sign-in" with
         /// `signInHolds` — who will hold it; approving is what puts it into
@@ -421,6 +425,10 @@ public enum DelegationWords {
         let list = names.count == 1 ? last : names.dropLast().joined(separator: ", ") + " and " + last
         return "\(whose) \(list) can \(kind == "you" || admin ? "" : "also ")change it."
     }
+
+    /// Who wrote what a tile agent is told first (the web's BRIEF_BY_*).
+    public static let briefByXbin = "xbin's update brief — written by xbin for this tile's update, not by your agent"
+    public static let briefByAgent = "Written by your agent"
 
     public static func sessionRows(_ r: DelegateRequest) -> SessionRows {
         let s = r.session
@@ -462,6 +470,7 @@ public enum DelegationWords {
             brief: brief,
             danger: asks ? "" : "Your workspace agent asked for a mode that never asks. You will not get a chance to stop a single edit or command.",
             comes: "Its questions and permission requests come to you, in \(t) and in Needs you. Your workspace agent can't answer them.",
+            briefBy: brief.isEmpty ? "" : s["briefBy"]?.stringValue == "xbin" ? briefByXbin : briefByAgent,
             signIn: offer ? runs : saved ? "Uses your saved \(who) sign-in"
                 : signIn == "needed" && s["provider"]?.stringValue != nil ? "Needs your \(who) sign-in: without it the tile agent starts signed out." : "",
             signInHolds: saved ? "The tile's coding agent will hold that sign-in: it, and anything it runs in \(t), can read it." : "",
@@ -700,7 +709,7 @@ public enum DelegationWords {
         let f = "\(o.files) file\(o.files == 1 ? "" : "s")"
         switch o.update {
         case "proposed":
-            return "It conflicts with changes made in \(tile), so xbin filed it there as change proposal #\(o.proposal) instead: nothing in the tile changed. Its tile agent (or a terminal there) merges it — your agent can start one with xbin's brief."
+            return "It conflicts with changes made in \(tile), so xbin filed it there as change proposal #\(o.proposal) instead: nothing in the tile changed. The tile's coding agent applies it in the tile — your agent can start one on xbin's brief — and its changes show in the tile's Agent tab and history."
         case "installed": return "Installed in \(tile): \(f)."
         case "updated": return "Updated \(tile): \(f), keeping its own changes."
         default: return ""

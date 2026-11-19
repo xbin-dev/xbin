@@ -153,7 +153,9 @@ no terminal level there, an unknown coding agent or mode, an org's rule).
 handler narrows a delegate below the gate, the dry run runs the handler's
 own check, without the act, and answers `allowed: false` with the
 handler's sentence in `refusal` and a code in `refusalCode` — `command` |
-`taint` | `start` (a session start), `create` (`POST /templates/new`),
+`taint` | `start` (a session start), `brief` (a start that names a
+brief xbind has none of: `{"template": "update"}` for a tile with no
+update a tile agent applies), `create` (`POST /templates/new`),
 `session` | `mode` (driving or messaging a session), `preview`
 (`POST /preview`). A dry run of `POST /templates/new` (with the body the
 creation would send) answers `create: {template, path, owner,
@@ -422,7 +424,7 @@ brief: {goal, doneWhen, leaveAlone, checkBy, known, commands: [string]}
 | a builtin row: `id`, `kind`, `from`, `to`, `missing`, `adopted`, `clean`, `conflicts` | `GET /builtins/updates`' row | the row's tile: the person can read it, inside the conversation's scope, its orgs' rules let the agent in — a row that fails is left out (counted in `leftOut` when the person can read it), one that is shown taints the conversation with the tile's orgs |
 | `edited` | the same row's files with status `user` (changed here only: kept by every update), counted | as above |
 | `proposal` | the open builtin-update proposal on the tile, as the person's `GET /code/prs?target=` lists it | as above |
-| an instance row: `tile`, `template`, `legacy` | `GET /templates/updates`' row | as above |
+| an instance row: `tile`, `template`, `legacy` | `GET /templates/updates`' row — a tile is an instance only when its `template` remote is exactly xbind's URL for a builtin template (both listings): a remote of that name pointing anywhere else makes no row | as above |
 | `behind`, `local` | the instance's git history and its template's: the template's commits it lacks; its own non-merge commits that are neither the template's nor xbind's instantiate commit (`-1`: not counted, a history past 20 000 commits) | as above |
 | `title`, `agent` | the map's row | as above |
 | `level` | the person's level on the tile | as above |
@@ -433,13 +435,34 @@ brief: {goal, doneWhen, leaveAlone, checkBy, known, commands: [string]}
   (`proposal`); `by-hand`, with `why` — what a workspace agent can't take
   further: a tile whose agent level is `off` (the consoles always are), a
   tile where the person has no terminal level (a tile agent opens as
-  them), the shell and `root` (no tile agent opens there).
+  them), the shell and `root` (no tile agent opens there), a tile whose
+  path holds a control character (no command carries it). A builtin
+  whose only difference is a file deleted here (upstream left it as it
+  was) has no row: a `builtin.update` writes nothing for it (the by-hand
+  listing still offers to restore the file).
 - **`brief`** is xbind's text for that tile agent — the goal, how to tell
   it is done, what to leave alone, how to check, what is known with the
   exact commands, which `commands` lists in order — built from xbind's own
   names only: the tile's path, the template's catalog name, the builtin's
   id, counts, a proposal's number. Never a title, a commit message or
-  anything else the tile wrote.
+  anything else the tile wrote. Its commands never rely on what the tile's
+  own git config names: a template's merge fetches xbind's URL into
+  `FETCH_HEAD` (`git fetch 'http://xbin/api/xbin/templates/<name>.git'
+  main`, then `git merge --no-edit FETCH_HEAD`), and every git command runs
+  as `git -c core.fsmonitor= -c core.hooksPath=/dev/null -c
+  protocol.ext.allow=never …` — no hook, fsmonitor command or `ext::`
+  transport of the tile's runs. Every path is single-quoted, so nothing in
+  a directory name expands. What stays the tile writer's in a session
+  there — its `.gitattributes`, filters and merge drivers — runs as any of
+  the tile's code does, inside the session's confinement.
+- **A start names xbind's brief** rather than sending its text: an
+  `agent.start` line's `brief` (§Plans) and a single start's body (`POST
+  /term/sessions`) take `{"template": "update"}` in place of the text, and
+  xbind writes the text — this tile's `brief`, in the layout a workspace
+  agent's briefs have. The review then labels it **xbin's update brief**;
+  a brief sent as text is labelled **written by your agent**, whatever it
+  says (`start.briefBy`, `preview.session.briefBy`: `"xbin"` |
+  `"agent"`).
 - With `?tile=` the read is about that tile, held as any read that names
   one (`403 {refusal: "tile" | "hidden"}`). Not audited (it carries no
   code, log or diff). A system component is refused: it updates with xbin
@@ -1519,16 +1542,23 @@ right person:
 ### A builtin's update
 
 `builtin.update {id}` applies as the by-hand route's own call — `POST
-/builtins/update {id, mode: "safe"}`, its handler and its `xbin:writer`
-gate — as the approving person, with their rights read again when they
-apply it (D248). Mode `safe` never loses a local edit: it merges when
-every file merges cleanly (a file only upstream changed is taken, one
-only changed here is kept, one both changed is merged line by line), and
-where anything conflicts — a merge with markers, or upstream removing a
-file edited here — it writes nothing and files the update as a change
-proposal on the tile, as mode `pr` does; an adopted copy is updated only
-where every file it has is upstream's; a missing essential page is
-installed where nothing is.
+/builtins/update {id, mode: "safe", pin}`, its handler and its
+`xbin:writer` gate — as the approving person, with their rights read
+again when they apply it (D248). Mode `safe` never loses a local edit: it
+merges when every file merges cleanly (a file only upstream changed is
+taken, one only changed here is kept — a file deleted here stays deleted
+— one both changed is merged line by line), and where anything conflicts
+— a merge with markers, upstream removing a file edited here, upstream
+changing a file deleted here, a file no update reads (a link, a FIFO, a
+file in a nested tile) — it writes nothing and files the update as a
+change proposal on the tile, as mode `pr` does. An adopted copy (no
+record of what was installed) is always a proposal; a missing essential
+page is installed where nothing is. The `pin` is the line as it was
+shown: the handler checks it again under its lock, so a line that turned
+stale between Apply's check and the write writes nothing (409); a file
+changed while the update is written stops it there, naming what was
+written before (409) — the next read lists what is left; another update
+being written for more than 30 s answers 503.
 
 - **What the agent chooses is which builtin** — never the content, which
   is the binary's embedded copy. The kind takes `{id}` and refuses any
@@ -1543,10 +1573,15 @@ installed where nothing is.
   when its approve names `builtin.update` in `knows`.
 - **xbind's line** says the builtin, its path, the versions, how many
   files change and the dry run's verdict: "… — your local changes are
-  kept" (or "no file here was edited"), "… — conflicts with your changes:
-  filed as a proposal for review instead", "Install … which this
-  workspace predates". The effects name the files and what follows (the
-  backend rebuilds; or the proposal, which the tile's agent merges). A
+  kept" (or "no file here was edited"), "… — conflicts with changes made
+  here, so nothing is written: it is filed as a proposal on <tile>, which
+  the tile's coding agent applies there", "Install … which this workspace
+  predates". The effects name the files and what follows: the backend
+  rebuilds; a file deleted here stays deleted; or the proposal — the
+  tile's coding agent applies it in the tile, its changes show in the
+  tile's Agent tab and history, and the proposal's merged close records
+  only the files that then hold the update (it stays offered for the
+  rest). No review is promised that nothing enforces. A
   scaffold page (the shell, a console, a page every workspace has) is
   warned — `SCAFFOLD: …` — so it starts unticked. A pinned builtin, one
   with no update, one not installed, a missing page's path that holds
@@ -1556,7 +1591,11 @@ installed where nothing is.
 - **Held to the conversation** as a plan's lines are (the tile readable,
   in scope, not `"off"`, its orgs letting the agent in) — in
   `admin_propose` sets too. The consoles' level is `off`: refused; an
-  admin updates them by hand.
+  admin updates them by hand. A line the conversation may not touch stays
+  blocked for every person — a workspace admin, an org admin, anyone —
+  and shows only its argument ("Update the builtin tile:gw"), nothing of
+  the builtin's state; so does the line of a person who needs an admin
+  for it.
 - **Applied**, its `out` is `{update: "updated" | "installed" |
   "proposed", files, tile, proposal?}`.
 - **What the agent reads**, whoever the person is: `n`, `kind`, `args`,
@@ -1607,7 +1646,7 @@ A plan may hold the kinds above and two more:
 | `kind` | `args` | Applies as |
 |---|---|---|
 | `tile.create` | `{template, path, owner?}` — `owner` absent: the person's (an admin's too); or `"org:<id>"` | `POST /templates/new` |
-| `agent.start` | `{tile, brief, harness?, mode?}` — the brief is the session's first prompt, sent exactly as written | `POST /term/sessions`, as the conversation that proposed the plan |
+| `agent.start` | `{tile, brief, harness?, mode?}` — the brief is the session's first prompt, sent exactly as written; or `{"template": "update"}`, xbind's update brief for the tile, which xbind writes (§Updates) — the review labels it xbin's, and any text the agent's | `POST /term/sessions`, as the conversation that proposed the plan |
 
 and its items carry, beside a change set's:
 

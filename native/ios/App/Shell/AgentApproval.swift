@@ -616,6 +616,7 @@ struct AgentApprovalSheet: View {
         let brief = DelegationWords.clipText(s.brief, all: showAllBrief)
         VStack(alignment: .leading, spacing: 4) {
             Text("What it will be told — sent exactly like this").font(.caption.weight(.semibold)).foregroundStyle(XbinColor.muted)
+            if !s.briefBy.isEmpty { Text(verbatim: s.briefBy).font(.caption).accessibilityIdentifier("approval-brief-by") }
             AgentHiddenNote(text: s.brief)
             Text(AgentReveal.attributed(s.brief.isEmpty ? "Nothing: it starts without a first message." : brief.clipped ? brief.text + "…" : brief.text, font: XbinFont.code))
                 .textSelection(.enabled)

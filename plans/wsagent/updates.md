@@ -134,8 +134,14 @@ is in the descriptions and results.
 ## 2. A simple builtin update: `builtin.update {id}`
 
 ```
-builtin.update {id}      POST /builtins/update {id, mode: "safe"}   (an admin's line, always)
+builtin.update {id}      POST /builtins/update {id, mode: "safe", pin}   (an admin's line, always)
 ```
+
+*Amended by the review of 2026-11-20 (§The review of 2026-11-20 below):
+every read and write of a tile file is the file at its path (no link, no
+FIFO); a file deleted here is a local edit; an adopted unit is always a
+proposal; the approved pin travels with the call; a proposal's words
+promise no review.*
 
 **What "simple" means — mode `safe`, new on the by-hand route.** Read
 from what each mode does to a locally edited builtin: `replace` loses
@@ -147,15 +153,19 @@ neither is the line's. `safe`:
   changed is fast-forwarded, a file only this workspace changed is kept as
   it is, a file both changed is merged by `git merge-file` and taken only
   when the merge has no conflict, a file upstream removed is removed only
-  when unedited here. **Any** conflict — a merge with markers, or a file
-  upstream removed that was edited here — writes nothing, and the update
-  is filed as a proposal instead, exactly as `pr` does
-  (`ProposeBuiltinPR`), which the tile's agent merges;
-- **an adopted unit** (no recorded base): applied only where every file it
-  has is upstream's byte for byte (it gains the files it lacks — `replace`
-  then overwrites nothing); any difference → the proposal;
-- **a missing essential scaffold unit**: installed (`replace`) when
-  nothing is at its path; refused when something is;
+  when unedited here, a file deleted here stays deleted while upstream
+  didn't change it (a local edit, counted as one). **Any** conflict — a
+  merge with markers, a file upstream removed that was edited here, a file
+  deleted here that upstream changed, a file no update reads (a link
+  anywhere on its path, a FIFO, a directory, a file over 32 MiB, a file in
+  a nested component the unit doesn't ship) — writes nothing, and the
+  update is filed as a proposal instead, exactly as `pr` does
+  (`ProposeBuiltinPR`), which the tile's coding agent applies;
+- **an adopted unit** (no recorded base): always the proposal — without a
+  base nothing tells a change made here from upstream's (a file it lacks
+  may be one deleted here);
+- **a missing essential scaffold unit**: installed file by file, each
+  only while nothing is at its path; refused when something is;
 - **a pinned unit**: refused ("pinned: an admin chose to skip its
   updates — unpin it first"), as is a unit with no update, an unknown id
   and a sealed path (the by-hand route's own refusals).
@@ -204,13 +214,17 @@ counts and the dry run:
   your local changes are kept` (nothing edited here: `— nothing here was
   edited`);
 - `Update the builtin llm-gw (apps/llm-gw) from v3 to v4: 2 files change —
-  conflicts with your changes: filed as a proposal for review instead`;
+  conflicts with changes made here, so nothing is written: it is filed as
+  a proposal on apps/llm-gw, which the tile's coding agent applies there`;
 - `Install the builtin page tiles/organisations, which this workspace
   predates (v1, 3 files)`.
 
 Its effects name the files that change and what follows (the backend
-rebuilds; or: nothing in the tile changes now, its tile agent merges the
-proposal, closing it merged completes the update). **Warned** — so
+rebuilds; a file deleted here stays deleted; or: nothing in the tile
+changes now, the tile's coding agent applies the proposal in the tile —
+its changes show in the tile's Agent tab and history — and the merged
+close records only the files that then hold the update). No review is
+promised that nothing enforces. **Warned** — so
 unticked by default on every review — when it is a scaffold unit:
 `SCAFFOLD: <path> is part of this workspace's own chrome — the shell, a
 console or a page everyone has: updating it changes what everyone here
@@ -219,8 +233,15 @@ are refused (400 at the proposal for an id that is no builtin; a blocked
 line otherwise). The line is pinned (`pin`) to the state it was described
 from — the installed files' hashes, the embedded copy's, the decision
 (merge, install or proposal) — so a file edited between the proposal and
-Apply makes it `stale`; and `safe` decides again when it runs, so a
-change in that last moment becomes a proposal, never a conflict marker.
+Apply makes it `stale`. The pin travels with the call (`pin` in the body)
+and `safe` checks it again under its lock (`ErrStale`, 409: nothing
+written) — so nothing between Apply's check and the write turns an
+approved line into another one (an approved proposal into a write). Each
+file is written only while it is what the plan read (a temp file renamed
+in, never through a link); a file changed meanwhile stops the update
+there (409, naming the files written before — no rollback: the next read
+lists what is left). A file a step leaves as it is is not written. The
+lock is waited for at most 30 s (503).
 
 **Held to the conversation** like every plan line (`lineAgentRefusal`:
 the tile readable, in scope, not `off`, its orgs letting the agent in) —
@@ -268,9 +289,37 @@ xbind rebuilds the backend after the merge by itself.
 (`TestBuiltinProposalInATileSession`): `bx code pr fetch <n> <tile>` (the
 tile's own terminal token reads its proposals), `git am --3way` on a
 clone, resolve, `git am --continue`, pull the result into the tile,
-`bx code pr close <n> <tile> --merged` — the tile's own principal may
-close it merged (`canDecidePR`), and closing it merged records the new
-version (`RecordApplied`): the update is no longer listed.
+`bx code pr close <n> <tile> --merged` — a person's terminal session in
+the tile may close it merged (never the tile's backend, a frame of it or
+another tile: `canMergeBuiltinUpdate`), and closing it merged records
+what the tile then holds (`RecordApplied`, file by file): a file that
+holds upstream's change is updated; any other keeps its base, so the
+update stays offered for it ("pending" on the PR).
+
+**The brief's commands trust nothing of the tile's git config.** The
+template's merge fetches xbind's URL into `FETCH_HEAD` (`git fetch
+'http://xbin/api/xbin/templates/<name>.git' main`, `git merge --no-edit
+FETCH_HEAD`) — never the remote named `template`, which the tile's writers
+can point anywhere — and a row exists only for a remote that is exactly
+xbind's URL (`templateRemoteOf`). Every git command runs as `git -c
+core.fsmonitor= -c core.hooksPath=/dev/null -c protocol.ext.allow=never`;
+every path is single-quoted, and a tile path a quote can't make inert (a
+control character) gets no brief. **What is still the tile writer's** in a
+session in that tile: its `.gitattributes`, filters and merge drivers (the
+manifest's `bx template merge-manifest` driver among them), and anything
+else of the tile's code a merge runs. That is bounded by where it runs —
+the tile's own sandbox, as the person, under v0.3.82's untrusted-tile
+confinement — the same bound as any of the tile's code the person's
+coding agent runs there.
+
+**xbin's brief is named, not written by the agent.** A start of xbind's
+brief carries `{"brief": {"template": "update"}}` (a plan's `agent.start`
+`brief`, a single start's body); xbind writes the text from the tile's
+row at the preview, the request, the dry run and the gate (`startBrief`:
+deterministic, so a ticket binds the same bytes), and the review labels
+it **xbin's update brief**; anything sent as text is labelled **written
+by your agent**, whatever it says (`briefBy`). A person's edit of the
+brief makes it theirs: sent as text.
 
 **What was missing for a tile session, and is added** — found by those
 two tests, each the smallest thing under the existing rules:
@@ -306,6 +355,36 @@ that tile's row (`?tile=`) and takes its brief as xbind wrote it, so the
 model never writes the steps — and `tile_agent_start` starts it, an
 approved start as today. A plan's `agent.start` takes the same template.
 
+## The review of 2026-11-20
+
+An independent review found, and this round fixed — each with a test
+shown red without its rule (the table below):
+
+| # | Finding | In master (v0.3.82)? | Fix |
+|---|---|---|---|
+| 1 | an adopted unit's proposal read the tile's files through links into a series the tile's readers fetch | yes (`Propose`, mode `pr`) | `fsutil.OpenNoSymlinks`; a link/FIFO/oversized file is a conflict, said; `internal/builtins/` in the no-follow guard (5abfa67c) |
+| 2 | writes followed links (a dangling one "restored" anywhere; a swapped parent sent a write into another tile); a FIFO hung the listing | yes (merge, replace, listing); the lock hang is D248's | writes beneath an `os.Root`, temp + rename; bounded lock (5abfa67c, the merge) |
+| 3 | edits between plan and write lost; the approved pin not re-checked at the write | partly: merge's read-merge-write window is master's; the pin and the plan/write split are D248's | stamps per file, the pin in the call, no rewrite of unchanged files |
+| 4 | safe mode undid local deletions while saying nothing was edited | the restore is master's documented merge behaviour; the wording is D248's | deletions are local edits in safe mode; adopted always a proposal |
+| 5 | a proposal's merged close (by anyone who decides PRs, the tile's backend too) recorded the update as applied whatever the tile held | yes (`canDecidePR`, `RecordApplied`) | a person's call; records per file (c80e622e); words promise no review |
+| 6 | the template row and brief trusted the tile's `.git/config` | the basename parsing is master's (by-hand listing); the brief is D248's | exact URL; brief fetches it into `FETCH_HEAD`, hardened git |
+| 7 | nothing marked a brief as xbin's | D248 | the start names the template; xbind writes and labels it |
+| (a)–(f) | blocked lines overwritten as asks; tile-authored partition in Effects; unquoted paths; nested tiles written; EMAIL ids stripped; a test proving nothing | (b), (d) master's | each fixed and tested |
+
+Also found in master and fixed with 1: workspace-template instantiation
+read the template through `os.DirFS` (links followed); now
+`fsutil.NoSymlinksFS`.
+
+**The open question** — can a builtin update whose manifest merges with
+a local manifest edit put more in force than was approved? No
+(`TestBuiltinUpdateRaisesNothingInForce`): the agent level in force is
+xbind's record (a raise in any manifest is a pending request a person who
+manages the tile decides, D228), and a new use of another scope's tile is
+a pending grant. A use within the tile's own scope and a limits ask
+within its orgs' ceilings take force from any manifest — whoever writes
+it, the tile's writers included — so the update adds nothing they could
+not; no manifest key is a conflict for that reason.
+
 ## Every new route, field, kind and tool
 
 | What | Class | The rule it keeps |
@@ -316,6 +395,9 @@ approved start as today. A plan's `agent.start` takes the same template.
 | `bx builtin update <id> --safe` | — | the CLI a superset |
 | `knows: "builtin.update"` | the person's own approve | an older client never applies the kind |
 | `out` of a `builtin.update` line `{update, files, tile, proposal?}` | the person's set; the agent reads it | the outcome, nothing of the files |
+| `pin` in `POST /builtins/update {mode: "safe"}` | the route's | the update as approved: 409 when it no longer holds |
+| `{"template": "update"}` as a start's `brief` (plan line, `POST /term/sessions` body); `briefBy` in the start's preview | the start's own | xbind writes xbin's brief; the review labels who wrote it |
+| `files[].note` in `GET /builtins/updates`; `pending` in a PR's meta | read | said, never followed |
 | tool `updates`; `builtin.update` in `admin_propose` / `plan_propose`; brief template `update` (`tile_agent_brief`, a plan's `agent.start`) | — | prompt unchanged (at its cap): descriptions and results |
 
 ## Tests and the rule each holds (red without it)
@@ -341,6 +423,28 @@ Each rule was taken out and its test run (the log of 2026-11-19):
 | the pin on the installed files | `TestSafePinFollowsTheInstalledFiles`, `TestBuiltinLineConflictBecomesAProposal` (after the test was made to edit where the line's words stay the same: it first passed without the pin) |
 | the session's fallback git address | `TestGitIdentityIsAFallback`; and the first runs of `TestTemplateUpdateInATileSession` ("Author identity unknown") |
 | the web's words changed without the vectors / the app's port without `builtinText` | `hack/delegation-words.test.mjs`; XbinCore `plans()` |
+| (2026-11-20) a proposal reads through a link | `TestProposeNeverReadsThroughALink`, `TestNoFollowingHostWalks` |
+| reads follow links / open FIFOs | `TestUpdateNeverFollowsOrBlocks`, `TestProposeNeverReadsThroughALink` |
+| a write follows a link swapped in | `TestUpdateWriteNeverFollowsALinkSwappedIn` |
+| the stamp check at the write; files left as they are rewritten | `TestMergeStopsWhereAFileChanged` (both) |
+| nested components written | `TestUpdateNeverWritesInANestedComponent` |
+| workspace templates read through `os.DirFS` | `TestInstantiateWorkspaceNeverReadsThroughALink` |
+| a tile's backend closes a builtin-update proposal merged | `TestBuiltinUpdateMergedCloseIsAPersonsAndRecordsWhatIsThere` |
+| a merged close records the whole update | `TestRecordAppliedRecordsOnlyWhatTheTileHolds`, the broker test above |
+| the approved pin not checked at the write | `TestApplySafeAppliesOnlyWhatWasApproved` |
+| a local deletion restored | `TestSafeUpdateKeepsLocalDeletions` |
+| the lock waited for without bound | `TestApplySafeAppliesOnlyWhatWasApproved/busy` |
+| an adopted copy gains files | `TestSafeUpdateNeverOverwritesLocalEdits/adopted` |
+| the line's call without its pin; the handler ignoring it | `TestBuiltinLineCarriesItsPin` (both) |
+| a deletion unsaid; a review promised | `TestBuiltinLineKeepsALocalDeletion`, `TestBuiltinLineWords` |
+| a forged template remote; a fetch by the remote's name | `TestUpdatesTrustNoForgedTemplateRemote` (both) |
+| paths double-quoted; any path briefed | `TestUpdateBriefPathsAreInert`, `TestNoBriefForAPathNoCommandCarries` |
+| a refused line turned into an ask | `TestBuiltinLineOutOfScopeStaysBlocked` |
+| a tile-authored partition in a note | `TestKeptNoteNeverRepeatsAnUnknownValue` |
+| EMAIL ids stripped; EMAIL overriding the session's | `TestGitIdentityIsAFallback` (both) |
+| no step-up for the line | `TestBuiltinLineNotAutoApprovable` |
+| a deletion-only builtin offered as a line | `TestDelegateUpdatesLeavesOutALocalDeletion` |
+| xbin's brief written by the agent, unlabelled | `TestUpdateBriefIsXbindsAndSaysSo`, `TestWsPlanStartNamesXbinsBrief` |
 
 ## Not done
 

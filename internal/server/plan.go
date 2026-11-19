@@ -319,12 +319,17 @@ func nameOK(v string) bool {
 // single start's request shows (sessionPreview), as a line. A tile an
 // earlier line creates can't be asked yet: the start is described from the
 // person's preferences and the harness catalog, and checked when applied.
+// brief is the agent's text, or {"template": "update"}: xbind's update
+// brief for the tile, which xbind writes here — so the review labels the
+// one xbin's and the other the agent's, whatever the text says (D248
+// review, finding 7).
 func (s *Server) previewStart(a planAgent, op delegation.ChangeOp, planned []delegation.PlannedTile) (delegation.ChangePreview, error) {
 	var in struct {
-		Tile    string `json:"tile"`
-		Brief   string `json:"brief"`
-		Harness string `json:"harness"`
-		Mode    string `json:"mode"`
+		Tile     string          `json:"tile"`
+		BriefRaw json.RawMessage `json:"brief"`
+		Harness  string          `json:"harness"`
+		Mode     string          `json:"mode"`
+		Brief    string          `json:"-"`
 	}
 	dec := json.NewDecoder(bytes.NewReader(op.Args))
 	dec.DisallowUnknownFields()
@@ -332,6 +337,25 @@ func (s *Server) previewStart(a planAgent, op delegation.ChangeOp, planned []del
 		return delegation.ChangePreview{}, fmt.Errorf("its arguments don't parse: %w", err)
 	}
 	in.Tile = strings.Trim(in.Tile, "/")
+	briefBy := BriefByAgent
+	if err := json.Unmarshal(in.BriefRaw, &in.Brief); err != nil && len(in.BriefRaw) > 0 {
+		if !nameOK(in.Tile) {
+			return delegation.ChangePreview{}, errors.New("tile, harness and mode are names")
+		}
+		for _, t := range planned {
+			if t.Path == in.Tile {
+				return delegation.ChangePreview{}, errors.New(`the brief {"template": "update"} is for a tile that has an update: ` + in.Tile + " is one this plan makes")
+			}
+		}
+		body, _ := json.Marshal(map[string]any{"cwd": in.Tile, "brief": in.BriefRaw})
+		resolved, by, bad := s.startBrief(a.p, body)
+		if bad != "" {
+			return delegation.ChangePreview{}, errors.New(bad)
+		}
+		var r struct{ Prompt string }
+		_ = json.Unmarshal(resolved, &r)
+		in.Brief, briefBy = r.Prompt, by
+	}
 	switch {
 	case in.Tile == "" || strings.TrimSpace(in.Brief) == "":
 		return delegation.ChangePreview{}, errors.New("agent.start names a tile and the brief the tile agent is told first")
@@ -427,10 +451,17 @@ func (s *Server) previewStart(a planAgent, op delegation.ChangeOp, planned []del
 	if asks { // what the mode means, beside its name (D246; the feedback's E: "read-only" was read as the file permissions)
 		pv.Line += ", which asks before it edits or runs anything"
 	}
+	shown["briefBy"] = briefBy // who wrote what it is told first: the review's label, never the text's own claim
 	pv.Start, _ = json.Marshal(shown)
 	// what the start resolves to is part of what was shown: the network and
-	// the API access too, which a tile's org rules decide once it exists
-	pin, _ := json.Marshal([]any{shown["provider"], mode, asks, shown["net"], shown["api"], shown["vm"], shown["gpu"], shown["model"]})
+	// the API access too, which a tile's org rules decide once it exists —
+	// and the brief xbind writes for a named one, at each look (an agent's
+	// text is its arguments: the line's basis already)
+	pinned := []any{shown["provider"], mode, asks, shown["net"], shown["api"], shown["vm"], shown["gpu"], shown["model"]}
+	if briefBy == BriefByXbin {
+		pinned = append(pinned, delegation.BodyHash([]byte(in.Brief)))
+	}
+	pin, _ := json.Marshal(pinned)
 	pv.Pin = delegation.BodyHash(pin)
 	if asks {
 		pv.Effects = []string{"It asks you before it edits a file or runs a command: its questions and permission requests come to you, never to your workspace agent."}

@@ -29,7 +29,7 @@ const wsBriefTemplateUpdate = "update"
 
 // wsUpdateRule is the rule, in the words the tool's description and every
 // result end with.
-const wsUpdateRule = "The rule: a builtin's update is a builtin.update line, which xbin applies only where it merges cleanly with the tile's own changes; every other update is the tile's own agent's — started with xbin's brief, its changes reviewed by your person. Never merge, edit or copy a tile's code yourself."
+const wsUpdateRule = "The rule: a builtin's update is a builtin.update line, which xbin applies only where it merges cleanly with the tile's own changes; every other update is the tile's own agent's — started on xbin's brief, which your person approves; what it changes shows in the tile's Agent tab and history. Never merge, edit or copy a tile's code yourself."
 
 // wsUpdatesBriefsShown: how many of xbind's briefs one answer prints in
 // full (tile_agent_brief writes any of them).
@@ -40,8 +40,8 @@ func wsUpdateTools() []coordTool {
 		{Spec: toolSpec{Type: "function", Function: funcDef{Name: "updates",
 			Description: "What has an update waiting in this workspace, as your person may see it: builtin tiles and the workspace's own pages (the shell, the consoles, the docs page) that this xbin ships newer, pages this workspace predates (MISSING), and tiles made from a template that changed since. A read: nothing is asked or changed. " +
 				"Each row ends with its one next step, and there are three: (1) a builtin's update — propose it as a builtin.update {id} line (plan_propose; admin_propose for an admin who allows it): xbin applies it only where it merges cleanly with the tile's own changes, and otherwise files it as a proposal on the tile; " +
-				"(2) a tile made from a template, or a builtin update already filed as a proposal — that tile's own agent applies it: tile_agent_brief {tile, template: \"update\"} writes xbin's brief for it, then tile_agent_start, and your person reviews what it changes; " +
-				"(3) by hand — the row says who can. You never merge, edit or copy a tile's code yourself, and builtin.update takes only the builtin's id: what it installs is xbin's own copy, never content from anywhere else.",
+				"(2) a tile made from a template, or a builtin update already filed as a proposal — that tile's own agent applies it: tile_agent_brief {tile, template: \"update\"} writes xbin's brief for it, then tile_agent_start — your person approves the start; what it changes shows in the tile's Agent tab; " +
+				"(3) by hand — the row says who can. You never merge, edit or copy a tile's code yourself, and builtin.update takes only the builtin's id: what it installs is xbin's own copy.",
 			Parameters: obj(nil, map[string]any{
 				"tile": strProp("only this tile's update: its path, or the name workspace_map shows (leave out for everything)"),
 			})}},

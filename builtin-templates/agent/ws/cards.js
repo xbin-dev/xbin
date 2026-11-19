@@ -103,6 +103,7 @@ function briefView(blk, act) {
     <div class="wsc-row"><span class="wsc-name">${icon('doc')}<b id=${id + '-h'}>${w.title}</b></span>
       ${w.status ? html`<span class="wsc-st">${w.status}</span>` : nothing}
       ${w.editable && !editing ? html`<button class="quiet wsc-edit" @click=${() => { bag.editing = true; act.repaint(); }} aria-label="Edit the brief">${icon('pencil')}Edit</button>` : nothing}</div>
+    <div class="wsc-muted wsc-by" data-brief-by>${w.by}</div>
     <dl class="wsc-fields">${w.fields.map((f) => html`<div class="wsc-field" data-field=${f.key}>
       <dt id=${`${id}-${f.key}`}>${f.label}</dt>
       <dd>${editing ? html`<textarea rows="2" aria-labelledby=${`${id}-${f.key}`} .value=${vals[f.key] || ''} @input=${(e) => { vals[f.key] = e.target.value; }}></textarea>`

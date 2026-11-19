@@ -281,7 +281,7 @@ export class BxAgentChanges extends LitElement {
         ${signinRow(r, this._view === 'review' && !this._busy ? { ...(this._signins[it.n] || {}), guard: this._widen,
     set: (patch) => { this._signins = { ...this._signins, [it.n]: { ...(this._signins[it.n] || {}), ...patch } }; } } : null)}
         <dt>Network</dt><dd>${r.network}</dd>
-        <dt>What it will be told</dt><dd>${hiddenLine(r.brief)}<pre class="brief mono" tabindex="-1" data-row="brief">${shown(brief.text)}${brief.clipped ? '…' : ''}</pre>
+        <dt>What it will be told</dt><dd>${r.briefBy ? html`<div class="small" data-row="brief-by">${r.briefBy}</div>` : nothing}${hiddenLine(r.brief)}<pre class="brief mono" tabindex="-1" data-row="brief">${shown(brief.text)}${brief.clipped ? '…' : ''}</pre>
           <div class="small muted">${brief.clipped ? html`${clipNote(brief)} — <button class="link" data-show-all @click=${() => { this._briefs = [...this._briefs, it.n]; }}>Show all</button> · ` : nothing}sent exactly like this</div></dd>
       </dl>`;
   }

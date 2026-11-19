@@ -309,7 +309,7 @@ export class BxAgentApprove extends LitElement {
         ${signinRow(r, { ...this._ticks, guard: this._widen, set: (patch) => { this._ticks = { ...this._ticks, ...patch }; } })}
         <dt>Network</dt><dd>${r.network}</dd>
         <dt>Other tiles</dt><dd>${r.others}</dd>
-        <dt>What it will be told</dt><dd>${hiddenLine(r.brief)}<pre class="body brief" tabindex="-1" data-row="brief">${r.brief ? html`${shown(brief.text)}${brief.clipped ? '…' : ''}` : '(nothing: it starts without a message)'}</pre>
+        <dt>What it will be told</dt><dd>${r.briefBy ? html`<div class="small" data-row="brief-by">${r.briefBy}</div>` : nothing}${hiddenLine(r.brief)}<pre class="body brief" tabindex="-1" data-row="brief">${r.brief ? html`${shown(brief.text)}${brief.clipped ? '…' : ''}` : '(nothing: it starts without a message)'}</pre>
           <div class="small muted">${brief.clipped ? html`${clipNote(brief)} — <button class="link" data-show-all @click=${() => this._showAll('_allBrief')}>Show all</button> · ` : nothing}sent exactly like this</div></dd>
       </dl>
       ${this._quote(req.summary)}

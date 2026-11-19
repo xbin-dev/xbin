@@ -193,6 +193,7 @@ func wsPlanStart(ctx context.Context, ag *Agent, s *wsSession, args map[string]a
 		return nil, "", err
 	}
 	f := wsBriefFields{Goal: a.Goal, DoneWhen: a.DoneWhen, LeaveAlone: a.LeaveAlone, CheckBy: a.CheckBy, Known: a.Known}
+	named := false                           // xbind's own brief: the line names it, and xbind writes the text (D248 review, finding 7)
 	if a.Template == wsBriefTemplateUpdate { // xbind's brief for the tile's update, word for word (ws_tools_updates.go)
 		t, err := wsFindTile(ctx, ag, s, a.Tile)
 		if err != nil {
@@ -201,7 +202,7 @@ func wsPlanStart(ctx context.Context, ag *Agent, s *wsSession, args map[string]a
 		if f, err = wsUpdateBriefFor(ctx, ag, s, t.Path); err != nil {
 			return nil, "", err
 		}
-		a.Template, a.Tool = "", nil
+		a.Template, a.Tool, named = "", nil, true
 	}
 	if err := wsApplyBriefTemplate(a.Template, a.Tool, &f); err != nil {
 		return nil, "", err
@@ -230,6 +231,9 @@ func wsPlanStart(ctx context.Context, ag *Agent, s *wsSession, args map[string]a
 	}
 	b := &wsBrief{Tile: tile, Goal: f.Goal, DoneWhen: f.DoneWhen, LeaveAlone: strings.TrimSpace(f.LeaveAlone), CheckBy: strings.TrimSpace(f.CheckBy), Known: strings.TrimSpace(f.Known)}
 	line := map[string]any{"tile": tile, "brief": wsBriefText(b, s.Owner)}
+	if named {
+		line["brief"] = map[string]string{"template": wsBriefTemplateUpdate}
+	}
 	if h := strings.TrimSpace(a.Harness); h != "" {
 		line["harness"] = h
 	}

@@ -18,11 +18,11 @@ import (
 // updFixBrief is xbind's brief for apps/crm, as the read gives it.
 var updFixBrief = &wsUpdateBrief{
 	Goal:       `Bring this tile up to date with its template "agent": merge the template's newest version (3 commits this tile doesn't have) into this tile, keeping this tile's own changes.`,
-	DoneWhen:   "`git log -1` in this tile shows the merge of template/main, `git status --short` shows nothing uncommitted, the tile's backend (if it has one) builds and answers, and you reported what the template changed and how each conflict was resolved.",
+	DoneWhen:   "`git log -1` in this tile shows the merge of the template's main, `git status --short` shows nothing uncommitted, the tile's backend (if it has one) builds and answers, and you reported what the template changed and how each conflict was resolved.",
 	LeaveAlone: "this tile's own changes, unless one conflicts with the template's; the manifest's \"partition\" and \"template\" keys; everything outside this tile; and don't push anywhere.",
 	CheckBy:    "`bx status`, a call to the tile's own API, `bx logs $XBIN_COMPONENT` for a build error.",
-	Known:      "This tile was made from xbin's template \"agent\", which is this tile's git remote `template`. Run, in this tile's directory: (1) `git status --short`; (2) `git fetch template`; (3) `git log --oneline HEAD..template/main`; (4) `git merge --no-edit template/main`.",
-	Commands:   []string{"git status --short", "git fetch template", "git log --oneline HEAD..template/main", "git merge --no-edit template/main", "bx status"},
+	Known:      "This tile was made from xbin's template \"agent\", which xbin serves. Run, in this tile's directory: (1) `git -c core.fsmonitor= -c core.hooksPath=/dev/null -c protocol.ext.allow=never status --short`; (2) `git -c core.fsmonitor= -c core.hooksPath=/dev/null -c protocol.ext.allow=never fetch 'http://xbin/api/xbin/templates/agent.git' main`; (3) `git -c core.fsmonitor= -c core.hooksPath=/dev/null -c protocol.ext.allow=never log --oneline HEAD..FETCH_HEAD`; (4) `git -c core.fsmonitor= -c core.hooksPath=/dev/null -c protocol.ext.allow=never merge --no-edit FETCH_HEAD`.",
+	Commands:   []string{"git -c core.fsmonitor= -c core.hooksPath=/dev/null -c protocol.ext.allow=never status --short", "git -c core.fsmonitor= -c core.hooksPath=/dev/null -c protocol.ext.allow=never fetch 'http://xbin/api/xbin/templates/agent.git' main", "git -c core.fsmonitor= -c core.hooksPath=/dev/null -c protocol.ext.allow=never log --oneline HEAD..FETCH_HEAD", "git -c core.fsmonitor= -c core.hooksPath=/dev/null -c protocol.ext.allow=never merge --no-edit FETCH_HEAD", "bx status"},
 }
 
 // updFix gives the fake xbind a docs page, a builtin tile, a template
@@ -66,7 +66,7 @@ func TestWsEvalWhatNeedsUpdating(t *testing.T) {
 		"- scaffold:tiles/manager — the workspace's own page tiles/manager: 1 file(s) changed upstream. NEXT: by hand — tiles/manager's agent level is off",
 		`- apps/crm — made from the template "agent": 3 commit(s) behind it; 2 commit(s) of its own. NEXT: start a tile agent on apps/crm — tile_agent_brief {"tile": "apps/crm", "template": "update"}, then tile_agent_start`,
 		`xbin's brief for apps/crm — what tile_agent_brief {"tile": "apps/crm", "template": "update"} writes, word for word`,
-		"git merge --no-edit template/main",
+		"merge --no-edit FETCH_HEAD",
 		wsUpdateRule,
 	} {
 		if !strings.Contains(got, want) {
@@ -199,13 +199,14 @@ func TestWsEvalUpdateMyCRM(t *testing.T) {
 	if req.Kind != "session" || asked.Tile != "apps/crm" {
 		t.Fatalf("the start: %s", req.call.Body)
 	}
-	for _, want := range []string{"Goal: " + updFixBrief.Goal, "Done when: " + updFixBrief.DoneWhen, "Leave alone: " + updFixBrief.LeaveAlone, "Already known: " + updFixBrief.Known} {
-		if !strings.Contains(asked.Prompt, want) {
-			t.Errorf("the start's brief lacks xbin's %q:\n%s", want, asked.Prompt)
-		}
+	// the start names xbin's brief and sends no text of its own: xbind
+	// writes the text, and the person's review labels it xbin's (D248
+	// review, finding 7)
+	if asked.Brief != "update" || asked.Prompt != "" {
+		t.Errorf("the start doesn't name xbin's brief: %s", req.call.Body)
 	}
-	if strings.Contains(asked.Prompt, "IGNORE") {
-		t.Errorf("the tile's title reached the brief:\n%s", asked.Prompt)
+	if b, err := fx.ag.db.wsBrief(s.Run, 1); err != nil || b.Xbin != "update" || b.Goal != updFixBrief.Goal || b.Known != updFixBrief.Known {
+		t.Errorf("the brief the person sees: %+v %v", b, err)
 	}
 	if calls := fx.toolCalls(t, s); strings.Join(calls, ",") != "updates,tile_agent_brief,tile_agent_start" {
 		t.Errorf("the calls: %v", calls)
@@ -265,5 +266,32 @@ func TestWsEvalInjectedUpdateHasNothingToAim(t *testing.T) {
 		if raw, _ := json.Marshal(args); strings.Contains(string(raw), "evil") {
 			t.Fatalf("%s carries the content: %s", k, raw)
 		}
+	}
+}
+
+// A plan's start on xbin's update brief names the brief, and carries no
+// text of the agent's: xbind writes it, and the review labels it xbin's
+// (the review of 2026-11-20, finding 7). A brief the model writes itself
+// goes as its text — which the review labels the agent's.
+func TestWsPlanStartNamesXbinsBrief(t *testing.T) {
+	fx := newWsFix(t)
+	s := fx.main(t)
+	updFix(t, fx)
+	f := fakeOf(fx.ag)
+	f.on(forRun(s.Run, lastUser("merge the CRM's template in a plan")), callTools(tc("p1", "plan_propose",
+		`{"title":"Update the CRM","changes":[{"kind":"agent.start","args":{"tile":"apps/crm","template":"update"},"why":"its template moved"}]}`))).once()
+	f.on(forRun(s.Run, lastTool("plan_propose")), say("Proposed.")).once()
+	fx.say(t, s, "merge the CRM's template in a plan")
+	fx.idle(t, s)
+	_ = planOf(t, fx)
+	fx.x.mu.Lock()
+	defer fx.x.mu.Unlock()
+	if len(fx.x.startArgs) != 1 {
+		t.Fatalf("the plan's starts: %v", fx.x.startArgs)
+	}
+	args := fx.x.startArgs[0]
+	brief, _ := args["brief"].(map[string]any)
+	if args["tile"] != "apps/crm" || len(brief) != 1 || brief["template"] != "update" {
+		t.Fatalf("the start's arguments: %v", args)
 	}
 }

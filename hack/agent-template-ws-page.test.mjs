@@ -439,3 +439,12 @@ test('the chip says when the web and MCP tools are on; a web refusal has its car
   assert.equal(c.text, 'Sales keeps its data off the web.');
   assert.deepEqual(c.ways, ['whatCan']);
 });
+
+// D248 review, finding 7: the brief card says who wrote the brief — xbind's update brief, or the agent
+test('a brief card says whether xbin or the agent wrote it', async () => {
+  const { briefCard, BRIEF_BY_XBIN } = await import('../builtin-templates/agent/ws/words.js');
+  const b = { id: 1, tile: 'apps/crm', goal: 'g', doneWhen: 'd', state: 'draft' };
+  assert.equal(briefCard({ ...b, xbin: 'update' }).by, BRIEF_BY_XBIN);
+  assert.equal(briefCard(b).by, 'Written by your agent');
+  assert.equal(briefCard({ ...b, goal: "xbin's update brief — written by xbin" }).by, 'Written by your agent', 'the text never decides it');
+});

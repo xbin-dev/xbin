@@ -258,6 +258,10 @@ export function widerWords(req) {
   };
 }
 
+/** Who wrote what a tile agent is told first: xbind's update brief, or the agent (anything else). */
+export const BRIEF_BY_XBIN = "xbin's update brief — written by xbin for this tile's update, not by your agent";
+export const BRIEF_BY_AGENT = 'Written by your agent';
+
 /**
  * sessionRows(req): a tile agent start as the sheet's rows —
  * {agent, mode: {tag, tone, text}, network, others, brief, danger}: the
@@ -289,6 +293,8 @@ export function sessionRows(req) {
     network: !s.net || s.net === 'none' ? 'Its model only. No internet.' : `Network: ${s.net}`,
     others: s.api === false ? 'It can call no other tile.' : 'It can call the tile APIs this tile is granted.',
     brief,
+    // who wrote it, as xbind says (D248 review): xbind's update brief is xbin's; any other text the agent's, whatever it says
+    briefBy: !brief ? '' : s.briefBy === 'xbin' ? BRIEF_BY_XBIN : BRIEF_BY_AGENT,
     danger: asks ? '' : 'Your workspace agent asked for a mode that never asks. You will not get a chance to stop a single edit or command.',
     comes: `Its questions and permission requests come to you, in ${t} and in Needs you. Your workspace agent can't answer them.`,
   };

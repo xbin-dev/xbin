@@ -544,8 +544,11 @@ type wsAgentStart struct {
 	Tile    string `json:"tile"`
 	Harness string `json:"harness,omitempty"`
 	Prompt  string `json:"prompt,omitempty"`
-	Name    string `json:"name,omitempty"`
-	Resume  string `json:"resume,omitempty"`
+	// Brief names a brief xbind writes ("update": its update brief for the
+	// tile), in Prompt's place: sent as {"brief": {"template": …}}
+	Brief  string `json:"brief,omitempty"`
+	Name   string `json:"name,omitempty"`
+	Resume string `json:"resume,omitempty"`
 }
 
 // wsHarness is a coding agent a tile's rules allow, with what a session

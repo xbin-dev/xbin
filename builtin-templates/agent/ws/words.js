@@ -257,8 +257,13 @@ export function briefCard(b, tileName = (p) => p, sd = null) {
     // only xbind's word that the mode asks (a harness's ask or plan mode) says it asks — unknown is not "asks"
     note: `This is what the tile agent is told first. What your agent sends it later isn’t approved message by message${sd && sd.asks === true ? ': the tile agent asks you before it acts.' : sd && sd.asks === false ? ', and in this mode it acts without asking you.' : '. Whether it asks you before it acts shows once xbin says what it runs on.'}`,
     edited: !!b.edited,
+    // who wrote it (D248 review): xbind's update brief, word for word, or the agent's (a person's edit makes it theirs)
+    by: b.xbin ? BRIEF_BY_XBIN : 'Written by your agent',
   };
 }
+
+/** briefCard's word for a brief xbind wrote: its start names it, and xbind sends the text. */
+export const BRIEF_BY_XBIN = "xbin's update brief — written by xbin for this tile's update, not by your agent";
 
 // ---- the plan ---------------------------------------------------------------------------
 

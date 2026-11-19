@@ -254,6 +254,7 @@ struct AgentChangeSetSheet: View {
             Text(verbatim: r.network).font(.callout)
             let brief = DelegationWords.clipText(r.brief, all: wholeBriefs.contains(item.n))
             Text("What it will be told — sent exactly like this").font(.caption.weight(.semibold)).foregroundStyle(XbinColor.muted)
+            if !r.briefBy.isEmpty { Text(verbatim: r.briefBy).font(.caption).accessibilityIdentifier("changeset-brief-by-\(item.n)") }
             AgentHiddenNote(text: r.brief)
             Text(AgentReveal.attributed(r.brief.isEmpty ? "Nothing: it starts without a first message." : brief.clipped ? brief.text + "…" : brief.text, font: XbinFont.code))
                 .textSelection(.enabled)

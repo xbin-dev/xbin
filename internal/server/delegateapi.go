@@ -563,10 +563,21 @@ func (s *Server) apiDelegateRequestNew(w http.ResponseWriter, r *http.Request) {
 		}
 	case v.pattern == "POST /term/sessions":
 		req.Kind = delegation.KindSession
+		// a start that names xbind's update brief gets xbind's text — the
+		// request (and its ticket) binds the body with that text in it
+		resolved, by, bad := s.startBrief(p, body)
+		if bad != "" {
+			WriteError(w, http.StatusBadRequest, bad, delegationDocs)
+			return
+		}
+		body = resolved
 		ask, why := s.sessionPreview(p, body)
 		if why != "" {
 			WriteError(w, http.StatusForbidden, why, delegationDocs)
 			return
+		}
+		if by != "" {
+			ask["briefBy"] = by // who wrote what the session is told first: the review's label
 		}
 		req.Tile = ask["tile"].(string)
 		preview["tile"], preview["owner"], preview["session"] = req.Tile, s.policy().OwnerOf(req.Tile), ask

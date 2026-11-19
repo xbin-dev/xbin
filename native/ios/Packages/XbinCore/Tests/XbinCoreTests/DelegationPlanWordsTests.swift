@@ -42,6 +42,7 @@ import Testing
                     #expect(rows.agent == s(ws, "agent") && rows.brief == s(ws, "brief") && rows.network == s(ws, "network"), "\(id) \(it.n): start")
                     #expect(rows.modeTag == s(ws["mode"], "tag") && rows.modeText == s(ws["mode"], "text") && rows.modeName == s(ws["mode"], "name"), "\(id) \(it.n): mode")
                     #expect(rows.modeAsks == (s(ws["mode"], "tone") == "ok") && rows.danger == s(ws, "danger"), "\(id) \(it.n): only xbind's word that the mode asks")
+                    #expect(rows.briefBy == s(ws, "briefBy"), "\(id) \(it.n): who wrote the brief")
                 }
             }
             let who = id
