@@ -212,10 +212,19 @@ async function docMode(browser) {
   const fixed = await sh(page, (t, p) => t.openTiles.find((o) => o.path === p)?.doc?.h ?? null, VH);
   const vh1 = await sh(page, (t, p) => Math.round(t.frameFor(p)?.getBoundingClientRect().height ?? 0), VH);
   check(fixed && Math.abs(fixed - 580) <= 3 && Math.abs(vh1 - fixed) <= 2, `the handle sets a fixed height (doc.h ${fixed}, frame ${vh1})`);
+  // the handle sits at the cell's bottom edge, 100 px lower since the drag: bring it into
+  // view as a person would before clicking it — with the top bar in place (D247) and a
+  // longer page it can lie below the fold, where a click lands on nothing
+  await sh(page, (t, p) => t.query(`.dcell[data-path="${p}"] .dh`)?.scrollIntoView({ block: 'center' }), VH);
+  await settle(page);
   const dh2 = await rectIn(page, `.dcell[data-path="${VH}"] .dh`);
   if (dh2) await page.mouse.dblclick(dh2.x + dh2.w / 2, dh2.y + dh2.h / 2);
-  await sleep(300);
-  check(!(await sh(page, (t, p) => t.openTiles.find((o) => o.path === p)?.doc?.h ?? null, VH)), 'a double-click on the handle fits the content again');
+  let fit = false;
+  for (let i = 0; i < 40 && !fit; i++) { // the fit, not a fixed wait
+    fit = !(await sh(page, (t, p) => t.openTiles.find((o) => o.path === p)?.doc?.h ?? null, VH));
+    if (!fit) await sleep(100);
+  }
+  check(fit, `a double-click on the handle fits the content again (the handle at y ${dh2 ? Math.round(dh2.y) : 'none'} of ${page.viewportSize().height})`);
 
   // the top bar stays put while reading (D247; it used to slide away on a scroll down)
   await page.mouse.move(700, 500);

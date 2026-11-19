@@ -62,8 +62,11 @@ async function tiled(browser) {
   const pane = await rectIn(page, '.tiled');
   const one = await tileRect(page, A);
   const scroll = await sh(page, (t) => { const m = t.query('main'); return { sh: m.scrollHeight, ch: m.clientHeight, sw: m.scrollWidth, cw: m.clientWidth }; });
-  check(one && near(one.x, pane.x) && near(one.y, pane.y) && near(one.w, pane.w) && near(one.h, pane.h) && pane.h > 700,
-    `one tile fills the pane (${JSON.stringify(R(one))} in ${JSON.stringify(R(pane))})`);
+  // the pane runs to the bottom of the 900 px viewport; how tall it is depends on the strips
+  // above it (the bar, alerts), which a full run leaves more of than this pass alone
+  const above = await sh(page, (t) => [...(t.query('.top')?.parentNode?.children || [])].map((e) => { const r = e.getBoundingClientRect(); return `${e.tagName.toLowerCase()}.${String(e.className).split(' ')[0]}:${Math.round(r.y)}+${Math.round(r.height)}`; }).join(' '));
+  check(one && near(one.x, pane.x) && near(one.y, pane.y) && near(one.w, pane.w) && near(one.h, pane.h) && pane.y + pane.h > 870 && pane.h > 500,
+    `one tile fills the pane (${JSON.stringify(R(one))} in ${JSON.stringify(R(pane))}; the shell's parts: ${above})`);
   check(scroll.sh <= scroll.ch + 1 && scroll.sw <= scroll.cw + 1, `the page doesn't scroll (${JSON.stringify(scroll)})`);
   // the top bar stays above the tiles (D247: it used to slide away in Tiled)
   await page.mouse.move(700, 20); await page.mouse.move(700, 500, { steps: 12 }); await sleep(300);
@@ -217,7 +220,11 @@ async function tiled(browser) {
   await sh(page, (t, id) => t.setScreenMode(id, 'canvas'), id);
   await settle(page);
   check(JSON.stringify(await geom(page)) === JSON.stringify(canvas), 'Canvas shows every tile at its old place and size');
-  check(!!(await rectIn(page, '.canvas')) && (await rectIn(page, '.top'))?.y === 0, 'the canvas is back, the bar in its place');
+  // the bar sits right under whatever warning strip is above it (alerts, D188) — a full run
+  // leaves some — never slid away, and the page itself doesn't scroll
+  const topAt = await sh(page, (t) => { const top = t.query('.top'), prev = top?.previousElementSibling;
+    return { y: Math.round(top?.getBoundingClientRect().y ?? -1), under: Math.round(prev ? prev.getBoundingClientRect().bottom : 0), scrollY: window.scrollY }; });
+  check(!!(await rectIn(page, '.canvas')) && topAt.y === topAt.under && topAt.scrollY === 0, `the canvas is back, the bar in its place (${JSON.stringify(topAt)})`);
 
   // an org screen in Tiled: view mode has no dividers; a draft's divider drag is published with it
   const srv = async (sid) => ((await (await ctx.request.get(`${URL}/api/xbin/screens`)).json()).org ?? []).find((x) => x.id === sid);

@@ -150,7 +150,9 @@ async function agentPolicy(browser) {
     // another tile's page asks for the other session
     await openTile(A.page, OTHER);
     const other = await tileFrame(A.page, OTHER);
-    await other.waitForFunction(() => !!window.xbin?.openSession, null, { timeout: 10000 });
+    // a timer, not animation frames: this tile can open below the fold (a full run's screen is
+    // crowded, and the bar takes its 40 px since D247), where Chromium runs no frames for its page
+    await other.waitForFunction(() => !!window.xbin?.openSession, null, { timeout: 10000, polling: 100 });
     const shown = await other.evaluate((x) => window.xbin.openSession(x), { tile: TILE, session: s2 });
     await waitActive(A.page, s2, 'the other tile\'s request showed the session');
     check(shown === true, `xbin.openSession from another tile's page shows it and says so (${shown})`);
