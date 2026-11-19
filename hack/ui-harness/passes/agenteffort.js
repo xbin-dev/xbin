@@ -8,6 +8,8 @@
 // with a tool call finishes only when the agent sends its reasoning back.
 // "fake-chat" an admin describes (OpenAI-style: low · medium · high);
 // "gpt-5-fake" nobody does.
+//   0. /xbin/llm: the provider's "reasoning…" — the line per model, and
+//      "describe…" ticking the levels gpt-5-fake takes (then forgotten);
 //   1. the composer's chip beside the model: "Default · High" for fake-think;
 //   2. a level picked at home (Max) goes with the new chat — and only it:
 //      the next new chat is at Default again — and arrives as asked; a tool
@@ -52,6 +54,32 @@ async function agentEffort(browser) {
     const effortOf = (id) => (models.data || []).find((m) => m.id === id)?.effort;
     check(effortOf(THINK)?.source === 'upstream' && effortOf(CHAT)?.source === 'admin' && !effortOf(UNDESCRIBED),
       `the model list: fake-think from its upstream, fake-chat from the admin, gpt-5-fake none (${JSON.stringify([effortOf(THINK), effortOf(CHAT), effortOf(UNDESCRIBED)])})`);
+
+    // 0. /xbin/llm: the provider's reasoning… — a line per model, and describe… (tick the levels a model takes)
+    await page.goto(`${URL}/xbin/llm`);
+    const row = `bx-llm-upstreams tr[data-upstream="${UP}"]`;
+    await page.waitForSelector(`${row} button[data-reasoning]`, { timeout: 30000 });
+    await page.click(`${row} button[data-reasoning]`);
+    await page.waitForSelector(`bx-llm-upstreams [data-reason="${UP}"] [data-reason-line="fake-think"]`, { timeout: 20000 });
+    const lineOf = (m) => page.textContent(`bx-llm-upstreams [data-reason-line="${m}"]`).then((t) => t.trim());
+    check(await lineOf('fake-think') === 'Reasoning: Low · High · Max (default High) · from the upstream'
+      && await lineOf('gpt-5-fake') === 'Reasoning: not described — no control is offered'
+      && /^Reasoning: Low · Medium · High \(default Medium; always thinks\) · from the admin$/.test(await lineOf('fake-chat')),
+    `the lines per model (${await lineOf('fake-think')} | ${await lineOf('gpt-5-fake')} | ${await lineOf('fake-chat')})`);
+    await page.click('bx-llm-upstreams button[data-describe-open="gpt-5-fake"]');
+    for (const w of ['medium', 'high', 'xhigh']) await page.check(`bx-llm-upstreams [data-describe="gpt-5-fake"] input[data-level="${w}"]`);
+    await page.check('bx-llm-upstreams [data-describe="gpt-5-fake"] input[data-off]');
+    check((await page.textContent('bx-llm-upstreams [data-describe-words]')).trim() === 'Reasoning: Medium · High · Extra high (can be off) · from the admin',
+      'the form says what it will save');
+    await shot(page, `agent-effort-describe-${THEME}`, { fullPage: false });
+    await page.click('bx-llm-upstreams button[data-describe-save]');
+    await page.waitForFunction(() => /Medium · High · Extra high \(can be off\) · from the admin/.test(document.querySelector('bx-llm-upstreams')?.shadowRoot?.querySelector('[data-reason-line="gpt-5-fake"]')?.textContent || ''), null, { timeout: 15000, polling: 100 });
+    const described = (await (await api('GET', '/llm/v1/models')).json()).data.find((m) => m.id === UNDESCRIBED)?.effort;
+    check(JSON.stringify(described?.supported_levels) === '["medium","high","xhigh"]' && described?.can_disable === true && described?.source === 'admin',
+      `described: on the model list (${JSON.stringify(described)})`);
+    await page.click('bx-llm-upstreams button[data-forget="gpt-5-fake"]');
+    await page.waitForFunction(() => /not described/.test(document.querySelector('bx-llm-upstreams')?.shadowRoot?.querySelector('[data-reason-line="gpt-5-fake"]')?.textContent || ''), null, { timeout: 15000, polling: 100 });
+    check(true, 'forget: not described again');
 
     // an agent instance of its own, on the connector
     r = await api('POST', '/templates/new', { source: 'agent', path: TILE, partition: false });
