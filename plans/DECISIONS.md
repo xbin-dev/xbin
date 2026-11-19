@@ -6195,3 +6195,69 @@ here: cut from the old end, never reword.
     (mocks in the change's screenshots). Also not chosen: a `Tile ▸`
     submenu for the tile's own lines — they are the frequent ones and
     must stay one click away.
+
+- **D248 — The workspace agent sees updates, proposes a builtin's simple
+  update, and hands every other update to the tile's agent (2026-11-19;
+  issue #51; the owner's decision of that day; spec
+  `plans/wsagent/updates.md`).**
+  - **The owner's words:** "give it tools to see updates and apply simple
+    builtin updates (incl the PR flow when there are conflicts), any
+    application should just be done by having the workspace agent prompt a
+    tile agent for it - let's just make sure it's clear to workspace
+    agents". Before: both update lists were refused to the agent ("not
+    delegated"), `POST /builtins/update` was `never` ("an agent doesn't
+    write code"), and no change kind covered an update.
+  - **Seeing: `GET /delegate/updates[?tile=]`** — delegate `read`,
+    `tile:byTileQuery`, not audited; partition neutral, deployments
+    primary only, a sealed component's own credential refused. Its rows
+    are the person's own by-hand rows (`GET /builtins/updates`,
+    `GET /templates/updates`: the same functions), each held to the
+    agent's gates — the tile readable, in the conversation's scope, its
+    orgs' rules — and tainting like a listing row. It adds, cheap and
+    exact: files edited here only, an open builtin-update proposal (the
+    person's `GET /code/prs?target=`), an instance's commits behind its
+    template and of its own (git history, confined), and `next` with
+    xbind's brief. It runs no merge. Tool `updates`.
+  - **`builtin.update {id}`, an admin's line applied as `POST
+    /builtins/update {id, mode: "safe"}`** through `handleAPI` as the
+    approver, rights read again at Apply. Mode `safe` is new on the
+    by-hand route (and `bx builtin update --safe`): `merge`'s own plan,
+    written only when clean; any conflict — markers, or an upstream
+    removal of an edited file — writes nothing and files the update as
+    `pr` does; an adopted unit only where every file it has is upstream's;
+    a missing essential unit installed where nothing is; pinned, up to
+    date, unknown and sealed refused. "Simple" is that: `replace` (loses
+    local edits) and `merge` (markers in live files) are never the line's.
+  - **Why the agent may choose this one code change.** It chooses which
+    builtin, never the content: the files are the binary's embedded copy,
+    and the kind takes `{id}` and nothing else, so a prompt-injected
+    "update it with this" has nothing to aim. `POST /builtins/update`
+    itself stays `never` for the agent's credential; the change set
+    applies it as the approver.
+  - **Always an admin's line, never anything that runs unasked.** Never
+    personal; for anyone but a workspace admin (an org admin too)
+    "needs an admin" with Ask an admin; never waits, never deferred; no
+    standing approval, ticket or notification reaches it; `knows`
+    (`builtin.update`) keeps an older client from applying it. Scaffold
+    units are warned (`SCAFFOLD: …`) and so start unticked. The line is
+    pinned to the installed files and the embedded copy: an edit before
+    Apply makes it stale, and `safe` decides again as it runs. Held to the
+    conversation like a plan's lines; the consoles (`off`, D238) are
+    refused — their updates stay an admin's, by hand.
+  - **The agent reads applied / proposed / failed**, with `out {update,
+    files, tile, proposal?}` and the builtin's own refusals (pinned, no
+    update); never xbind's line, its effects (file names) or warnings —
+    the line it reads is written from its arguments, as for `access.set`.
+  - **Everything else is a tile agent's.** A template instance's merge, a
+    builtin update that became a proposal: `next: "tile-agent"` with a
+    brief xbind writes from its own names only (the tile's path, the
+    template's catalog name, the builtin's id, counts, a proposal's
+    number), taken verbatim by the brief template `update`
+    (`tile_agent_brief {tile, template: "update"}`, a plan's
+    `agent.start`). The commands it names are proven in a tile session
+    of an isolated xbind (`TestTemplateUpdateInATileSession`,
+    `TestBuiltinProposalInATileSession`). The prompt is unchanged (at its
+    cap): the tool's description and every result row carry the rule.
+  - **Not done:** sealed components (they update with xbind), the
+    consoles through the agent (their level is `off`), listing pinned
+    builtins (the by-hand listing doesn't either).
