@@ -179,3 +179,28 @@ func TestRecordAppliedRecordsOnlyWhatTheTileHolds(t *testing.T) {
 		t.Fatalf("still offered once the tile holds the update: %+v", uu)
 	}
 }
+
+// covers the review of 2026-11-20, finding 5 — a file holds upstream's
+// change when it carries it beside an edit of its own, even an edit right
+// next to it (where git's merge sees one conflict): upstream's line is
+// there, the base's line it replaced is gone. A file that kept the base's
+// line, or lacks upstream's, doesn't.
+func TestHoldsChangeBesideAnAdjacentEdit(t *testing.T) {
+	base := []byte("a\nold\nc\nd\n")
+	theirs := []byte("a\nnew\nc\nd\n")
+	for name, c := range map[string]struct {
+		ours string
+		want bool
+	}{
+		"upstream's file":                {"a\nnew\nc\nd\n", true},
+		"the change and a line after":    {"a\nnew\nmine\nc\nd\n", true},
+		"the change and an edit far off": {"a\nnew\nc\nd-mine\n", true},
+		"the base's line kept":           {"a\nold\nmine\nc\nd\n", false},
+		"neither":                        {"a\nmine\nc\nd\n", false},
+		"as installed":                   {"a\nold\nc\nd\n", false},
+	} {
+		if got := holdsChange([]byte(c.ours), base, theirs); got != c.want {
+			t.Errorf("%s: %v", name, got)
+		}
+	}
+}

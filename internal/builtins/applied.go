@@ -4,10 +4,13 @@ package builtins
 // the tile then holds, file by file (review of 2026-11-20, finding 5).
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
+	"strings"
 )
 
 // RecordApplied refreshes a unit's provenance after its proposal PR closed
@@ -70,8 +73,7 @@ func (u *Updater) RecordApplied(id, toHash string) (pending []string, err error)
 		if !ok {
 			return false
 		}
-		out, err := mergeFile(ours, b, merged[rel]) // a conflict leaves markers: never ours
-		return err == nil && sha(out) == sha(ours)
+		return holdsChange(ours, b, merged[rel])
 	}
 	files := map[string][]byte{}
 	for _, rel := range sortedRels(theirs, base) {
@@ -114,4 +116,79 @@ func sortedRels(theirs map[string][]byte, base map[string]string) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// holdsChange reports whether ours already carries upstream's change from
+// base to theirs, beside edits of its own: merging the change into ours
+// adds nothing where it merges cleanly (resolving every conflict to ours
+// gives ours back), and where it conflicts — an edit of ours next to or
+// over upstream's — ours holds upstream's lines of each block and none of
+// the base's lines upstream removed there. A merge it can't read is no.
+func holdsChange(ours, base, theirs []byte) bool {
+	merged, err := mergeFile(ours, base, theirs)
+	if err != nil {
+		return false
+	}
+	if bytes.Equal(merged, ours) {
+		return true
+	}
+	if side, ok := conflictSide(merged, sideOurs); !ok || !bytes.Equal(side, ours) {
+		return false // a change that merged cleanly is not ours yet, or the markers don't pair up
+	}
+	blocks, ok := conflictBlocks(merged)
+	if !ok {
+		return false
+	}
+	for _, b := range blocks {
+		if !subsequence(b[sideTheirs], b[sideOurs]) {
+			return false
+		}
+		for _, l := range b[sideBase] {
+			if !slices.Contains(b[sideTheirs], l) && slices.Contains(b[sideOurs], l) {
+				return false // a line upstream removed is still there
+			}
+		}
+	}
+	return true
+}
+
+// conflictBlocks are merged's conflict blocks (--diff3), each its three
+// sides' lines; ok is false when the markers don't pair up.
+func conflictBlocks(merged []byte) ([][3][]string, bool) {
+	var out [][3][]string
+	var cur [3][]string
+	in := -1
+	for _, ln := range strings.SplitAfter(string(merged), "\n") {
+		switch {
+		case isMarker(ln, "<<<<<<<") && in == -1:
+			in, cur = sideOurs, [3][]string{}
+			continue
+		case isMarker(ln, "|||||||") && in == sideOurs:
+			in = sideBase
+			continue
+		case isMarker(ln, "=======") && (in == sideOurs || in == sideBase):
+			in = sideTheirs
+			continue
+		case isMarker(ln, ">>>>>>>") && in == sideTheirs:
+			out, in = append(out, cur), -1
+			continue
+		case isMarker(ln, "<<<<<<<"), isMarker(ln, ">>>>>>>"):
+			return nil, false
+		}
+		if in != -1 {
+			cur[in] = append(cur[in], strings.TrimRight(ln, "\n"))
+		}
+	}
+	return out, in == -1
+}
+
+// subsequence reports whether every line of want appears in have, in order.
+func subsequence(want, have []string) bool {
+	i := 0
+	for _, l := range have {
+		if i < len(want) && l == want[i] {
+			i++
+		}
+	}
+	return i == len(want)
 }
