@@ -73,13 +73,14 @@ async function agentEffort(browser) {
       'the form says what it will save');
     await shot(page, `agent-effort-describe-${THEME}`, { fullPage: false });
     await page.click('bx-llm-upstreams button[data-describe-save]');
-    await page.waitForFunction(() => /Medium · High · Extra high \(can be off\) · from the admin/.test(document.querySelector('bx-llm-upstreams')?.shadowRoot?.querySelector('[data-reason-line="gpt-5-fake"]')?.textContent || ''), null, { timeout: 15000, polling: 100 });
+    // (the element is inside the page's own shadow root: Playwright's selectors pierce it, document.querySelector doesn't)
+    const lineIs = async (m, re) => { for (const t0 = Date.now(); Date.now() - t0 < 15000; await sleep(100)) if (re.test(await lineOf(m).catch(() => ''))) return true; return false; };
+    check(await lineIs('gpt-5-fake', /Medium · High · Extra high \(can be off\) · from the admin/), `saved: the line follows (${await lineOf('gpt-5-fake')})`);
     const described = (await (await api('GET', '/llm/v1/models')).json()).data.find((m) => m.id === UNDESCRIBED)?.effort;
     check(JSON.stringify(described?.supported_levels) === '["medium","high","xhigh"]' && described?.can_disable === true && described?.source === 'admin',
       `described: on the model list (${JSON.stringify(described)})`);
     await page.click('bx-llm-upstreams button[data-forget="gpt-5-fake"]');
-    await page.waitForFunction(() => /not described/.test(document.querySelector('bx-llm-upstreams')?.shadowRoot?.querySelector('[data-reason-line="gpt-5-fake"]')?.textContent || ''), null, { timeout: 15000, polling: 100 });
-    check(true, 'forget: not described again');
+    check(await lineIs('gpt-5-fake', /not described/), 'forget: not described again');
 
     // an agent instance of its own, on the connector
     r = await api('POST', '/templates/new', { source: 'agent', path: TILE, partition: false });
