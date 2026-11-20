@@ -156,26 +156,88 @@ func effortWord(w string) string {
 // but xbin's table knows its maker's levels (GET /v1/models
 // xbin_effort_suggestion): "not described — xbin knows the maker's levels:
 // Low · High · Max (default High) — to use them: bx llm upstream set <u>
-// --reasoning <model>=low,high,max/high". "" when s is no record.
+// --reasoning '<model>=maker'" (reasoningValue: the same record /xbin/llm's
+// "Use these" stores). "" when s is no record.
 func suggestLine(id string, s *llmEffort) string {
 	s = s.valid()
 	if s == nil || s.Levels == nil || len(*s.Levels) == 0 {
 		return ""
 	}
-	words, spec := make([]string, 0, len(*s.Levels)), make([]string, 0, len(*s.Levels)+1)
-	if s.CanDisable != nil && *s.CanDisable {
-		spec = append(spec, "none")
-	}
+	words := make([]string, 0, len(*s.Levels))
 	for _, l := range *s.Levels {
-		words, spec = append(words, effortWord(l)), append(spec, l)
+		words = append(words, effortWord(l))
 	}
-	def, defSpec := "", ""
+	def := ""
 	if s.Default != "" {
-		def, defSpec = fmt.Sprintf(" (default %s)", effortWord(s.Default)), "/"+s.Default
+		def = fmt.Sprintf(" (default %s)", effortWord(s.Default))
 	}
 	up, model, _ := strings.Cut(id, "/")
-	return fmt.Sprintf("Reasoning: not described — xbin knows the maker's levels: %s%s — to use them: bx llm upstream set %s --reasoning '%s=%s%s'",
-		strings.Join(words, " · "), def, up, model, strings.Join(spec, ","), defSpec)
+	return fmt.Sprintf("Reasoning: not described — xbin knows the maker's levels: %s%s — to use them: bx llm upstream set %s --reasoning '%s=maker'",
+		strings.Join(words, " · "), def, up, model)
+}
+
+// reasoningValue is one --reasoning value as the API takes it: "maker" is
+// the record xbin's table has of the model on its maker's API (its
+// xbin_effort_suggestion on GET /v1/models) — the same record /xbin/llm's
+// "Use these" stores, aliases and all; anything else, reasoningSpec.
+func reasoningValue(upstream, model, v string) (any, error) {
+	if v != "maker" {
+		return reasoningSpec(v)
+	}
+	var out struct {
+		Data []struct {
+			ID      string          `json:"id"`
+			Suggest json.RawMessage `json:"xbin_effort_suggestion"`
+		} `json:"data"`
+	}
+	if err := llmCall("GET", "/api/xbin/llm/v1/models", nil, &out, nil); err != nil {
+		return nil, err
+	}
+	for _, m := range out.Data {
+		if m.ID != upstream+"/"+model || len(m.Suggest) == 0 {
+			continue
+		}
+		var s struct {
+			Levels     []string          `json:"supported_levels"`
+			Default    string            `json:"default_level"`
+			CanDisable *bool             `json:"can_disable"`
+			Aliases    map[string]string `json:"aliases"`
+		}
+		if json.Unmarshal(m.Suggest, &s) != nil {
+			break
+		}
+		return makerRecord(s.Levels, s.Default, s.CanDisable, s.Aliases), nil
+	}
+	return nil, fmt.Errorf("xbin knows no maker's levels for %s on %s (bx llm models says which models it does)", model, upstream)
+}
+
+// makerRecord is the record a suggestion makes — as web/llm-kit.js
+// suggestRecord: its ladder levels, whether it can be off, a default it
+// has, its aliases onto its levels.
+func makerRecord(levels []string, def string, canDisable *bool, aliases map[string]string) map[string]any {
+	ls := []string{}
+	for _, l := range levels {
+		if slicesIndex(effortLadder, l) > 0 && slicesIndex(ls, l) < 0 {
+			ls = append(ls, l)
+		}
+	}
+	rec := map[string]any{"supported_levels": ls}
+	if canDisable != nil {
+		rec["can_disable"] = *canDisable
+	}
+	if slicesIndex(ls, def) >= 0 || (def == "none" && canDisable != nil && *canDisable) {
+		rec["default_level"] = def
+	}
+	al := map[string]string{}
+	for from, to := range aliases {
+		if slicesIndex(effortLadder, from) > 0 && slicesIndex(ls, to) >= 0 {
+			al[from] = to
+		}
+	}
+	if len(al) > 0 {
+		rec["aliases"] = al
+	}
+	return rec
 }
 
 func llmModelsCmd(jsonOut bool) error {
@@ -224,14 +286,19 @@ func llmModelsCmd(jsonOut bool) error {
 // llmReplayOff is one model whose reasoning a translated call no longer
 // sends back: its upstream refused the field (D249).
 type llmReplayOff struct {
-	Since time.Time `json:"since"`
-	Field string    `json:"field"`
+	Since   time.Time `json:"since"`
+	Field   string    `json:"field"`
+	Callers int       `json:"callers"`
 }
 
 func printReplayOff(u llmUpstream) {
 	for _, m := range llmKeys(u.ReplayOff) {
 		r := u.ReplayOff[m]
-		fmt.Printf("    %s: replay off since %s — the upstream refused %s (bx llm upstream replay-reset %s %s)\n", m, r.Since.Local().Format("2006-01-02 15:04"), r.Field, u.Name, m)
+		callers := "1 caller"
+		if r.Callers > 1 {
+			callers = fmt.Sprintf("%d callers", r.Callers)
+		}
+		fmt.Printf("    %s: replay off for %s since %s — the upstream refused %s (bx llm upstream replay-reset %s %s)\n", m, callers, r.Since.Local().Format("2006-01-02 15:04"), r.Field, u.Name, m)
 	}
 }
 

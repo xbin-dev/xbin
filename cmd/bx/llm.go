@@ -32,11 +32,12 @@ const llmUsage = `  bx llm [status] [--json]              the LLM connector: ups
                                         every model the upstream has no price for
   bx llm upstream set <name> [--url <u>] [--key…|--no-key] [--models a,b|--any-model]
                  [--private|--public] [--price …] [--responses-via auto|upstream|chat]
-                 [--reasoning <model>=openai|toggle|deepseek|none|<levels>[/<default>]|-]…
+                 [--reasoning <model>=openai|toggle|deepseek|none|maker|<levels>[/<default>]|-]…
                                         --reasoning describes a model's reasoning effort (or a
                                         family: 'deepseek*=deepseek'): a preset, or the levels it
                                         takes ('none,medium,high,xhigh/high' — none: it can be
-                                        turned off; /high: its default); - forgets it
+                                        turned off; /high: its default); maker: the levels xbin
+                                        knows of it on its maker's API; - forgets it
   bx llm upstream rm <name> | test <name> [<model>] | replay-reset <name> [<model>]
   bx llm models [--json]                the models offered (<upstream>/<model>, aliases),
                                         each with its reasoning effort when described
@@ -546,7 +547,7 @@ func llmUpstreamCmd(args []string) error {
 				if !ok || model == "" || preset == "" {
 					return fmt.Errorf("--reasoning %q: want <model>=<preset> (openai, toggle, deepseek, none) or <model>=- to forget it", spec)
 				}
-				switch r, err := reasoningSpec(preset); {
+				switch r, err := reasoningValue(pos[0], model, preset); {
 				case err != nil:
 					return fmt.Errorf("--reasoning %q: %v", spec, err)
 				default:
