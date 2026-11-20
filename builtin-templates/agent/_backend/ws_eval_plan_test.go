@@ -237,6 +237,10 @@ func TestWsEvalPlanLineRefusedAtApply(t *testing.T) {
 	f.on(forRun(s.Run, lastTool("plan_propose")), say("One plan waits for you.")).once()
 	fx.say(t, s, "Make a tool that rolls dice and give it to a new assistant")
 	fx.idle(t, s)
+	// the tool's own answer first: a plan that isn't there says why (it was "no plan waits" once, under -race)
+	if got := fx.toolResult(t, s, "plan_propose"); !strings.Contains(got, "Proposed as one plan; nothing is applied.") {
+		t.Fatalf("plan_propose didn't propose the plan: %s", got)
+	}
 	cs := planOf(t, fx)
 
 	// while the plan waits, its steps are not filed one by one
@@ -303,6 +307,9 @@ func TestWsEvalPlanLineRefusedAtApply(t *testing.T) {
 		t.Errorf("the decided plan is not among the cards: %+v", cards.Requests)
 	}
 	// the new plan names what the first one made, and creates nothing twice
+	if got := fx.toolResult(t, s, "plan_propose"); !strings.Contains(got, "Proposed as one plan; nothing is applied.") || !strings.Contains(got, `"The assistant, again"`) {
+		t.Fatalf("plan_propose didn't propose the new plan: %s", got)
+	}
 	next := planOf(t, fx)
 	if len(next.Items) != 2 || next.Items[1].Line != "Bind apps/helper's mcp to apps/dice" || len(next.Items[1].Needs) != 1 {
 		t.Fatalf("the new plan: %+v", next.Items)
