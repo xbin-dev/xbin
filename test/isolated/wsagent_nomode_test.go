@@ -5,20 +5,22 @@ package isolated
 // wsagent_nomode_test.go — a plan starts a coding agent whose catalog
 // entry names no default mode, for real: the scripted coding agent stands
 // in for one (sdk/acp's Fake), on an xbind as an install runs one. Three
-// shapes (D250; its re-review):
+// shapes (D250; its re-review; D251):
 //
 //   - no default mode, one asking mode it lists (--no-default-mode): the
-//     line shows that mode, asking; the open puts the session IN it — the
+//     line shows its work mode, "auto", which acts without asking — a
+//     fact, no warning (D251) — and the session runs in it, asking its
+//     person nothing; "start without asking" doesn't start it there (no
+//     sheet, no mode that acts without asking), and starts it once the
+//     person names the asking mode — the open puts the session IN it: the
 //     agent opens in another (--start-mode=auto) and is switched before
-//     the brief goes (a delegate's start is strict) — so the session's
-//     reported mode is the asking one, and it asks its person; the
-//     person's "start without asking" preference may start it, in it;
-//   - an agent that refuses that switch (--refuse-mode): the start fails,
-//     and the brief never reaches it in its own mode;
+//     the brief goes (a delegate's start is strict);
+//   - an agent that refuses that switch (--refuse-mode), the line in the
+//     asking mode the agent suggested: the start fails, and the brief
+//     never reaches it in its own mode;
 //   - no mode that asks at all (--no-asking-mode: OpenCode's shape): the
-//     line shows no mode, is warned ACTS WITHOUT ASKING and not asking —
-//     the review starts a warned line unticked — and ticked, it opens in
-//     its own mode; the preference never starts it.
+//     line shows its work mode, not asking, an ordinary line (D251) — and
+//     ticked, it opens in it; the preference never starts it.
 
 import (
 	"encoding/json"
@@ -35,7 +37,7 @@ import (
 // proposed. chosen: ada chose it for the tile herself first — a coding
 // agent with no mode that asks is never taken from the agent's suggestion
 // (D250 review M2), only from its person's own choice (re-review item 3).
-func noModeEnv(t *testing.T, chosen bool, args ...string) (*wsEnv, *wsConv, wsPlanSet) {
+func noModeEnv(t *testing.T, chosen bool, mode string, args ...string) (*wsEnv, *wsConv, wsPlanSet) {
 	t.Helper()
 	e := startWsAgentAt(t, wsNoteTile, args...)
 	d := e.d
@@ -67,8 +69,12 @@ func noModeEnv(t *testing.T, chosen bool, args ...string) (*wsEnv, *wsConv, wsPl
 	if chosen {
 		d.Must(t, "PUT", "/api/xbin/agent/prefs", map[string]any{"agentSessions": map[string]any{"tiles": map[string]any{wsNoteTile: map[string]any{"harness": "fake"}}}}, 200, e.as(wsAdmin)...)
 	}
+	line := map[string]any{"tile": wsNoteTile, "harness": "fake", "goal": "fakeacp-steps: ls", "done_when": "the files are listed"}
+	if mode != "" {
+		line["mode"] = mode // the agent's suggestion: the line's mode (D251)
+	}
 	plan, _ := json.Marshal(map[string]any{"title": "List the note tile", "changes": []any{
-		map[string]any{"kind": "agent.start", "args": map[string]any{"tile": wsNoteTile, "harness": "fake", "goal": "fakeacp-steps: ls", "done_when": "the files are listed"}, "why": "A coding agent looks"},
+		map[string]any{"kind": "agent.start", "args": line, "why": "A coding agent looks"},
 	}})
 	turn := ada.say("ws: plan_propose " + string(plan))
 	if got := turn.tool("plan_propose", 0); !strings.Contains(got, "Proposed as one plan") {
@@ -130,8 +136,9 @@ func (e *wsEnv) runsPlanStart(t *testing.T, cs wsPlanSet) (wsTileSession, int) {
 }
 
 // unasked is the same start with no ticket — refused with no preference —
-// then under ada's "start without asking" preference: its answer then.
-func (e *wsEnv) unasked(t *testing.T, ada *wsConv, sessAPI string) wsDelegateCall {
+// then under ada's "start without asking" preference (with modes, the
+// modes she named for agent-started sessions): its answer then.
+func (e *wsEnv) unasked(t *testing.T, ada *wsConv, sessAPI string, modes map[string]any) wsDelegateCall {
 	t.Helper()
 	start := `POST /api/xbin/term/sessions {"kind":"agent","cwd":"` + wsNoteTile + `","provider":"fake","prompt":"ls"}`
 	got := e.asDelegate(wsAdmin, ada.handle, "GET "+sessAPI, start)
@@ -141,29 +148,37 @@ func (e *wsEnv) unasked(t *testing.T, ada *wsConv, sessAPI string) wsDelegateCal
 	if got[1].Status != 403 || !strings.Contains(got[1].Body, "needs-approval") {
 		t.Fatalf("a start with no ticket and no preference: %d %s, want 403 needs-approval", got[1].Status, got[1].Body)
 	}
-	e.d.Must(t, "PUT", "/api/xbin/agent/prefs", map[string]any{"agentSessions": map[string]any{"start": "allow"}}, 200, e.as(wsAdmin)...)
+	pref := map[string]any{"start": "allow"}
+	if modes != nil {
+		pref["modes"] = modes
+	}
+	e.d.Must(t, "PUT", "/api/xbin/agent/prefs", map[string]any{"agentSessions": pref}, 200, e.as(wsAdmin)...)
 	got = e.asDelegate(wsAdmin, ada.handle, "GET "+sessAPI, start)
 	t.Logf("the start under the preference: %d %s", got[1].Status, got[1].Body)
 	return got[1]
 }
 
 // A coding agent with no default mode that lists one asking mode: shown,
-// opened and run in it — put there before its brief, though it opens in
-// another.
+// opened and run in its work mode, which acts without asking (D251) — and
+// put in its asking mode before its brief when its person's preference
+// names it, though it opens in another.
 func TestWorkspaceAgentStartsAHarnessWithNoDefaultMode(t *testing.T) {
-	e, ada, cs := noModeEnv(t, false, "--no-default-mode", "--auto-mode", "--start-mode=auto")
+	e, ada, cs := noModeEnv(t, false, "", "--no-default-mode", "--auto-mode", "--start-mode=auto")
 	it := cs.Items[0]
-	if it.Start.Mode != "ask" || !it.Start.Asks || !strings.Contains(it.Line, `in its mode "ask", which asks before it edits or runs anything`) || len(it.Warnings) != 0 {
-		t.Fatalf("the start line of a coding agent with no default mode and an asking one: %+v — want it shown in its asking mode, asking, no warning", it)
+	if it.Start.Mode != "auto" || it.Start.Asks || !strings.Contains(it.Line, `in its mode "auto", which acts without asking`) || len(it.Warnings) != 0 {
+		t.Fatalf("the start line of a coding agent with no default mode: %+v — want it shown in its work mode, acting without asking, no warning", it)
 	}
 	mine, answers := e.runsPlanStart(t, cs)
-	// the agent opened in "auto"; the open put it in "ask" before the brief went, and it asked its person
-	if mine.Mode != "ask" || answers == 0 {
-		t.Fatalf("the session the plan opened: mode %q, %d questions to its person — want it in the asking mode it was shown, asking", mine.Mode, answers)
+	if mine.Mode != "auto" || answers != 0 {
+		t.Fatalf("the session the plan opened: mode %q, %d questions to its person — want it in its work mode, asking nothing", mine.Mode, answers)
 	}
-	// the preference may start it: in its asking mode
-	if got := e.unasked(t, ada, "/api/xbin/term/sessions/"+mine.ID); got.Status != 200 {
-		t.Fatalf("a start under ada's \"start without asking\" preference: %d %s — want it opened, in its asking mode", got.Status, got.Body)
+	// "start without asking" with no mode named: a start that would act without asking goes to the sheet (D251)
+	if got := e.unasked(t, ada, "/api/xbin/term/sessions/"+mine.ID, nil); got.Status != 403 || !strings.Contains(got.Body, "every start is approved on the sheet") {
+		t.Fatalf("a start under ada's preference, no mode named: %d %s — want it refused to the sheet", got.Status, got.Body)
+	}
+	// …and with the asking mode named, it starts — in that mode, put there before the brief
+	if got := e.unasked(t, ada, "/api/xbin/term/sessions/"+mine.ID, map[string]any{"fake": "ask"}); got.Status != 200 {
+		t.Fatalf("a start under ada's preference in the asking mode: %d %s — want it opened, in its asking mode", got.Status, got.Body)
 	}
 	xbindtest.Eventually(t, time.Minute, "the start under the preference is up, in the asking mode", func() (bool, string) {
 		ss := e.tileAgents(wsAdmin)
@@ -176,12 +191,12 @@ func TestWorkspaceAgentStartsAHarnessWithNoDefaultMode(t *testing.T) {
 	})
 }
 
-// One that refuses to be put in that mode: the start fails, and its brief
-// never reaches it in its own.
+// One that refuses to be put in the mode its line shows: the start fails,
+// and its brief never reaches it in its own.
 func TestWorkspaceAgentHarnessRefusingItsAskingModeNeverGetsTheBrief(t *testing.T) {
-	e, _, cs := noModeEnv(t, false, "--no-default-mode", "--auto-mode", "--start-mode=auto", "--refuse-mode")
+	e, _, cs := noModeEnv(t, false, "ask", "--no-default-mode", "--auto-mode", "--start-mode=auto", "--refuse-mode")
 	if it := cs.Items[0]; it.Start.Mode != "ask" || !it.Start.Asks {
-		t.Fatalf("the start line: %+v, want it in its asking mode", it)
+		t.Fatalf("the start line: %+v, want it in the asking mode the agent suggested", it)
 	}
 	var done wsPlanSet
 	e.d.Must(t, "POST", "/api/xbin/delegate/changesets/"+cs.ID+"/approve", map[string]any{"items": []int{1}}, 200, e.as(wsAdmin)...).Decode(t, &done)
@@ -201,22 +216,21 @@ func TestWorkspaceAgentHarnessRefusingItsAskingModeNeverGetsTheBrief(t *testing.
 	}
 }
 
-// One with no mode that asks at all (OpenCode's shape): warned, unticked
-// on the review, opened in its own mode when ticked; never by the
-// preference.
+// One with no mode that asks at all (OpenCode's shape): an ordinary line
+// (D251), opened in its own mode when ticked; never by the preference.
 func TestWorkspaceAgentStartsAHarnessWithNoAskingMode(t *testing.T) {
-	e, ada, cs := noModeEnv(t, true, "--no-asking-mode", "--auto-mode", "--start-mode=auto")
+	e, ada, cs := noModeEnv(t, true, "", "--no-asking-mode", "--auto-mode", "--start-mode=auto")
 	it := cs.Items[0]
-	if it.Start.Mode != "" || it.Start.Asks || !strings.Contains(it.Line, "in its own default mode") ||
-		len(it.Warnings) != 1 || !strings.HasPrefix(it.Warnings[0], "ACTS WITHOUT ASKING: Fake agent (tests) has no mode that asks before it acts") {
-		t.Fatalf("the start line of a coding agent with no mode that asks: %+v — want it shown with no mode, not asking, warned ACTS WITHOUT ASKING (the review starts a warned line unticked)", it)
+	// (the scripted agent lists its modes, so its work mode is its own "auto"; OpenCode lists none: no mode named)
+	if it.Start.Mode != "auto" || it.Start.Asks || !strings.Contains(it.Line, `in its mode "auto", which acts without asking`) || len(it.Warnings) != 0 {
+		t.Fatalf("the start line of a coding agent with no mode that asks: %+v — want it shown in its work mode, not asking, no warning (D251)", it)
 	}
 	mine, _ := e.runsPlanStart(t, cs)
 	if mine.Mode != "auto" {
 		t.Fatalf("the session the plan opened: mode %q — want the one it opens in itself", mine.Mode)
 	}
-	got := e.unasked(t, ada, "/api/xbin/term/sessions/"+mine.ID)
-	if got.Status != 403 || !strings.Contains(got.Body, "acts without asking, so every start is approved on the sheet") {
+	got := e.unasked(t, ada, "/api/xbin/term/sessions/"+mine.ID, nil)
+	if got.Status != 403 || !strings.Contains(got.Body, "every start is approved on the sheet") {
 		t.Fatalf("a start under ada's \"start without asking\" preference: %d %s — want it refused: no mode of this coding agent asks", got.Status, got.Body)
 	}
 	if n := len(e.tileAgents(wsAdmin)); n != 1 {

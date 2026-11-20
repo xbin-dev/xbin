@@ -217,12 +217,12 @@ func TestWorkspaceAgent(t *testing.T) {
 		d.Must(t, "GET", briefAPI+"/start-defaults", nil, 200, alice.fr).Decode(t, &sd)
 		offered, fakeName := false, "" // the coding agent's name is xbind's: the backend keeps no catalog of them
 		for _, h := range sd.Defaults.Harnesses {
-			if h.ID == "fake" && h.Mode == "ask" && h.Asks && h.NeedsTicket {
+			if h.ID == "fake" && h.Mode == "auto" && !h.Asks && h.NeedsTicket { // its work mode, which acts without asking (D251)
 				offered, fakeName = true, h.Name
 			}
 		}
 		if !offered || sd.Picked != "" || fakeName == "" {
-			t.Fatalf("what the brief's start would run on: %+v, want the fake coding agent offered by name in its asking mode, behind a ticket, and nothing picked yet", sd)
+			t.Fatalf("what the brief's start would run on: %+v, want the fake coding agent offered by name in its work mode, behind a ticket, and nothing picked yet", sd)
 		}
 		// … and it is xbind's own answer, as alice's session reads the same catalog
 		var provs []struct{ ID, Name string }
@@ -236,8 +236,8 @@ func TestWorkspaceAgent(t *testing.T) {
 		d.Must(t, "PUT", briefAPI, map[string]any{"harness": "fake"}, 200, alice.fr)
 		sd = startDefaults{}
 		d.Must(t, "GET", briefAPI+"/start-defaults", nil, 200, alice.fr).Decode(t, &sd)
-		if sd.Picked != "fake" || sd.Harness != "fake" || sd.Mode != "ask" || !sd.Asks || !sd.Ticket || sd.HarnessName != fakeName || !strings.HasPrefix(sd.Line, fakeName+" · asks") {
-			t.Fatalf("the start after alice's pick: %+v, want the fake coding agent by xbind's name for it (%q), asking, behind a ticket", sd, fakeName)
+		if sd.Picked != "fake" || sd.Harness != "fake" || sd.Mode != "auto" || sd.Asks || !sd.Ticket || sd.HarnessName != fakeName || !strings.HasPrefix(sd.Line, fakeName+" · acts without asking") {
+			t.Fatalf("the start after alice's pick: %+v, want the fake coding agent by xbind's name for it (%q), in its work mode (D251), behind a ticket", sd, fakeName)
 		}
 
 		turn = alice.say(fmt.Sprintf(`ws: tile_agent_start {"brief": %d}`, brief))
@@ -250,15 +250,18 @@ func TestWorkspaceAgent(t *testing.T) {
 		}
 		ref, startReq, startCall := cards.Requests[0].Ref, cards.Requests[0].ID, cards.Requests[0].CallID
 		req := e.request("alice", ref)
-		if s := req.Preview.Session; req.Kind != "session" || s.Tile != wsNoteTile || s.Provider != "fake" || !s.Asks || s.Mode != "ask" ||
+		if s := req.Preview.Session; req.Kind != "session" || s.Tile != wsNoteTile || s.Provider != "fake" || s.Asks || s.Mode != "auto" ||
 			!strings.Contains(s.Prompt, "Goal: List what is in the tile") {
-			t.Fatalf("the start as xbind shows it to alice: %+v, want the fake coding agent in its asking mode with the brief as its first prompt", req)
+			t.Fatalf("the start as xbind shows it to alice: %+v, want the fake coding agent in its work mode (D251) with the brief as its first prompt", req)
 		}
 		if got := e.tileAgents("alice"); len(got) != 0 {
 			t.Fatalf("a tile agent runs before alice approved its start: %+v", got)
 		}
 		started := alice.last()
-		d.Must(t, "POST", "/api/xbin/delegate/requests/"+ref+"/approve", map[string]any{"grant": "once"}, 200, e.as("alice")...)
+		// alice picks the mode that asks before acting, on the approval — a mode is a choice like any other (D251)
+		pick := map[string]any{"grant": "once", "harness": "fake", "mode": "ask", "knows": []string{"continue"},
+			"seen": map[string]string{"signInId": req.Preview.Session.SignInID, "net": req.Preview.Session.Net}}
+		d.Must(t, "POST", "/api/xbin/delegate/requests/"+ref+"/approve", pick, 200, e.as("alice")...)
 		approved := time.Now()
 
 		// the session: alice's, in the tile, asking, marked as started by her agent

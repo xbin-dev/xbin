@@ -6114,7 +6114,9 @@ session to avoid an approval):
 `apps/<slug>`; later lines may use the name or the path), `agent.start`
 with a brief's fields (`{tile, goal, done_when, …}` or `{tile, template:
 "mcp-tool", tool}`; the brief is composed here and is the line's own
-argument, shown by xbin "exactly as sent"), `binding.set`, and
+argument, shown by xbin "exactly as sent"; `harness` and `mode` passed on
+only where the person named them — suggestions the line shows, D251),
+`binding.set`, and
 `admin_propose`'s kinds — `access.set {tile, user, level}` among them, one
 person's own level on a tile (the tile as the map names it; of such a line
 the agent reads its own arguments and the result, never anyone's access),

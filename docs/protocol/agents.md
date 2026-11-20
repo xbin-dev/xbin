@@ -56,7 +56,9 @@ GET    /term/sessions             authenticated. the caller's live terminal
                                    workspace agent opened. ?compact=1: a
                                    short row each — {id, cwd, kind,
                                    provider, mode, status, origin} and,
-                                   for an agent session, pending,
+                                   for an agent session, asks (its
+                                   mode asks its person before it acts:
+                                   D251), pending,
                                    questions, turn (the turn it is on; 0
                                    before its first prompt) and last
                                    (the last line it wrote: in the

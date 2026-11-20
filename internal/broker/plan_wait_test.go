@@ -668,3 +668,42 @@ func TestOnlyAPersonsOwnBindingWaits(t *testing.T) {
 		t.Fatal("nothing waited: the property is checked on nothing")
 	}
 }
+
+// A tile agent that acts without asking (D251) can provide what a waiting
+// line binds before the apply reaches that line: the line is judged as it
+// was approved — a line that waits — and bound at once, if the tile
+// provides exactly that; never stale for being early.
+func TestWaitingLineTheTileAlreadyProvides(t *testing.T) {
+	w := startingWorld(t)
+	_, bob := w.session("bob")
+	w.srv.PlanStarter = func(context.Context, auth.Principal, []byte) (string, int, string) {
+		// the tile's coding agent writes the manifest before the apply reaches the binding
+		w.write(map[string]string{"apps/dice/xbin.json": diceProvides, "apps/dice/backend/main.go": diceMain})
+		w.rescan()
+		return "sess-1", 200, ""
+	}
+	cs := w.plan(t, "bob", waitPlan)
+	done := w.approve(t, cs.ID, `{"items":[1,2,3,4]}`, bob)
+	w.srv.CheckPlanWaits()
+	got := w.set(t, "bob", cs.ID)
+	if results(got) != "applied,applied,applied,applied" || w.binding("apps/assistant", "mcp") != "apps/dice" {
+		t.Fatalf("a binding whose tile provided early: %s (%s; apply answered %s), bound %q", results(got), got.Items[3].Error, results(done), w.binding("apps/assistant", "mcp"))
+	}
+	if ok, refused := w.waitRows(t, "bob", cs.ID); len(ok) != 1 || len(refused) != 0 {
+		t.Fatalf("the log: applied %+v, refused %+v — want one row, of bob's plan", ok, refused)
+	}
+	// …and one that provides something else than was approved is not bound: it waits, as any waiting line does
+	w2 := startingWorld(t)
+	_, bob2 := w2.session("bob")
+	w2.srv.PlanStarter = func(context.Context, auth.Principal, []byte) (string, int, string) {
+		w2.write(map[string]string{"apps/dice/xbin.json": strings.Replace(diceProvides, `"role":"reader"`, `"role":"writer"`, 1), "apps/dice/backend/main.go": diceMain})
+		w2.rescan()
+		return "sess-1", 200, ""
+	}
+	cs2 := w2.plan(t, "bob", waitPlan)
+	w2.approve(t, cs2.ID, `{"items":[1,2,3,4]}`, bob2)
+	w2.srv.CheckPlanWaits()
+	if got := w2.set(t, "bob", cs2.ID); got.Items[3].Result == delegation.ItemApplied || w2.binding("apps/assistant", "mcp") != "" {
+		t.Fatalf("a binding whose tile provided another role early: %s, bound %q", results(got), w2.binding("apps/assistant", "mcp"))
+	}
+}

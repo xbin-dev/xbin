@@ -1983,6 +1983,9 @@ manifest). Without such a start before it, the line is `blocked` as ever.
   rights now, the proposing conversation's scope and hidden tiles, both
   tiles' agent levels, their orgs' agent rules, the account. `result`
   becomes `applied` (with its `inverse`: it can be undone). At most once.
+  A tile that provides it already when Apply reaches the line — its tile
+  agent, acting without asking (D251), was quicker — is judged the same
+  way, at once: never `stale` for being early.
 - **The approved role stays the binding's limit.** The bind reads the
   tile's manifest once more under the lock the binding is written under,
   and records the role with it (`bindingCaps` in the workspace's

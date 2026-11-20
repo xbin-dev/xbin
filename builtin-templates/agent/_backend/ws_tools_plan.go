@@ -40,7 +40,7 @@ func wsPlanTools() []coordTool {
 				"changes": map[string]any{"type": "array", "minItems": 1, "maxItems": 20, "items": obj([]string{"kind", "args", "why"}, map[string]any{
 					"kind": map[string]any{"type": "string", "enum": wsPlanKinds,
 						"description": "tile.create {template, name} — a new tile, your person's (name: \"Dice\" or a path, apps/dice); " +
-							"agent.start {tile, goal, done_when, leave_alone?, check_by?, known?} or {tile, template: \"mcp-tool\", tool: {name, arguments, result}} — a tile agent with that brief (tile: an existing tile, or the path of one this plan creates; harness only when your person named the coding agent: it is theirs to choose); " +
+							"agent.start {tile, goal, done_when, leave_alone?, check_by?, known?} or {tile, template: \"mcp-tool\", tool: {name, arguments, result}} — a tile agent with that brief (tile: an existing tile, or the path of one this plan creates; harness or mode only when your person named one: theirs to choose); " +
 							"binding.set {component, slot, provider} — provider a tile's path, or xbin:llm for the workspace's LLM connector; access.set {tile, user, level} — one person's own level on a tile (user: their account id — account_lookup — or the name your person gave; level none, read, write or terminal: terminal starts unticked); builtin.update {id} — a builtin's update as updates lists it, only the id (an admin's line; xbin applies it only where it merges cleanly, else files it as a proposal on the tile); agent.start {tile, template: \"update\"} — a tile's agent on xbin's brief for its update; and admin_propose's other kinds. " +
 							"A tile that reads another tile's API needs a grant.add {from, target, role} line beside its start: tile_status says when a use is pending"},
 					"args": map[string]any{"type": "object", "description": "the kind's arguments"},
@@ -188,6 +188,7 @@ func wsPlanStart(ctx context.Context, ag *Agent, s *wsSession, args map[string]a
 		Template   string          `json:"template"`
 		Tool       *wsBriefToolAsk `json:"tool"`
 		Harness    string          `json:"harness"` // only what the person named: xbind resolves it otherwise
+		Mode       string          `json:"mode"`    // the same: a suggestion the line shows (D251), never a bypass one
 	}
 	if err := coordArgs(args, &a); err != nil {
 		return nil, "", err
@@ -236,6 +237,9 @@ func wsPlanStart(ctx context.Context, ag *Agent, s *wsSession, args map[string]a
 	}
 	if h := strings.TrimSpace(a.Harness); h != "" {
 		line["harness"] = h
+	}
+	if m := strings.TrimSpace(a.Mode); m != "" {
+		line["mode"] = m
 	}
 	return line, tile, nil
 }

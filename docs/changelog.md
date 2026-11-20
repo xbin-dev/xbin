@@ -29,7 +29,11 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   no sign-in tick (`seen` now names a continue's `harness` and `mode`: a
   changed session is `409 {changed: "session", reload}`); a continue or a
   message can be sent from its row in Waiting for you. `preview.message`
-  carries the session's `signInId`/`signInName`. Nothing to change: a
+  carries the session's `signInId`/`signInName`. A plan's binding line
+  that waits for a tile whose agent already provides it when Apply
+  reaches the line is judged as a waiting line at once — bound if it is
+  exactly what was approved — instead of `stale`; the agent template's
+  `plan_propose` passes a `mode` the person named. Nothing to change: a
   person with an asking mode chosen keeps it; one with none now sees "acts
   without asking" on each start.
 - workspace agent: **one approval, one place; a start is the person's

@@ -91,9 +91,9 @@ func TestWorkspaceAgentPlan(t *testing.T) {
 			t.Fatalf("ada's change sets: %+v, want one plan of two lines", all)
 		}
 		cs := all[0]
-		if l := cs.Items[1]; cs.Items[0].Admin || l.Admin || !l.Deferred || len(l.Needs) != 1 || l.Needs[0] != 1 || l.Start.Provider != "fake" || !l.Start.Asks || l.Start.Tile != made ||
-			!strings.Contains(l.Start.Prompt, "List what is in the tile") {
-			t.Fatalf("the plan as xbind describes it: %+v, want two personal lines, the start deferred on line 1 with the fake coding agent in a mode that asks", cs.Items)
+		if l := cs.Items[1]; cs.Items[0].Admin || l.Admin || !l.Deferred || len(l.Needs) != 1 || l.Needs[0] != 1 || l.Start.Provider != "fake" || l.Start.Mode != "auto" || l.Start.Asks || l.Start.Tile != made ||
+			!strings.Contains(l.Start.Prompt, "List what is in the tile") || len(l.Warnings) != 0 {
+			t.Fatalf("the plan as xbind describes it: %+v, want two personal lines, the start deferred on line 1 with the fake coding agent in its work mode, which acts without asking — an ordinary line (D251)", cs.Items)
 		}
 		if r := d.Call(t, "GET", "/api/xbin/components", nil, e.as(wsAdmin)...); strings.Contains(r.String(), `"`+made+`"`) || len(e.tileAgents(wsAdmin)) != 0 {
 			t.Fatalf("proposing made the tile or started something: %v", e.tileAgents(wsAdmin))
@@ -112,7 +112,8 @@ func TestWorkspaceAgentPlan(t *testing.T) {
 		if r := d.Must(t, "GET", "/api/xbin/components", nil, 200, e.as(wsAdmin)...).String(); !strings.Contains(r, `"`+made+`"`) {
 			t.Errorf("the tile %s is not among the components", made)
 		}
-		// the tile agent runs in the tile the same plan made: ada's session, asking, started by her agent
+		// the tile agent runs in the tile the same plan made: ada's session, started by her agent — the scripted agent's
+		// work mode still asks before a command, as Gemini CLI's autoEdit does
 		var sess wsTileSession
 		xbindtest.Eventually(t, 2*time.Minute, "the tile agent in "+made+" asks ada for a permission", func() (bool, string) {
 			got := e.tileAgents(wsAdmin)

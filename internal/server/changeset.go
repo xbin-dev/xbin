@@ -555,6 +555,16 @@ func (s *Server) applyChangeSet(ctx context.Context, approver auth.Principal, cs
 			it.Result, it.Error = delegation.ItemFailed, pv.Blocked
 		case cs.Plan && cs.From == "" && !it.Admin && pv.Admin:
 			it.Result, it.Error = delegation.ItemFailed, "this now takes an admin's rights — it was yours to do when it was proposed: nothing was applied; ask your agent to propose it again"
+		case cs.Plan && cs.From == "" && it.Wait != nil && !it.Admin && pv.Waits == nil:
+			// the tile it waits on provides already: the plan's tile agent, acting without asking (D251), was quicker
+			// than the apply reaching this line. Approved as a line that waits, it is judged as one — by the
+			// watcher, at once (watchWaits): bound if the tile provides exactly what was approved, as any waiting
+			// line is (planwait.go judgeWait) — never stale for being early
+			s.startWaiting(it, pv)
+			s.delegateAudit(delegation.Call{User: cs.User, Agent: cs.Agent, Method: pv.Call.Method, Path: "/api/xbin" + pv.Call.Path, Tile: it.Wait.Component,
+				Class: "changeset:" + it.Kind, Effect: true, Status: http.StatusAccepted, Ticket: cs.ID, Session: cs.Session, Under: "waits", From: cs.From})
+			applied++
+			continue
 		case cs.Plan && lineStale(*it, pv), !cs.Plan && changeBasis(pv) != it.Basis:
 			it.Result, it.Error = delegation.ItemStale, "it changed since the change set was proposed: nothing was applied — ask your agent to propose it again"
 		case it.Wait != nil && (it.Admin || pv.Admin || cs.From != ""):

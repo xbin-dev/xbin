@@ -350,6 +350,10 @@ func TestAgentQueuedMessageIsMarkedAsTheAgents(t *testing.T) {
 	if rec := w.do(w.full, "POST", "/api/xbin/term/sessions", body, alice, header(HeaderTicket, req.ID)); rec.Code != 200 || json.Unmarshal(rec.Body.Bytes(), &a) != nil {
 		t.Fatalf("the start: %d %s", rec.Code, rec.Body.String())
 	}
+	// the agent's read of its sessions says this one's mode asks (D251: what the workspace agent goes by)
+	if rec := w.do(w.full, "GET", "/api/xbin/term/sessions?origin=agent&compact=1", "", alice); !strings.Contains(rec.Body.String(), `"asks":true`) {
+		t.Fatalf("the compact read of a session in its asking mode: %s", rec.Body.String())
+	}
 	// the brief's own turn over first (xbind hands it the brief once it is up: an idle read can come before that
 	// turn began), then the person's turn, held until they cancel it ("stall": the scripted agent waits for it)
 	turnEnds := func(n int) {

@@ -546,6 +546,7 @@ type wsDefaultsAt struct {
 // caller keeps the one it had, or shows the id), and a mode that isn't the
 // one xbind names for the harness isn't known to ask.
 func (h wsHTTP) named(ctx context.Context, sid string, a wsAgent) wsAgent {
+	said := a.Asks // xbind's own word on the session, where its read carried one (the compact read: D251)
 	a.Name, a.Asks = "", false
 	if a.Provider == "" || a.Tile == "" {
 		return a
@@ -570,7 +571,7 @@ func (h wsHTTP) named(ctx context.Context, sid string, a wsAgent) wsAgent {
 	if hn, ok := d.of(a.Provider); ok {
 		// only the mode xbind names as asking asks (its ask or plan mode); a
 		// session whose mode isn't known isn't known to ask
-		a.Name, a.Asks = orStr(hn.Name, hn.ID), hn.Asks && a.Mode != "" && a.Mode == hn.Mode
+		a.Name, a.Asks = orStr(hn.Name, hn.ID), said || hn.Asks && a.Mode != "" && a.Mode == hn.Mode
 	}
 	return a
 }
@@ -646,9 +647,13 @@ type wsSessionWire struct {
 	ID, Cwd, Kind, Provider, Mode, Status, Origin, Name string
 	Model                                               string
 	Continued                                           bool // a start its person chose to continue this session with (D250)
-	Returned                                            []wsReturned
-	Pending, Questions, Turn                            int
-	Last                                                string
+	// Asks: xbind's word that the session's mode asks its person before it
+	// acts (the compact read's "asks", D251) — the default mode doesn't,
+	// so a session its person put in an asking mode is known by this
+	Asks                     bool
+	Returned                 []wsReturned
+	Pending, Questions, Turn int
+	Last                     string
 	// for an id no longer live (the compact read with ids): status "ended",
 	// and by what — "exit", or "restart" when xbind has no record of an end
 	EndedBy string
@@ -667,7 +672,8 @@ func (w wsSessionWire) endedBy() string {
 // mode asks are not the row's to say: named reads them from xbind.
 func (w wsSessionWire) agent() wsAgent {
 	a := wsAgent{ID: w.ID, Tile: w.Cwd, Provider: w.Provider, Mode: w.Mode, Status: wsAgentStatus(w.Status), Pending: w.Pending, Questions: w.Questions,
-		Turn: w.Turn, Last: w.Last, Origin: w.Origin, Mine: w.Origin == "agent", EndedBy: w.endedBy(), Model: w.Model, Continued: w.Continued, Returned: w.Returned}
+		Turn: w.Turn, Last: w.Last, Origin: w.Origin, Mine: w.Origin == "agent", EndedBy: w.endedBy(), Model: w.Model, Continued: w.Continued, Returned: w.Returned,
+		Asks: w.Asks}
 	if w.Status == "waiting_permission" && !a.waits() {
 		a.Pending = 1
 	}

@@ -33,6 +33,10 @@ func TestAStartActsWithoutAskingAndEveryTextToItIsApproved(t *testing.T) {
 	if info, _ := w.s.Term.Info(a.ID); info.Mode != "auto" {
 		t.Fatalf("it opened in %q, not its work mode", info.Mode)
 	}
+	// the agent's read of its sessions says whether each one's mode asks: this one doesn't
+	if rec := w.do(w.full, "GET", "/api/xbin/term/sessions?origin=agent&compact=1", "", alice); !strings.Contains(rec.Body.String(), `"asks":false`) || strings.Contains(rec.Body.String(), `"asks":true`) {
+		t.Fatalf("the compact read of a session that acts without asking: %s", rec.Body.String())
+	}
 	path := "/api/xbin/term/sessions/" + a.ID + "/prompt"
 	msg := `{"text":"Now add a computer player."}`
 	if rec := w.do(w.full, "POST", path, msg, alice); rec.Code != 403 || !strings.Contains(rec.Body.String(), `"refusal":"mode"`) || !strings.Contains(rec.Body.String(), "file it as a message request") {

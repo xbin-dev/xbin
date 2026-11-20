@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -405,5 +406,20 @@ func TestWsEvalPlanDryRunDescribes(t *testing.T) {
 	}
 	if got := plan("Notes", false); !strings.Contains(got, "Proposed as one plan") || fx.x.count("ProposePlan") != 1 || len(fx.x.sets) != 1 {
 		t.Fatalf("proposing it: %s (%v)", got, fx.x.calls)
+	}
+}
+
+// A plan's agent.start line carries the coding agent and the mode only
+// where the agent passed them — what its person named; a mode is a
+// suggestion the line shows, as tile_agent_start's (D251).
+func TestWsPlanStartNamesOnlyWhatWasNamed(t *testing.T) {
+	made := map[string]string{"dice": "apps/dice"}
+	line, tile, err := wsPlanStart(context.Background(), nil, &wsSession{}, map[string]any{"tile": "Dice", "goal": "g", "done_when": "d", "harness": "codex", "mode": "read-only"}, made)
+	if err != nil || tile != "apps/dice" || line["harness"] != "codex" || line["mode"] != "read-only" {
+		t.Fatalf("a line whose coding agent and mode the person named: %v %v (%v)", line, tile, err)
+	}
+	line, _, err = wsPlanStart(context.Background(), nil, &wsSession{}, map[string]any{"tile": "Dice", "goal": "g", "done_when": "d"}, made)
+	if _, named := line["mode"]; err != nil || named || line["harness"] != nil {
+		t.Fatalf("a line that named nothing: %v (%v)", line, err)
 	}
 }
