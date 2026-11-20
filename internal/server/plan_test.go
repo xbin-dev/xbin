@@ -299,6 +299,11 @@ func TestPlanStartUsesOnlyTheSignInItsLineNamed(t *testing.T) {
 			t.Error("a plan's start reached the open with no authorisation")
 			return "", 500, "no authorisation"
 		}
+		if !d.Picked {
+			// unpicked, the open runs what the body names — the agent's suggestion — not the reviewed line (D250 review
+			// H1; this stub reads no further than the authorisation: TestPlanStartRunsTheReviewedLine opens for real)
+			t.Errorf("a plan's start reached the open unpicked: %+v", *d)
+		}
 		opened = append(opened, *d)
 		return "sess", 200, ""
 	}

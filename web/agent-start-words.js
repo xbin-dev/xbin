@@ -113,7 +113,9 @@ export function startView(req, pick) {
   const c = s.continue && s.continue.session ? s.continue : null;
   const continuing = !!(c && pick.cont && pick.harness === c.provider);
   const changed = (f) => pick.changed.includes(f);
-  const fromWords = (f) => FROM[changed(f) ? 'you' : from[f]] || '';
+  // a field the person changed is theirs; one a coding agent they switched to reset is its default — not theirs (so
+  // not what Remember keeps: the server's rule, D250 review M1) and no longer what the first chain said
+  const fromWords = (f) => FROM[changed(f) ? 'you' : (pick.defaulted || []).includes(f) ? 'default' : from[f]] || '';
   const pickers = [];
   if (!continuing && hs.length) {
     const hNot = s.harnessNotTaken && pick.harness !== s.harnessNotTaken ? hs.find((x) => x.id === s.harnessNotTaken) : null;
@@ -158,11 +160,11 @@ export function startView(req, pick) {
 
 /** choose(pick, req, field, value): the pick after the person changed one picker — a coding agent changed resets its model and mode to its own defaults. */
 export function choose(pick, req, field, value) {
-  const next = { ...pick, changed: [...new Set([...pick.changed, field])] };
+  const next = { ...pick, changed: [...new Set([...pick.changed, field])], defaulted: (pick.defaulted || []).filter((f) => f !== field) };
   if (field === 'harness') {
     const h = harnessesOf(sess(req)).find((x) => x.id === value);
     next.harness = value;
-    if (h) { next.model = ''; next.mode = h.defaultMode ?? ''; next.changed = [...new Set([...next.changed, 'model', 'mode'])]; }
+    if (h) { next.model = ''; next.mode = h.defaultMode ?? ''; next.changed = next.changed.filter((f) => f !== 'model' && f !== 'mode'); next.defaulted = ['model', 'mode']; }
   } else if (field === 'model') next.model = value;
   else if (field === 'mode') next.mode = value;
   next.remember = true; // a pick of their own: offered to keep — they can untick it

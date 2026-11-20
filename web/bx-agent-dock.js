@@ -165,22 +165,21 @@ export class BxAgentDock extends LitElement {
    */
   async review(kind, id, position = '') {
     this.open = true; this._tray = false; this._menu = false;
-    if (!position) this._queue = null; // one item opened on its own ends a Review all
+    if (!position) { this._queue = null; this._note = ''; } // one item opened on its own ends a Review all
     if (kind === 'changeset') {
       const set = await this.store.changeset(id);
       if (set) this._openDialog(set);
       return;
     }
     const req = await this.store.request(id);
-    if (!req || (req.state !== 'pending' && !(req.state === 'failed' && position))) {
+    if (position && (!req || req.state !== 'pending')) {
       // in a Review all: one that went meanwhile (withdrawn, decided elsewhere) is said, and the walk goes on (D250 review L3)
-      if (position && this._queue) {
-        this._gone = (this._gone || 0) + 1;
-        this._note = `${this._gone} request${this._gone === 1 ? ' was' : 's were'} withdrawn or decided meanwhile`;
-        if (this._nextQueued()) return;
-      }
-      if (!req) return;
+      this._gone = (this._gone || 0) + 1;
+      this._note = `${this._gone} request${this._gone === 1 ? ' was' : 's were'} withdrawn or decided meanwhile`;
+      if (!this._nextQueued()) this.updateComplete.then(() => this.renderRoot.querySelector('[data-needs]')?.focus());
+      return;
     }
+    if (!req) return; // (on its own: a failed start's Try again, or a decided one's settled sheet, opens as it is)
     const pending = this.store.requests.filter((r) => r.state === 'pending');
     const i = pending.findIndex((r) => r.id === req.id);
     this._sheet = { req, position: position || (pending.length > 1 && i >= 0 ? `${i + 1} of ${pending.length}` : '') };

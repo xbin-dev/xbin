@@ -272,11 +272,18 @@ async function approvalsUx(browser) {
     const contText = await textOf(await page.$(`${SHEET} [data-continue]`));
     check(/Continue the Fake agent \(tests\) session from \d\d:\d\d with this follow-up/.test(contText) && /Start a new session instead/.test(contText), `continue first, a new session the other choice (${contText.slice(0, 200)})`);
     check(await page.$eval(`${SHEET} [data-cont="continue"]`, (e) => e.checked), 'continuing is the preselected choice');
+    // the session it would continue, as elements: its coding agent, model, whether it asks (D250 review L1)
+    const contChips = await page.$$eval(`${SHEET} [data-continue] .chip`, (cs) => cs.map((c) => c.textContent.trim()));
+    check(contChips.includes('Fake agent (tests)') && contChips.includes('asks before acting') && contChips.some((c) => /^model /.test(c)) && !contChips.some((c) => c.includes('·')),
+      `the session continued is shown as its facts, each an element (${JSON.stringify(contChips)})`);
     await shot(page, 'approvals-continue', { fullPage: false });
+    await sleep(800); // armed
     await page.check(`${SHEET} [data-cont="new"]`);
+    check(await page.$eval(`${SHEET} button[data-allow]`, (b) => b.getAttribute('aria-disabled') === 'true'), 'a switch between continuing and a new session arms Allow again');
     await sleep(300);
     const from2 = await page.$$eval(`${SHEET} [data-from]`, (els) => Object.fromEntries(els.map((e) => [e.dataset.from, e.textContent.trim()])));
-    check(/remembered for this tile/.test(from2.harness || '') && /remembered for this tile/.test(from2.mode || ''), `a new session would preselect the pick remembered for the tile (${JSON.stringify(from2)})`);
+    // Remember kept only what the person changed — the coding agent; the mode they left at its default isn't theirs to keep (D250 review M1)
+    check(/remembered for this tile/.test(from2.harness || '') && !/remembered/.test(from2.mode || ''), `a new session would preselect the coding agent remembered for the tile, and only it (${JSON.stringify(from2)})`);
     await shot(page, 'approvals-remembered', { fullPage: false });
     await page.check(`${SHEET} [data-cont="continue"]`);
     await sleep(800);
@@ -285,6 +292,24 @@ async function approvalsUx(browser) {
     check(used2 && used2.state === 'used' && used2.chosen && used2.chosen.continue === idle.id, `the follow-up went to the session there (${JSON.stringify(used2 && used2.chosen)})`);
     check((await sessions()).length === 1, 'and no second session opened on the tile');
     if (await page.$(`${SHEET} [role="dialog"]`)) await page.keyboard.press('Escape');
+
+    // ---- Review all says what went meanwhile, and goes on (D250 review L3) ----
+    await R.say(pf2, ws('and clear the board', [j('tile_call', { tile: TILE, method: 'POST', path: '/board/clear', why: 'clear the board' })]), 120000);
+    const waiting = await until(async () => { const rs = (((await call('GET', '/delegate/requests')).data || {}).requests || []).filter((r) => r.state === 'pending'); return rs.length >= 2 ? rs : null; }, 60000);
+    check(!!waiting, `two requests wait (${JSON.stringify((waiting || []).map((r) => r.id))})`);
+    if (waiting) {
+      await page.click(`${DOCK} [data-needs]`);
+      await page.waitForSelector(`${DOCK} bx-agent-needs [data-review-all]`);
+      await page.click(`${DOCK} bx-agent-needs [data-review-all]`);
+      await page.waitForSelector(`${SHEET} [role="dialog"]`);
+      // the newest goes while the first is on the sheet: withdrawn by the agent's side (here, the person's own call)
+      const gone = waiting[waiting.length - 1];
+      check((await call('DELETE', `/delegate/requests/${gone.id}`)).status === 200, `the newest is withdrawn during the walk (${gone.id})`);
+      await page.click(`${SHEET} button[data-deny]`);
+      const note = await until(async () => page.$eval(`${DOCK} [data-walk-note]`, (e) => e.textContent.trim()).catch(() => ''), 20000);
+      check(/^1 request was withdrawn or decided meanwhile$/.test(note || ''), `Review all says the one that went (${note})`);
+      check(!(await page.$(`${SHEET} [role="dialog"]`)), 'and the walk ends there, nothing more to review');
+    }
     for (const r of (((await call('GET', '/delegate/requests')).data || {}).requests || []).filter((x) => x.state === 'pending')) await call('POST', `/delegate/requests/${r.id}/deny`, {});
   } finally {
     for (const c of contexts) await c.close().catch(() => {});

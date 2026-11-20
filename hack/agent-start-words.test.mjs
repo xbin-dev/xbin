@@ -59,7 +59,8 @@ test('picking another coding agent: its own default mode, its models, ITS sign-i
   assert.match(v.pickers[1].note, /^Gemini CLI's own list shows in its session once it runs/);
   const p = S.picked(req, pick).preview.session;
   assert.deepEqual([p.provider, p.providerName, p.mode, p.asks, p.signInId, p.signIn], ['gemini', 'Gemini CLI', 'default', true, 'si_1', 'needed']);
-  assert.deepEqual(v.pickers.map((x) => x.from), ['your pick', 'your pick', 'your pick']);
+  // the coding agent is the person's; its model and mode, reset to its defaults, are the defaults — not theirs to remember (D250 review M1)
+  assert.deepEqual(v.pickers.map((x) => x.from), ['your pick', 'the default', 'the default']);
 });
 
 test('a start that would continue the agent\'s own idle session: continue first, a new session the other choice', () => {
