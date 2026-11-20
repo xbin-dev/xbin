@@ -12,8 +12,8 @@ const harnesses = [
   { id: 'codex', name: 'Codex', defaultMode: 'read-only', modelsKnown: true, noSignIn: true, signIn: 'connector',
     modes: [{ id: 'read-only', name: 'Ask for approval', asks: true }, { id: 'agent', name: 'Approve for me', asks: false }, { id: 'agent-full-access', name: 'Full access', asks: false, explicit: true }],
     models: [{ id: '' }, { id: 'xbin/big', from: 'connector' }] },
-  { id: 'opencode', name: 'OpenCode', defaultMode: 'plan', modelsKnown: false, signIn: 'needed', signInId: 'si_1',
-    modes: [{ id: 'plan', name: 'plan', asks: true }, { id: 'build', name: 'build', asks: false }], models: [{ id: '' }, { id: 'm-agent', from: 'agent' }] },
+  { id: 'gemini', name: 'Gemini CLI', defaultMode: 'default', modelsKnown: false, signIn: 'needed', signInId: 'si_1',
+    modes: [{ id: 'default', name: 'Ask before acting', asks: true }, { id: 'autoEdit', name: 'Auto edit', asks: false }], models: [{ id: '' }, { id: 'm-agent', from: 'agent' }] },
 ];
 const start = (session = {}, o = {}) => ({ id: 'rq_1', kind: 'session', method: 'POST', target: '/api/xbin/term/sessions', tile: 'apps/eui', state: 'pending',
   created: at('10:47:00'), expires: '2026-11-22T10:47:00Z', body: JSON.stringify({ cwd: 'apps/eui', kind: 'agent', prompt: 'Goal: tic tac toe' }),
@@ -51,13 +51,13 @@ test('a mode the agent suggested that acts without asking is never picked for th
 
 test('picking another coding agent: its own default mode, its models, ITS sign-in offer; models xbin knows said so', () => {
   const req = start();
-  const pick = S.choose(S.pickOf(req), req, 'harness', 'opencode');
-  assert.deepEqual([pick.harness, pick.mode, pick.model], ['opencode', 'plan', '']);
+  const pick = S.choose(S.pickOf(req), req, 'harness', 'gemini');
+  assert.deepEqual([pick.harness, pick.mode, pick.model], ['gemini', 'default', '']);
   const v = S.startView(req, pick);
   assert.deepEqual(v.pickers[1].options.map((o) => o.label), ['its default', 'm-agent (suggested by your agent)']);
-  assert.match(v.pickers[1].note, /^OpenCode's own list shows in its session once it runs/);
+  assert.match(v.pickers[1].note, /^Gemini CLI's own list shows in its session once it runs/);
   const p = S.picked(req, pick).preview.session;
-  assert.deepEqual([p.provider, p.providerName, p.mode, p.asks, p.signInId, p.signIn], ['opencode', 'OpenCode', 'plan', true, 'si_1', 'needed']);
+  assert.deepEqual([p.provider, p.providerName, p.mode, p.asks, p.signInId, p.signIn], ['gemini', 'Gemini CLI', 'default', true, 'si_1', 'needed']);
   assert.deepEqual(v.pickers.map((x) => x.from), ['your pick', 'your pick', 'your pick']);
 });
 
@@ -113,4 +113,21 @@ test('the one batch: every pending act once, oldest first, one action each — a
   assert.equal(S.batchTitle(rows.slice(0, 2)).reviewAll, '', 'one review: nothing to walk');
   noDot(rows, 'the batch');
   assert.deepEqual(S.askedParts({ created: at('10:47:00'), expires: '2026-11-22T10:47:00Z' }, NOW).length, 2);
+});
+
+test('Remember keeps no mode that acts without asking, and nothing of a coding agent with no mode that asks (D250 review M1, M2)', () => {
+  const oc = { id: 'opencode', name: 'OpenCode', defaultMode: '', modelsKnown: false, modes: [{ id: '', name: 'its own default', asks: false }, { id: 'build', name: 'build', asks: false }], models: [{ id: '' }] };
+  const req = start({ choices: { harnesses: [...harnesses, oc] }, harnessNotTaken: 'opencode' });
+  let pick = S.pickOf(req);
+  const v = S.startView(req, pick);
+  assert.match(v.pickers[0].warn, /^Your agent suggested OpenCode, which acts without asking in every mode\. It isn't picked for you/);
+  assert.deepEqual([v.remember.shown, v.remember.keepsMode], [true, true]);
+  pick = S.choose(pick, req, 'mode', 'agent');
+  const w = S.startView(req, pick);
+  assert.equal(w.remember.keepsMode, false);
+  assert.match(w.remember.note, /^This mode acts without asking: it isn't remembered/);
+  pick = S.choose(pick, req, 'harness', 'opencode');
+  const o = S.startView(req, pick);
+  assert.deepEqual([o.remember.shown, o.asks, o.pickers[0].warn], [false, false, '']);
+  assert.match(o.remember.note, /^OpenCode has no mode that asks before it acts: nothing of it is remembered/);
 });

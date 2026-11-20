@@ -6,6 +6,7 @@ package server
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -280,6 +281,9 @@ func (s *Server) previewStart(a planAgent, op delegation.ChangeOp, planned []del
 		if pick.ModeNotTaken != "" {
 			shown["modeNotTaken"] = pick.ModeNotTaken
 		}
+		if pick.HarnessNotTaken != "" {
+			shown["harnessNotTaken"] = pick.HarnessNotTaken
+		}
 		if pick.Model != "" {
 			shown["options"] = map[string]string{"model": pick.Model}
 		}
@@ -321,6 +325,10 @@ func (s *Server) previewStart(a planAgent, op delegation.ChangeOp, planned []del
 	pv.Pin = delegation.BodyHash(pin)
 	// the review picks nothing: the line is what runs, and where another is picked (D250 review H1)
 	pv.Effects = append(pv.Effects, "What runs is this line's coding agent, model and mode. To run others, ask your agent for a single start's approval, where you pick them, or change your choice for the tile in your preferences.")
+	if hn, _ := shown["harnessNotTaken"].(string); hn != "" {
+		hp, _ := agent.Lookup(hn)
+		pv.Effects = append(pv.Effects, fmt.Sprintf("Your agent suggested %s, which acts without asking in every mode: not taken. To start it, approve a single start where you can pick it.", cmp.Or(hp.Name, hn)))
+	}
 	if nt, _ := shown["modeNotTaken"].(string); nt != "" {
 		// D250: the agent's suggestion never picks a mode that acts without asking — the review has no picker to pick it
 		pv.Effects = append(pv.Effects, fmt.Sprintf("Your agent suggested the mode %q, which acts without asking: not taken. To start it that way, change the session's mode once it runs, or approve a single start where you can pick it.", nt))

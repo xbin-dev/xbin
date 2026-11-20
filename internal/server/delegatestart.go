@@ -250,6 +250,9 @@ func (s *Server) sessionPreviewFor(p auth.Principal, body []byte, person *delega
 		if pick.ModeNotTaken != "" {
 			out["modeNotTaken"] = pick.ModeNotTaken
 		}
+		if pick.HarnessNotTaken != "" {
+			out["harnessNotTaken"] = pick.HarnessNotTaken
+		}
 		if b.Continue != "" { // the agent's own idle session there: continued unless the person starts a new one
 			if c, why := s.continuable(p, b.Continue, eff.Tile); why == "" {
 				out["continue"] = c

@@ -278,8 +278,8 @@ func (m *Manager) delegateOpen(p auth.Principal, a *AgentOpen, rel string, prov 
 		// opens (a resumed session's harness, say) is another
 		return "", "", who + "starts without asking only the harness its person's preference is for: that preference is for " + cmp.Or(d.Provider, "none") + ", and this would open " + prov.ID
 	}
-	mode = cmp.Or(d.Prefs.Mode, prov.DefaultMode)
-	if !prov.Asks(mode) { // whatever the store handed over: unasked, only a mode that asks before every edit and command
+	mode = cmp.Or(d.Prefs.Mode, prov.AskingMode()) // (the one asking mode start-defaults says too: D250 review M2)
+	if !prov.Asks(mode) {                          // whatever the store handed over: unasked, only a mode that asks before every edit and command
 		return "", "", who + "starting without asking needs a mode known to ask its person: choose one for " + prov.ID + " in the agent preferences"
 	}
 	a.NoAPI = !d.Prefs.API

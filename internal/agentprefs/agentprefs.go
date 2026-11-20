@@ -21,7 +21,6 @@ package agentprefs
 
 import (
 	"bytes"
-	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -194,7 +193,34 @@ func (s *Store) own(userID string, f file) Prefs {
 	if stamp := s.stamp(userID); stamp < 0 || f.Person != stamp {
 		p.AgentSessions = AgentSessions{}
 	}
-	return p.filled()
+	return s.sane(p.filled())
+}
+
+// sane is p as the rules read it, whatever the file holds (D250 review M1):
+// no remembered or preferred coding agent without a mode that asks, and no
+// remembered mode that acts without asking — the predicate the approval's
+// warning uses (acp.Provider.Asks). A value that slipped past check (a file
+// written before the rule) is ignored, not trusted.
+func (s *Store) sane(p Prefs) Prefs {
+	a := &p.AgentSessions
+	if prov, ok := s.lookup(a.Harness); a.Harness != "" && (!ok || prov.AskingMode() == "") {
+		a.Harness = ""
+	}
+	if len(a.Tiles) > 0 {
+		tiles := make(map[string]TileStart, len(a.Tiles))
+		for tile, ts := range a.Tiles {
+			prov, ok := s.lookup(ts.Harness)
+			if !ok || prov.AskingMode() == "" {
+				continue
+			}
+			if ts.Mode != "" && !prov.Asks(ts.Mode) {
+				ts.Mode = ""
+			}
+			tiles[tile] = ts
+		}
+		a.Tiles = tiles
+	}
+	return p
 }
 
 // Update applies patch — a JSON merge patch (RFC 7386): keys present
@@ -385,8 +411,12 @@ func (s *Store) check(p *Prefs) error {
 		if !idRe.MatchString(a.Harness) {
 			return fmt.Errorf("agentSessions.harness: %q isn't a harness id", a.Harness)
 		}
-		if _, ok := s.lookup(a.Harness); !ok {
+		prov, ok := s.lookup(a.Harness)
+		if !ok {
 			return fmt.Errorf("agentSessions.harness: no harness %q (GET /api/xbin/agent/providers lists them)", a.Harness)
+		}
+		if prov.AskingMode() == "" { // (D250 review M2: never a preselection — picked on each approval)
+			return fmt.Errorf("agentSessions.harness: %s has no mode that asks before it acts: it can't be the one your agent's starts preselect", prov.Name)
 		}
 	}
 	if len(a.Tiles) > MaxTiles {
@@ -406,9 +436,11 @@ func (s *Store) check(p *Prefs) error {
 			return fmt.Errorf("agentSessions.tiles.%s.harness: no harness %q", tile, ts.Harness)
 		case len(ts.Model) > maxValue:
 			return fmt.Errorf("agentSessions.tiles.%s.model: too long", tile)
-		case ts.Mode != "" && !savable(prov, ts.Mode):
-			// a bypass mode is picked by name, each time; a mode that acts without asking is remembered for the
-			// approval's picker only — a start without asking never takes it (Modes, AgentStart)
+		case prov.AskingMode() == "":
+			return fmt.Errorf("agentSessions.tiles.%s.harness: %s has no mode that asks before it acts: it is picked on each approval, never remembered", tile, prov.Name)
+		case ts.Mode != "" && !prov.Asks(ts.Mode):
+			// only a mode that asks is remembered (D250 review M1): one that acts without asking is the person's
+			// explicit pick on each approval, warned there — never a preselection
 			return fmt.Errorf("agentSessions.tiles.%s.mode: %s", tile, modeRefusal(prov, ts.Mode))
 		}
 	}
@@ -423,8 +455,11 @@ func (s *Store) check(p *Prefs) error {
 
 // RememberTile keeps ts as userID's choice for tile (D250: "Remember for
 // this tile" on an approval — the person's own act, which only xbind's
-// approval route makes): the oldest remembered tile goes past MaxTiles. A
-// bypass mode is dropped, never remembered.
+// approval route makes, with the fields the person themselves changed): the
+// oldest remembered tile goes past MaxTiles. A mode that acts without
+// asking is dropped — for any coding agent, by the predicate the approval's
+// warning uses (acp.Provider.Asks) — and a coding agent with no mode that
+// asks (OpenCode) is not remembered at all (D250 review M1, M2).
 func (s *Store) RememberTile(userID, tile string, ts TileStart, now int64) error {
 	if userID == "" || tile == "" {
 		return errors.New("a remembered choice is a person's, for a tile")
@@ -433,7 +468,10 @@ func (s *Store) RememberTile(userID, tile string, ts TileStart, now int64) error
 	if !ok {
 		return fmt.Errorf("no harness %q", ts.Harness)
 	}
-	if ts.Mode != "" && !savable(prov, ts.Mode) {
+	if prov.AskingMode() == "" {
+		return nil // nothing of it is a preselection anyone gets: picked on each approval
+	}
+	if ts.Mode != "" && !prov.Asks(ts.Mode) {
 		ts.Mode = ""
 	}
 	ts.At = now
@@ -520,8 +558,10 @@ type AgentStart struct {
 // agent starts. The stored mode is checked again here: a mode the catalog
 // doesn't mark safe is never returned, whatever the file says.
 func (p Prefs) AgentStart(prov agent.Provider) AgentStart {
+	// the asking mode xbind's start-defaults says too (acp.Provider.AskingMode: one source); "" for a harness
+	// with none, which never starts without asking (StartPrefs)
 	a := AgentStart{Ask: p.AgentSessions.Start != StartAllow, Net: p.AgentSessions.Net, API: true,
-		Mode: cmp.Or(prov.ApproveMode, prov.DefaultMode), Model: p.Harnesses[prov.ID].Model}
+		Mode: prov.AskingMode(), Model: p.Harnesses[prov.ID].Model}
 	if m := p.AgentSessions.Modes[prov.ID]; m != "" && prov.Asks(m) {
 		a.Mode = m
 	}
@@ -538,7 +578,7 @@ func (p Prefs) AgentStart(prov agent.Provider) AgentStart {
 // a harness this xbind doesn't run.
 func (s *Store) StartPrefs(userID, harness string) (mode, net string, api, ok bool) {
 	a, known := s.AgentStartFor(userID, harness)
-	return a.Mode, a.Net, a.API, known && !a.Ask
+	return a.Mode, a.Net, a.API, known && !a.Ask && a.Mode != "" // (no mode that asks: never unasked — D250 review M2)
 }
 
 // AgentStartFor is Get(userID).AgentStart for the harness, and whether

@@ -88,21 +88,26 @@ type startPick struct {
 	Harness, Model, Mode string
 	From                 map[string]string // harness | model | mode → from…
 	// ModeNotTaken: a mode the agent suggested that doesn't ask — shown
-	// beside the picker, never picked for the person.
-	ModeNotTaken string
-	Harnesses    []harnessChoice
+	// beside the picker, never picked for the person. HarnessNotTaken: a
+	// coding agent it suggested that has no mode that asks (OpenCode).
+	ModeNotTaken, HarnessNotTaken string
+	Harnesses                     []harnessChoice
 }
 
 // askingMode is the mode prov opens in when nothing says otherwise: the one
-// in which it asks before every edit and command (its ask mode, else its
-// plan mode, else the first the catalog knows asks), else its own default.
+// in which it asks before every edit and command (acp.Provider.AskingMode:
+// the one source), else — a coding agent with none, OpenCode — its own
+// default, which doesn't ask: shown, and warned, as such.
 func askingMode(prov agent.Provider) string {
-	for _, m := range append([]string{prov.ApproveMode, prov.PlanMode}, prov.AskModes...) {
-		if m != "" && prov.Asks(m) {
-			return m
-		}
-	}
-	return prov.DefaultMode
+	return cmp.Or(prov.AskingMode(), prov.DefaultMode)
+}
+
+// vouched: a coding agent with a mode xbin can vouch asks before it acts —
+// the only kind a suggestion, a remembered choice or a preference may
+// preselect (D250 review M2: OpenCode has none).
+func vouched(id string) bool {
+	prov, ok := agent.Lookup(id)
+	return ok && prov.AskingMode() != ""
 }
 
 // modesOf are the modes prov may start in, as the Agent tab offers them:
@@ -122,8 +127,9 @@ func modesOf(prov agent.Provider) []modeChoice {
 			}
 		}
 	}
-	if len(out) == 0 && prov.DefaultMode == "" {
-		out = append(out, modeChoice{ID: "", Name: "its own default", Asks: false})
+	if len(prov.Modes) == 0 && prov.DefaultMode == "" && !hasMode(out, "") {
+		// the catalog lists no modes of its own and names no default: it opens as it opens itself
+		out = append([]modeChoice{{ID: "", Name: "its own default", Asks: false}}, out...)
 	}
 	// the ones that ask first: the default is one of them
 	slices.SortStableFunc(out, func(a, b modeChoice) int {
@@ -231,14 +237,19 @@ func (s *Server) startPick(p auth.Principal, tile string, sug startSuggestion, p
 	switch {
 	case person != nil && allowed(person.Provider):
 		out.Harness, out.From["harness"] = person.Provider, fromPerson
-	case tileChoice != nil && allowed(tileChoice.Harness):
+	// (only one with a mode that asks is preselected — a remembered choice or a preference of one with none is
+	// ignored here, whatever the store holds; a suggestion of one is said, not taken)
+	case tileChoice != nil && allowed(tileChoice.Harness) && vouched(tileChoice.Harness):
 		out.Harness, out.From["harness"] = tileChoice.Harness, fromTile
-	case allowed(prefs.AgentSessions.Harness):
+	case allowed(prefs.AgentSessions.Harness) && vouched(prefs.AgentSessions.Harness):
 		out.Harness, out.From["harness"] = prefs.AgentSessions.Harness, fromPreference
-	case allowed(sug.Harness):
+	case allowed(sug.Harness) && vouched(sug.Harness):
 		out.Harness, out.From["harness"] = sug.Harness, fromAgent
 	default:
 		out.Harness, out.From["harness"] = def.Harness, fromDefault
+	}
+	if allowed(sug.Harness) && !vouched(sug.Harness) && out.Harness != sug.Harness {
+		out.HarnessNotTaken = sug.Harness
 	}
 	hc := out.Harnesses[slices.IndexFunc(out.Harnesses, func(c harnessChoice) bool { return c.ID == out.Harness })]
 	prov, _ := agent.Lookup(out.Harness)
@@ -248,8 +259,8 @@ func (s *Server) startPick(p auth.Principal, tile string, sug startSuggestion, p
 	switch {
 	case person != nil && person.Provider == out.Harness && hasMode(hc.Modes, person.Mode):
 		out.Mode, out.From["mode"] = person.Mode, fromPerson
-	case tileChoice != nil && tileChoice.Harness == out.Harness && tileChoice.Mode != "" && hasMode(hc.Modes, tileChoice.Mode) && !explicitMode(hc.Modes, tileChoice.Mode):
-		// the person's own last pick here — one that doesn't ask too: theirs, warned on the sheet as ever
+	case tileChoice != nil && tileChoice.Harness == out.Harness && asks(tileChoice.Mode):
+		// the person's own last pick here — only one that asks is ever remembered, or taken (D250 review M1)
 		out.Mode, out.From["mode"] = tileChoice.Mode, fromTile
 	case asks(prefs.AgentSessions.Modes[out.Harness]):
 		out.Mode, out.From["mode"] = prefs.AgentSessions.Modes[out.Harness], fromPreference
@@ -293,6 +304,57 @@ func pickRefusal(pick startPick, c delegation.StartChoice, tile string) string {
 		return "model: " + quoteOr(c.Model, "(none)") + " isn't a model offered for " + h.Name + " on " + tile + " (the approval lists them)"
 	}
 	return ""
+}
+
+// ownFields is what of pick c the person changed on the sheet that showed
+// them shown: a coding agent other than the one shown, and a model or mode
+// other than what came with it — the one shown, or for a coding agent they
+// switched to, its default model and its default mode (D250 review M1: a
+// field left at its preselection — the agent's suggestion included — is
+// not theirs to have remembered).
+func ownFields(shown map[string]any, harnesses []harnessChoice, c delegation.StartChoice) []string {
+	sp, _ := shown["provider"].(string)
+	baseMode, _ := shown["mode"].(string)
+	baseModel, _ := shown["model"].(string)
+	var own []string
+	if c.Provider != sp {
+		own = append(own, "harness")
+		baseModel, baseMode = "", ""
+		if i := slices.IndexFunc(harnesses, func(h harnessChoice) bool { return h.ID == c.Provider }); i >= 0 {
+			baseMode = harnesses[i].DefaultMode
+		}
+	}
+	if c.Model != baseModel {
+		own = append(own, "model")
+	}
+	if c.Mode != baseMode {
+		own = append(own, "mode")
+	}
+	return own
+}
+
+// rememberedOf is what "Remember for this tile" keeps of c on top of prev
+// (D250 review M1): only the fields the person changed (c.Own) — a model or
+// a mode with the coding agent it is of — and never a mode that acts
+// without asking (the predicate the sheet's warning uses; the store drops
+// it again). ok false: nothing of theirs is left to keep.
+func rememberedOf(prev *agentprefs.TileStart, c delegation.StartChoice) (agentprefs.TileStart, bool) {
+	prov, _ := agent.Lookup(c.Provider)
+	own := slices.DeleteFunc(slices.Clone(c.Own), func(f string) bool { return f == "mode" && !prov.Asks(c.Mode) })
+	if len(own) == 0 {
+		return agentprefs.TileStart{}, false
+	}
+	ts := agentprefs.TileStart{Harness: c.Provider}
+	if prev != nil && prev.Harness == c.Provider {
+		ts = *prev
+	}
+	if slices.Contains(own, "model") {
+		ts.Model = c.Model
+	}
+	if slices.Contains(own, "mode") {
+		ts.Mode = c.Mode
+	}
+	return ts, true
 }
 
 func quoteOr(v, none string) string {
@@ -422,6 +484,7 @@ func (s *Server) startPickOf(a delegateActor, id string, b pickBody) (*delegatio
 	if why := pickRefusal(now, c, tile); why != "" {
 		return nil, nil, http.StatusBadRequest, why
 	}
+	c.Own = ownFields(shown, now.Harnesses, c)
 	redrawn, why := s.sessionPreviewFor(pp, []byte(req.Body), &c)
 	if why != "" {
 		return nil, nil, http.StatusConflict, "this start can't open as you picked it: " + why

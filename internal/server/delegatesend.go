@@ -128,10 +128,14 @@ func harnessCommand(text string) string {
 // modeRefusal is why a session in info's current mode takes no message
 // from its person's agent: the mode doesn't ask before every edit and
 // command (acp.Provider.Asks), and it isn't the mode the person approved
-// the session in (started: "" for a session that isn't the agent's).
+// the session in (started: "" for a session that isn't the agent's) — or
+// its coding agent has no mode xbin can vouch for at all (OpenCode, D250
+// review M2: a writer to the tile can redefine what each of its modes
+// does), so what the person approved names no behaviour: each message is
+// theirs to approve.
 func modeRefusal(info term.SessionInfo, started, user string) string {
 	prov, ok := agent.Lookup(info.Provider)
-	if ok && prov.Asks(info.Mode) || started != "" && info.Mode == started {
+	if ok && prov.Asks(info.Mode) || started != "" && info.Mode == started && ok && prov.AskingMode() != "" {
 		return ""
 	}
 	return "this session is now in the mode " + strconv.Quote(info.Mode) + ", which doesn't ask before it acts, and " + user + " didn't approve it in that mode: it takes no messages from their agent until they switch it back (or they send them)"

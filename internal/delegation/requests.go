@@ -192,6 +192,10 @@ type StartChoice struct {
 	Mode     string `json:"mode,omitempty"`
 	// Remember: the person asked xbind to keep the pick for this tile.
 	Remember bool `json:"remember,omitempty"`
+	// Own: the fields of the pick the person themselves changed on the
+	// sheet (harness | model | mode) — all "Remember" keeps (D250 review
+	// M1); the rest was preselected for them. Not stored.
+	Own []string `json:"-"`
 	// Continue is the live session the start continues instead of opening
 	// one (the person chose it on the approval).
 	Continue string `json:"continue,omitempty"`

@@ -83,6 +83,20 @@ export function picked(req, pick) {
  *   label     the Allow button's words: Start | Start without asking | Continue
  *   details   the call, for the sheet's Details: "POST /api/xbin/term/sessions"
  */
+/**
+ * rememberWords: "Remember for this tile" as the sheet offers it (D250
+ * review M1) — it keeps only what the person changed here, and never a mode
+ * that acts without asking, nor a coding agent with no mode that asks.
+ */
+function rememberWords(continuing, hs, h, pick) {
+  const vouched = !!(h && (h.modes || []).some((m) => m.asks));
+  const mode = h && (h.modes || []).find((m) => m.id === pick.mode);
+  const note = !vouched ? `${h ? h.name : 'This coding agent'} has no mode that asks before it acts: nothing of it is remembered, you pick it on each approval.`
+    : mode && !mode.asks ? 'This mode acts without asking: it isn\'t remembered. Only the coding agent and model you changed are.'
+      : 'Your next start here preselects what you changed. A mode that acts without asking is never remembered.';
+  return { shown: !continuing && hs.length > 0 && vouched, label: 'Remember for this tile', note, keepsMode: !!(mode && mode.asks) };
+}
+
 export function startView(req, pick) {
   const s = sess(req), from = s.from || {}, sug = s.suggested || {};
   const hs = harnessesOf(s);
@@ -93,8 +107,11 @@ export function startView(req, pick) {
   const fromWords = (f) => FROM[changed(f) ? 'you' : from[f]] || '';
   const pickers = [];
   if (!continuing && hs.length) {
+    const hNot = s.harnessNotTaken && pick.harness !== s.harnessNotTaken ? hs.find((x) => x.id === s.harnessNotTaken) : null;
     pickers.push({ id: 'harness', label: 'Coding agent', value: pick.harness, from: fromWords('harness'),
-      options: hs.map((x) => ({ value: x.id, label: x.id === sug.harness && x.id !== pick.harness ? `${x.name} (suggested by your agent)` : x.name })) });
+      options: hs.map((x) => ({ value: x.id, label: x.id === sug.harness && x.id !== pick.harness ? `${x.name} (suggested by your agent)` : x.name })),
+      // a coding agent with no mode that asks (OpenCode, D250 review M2): the agent's suggestion of it is said, never taken
+      warn: hNot ? `Your agent suggested ${hNot.name}, which acts without asking in every mode. It isn't picked for you: pick it yourself if you want it.` : '' });
     if (h) {
       const models = (h.models || []).map((m) => ({ value: m.id, label: !m.id ? 'its default' : m.from === 'agent' ? `${m.id} (suggested by your agent)` : m.id }));
       pickers.push({ id: 'model', label: 'Model', value: pick.model, from: fromWords('model'), options: models,
@@ -117,7 +134,7 @@ export function startView(req, pick) {
     cont: c ? { session: c.session, label: `Continue the ${c.providerName || c.provider} session${c.started ? ` from ${clock(toMs(c.started))}` : ''} with this follow-up`,
       sub: 'Start a new session instead', chips: [c.providerName || c.provider, c.model ? `model ${c.model}` : '', c.asks ? 'asks before acting' : 'acts without asking'].filter(Boolean) } : null,
     continuing,
-    remember: { shown: !continuing && hs.length > 0, label: 'Remember for this tile', note: 'Your next start here preselects this. A bypass mode is never remembered.' },
+    remember: rememberWords(continuing, hs, h, pick),
     danger: asks ? '' : `${who} in this mode acts without asking: it edits files and runs commands in ${tileName} without asking you. You will not get a chance to stop a single edit or command.`,
     asks,
     label: continuing ? 'Continue' : asks ? 'Start' : 'Start without asking',

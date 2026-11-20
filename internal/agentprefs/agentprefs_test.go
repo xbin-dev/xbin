@@ -36,14 +36,14 @@ func TestAgentStart(t *testing.T) {
 		t.Errorf("codex's asking mode: %+v", a)
 	}
 	if _, err := s.Update("ana", []byte(`{"harnesses":{"claude":{"model":"opus","mode":"acceptEdits"}},
-		"agentSessions":{"start":"allow","modes":{"claude":"plan","opencode":"plan"},"net":"none","api":false}}`)); err != nil {
+		"agentSessions":{"start":"allow","modes":{"claude":"plan"},"net":"none","api":false}}`)); err != nil {
 		t.Fatal(err)
 	}
 	if a := s.Get("ana").AgentStart(claude); a.Ask || a.Mode != "plan" || a.Net != "none" || a.API || a.Model != "opus" {
 		t.Errorf("as set: %+v", a)
 	}
-	if a := s.Get("ana").AgentStart(opencode); a.Mode != "plan" {
-		t.Errorf("a mode outside the table the catalog knows is safe: %+v", a)
+	if a := s.Get("ana").AgentStart(opencode); a.Mode != "" {
+		t.Errorf("OpenCode has no mode that asks (D250 review M2): %+v", a)
 	}
 	if a := s.Get("ana").AgentStart(codex); a.Mode != "read-only" || a.Ask {
 		t.Errorf("a harness with no mode set: %+v", a)
@@ -145,14 +145,14 @@ func TestAgentSessionModesMustAsk(t *testing.T) {
 func TestRememberTile(t *testing.T) {
 	s := New(t.TempDir())
 	s.Person = func(string) (int64, bool) { return 7, true }
-	if err := s.RememberTile("ada", "apps/eui", TileStart{Harness: "opencode", Model: "m1", Mode: "build"}, 1); err != nil {
+	if err := s.RememberTile("ada", "apps/eui", TileStart{Harness: "codex", Model: "m1", Mode: "read-only"}, 1); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.RememberTile("ada", "apps/x", TileStart{Harness: "claude", Mode: "bypassPermissions"}, 2); err != nil {
 		t.Fatal(err)
 	}
 	p := s.Get("ada")
-	if got := p.AgentSessions.Tiles["apps/eui"]; got.Harness != "opencode" || got.Model != "m1" || got.Mode != "build" {
+	if got := p.AgentSessions.Tiles["apps/eui"]; got.Harness != "codex" || got.Model != "m1" || got.Mode != "read-only" {
 		t.Fatalf("apps/eui: %+v", got)
 	}
 	if got := p.AgentSessions.Tiles["apps/x"]; got.Mode != "" {
@@ -162,8 +162,8 @@ func TestRememberTile(t *testing.T) {
 		t.Fatalf("bob reads ada's choice: %+v", r)
 	}
 	// the next pick replaces the whole entry: a mode the last pick had no word on doesn't linger
-	_ = s.RememberTile("ada", "apps/eui", TileStart{Harness: "codex"}, 3)
-	if got := s.Get("ada").AgentSessions.Tiles["apps/eui"]; got.Harness != "codex" || got.Mode != "" || got.Model != "" {
+	_ = s.RememberTile("ada", "apps/eui", TileStart{Harness: "claude"}, 3)
+	if got := s.Get("ada").AgentSessions.Tiles["apps/eui"]; got.Harness != "claude" || got.Mode != "" || got.Model != "" {
 		t.Fatalf("replaced: %+v", got)
 	}
 	for i := 0; i < MaxTiles+5; i++ {
@@ -181,5 +181,64 @@ func TestRememberTile(t *testing.T) {
 	}
 	if p, err := s.Update("ada", []byte(`{"agentSessions":{"harness":"codex"}}`)); err != nil || p.AgentSessions.Harness != "codex" {
 		t.Fatalf("the preferred coding agent: %+v %v", p.AgentSessions, err)
+	}
+}
+
+// OpenCode has no mode xbin can vouch asks before it acts (D250 review
+// M2): a person's "start without asking" never starts it — no asking mode
+// to start it in — and the mode a session it would start in is the same
+// asking mode start-defaults says (acp.Provider.AskingMode: one source).
+func TestOpenCodeNeverStartsUnasked(t *testing.T) {
+	s, _ := testStore(t)
+	if _, err := s.Update("ana", []byte(`{"agentSessions":{"start":"allow"}}`)); err != nil {
+		t.Fatal(err)
+	}
+	if mode, _, _, ok := s.StartPrefs("ana", "opencode"); ok || mode != "" {
+		t.Fatalf("OpenCode without asking: mode %q, ok %v", mode, ok)
+	}
+	if mode, _, _, ok := s.StartPrefs("ana", "claude"); !ok || mode != "default" {
+		t.Fatalf("Claude Code without asking: mode %q, ok %v", mode, ok)
+	}
+	if _, err := s.Update("ana", []byte(`{"agentSessions":{"modes":{"opencode":"plan"}}}`)); err == nil {
+		t.Fatal("OpenCode's plan was saved as a mode that keeps asking")
+	}
+}
+
+// "Remember for this tile" never keeps a mode that acts without asking,
+// for any coding agent — decided here, by the predicate the approval's
+// warning uses (acp.Provider.Asks) — and nothing of a coding agent with no
+// mode that asks (OpenCode); a value that slipped past (an older file) is
+// ignored when read (D250 review M1).
+func TestRememberNeverKeepsAModeThatActsWithoutAsking(t *testing.T) {
+	s, _ := testStore(t)
+	if err := s.RememberTile("ana", "apps/x", TileStart{Harness: "claude", Model: "opus", Mode: "acceptEdits"}, 1); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.Get("ana").AgentSessions.Tiles["apps/x"]; got.Harness != "claude" || got.Model != "opus" || got.Mode != "" {
+		t.Fatalf("a remembered pick in acceptEdits: %+v", got)
+	}
+	if err := s.RememberTile("ana", "apps/y", TileStart{Harness: "opencode", Mode: "build"}, 2); err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := s.Get("ana").AgentSessions.Tiles["apps/y"]; ok {
+		t.Fatalf("OpenCode remembered: %+v", got)
+	}
+	if _, err := s.Update("ana", []byte(`{"agentSessions":{"tiles":{"apps/z":{"harness":"codex","mode":"agent"}}}}`)); err == nil {
+		t.Fatal("a mode that acts without asking was saved for a tile")
+	}
+	if _, err := s.Update("ana", []byte(`{"agentSessions":{"harness":"opencode"}}`)); err == nil {
+		t.Fatal("OpenCode was saved as the coding agent agent-started sessions start on")
+	}
+	// an older file that holds them: ignored at read
+	raw := `{"person":100,"agentSessions":{"harness":"opencode","tiles":{"apps/x":{"harness":"claude","mode":"auto"},"apps/y":{"harness":"opencode","mode":"build"}}}}`
+	if err := os.WriteFile(s.path("ana"), []byte(raw), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	p := s.Get("ana")
+	if got := p.AgentSessions.Tiles["apps/x"]; got.Harness != "claude" || got.Mode != "" {
+		t.Fatalf("an older remembered auto: %+v", got)
+	}
+	if _, ok := p.AgentSessions.Tiles["apps/y"]; ok || p.AgentSessions.Harness != "" {
+		t.Fatalf("an older remembered OpenCode: %+v", p.AgentSessions)
 	}
 }

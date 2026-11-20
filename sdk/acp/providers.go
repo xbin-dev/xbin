@@ -193,11 +193,17 @@ var catalog = []Provider{
 			{Env: "GROQ_API_KEY", Label: "Groq API key", Kind: "api-key", Prefix: "gsk_"},
 			{Env: "XAI_API_KEY", Label: "xAI API key", Kind: "api-key", Prefix: "xai-"}},
 		// its build and plan agents, as its config option of category mode
-		// (opencode 1.18): build asks as its own settings say, plan changes
-		// nothing
-		SafeModes: []string{"build", "plan"},
-		// its plan agent proposes and edits nothing; build edits and runs
-		AskModes: []string{"plan"}},
+		// (opencode 1.18): neither asks before every edit and command. As
+		// read from opencode 1.18.32's own agent table: every agent starts
+		// from {"*": "allow"} (asking only for paths outside the project and
+		// for .env files); build adds nothing that asks; plan denies edits
+		// (but its own plan files) and still runs every command and fetches
+		// every page unasked. And a tile's own opencode.json, .opencode/
+		// config, agents and plugins load into the session — a writer to the
+		// tile can loosen any agent — so no mode of it is one xbin can vouch
+		// for: no AskModes (D250 review M2). Both are Safe: neither is a bypass
+		// the catalog keeps from people.
+		SafeModes: []string{"build", "plan"}},
 }
 
 // Providers is the catalog of adapters this package knows, in display
@@ -240,7 +246,8 @@ func Fake(argv []string) Provider {
 	}
 	if slices.Contains(argv, "--no-default-mode") {
 		// …or as OpenCode's entry is: no default mode — it opens as it opens itself — and no mode a
-		// consumer may pick for it as "the one that asks" (it has an ask mode, as OpenCode has plan)
+		// consumer may pick for it as "the one that asks" by its approve or plan name: its one asking
+		// mode is in AskModes (OpenCode itself has none, as xbin knows it)
 		p.DefaultMode, p.ApproveMode, p.PlanMode, p.AskModes = "", "", "", []string{"ask"}
 	}
 	return p
@@ -254,6 +261,22 @@ func Lookup(id string) (Provider, bool) {
 		}
 	}
 	return Provider{}, false
+}
+
+// AskingMode is the mode in which p asks its person before every edit and
+// command — its ask mode, else its plan mode, else the first of AskModes —
+// and "" for a harness with none (OpenCode, as xbin knows it). It is the
+// one answer to "which mode does a session that must ask open in" (xbind's
+// start-defaults, the agent preferences' unasked start, an approval's
+// default): a harness with none never opens unasked, and is never
+// preselected for anyone.
+func (p Provider) AskingMode() string {
+	for _, m := range append([]string{p.ApproveMode, p.PlanMode}, p.AskModes...) {
+		if p.Asks(m) {
+			return m
+		}
+	}
+	return ""
 }
 
 // Asks reports whether mode is one in which the harness asks its person

@@ -52,17 +52,18 @@ func TestWsEvalApprovalPickIsTheStart(t *testing.T) {
 	if a := req.startBody(); a.Harness != "" || a.Mode != "" || a.Model != "" || a.Continue != "" {
 		t.Fatalf("the agent suggested what the person never named: %s", req.call.Body)
 	}
-	// the person picks OpenCode on xbin's sheet, and approves: that is the approval
-	fx.x.decideWith(req.ID, wsChosen{Provider: "opencode", Mode: "plan"})
+	// the person picks OpenCode on xbin's sheet — its own default mode, which acts without asking (no mode of it
+	// does, as xbin knows it: D250 review M2), warned there — and approves: that is the approval
+	fx.x.decideWith(req.ID, wsChosen{Provider: "opencode", Mode: ""})
 	fx.notify(t)
 	waitFor(t, "the start's outcome", func() bool { return strings.Contains(fx.lastAssistant(t, s), "on OpenCode") })
 	fx.idle(t, s)
 	agents := fx.ag.db.wsAgents(`WHERE run_id=?`, s.Run)
-	if fx.x.requestsFiled() != 1 || len(agents) != 1 || agents[0].Harness != "OpenCode" || !agents[0].Asks {
+	if fx.x.requestsFiled() != 1 || len(agents) != 1 || agents[0].Harness != "OpenCode" || agents[0].Asks {
 		t.Fatalf("one round, started with OpenCode: %d requests, %+v", fx.x.requestsFiled(), agents)
 	}
 	up := fx.updates(t, s)
-	if len(up) != 1 || !strings.Contains(up[0], "tile agent #1 started in apps/eui: OpenCode, asks before acting.") || strings.Contains(up[0], "no longer covered") {
+	if len(up) != 1 || !strings.Contains(up[0], "tile agent #1 started in apps/eui: OpenCode, acts without asking.") || strings.Contains(up[0], "no longer covered") {
 		t.Fatalf("what the agent was told: %q", up)
 	}
 	if b, _ := fx.ag.db.wsBrief(s.Run, 1); b.State != "started" || b.Edited {
@@ -81,7 +82,7 @@ func TestWsEvalApprovalFollowUpContinues(t *testing.T) {
 	fx.say(t, s, "turn eui into a tic tac toe game")
 	fx.idle(t, s)
 	first := fx.x.pending(t)
-	fx.x.decideWith(first.ID, wsChosen{Provider: "opencode", Mode: "plan"})
+	fx.x.decideWith(first.ID, wsChosen{Provider: "opencode", Mode: ""})
 	fx.notify(t)
 	fx.rest(t, s)
 	row := fx.ag.db.wsAgents(`WHERE run_id=?`, s.Run)[0]
@@ -248,13 +249,13 @@ func TestWsEvalApprovalSaysWhatIsThere(t *testing.T) {
 	fx.x.mu.Lock()
 	fx.x.access.views = map[string]*wsTileView{"apps/eui": &v}
 	fx.x.mu.Unlock()
-	fx.x.remember("apps/eui", wsChosenNow{Harness: "opencode", Mode: "plan", Asks: true})
+	fx.x.remember("apps/eui", wsChosenNow{Harness: "codex", Mode: "read-only", Asks: true})
 	f := fakeOf(fx.ag)
 	f.on(forRun(s.Run, lastUser("tic tac toe")), callTools(tc("c1", "tile_agent_brief", tttBrief), tc("c2", "tile_agent_start", `{"brief":1}`))).once()
 	f.on(forRun(s.Run, lastTool("tile_agent_start")), say("Filed.")).once()
 	fx.say(t, s, "turn eui into a tic tac toe game")
 	fx.idle(t, s)
-	if got := fx.toolResult(t, s, "tile_agent_brief"); !strings.Contains(got, "It would run on OpenCode (your person's own choice for this tile)") {
+	if got := fx.toolResult(t, s, "tile_agent_brief"); !strings.Contains(got, "It would run on Codex (your person's own choice for this tile)") {
 		t.Fatalf("the brief's answer: %q", got)
 	}
 	if got := fx.toolResult(t, s, "tile_agent_start"); !strings.Contains(got, "your person's own session (opencode, acts without asking, idle) — not yours to drive") {

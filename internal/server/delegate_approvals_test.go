@@ -151,7 +151,8 @@ func TestApproveChoicesAreByHandChoices(t *testing.T) {
 	if got.Chosen == nil || got.Chosen.Provider != "codex" || got.Chosen.Mode != "read-only" || s["provider"] != "codex" || s["asks"] != true || fmt.Sprint(s["from"]) != "map[harness:you mode:you model:you]" {
 		t.Fatalf("the approved pick: %+v, card %v", got.Chosen, s)
 	}
-	if ts := w.s.AgentPrefs.Get("alice").AgentSessions.Tiles["apps/x"]; ts.Harness != "codex" || ts.Mode != "read-only" {
+	// (remembered: what the person changed — the coding agent; read-only came with it: Codex's default, not theirs)
+	if ts := w.s.AgentPrefs.Get("alice").AgentSessions.Tiles["apps/x"]; ts.Harness != "codex" || ts.Mode != "" {
 		t.Fatalf("remember for this tile: %+v", ts)
 	}
 	if d, _ := ticketStart(got); d == nil || d.Provider != "codex" || d.Mode != "read-only" || !d.Picked {

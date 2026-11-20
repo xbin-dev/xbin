@@ -8,8 +8,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/xbin-dev/xbin/internal/agent"
 	"github.com/xbin-dev/xbin/internal/agentprefs"
+	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/delegation"
+	"github.com/xbin-dev/xbin/internal/term"
 )
 
 // A plan's agent.start line opens what its review showed (review H1): the
@@ -62,5 +65,112 @@ func TestPlanStartRunsTheReviewedLine(t *testing.T) {
 	effects := strings.Join(it.Effects, " ")
 	if !strings.Contains(effects, `suggested the mode "auto", which acts without asking: not taken`) || !strings.Contains(effects, "a single start's approval") {
 		t.Fatalf("the line says what runs and where it is changed: %q", effects)
+	}
+}
+
+// OpenCode has no mode xbin can vouch asks before it acts (D250 review M2;
+// read from opencode 1.18.32: its plan agent denies edits but allows every
+// command and fetch, and a tile's own .opencode config and plugins can
+// loosen any agent) — so every mode of it is "acts without asking": none is
+// a default that asks, a suggestion of it is never preselected, start-
+// defaults never lets it start unasked, and the agent's messages to a
+// session of it are each the person's to approve, whatever mode it opened in.
+func TestOpenCodeHasNoAskingMode(t *testing.T) {
+	oc, _ := agent.Lookup("opencode")
+	if oc.Asks("plan") || oc.Asks("build") {
+		t.Fatal("an OpenCode mode is said to ask")
+	}
+	ids := func(ms []modeChoice) (out []string) {
+		for _, m := range ms {
+			if m.Asks {
+				t.Errorf("mode %q is said to ask", m.ID)
+			}
+			out = append(out, m.ID)
+		}
+		return out
+	}
+	// the catalog lists no modes of its own for it: its own default, and the ones the catalog knows
+	if got := strings.Join(ids(modesOf(oc)), ","); got != ",build,plan" {
+		t.Fatalf("OpenCode's modes: %q", got)
+	}
+	if got := strings.Join(ids(modesOf(agent.Provider{ID: "bare"})), ","); got != "" || len(modesOf(agent.Provider{ID: "bare"})) != 1 {
+		t.Fatalf("a coding agent the catalog knows nothing of: %v", modesOf(agent.Provider{ID: "bare"}))
+	}
+	w := delegateWorld(t)
+	alice := delegateCred("d-alice")
+	// start-defaults, under a "start without asking" that names plan: it would need the person — plan doesn't ask
+	w.policy.set(func(p *dPolicy) { p.prefs["alice"] = delegation.StartPrefs{Mode: "plan", API: true} })
+	var sd startDefaultsView
+	_ = json.Unmarshal(w.do(w.full, "GET", "/api/xbin/delegate/start-defaults?tile=apps/x", "", alice).Body.Bytes(), &sd)
+	w.policy.set(func(p *dPolicy) { delete(p.prefs, "alice") })
+	if h, ok := sd.of("opencode"); !ok || h.Asks || !h.NeedsTicket {
+		t.Fatalf("OpenCode in start-defaults: %+v", h)
+	}
+	// the agent suggests it: not preselected — the default is, and the sheet says which was not taken
+	req := w.ask(alice, "POST", "/api/xbin/term/sessions", startBody("apps/x", "go", "provider", "opencode"))
+	if s := sessOf(req); s["provider"] == "opencode" || s["harnessNotTaken"] != "opencode" {
+		t.Fatalf("a suggested OpenCode: %v", s)
+	}
+	// a session of it its person approved in build: the agent's messages are each theirs to approve
+	if why := modeRefusal(term.SessionInfo{Provider: "opencode", Mode: "build"}, "build", "alice"); why == "" {
+		t.Fatal("an OpenCode session takes the agent's messages unapproved")
+	}
+	if why := modeRefusal(term.SessionInfo{Provider: "claude", Mode: "acceptEdits"}, "acceptEdits", "alice"); why != "" {
+		t.Fatalf("a Claude Code session approved in acceptEdits: %s", why)
+	}
+}
+
+// "Remember for this tile" keeps only what the person themselves changed on
+// the sheet — a field left at the agent's suggestion isn't theirs — and
+// never a mode that acts without asking; after such a remember, every path
+// with no picker (the app's sheet, a start without asking) opens in the
+// asking mode (D250 review M1).
+func TestRememberKeepsOnlyThePersonsOwnPick(t *testing.T) {
+	w := delegateWorld(t)
+	alice, person := delegateCred("d-alice"), w.cookie("alice")
+	remembered := func() *agentprefs.TileStart { r, _ := w.s.AgentPrefs.TileChoice("alice", "apps/x"); return r }
+	forget := func() {
+		if _, err := w.s.AgentPrefs.Update("alice", []byte(`{"agentSessions":{"tiles":{"apps/x":null}}}`)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	approve := func(body string) {
+		t.Helper()
+		req := w.ask(alice, "POST", "/api/xbin/term/sessions", startBody("apps/x", "go", "provider", "claude", "model", "sonnet"))
+		if rec := w.do(w.full, "POST", "/api/xbin/delegate/requests/"+req.ID+"/approve", body, person); rec.Code != 200 {
+			t.Fatalf("approve %s: %d %s", body, rec.Code, rec.Body.String())
+		}
+	}
+	// the agent suggested Claude Code on sonnet; the person changes only the coding agent: only that is theirs
+	approve(`{"harness":"codex","model":"","mode":"read-only","remember":true,"knows":["continue"]}`)
+	if r := remembered(); r == nil || r.Harness != "codex" || r.Model != "" || r.Mode != "" {
+		t.Fatalf("the person changed the coding agent only: %+v", r)
+	}
+	forget()
+	// …only the mode, to one that acts without asking: nothing of theirs is left to remember
+	approve(`{"harness":"claude","model":"sonnet","mode":"acceptEdits","remember":true,"knows":["continue"]}`)
+	if r := remembered(); r != nil {
+		t.Fatalf("a mode that acts without asking, on the agent's suggestion otherwise: %+v", r)
+	}
+	// …the model (their preference's opus preselected, they pick sonnet) and a mode that acts without asking:
+	// the model is kept, with the coding agent it is of, and the mode is dropped
+	if _, err := w.s.AgentPrefs.Update("alice", []byte(`{"harnesses":{"claude":{"model":"opus"}}}`)); err != nil {
+		t.Fatal(err)
+	}
+	approve(`{"harness":"claude","model":"sonnet","mode":"auto","remember":true,"knows":["continue"]}`)
+	if r := remembered(); r == nil || r.Harness != "claude" || r.Model != "sonnet" || r.Mode != "" {
+		t.Fatalf("a changed model and a mode that acts without asking: %+v", r)
+	}
+	// the next start — on a sheet with no picker (the app approves what is preselected), or none — asks
+	req := w.ask(alice, "POST", "/api/xbin/term/sessions", startBody("apps/x", "go"))
+	if s := sessOf(req); s["provider"] != "claude" || s["model"] != "sonnet" || s["mode"] != "default" || s["asks"] != true {
+		t.Fatalf("the start after it: %v", s)
+	}
+	ap := auth.Principal{UserID: "alice", Via: "delegate", Agent: dHolder}
+	if pr, _, differs := w.s.unaskedStart(ap, sessionAsk{Cwd: "apps/x"}); pr != "claude" || differs != "" {
+		t.Fatalf("a start without asking after it: %s %s", pr, differs)
+	}
+	if p, _ := w.s.startPick(ap, "apps/x", startSuggestion{}, nil); p.Mode != "default" {
+		t.Fatalf("a start without asking after it opens in: %+v", p)
 	}
 }
