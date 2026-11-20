@@ -53,12 +53,9 @@ export function left(ms) {
 }
 
 /** asked(req, now): "asked 10:14 · expires in 23 h 58 min" (what of it is known). */
-export function asked(x, now = Date.now()) { return askedList(x, now).join(', '); }
-
-/** askedList(x, now): when it was asked, and when it expires — each fact its own element (D250: never joined with "·"). */
-export function askedList(x, now = Date.now()) {
+export function asked(x, now = Date.now()) {
   const c = toMs(x && x.created), e = toMs(x && x.expires);
-  return [c ? `asked ${clock(c)}` : '', e ? (e > now ? `expires in ${left(e - now)}` : 'expired') : ''].filter(Boolean);
+  return [c ? `asked ${clock(c)}` : '', e ? (e > now ? `expires in ${left(e - now)}` : 'expired') : ''].filter(Boolean).join(' · ');
 }
 
 /** bytes(n): "48 bytes", "14 KiB", "3.2 MiB". */
@@ -127,27 +124,26 @@ export function clipText(text, all = false) {
 export const clipNote = (c) => (c.clipped ? `first ${c.shown} of ${c.total} characters` : '');
 
 /**
- * sends(req, all): what the call carries — {text, note, parts, binary,
- * clipped}: the body as text — its first CLIP characters unless all — with
- * its size and "shown in full" only when it is ("first 4000 of 9321
- * characters" when not) as parts, each its own element (D250), or, for
- * bytes nobody can read, no text and "not text — 3.2 MiB, sha256 …".
+ * sends(req, all): what the call carries — {text, note, binary, clipped}:
+ * the body as text — its first CLIP characters unless all — with "48 bytes
+ * · shown in full" only when it is ("14 KiB · first 4000 of 9321
+ * characters" when not), or, for bytes nobody can read, no text and "not
+ * text — 3.2 MiB, sha256 …".
  */
 export function sends(req, all = false) {
   const size = Number(req.bodySize) || 0;
   const pb = req.preview && req.preview.body;
   if (req.bodyBinary || (pb && pb.binary)) {
     const sha = (pb && pb.sha256) || req.bodySha256 || '';
-    const note = `not text — ${bytes((pb && pb.size) || size)}${sha ? `, sha256 ${sha}` : ''}`;
-    return { text: '', binary: true, clipped: false, parts: [note], note };
+    return { text: '', binary: true, clipped: false, note: `not text — ${bytes((pb && pb.size) || size)}${sha ? `, sha256 ${sha}` : ''}` };
   }
-  if (!size && !req.body) return { text: '', binary: false, clipped: false, parts: ['nothing: the call has no body'], note: 'nothing: the call has no body' };
+  if (!size && !req.body) return { text: '', binary: false, clipped: false, note: 'nothing: the call has no body' };
   // xbind's bodyShown is a boolean — true: `body` is the whole body, as text (delegation.Request); a count is a part of it
   const shown = req.bodyShown === true ? size : Number(req.bodyShown) || 0;
   const partial = shown > 0 && shown < size;
   const c = clipText(req.body, all);
-  const parts = partial ? [`showing the first ${bytes(shown)} of ${bytes(size)}`] : [bytes(size), c.clipped ? clipNote(c) : 'shown in full'];
-  return { text: c.text, binary: false, clipped: c.clipped, parts, note: parts.join(', ') };
+  return { text: c.text, binary: false, clipped: c.clipped,
+    note: partial ? `showing the first ${bytes(shown)} of ${bytes(size)}` : `${bytes(size)} · ${c.clipped ? clipNote(c) : 'shown in full'}` };
 }
 
 // ---- the agent's text, as a sheet shows it -------------------------------------------------
@@ -280,7 +276,7 @@ export function sessionRows(req) {
   // xbind doesn't vouch for, leads with the danger wording
   const asks = s.asks === true;
   const who = s.providerName || s.provider || 'A coding agent';
-  const model = s.model ? `, model ${s.model}` : ''; // (never joined with "·": D250)
+  const model = s.model ? ` · model ${s.model}` : '';
   // what it signs in with, as xbind read it when the request was filed (D230): a saved sign-in is named; none at all is said, with the harness to sign in to
   const cred = s.signIn === 'needed' ? ''
     : s.credentials === 'own' ? ', on your own sign-in' : s.credentials === 'connector' || s.model ? ", through the workspace's connector" : '';
@@ -308,7 +304,7 @@ export function sessionRows(req) {
 
 /** settled(req): a decided request in a few words. */
 export function settled(req) {
-  const at = toMs(req.decided) ? ` at ${clock(toMs(req.decided))}` : ''; // (a sentence, never joined with "·": D250)
+  const at = toMs(req.decided) ? ` · ${clock(toMs(req.decided))}` : '';
   switch (req.state) {
     case 'approved': return `Allowed${req.grant === 'once' || !req.grant ? ' once' : ''} by you${at}`;
     case 'used': return `Allowed by you, and used${at}`;
@@ -445,17 +441,13 @@ export function initialTicks(cs) {
   return ((cs && cs.items) || []).filter((it) => tickable(it) && !(CHOICES.warnedStartUnticked && it.warnings && it.warnings.length)).map((it) => it.n);
 }
 
-/** APPLY_ORDER: how ticked changes are applied — the review footer's note beside the count (its own element, D250). */
-export const APPLY_ORDER = 'Applied in order as you. If one fails, later ones are skipped and earlier ones stay.';
-
-/** reviewWords(cs, ticked): the review's heading, sub line, footer (the count) and its note, and Apply button. */
+/** reviewWords(cs, ticked): the review's heading, sub line, footer and Apply button. */
 export function reviewWords(cs, ticked) {
   const total = ((cs && cs.items) || []).length, n = ticked.length;
   return {
     heading: `Your agent proposes ${plural(total, 'admin change')}`,
     intro: 'Each line, its before and after and its warnings are written by xbin from the change itself. Nothing has been applied.',
-    footer: `${n} of ${total} ticked`,
-    footerNote: APPLY_ORDER,
+    footer: `${n} of ${total} ticked · applied in order as you. If one fails, later ones are skipped and earlier ones stay.`,
     apply: n ? `Apply ${plural(n, 'change')}…` : 'Apply none',
     counts: [((cs && cs.items) || []).filter((it) => it.warnings && it.warnings.length).length, ((cs && cs.items) || []).filter((it) => it.blocked).length],
   };
@@ -468,8 +460,7 @@ export function needChangeTitle(cs) {
   const na = items.filter((it) => it.needsAdmin && !it.result).length;
   // a plan (docs/protocol/delegation.md §Plans), or another person's request to an admin, says which it is
   const title = cs && cs.from ? `${cs.from} asks for ${plural(items.length, 'admin change')}` : cs && cs.plan ? `A plan of ${plural(items.length, 'change')}` : `${plural(items.length, 'admin change')} proposed`;
-  const notes = [w ? `${w} ${w === 1 ? 'has' : 'have'} a warning` : '', b ? `${b} can't be applied` : '', na ? `${na} ${na === 1 ? 'needs' : 'need'} an admin` : ''].filter(Boolean);
-  return { title, notes, note: notes.join(', ') };
+  return { title, note: [w ? `${w} ${w === 1 ? 'has' : 'have'} a warning` : '', b ? `${b} can't be applied` : '', na ? `${na} ${na === 1 ? 'needs' : 'need'} an admin` : ''].filter(Boolean).join(' · ') };
 }
 
 // an item's outcome in words — RESULT, waitText, builtinText (D248), resultOf — lives in its sibling (the size budget, D219)
@@ -587,27 +578,26 @@ export function netPrefs(state) {
  */
 export function needs({ requests = [], changesets = [], sessions = [] } = {}, now = Date.now()) {
   const rows = [];
-  const row = (o) => ({ ...o, note: o.parts.join(', ') });
-  for (const r of requests) if (r.state === 'pending') rows.push(row({ kind: 'request', id: r.id, title: needTitle(r), parts: askedList(r, now), action: 'Review…', at: toMs(r.created) }));
+  for (const r of requests) if (r.state === 'pending') rows.push({ kind: 'request', id: r.id, title: needTitle(r), note: asked(r, now), action: 'Review…', at: toMs(r.created) });
   for (const c of changesets) {
     // a decided plan whose line still waits for xbin: nothing to decide, but it is the person's to see — and to cancel
     for (const it of c.state === 'proposed' ? [] : c.items || []) {
       if (it.result !== 'waiting' || !it.wait) continue;
       const u = toMs(it.wait.until);
-      rows.push(row({ kind: 'changeset', id: c.id, waits: true, title: `Waiting: ${it.line || 'a line of your plan'}`,
-        parts: [it.wait.held ? `not bound — ${it.wait.held}` : `xbin applies it once ${it.wait.tile} provides ${it.wait.service}`, u > now ? `lapses in ${left(u - now)}` : ''].filter(Boolean), action: 'Open', at: toMs(c.decided || c.created) }));
+      rows.push({ kind: 'changeset', id: c.id, waits: true, title: `Waiting: ${it.line || 'a line of your plan'}`,
+        note: [it.wait.held ? `not bound — ${it.wait.held}` : `xbin applies it once ${it.wait.tile} provides ${it.wait.service}`, u > now ? `lapses in ${left(u - now)}` : ''].filter(Boolean).join(' · '), action: 'Open', at: toMs(c.decided || c.created) });
     }
     if (c.state !== 'proposed') continue;
     const w = needChangeTitle(c), e = toMs(c.expires);
-    rows.push(row({ kind: 'changeset', id: c.id, title: w.title, parts: [...w.notes, e > now ? `expires in ${left(e - now)}` : ''].filter(Boolean), action: 'Review…', at: toMs(c.created) }));
+    rows.push({ kind: 'changeset', id: c.id, title: w.title, note: [w.note, e > now ? `expires in ${left(e - now)}` : ''].filter(Boolean).join(' · '), action: 'Review…', at: toMs(c.created) });
   }
   for (const s of sessions) {
     if (!(s.pending > 0 || s.questions > 0 || s.status === 'waiting_permission')) continue;
     const t = lastOf(s.cwd || s.tile) || 'A tile';
-    rows.push(row({ kind: 'session', id: s.id, tile: s.cwd || s.tile || '', title: `${t}: ${s.providerName || s.provider || 'the tile agent'} ${s.questions > 0 ? 'asks a question' : 'asks permission'}`,
-      parts: s.origin === 'agent' ? ['started by your agent'] : [], action: 'Open', at: toMs(s.waitingSince || s.updated || s.created),
+    rows.push({ kind: 'session', id: s.id, tile: s.cwd || s.tile || '', title: `${t} · ${s.providerName || s.provider || 'the tile agent'} ${s.questions > 0 ? 'asks a question' : 'asks permission'}`,
+      note: s.origin === 'agent' ? 'started by your agent' : '', action: 'Open', at: toMs(s.waitingSince || s.updated || s.created),
       // a permission request is answered right here (bx-agent-permits.js); a question still opens the tile's window
-      permits: !(s.questions > 0) && (s.pending > 0 || s.status === 'waiting_permission'), agentName: s.providerName || s.provider || '' }));
+      permits: !(s.questions > 0) && (s.pending > 0 || s.status === 'waiting_permission'), agentName: s.providerName || s.provider || '' });
   }
   return rows.sort((a, b) => a.at - b.at);
 }
@@ -695,10 +685,9 @@ export const DID_NOTE = "Kept by xbin for 13 months. Your agent and its page can
  */
 export function requestCard(req, now = Date.now()) {
   const what = needTitle(req);
-  // the line's facts, each its own element (`parts`, D250); `line` is them joined, for a reader of one line
-  const card = (head, line, glyph, tone, waits = false, button = '') => ({ head, what, line: [].concat(line).filter(Boolean).join(', '), parts: [].concat(line).filter(Boolean), glyph, tone, waits, button });
+  const card = (head, line, glyph, tone, waits = false, button = '') => ({ head, what, line, glyph, tone, waits, button });
   switch (req.state) {
-    case 'pending': return card('Waiting for your approval', askedList(req, now), 'shield', 'warn', true, 'Review…');
+    case 'pending': return card('Waiting for your approval', asked(req, now), 'shield', 'warn', true, 'Review…');
     case 'approved': return card(settled(req), 'running now…', 'clock', '');
     case 'used': return card(settled(req), req.kind === 'call' ? `${req.method} ${req.target}` : req.kind === 'web' ? webOf(req).url : '', 'check', 'ok');
     case 'denied': case 'withdrawn': return card(settled(req), '', 'xmark', '');
@@ -710,11 +699,11 @@ export function requestCard(req, now = Date.now()) {
 /** changeSetCard(cs, now): a proposal as the app's card for a `request` node of kind changeset. */
 export function changeSetCard(cs, now = Date.now()) {
   const w = needChangeTitle(cs);
-  const card = (head, line, glyph, tone, waits = false, button = '') => ({ head, what: '', line: [].concat(line).filter(Boolean).join(', '), parts: [].concat(line).filter(Boolean), glyph, tone, waits, button });
+  const card = (head, line, glyph, tone, waits = false, button = '') => ({ head, what: '', line, glyph, tone, waits, button });
   switch (cs.state) {
     case 'proposed': {
       const e = toMs(cs.expires);
-      return card(w.title, [...w.notes, e ? (e > now ? `expires in ${left(e - now)}` : 'expired') : ''], 'shield', 'warn', true, 'Review…');
+      return card(w.title, [w.note, e ? (e > now ? `expires in ${left(e - now)}` : 'expired') : ''].filter(Boolean).join(' · '), 'shield', 'warn', true, 'Review…');
     }
     case 'applying': return card(w.title, 'applying now…', 'clock', '');
     case 'applied': case 'partial':

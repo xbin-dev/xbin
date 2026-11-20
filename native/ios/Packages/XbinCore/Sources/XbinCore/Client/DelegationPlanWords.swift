@@ -150,13 +150,10 @@ public enum PlanWords {
     }
 
     public struct Words: Sendable, Equatable {
-        /// The bar's facts, each its own element (D250): ["xbin", "plan"].
-        public var bar: [String]
+        public var bar: String
         public var heading: String
         public var intro: String
-        /// "1 of 3 ticked" — and how the ticked lines are applied, its own element beside it.
         public var footer: String
-        public var footerNote: String
         public var apply: String
         public var reject: String
         /// The Ask an admin row (nil: no line waits for an admin).
@@ -187,12 +184,12 @@ public enum PlanWords {
         }
         let these = total == 1 ? "this" : "these", them = total == 1 ? "it" : "them"
         return Words(
-            bar: ["xbin", asked ? "request from \(c.from)" : "plan"],
+            bar: asked ? "xbin · request from \(c.from)" : "xbin · plan",
             heading: asked ? "\(c.from) asks for \(plural(total, "admin change"))" : !c.undoOf.isEmpty ? "Undo: \(plural(total, "change"))" : "Your agent proposes \(plural(total, "change"))",
             intro: asked
                 ? "\(c.from)'s workspace agent proposed \(these), and \(c.from) asked the workspace's admins to apply \(them). Each line, its before and after and its warnings are written by xbin from the change itself, as you would apply it. Nothing has been applied."
                 : "Each line, its before and after and its warnings are written by xbin from the change itself. Nothing has been applied.",
-            footer: "\(n) of \(total) ticked", footerNote: DelegationWords.applyOrder,
+            footer: "\(n) of \(total) ticked · applied in order as you. If one fails, later ones are skipped and earlier ones stay.",
             apply: n > 0 ? "Apply \(plural(n, "change"))…" : "Apply none",
             reject: asked ? "Decline" : "Reject all",
             ask: ask, byHand: c.byHand)

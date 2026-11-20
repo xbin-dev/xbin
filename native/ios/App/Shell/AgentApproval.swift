@@ -31,8 +31,7 @@ import XbinRenderer
 
 /// The bar that says whose sheet this is: xbin's, asking this person.
 struct AgentTrustedBar: View {
-    /// The bar's facts, each its own element (D250: never "XBIN · APPROVAL").
-    let title: [String]
+    let title: String
     let asking: String
     var position: String = ""
     var close: (() -> Void)?
@@ -46,15 +45,10 @@ struct AgentTrustedBar: View {
         layout {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Image(systemName: "shield.lefthalf.filled").accessibilityHidden(true)
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    ForEach(Array(title.enumerated()), id: \.offset) { Text(verbatim: $0.element.uppercased()) }
-                    Text(verbatim: "asking \(asking)").fontWeight(.regular)
-                }
-                .font(.caption.weight(.bold)).lineLimit(big ? nil : 2)
-                .fixedSize(horizontal: false, vertical: true)
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel(Text(verbatim: "\(title.joined(separator: " ").lowercased()), asking \(asking)"))
-                .accessibilityIdentifier("approval-bar")
+                Text(verbatim: "\(title) — asking \(asking)").font(.caption.weight(.bold)).lineLimit(big ? nil : 2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityLabel(Text(verbatim: "xbin \(title.split(separator: "·").last.map { $0.trimmingCharacters(in: .whitespaces).lowercased() } ?? "approval"), asking \(asking)"))
+                    .accessibilityIdentifier("approval-bar")
             }
             if !big { Spacer(minLength: 4) }
             HStack(spacing: 12) {
@@ -294,23 +288,6 @@ struct AgentDurationPicker: View {
     }
 }
 
-/// Facts that once shared a line joined with "·", each its own element
-/// (D250): one under another, quiet, so a phone's width never cuts one.
-struct AgentFacts: View {
-    let parts: [String]
-    var font: Font = .caption.monospacedDigit()
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            ForEach(Array(parts.filter { !$0.isEmpty }.enumerated()), id: \.offset) {
-                Text(verbatim: $0.element).multilineTextAlignment(.leading).fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .font(font).foregroundStyle(XbinColor.muted)
-        .accessibilityElement(children: .combine)
-    }
-}
-
 /// Deny and Allow at the bottom of a sheet: Deny left, Allow right, equal
 /// width; stacked with Allow below at accessibility sizes. Allow is the
 /// primary button, Deny the quiet one, always (D250); `warned` (a mode that
@@ -425,7 +402,7 @@ struct AgentApprovalSheet: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            AgentTrustedBar(title: ["xbin", "approval"], asking: workspace.userLabel, position: position) { scene.agentReview = nil }
+            AgentTrustedBar(title: "XBIN · APPROVAL", asking: workspace.userLabel, position: position) { scene.agentReview = nil }
             if let r = request {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) { content(r) }
@@ -510,14 +487,13 @@ struct AgentApprovalSheet: View {
             Label { Text(verbatim: problem) } icon: { Image(systemName: "exclamationmark.octagon") }
                 .font(.callout).foregroundStyle(XbinColor.danger)
         }
-        AgentFacts(parts: footer(r))
+        Text(verbatim: footer(r)).font(.caption.monospacedDigit()).foregroundStyle(XbinColor.muted)
     }
 
-    /// The footer's facts, each its own element (D250; the web sheet's footer).
-    private func footer(_ r: DelegateRequest) -> [String] {
-        let asked = DelegationWords.askedList(created: r.created, expires: r.isPending ? r.expires : nil)
+    private func footer(_ r: DelegateRequest) -> String {
+        let asked = DelegationWords.asked(created: r.created, expires: r.isPending ? r.expires : nil)
         if r.kind == .call || r.kind == .mcp { return asked }
-        return asked + (r.kind == .web ? ["asked every time"] : ["asked every time", "change in Preferences"])
+        return [asked, r.kind == .web ? "asked every time" : "asked every time · change in Preferences"].filter { !$0.isEmpty }.joined(separator: " · ")
     }
 
     // MARK: A tile call, a tile's creation
@@ -529,8 +505,7 @@ struct AgentApprovalSheet: View {
             if r.kind == .call {
                 ApprovalRow(label: "Tile") {
                     Text(AgentReveal.attributed(t.name, font: .body.weight(.semibold)))
-                    Text(AgentReveal.attributed(t.path, font: XbinFont.code)).foregroundStyle(XbinColor.muted)
-                    if !t.org.isEmpty { Text(AgentReveal.attributed(t.org, font: .callout)).foregroundStyle(XbinColor.muted) }
+                    Text(AgentReveal.attributed([t.path, t.org].filter { !$0.isEmpty }.joined(separator: " · "), font: XbinFont.code)).foregroundStyle(XbinColor.muted)
                     let level = DelegationWords.levelWords(r.preview["level"]?.stringValue ?? "")
                     if !level.isEmpty { Text(verbatim: level).font(.caption).foregroundStyle(XbinColor.muted) }
                 }
@@ -548,7 +523,7 @@ struct AgentApprovalSheet: View {
                         .background(XbinColor.surface2, in: .xbinPlate)
                     if sends.clipped { Button("Show all") { showAll = true }.font(.caption).accessibilityIdentifier("approval-show-all") }
                 }
-                AgentFacts(parts: sends.parts, font: .caption)
+                Text(verbatim: sends.note).font(.caption).foregroundStyle(XbinColor.muted)
                 if sends.binary {
                     Label("Allowing this allows bytes nobody could read.", systemImage: "exclamationmark.triangle")
                         .font(.caption.weight(.semibold)).foregroundStyle(XbinColor.warn)
@@ -624,8 +599,7 @@ struct AgentApprovalSheet: View {
             }
             ApprovalRow(label: "Tile") {
                 Text(AgentReveal.attributed(t.name, font: .body.weight(.semibold)))
-                Text(AgentReveal.attributed(t.path, font: XbinFont.code)).foregroundStyle(XbinColor.muted)
-                if !t.org.isEmpty { Text(AgentReveal.attributed(t.org, font: .callout)).foregroundStyle(XbinColor.muted) }
+                Text(AgentReveal.attributed([t.path, t.org].filter { !$0.isEmpty }.joined(separator: " · "), font: XbinFont.code)).foregroundStyle(XbinColor.muted)
             }
             ApprovalRow(label: "Coding agent") {
                 Text(verbatim: s.agent).font(.callout)
@@ -757,7 +731,7 @@ struct AgentWiderSheet: View {
     var body: some View {
         let w = DelegationWords.widerWords(request)
         VStack(spacing: 0) {
-            AgentTrustedBar(title: ["xbin", "approval"], asking: workspace.userLabel)
+            AgentTrustedBar(title: "XBIN · APPROVAL", asking: workspace.userLabel)
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     HStack(spacing: 8) {

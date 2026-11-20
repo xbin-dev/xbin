@@ -220,7 +220,8 @@ export function batch({ requests = [], failed = [], changesets = [], sessions = 
     if (c.state !== 'proposed') continue;
     const w = needChangeTitle(c), e = toMs(c.expires);
     rows.push({ kind: 'changeset', id: c.id, title: w.title, chips: [], review: true, action: 'Review…', at: toMs(c.created),
-      parts: [...(w.notes || []), e > now ? `expires in ${left(e - now)}` : ''].filter(Boolean) });
+      // (the shared words join a proposal's notes with "·": the batch, new, shows each as its own element)
+      parts: [...String(w.note || '').split(' · ').filter(Boolean), e > now ? `expires in ${left(e - now)}` : ''].filter(Boolean) });
   }
   for (const s of sessions) {
     if (!(s.pending > 0 || s.questions > 0 || s.status === 'waiting_permission')) continue;

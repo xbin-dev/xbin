@@ -549,19 +549,19 @@ func handleWsBriefDefaults(w http.ResponseWriter, r *http.Request) {
 	if id == "" { // no coding agent may run there: xbind says why
 		out["line"] = orStr(d.Why, "No coding agent may run in this tile")
 	} else {
-		// (one fact a chip on the card — "chips"; the line, for a view that draws text, joins them with commas, never "·")
-		out["line"] = orStr(h.Name, id) + ", " + map[bool]string{true: "asks before acting", false: "acts without asking"}[asks]
+		// (one fact a chip on the card — "chips", D250; the line, as before, for a view that draws text)
+		out["line"] = orStr(h.Name, id) + " · " + map[bool]string{true: "asks before acting", false: "acts without asking"}[asks]
 		if h.NoSignIn {
-			out["line"] = out["line"].(string) + ", no sign-in needed"
+			out["line"] = out["line"].(string) + " · no sign-in needed"
 		}
 		switch h.SignIn { // what it signs in with, where xbind keeps sign-ins (D230)
 		case "saved":
-			out["line"] = out["line"].(string) + ", your saved sign-in, once you approve the start"
+			out["line"] = out["line"].(string) + " · your saved sign-in, once you approve the start"
 		case "needed":
 			if h.SignInOffered { // they have one saved: xbin's approval offers it — nothing to set up
-				out["line"] = out["line"].(string) + ", signed out unless you tick your saved sign-in on the approval"
+				out["line"] = out["line"].(string) + " · signed out unless you tick your saved sign-in on the approval"
 			} else {
-				out["line"] = out["line"].(string) + ", needs your sign-in"
+				out["line"] = out["line"].(string) + " · needs your sign-in"
 				out["needsSignIn"] = true
 			}
 		}

@@ -12,7 +12,7 @@
  * fields, and a kind this chrome doesn't know is never one that can be
  * ticked.
  */
-import { CHOICES, sessionRows, APPLY_ORDER } from './agent-chrome-words.js';
+import { CHOICES, sessionRows } from './agent-chrome-words.js';
 
 const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 const items = (cs) => (cs && cs.items) || [];
@@ -123,14 +123,12 @@ export function planWords(cs, ticks) {
   const blockedBy = waits.flatMap((it) => (it.needs || []).filter((d) => (all[d - 1] || {}).result !== 'applied'));
   const undo = !!(cs && cs.undoOf);
   return {
-    // the bar's facts, each its own element (D250): who speaks, and what this is
-    bar: ['xbin', asked ? `request from ${cs.from}` : 'plan'],
+    bar: asked ? `xbin · request from ${cs.from}` : 'xbin · plan',
     heading: asked ? `${cs.from} asks for ${plural(total, 'admin change')}` : undo ? `Undo: ${plural(total, 'change')}` : `Your agent proposes ${plural(total, 'change')}`,
     intro: asked
       ? `${cs.from}'s workspace agent proposed ${total === 1 ? 'this' : 'these'}, and ${cs.from} asked the workspace's admins to apply ${total === 1 ? 'it' : 'them'}. Each line, its before and after and its warnings are written by xbin from the change itself, as you would apply it. Nothing has been applied.`
       : 'Each line, its before and after and its warnings are written by xbin from the change itself. Nothing has been applied.',
-    footer: `${n} of ${total} ticked`,
-    footerNote: APPLY_ORDER,
+    footer: `${n} of ${total} ticked · applied in order as you. If one fails, later ones are skipped and earlier ones stay.`,
     apply: n ? `Apply ${plural(n, 'change')}…` : 'Apply none',
     reject: asked ? 'Decline' : 'Reject all',
     ask: waits.length ? {
@@ -184,7 +182,7 @@ export function planNeed(cs) {
   const w = all.filter((it) => it.warnings && it.warnings.length).length, a = all.filter((it) => it.admin && !it.needsAdmin).length, na = all.filter((it) => it.needsAdmin && !it.result).length;
   return {
     title: cs.from ? `${cs.from} asks for ${plural(all.length, 'admin change')}` : `A plan of ${plural(all.length, 'change')}`,
-    notes: [w ? `${w} ${w === 1 ? 'has' : 'have'} a warning` : '', !cs.from && a ? `${a} ${a === 1 ? 'is' : 'are'} an admin's` : '', na ? `${na} ${na === 1 ? 'needs' : 'need'} an admin` : ''].filter(Boolean),
+    note: [w ? `${w} ${w === 1 ? 'has' : 'have'} a warning` : '', !cs.from && a ? `${a} ${a === 1 ? 'is' : 'are'} an admin's` : '', na ? `${na} ${na === 1 ? 'needs' : 'need'} an admin` : ''].filter(Boolean).join(' · '),
   };
 }
 

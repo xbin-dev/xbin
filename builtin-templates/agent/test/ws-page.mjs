@@ -137,7 +137,7 @@ const grants = (page) => page.evaluate(() => [...document.querySelectorAll('butt
   cards.briefs[0].state = 'draft';
   cards.requests = cards.requests.filter((q) => q.id !== 11);
   cards.agents = [];
-  const sd = { harness: 'claude', harnessName: 'Claude Code', asks: true, ticket: true, line: 'Claude Code, asks before acting', chips: [{ text: 'Claude Code', tone: '' }, { text: 'asks before acting', tone: 'ok' }],
+  const sd = { harness: 'claude', harnessName: 'Claude Code', asks: true, ticket: true, line: 'Claude Code · asks before acting', chips: [{ text: 'Claude Code', tone: '' }, { text: 'asks before acting', tone: 'ok' }],
     defaults: { harness: 'claude', harnesses: [{ id: 'claude', name: 'Claude Code', asks: true, needsTicket: true }, { id: 'codex', name: 'Codex', asks: true, needsTicket: true }] } };
   const { ctx, page, errors } = await openWs(browser, { sessions: fresh(SESSIONS), full: FULL, views: { 1: fresh(CONVERSATION) }, cards: { 1: cards }, startDefaults: sd });
   await until(async () => (await text(page, '.wsc-brief')).includes('asks before acting'));
@@ -167,7 +167,7 @@ const grants = (page) => page.evaluate(() => [...document.querySelectorAll('butt
   cards.briefs[0].state = 'draft';
   cards.requests = [];
   cards.agents = [];
-  const sd = { harness: 'claude', harnessName: 'Claude Code', asks: true, ticket: false, line: 'Claude Code, asks before acting', defaults: { harness: 'claude', harnesses: [{ id: 'claude', name: 'Claude Code', asks: true, needsTicket: false }] } };
+  const sd = { harness: 'claude', harnessName: 'Claude Code', asks: true, ticket: false, line: 'Claude Code · asks before acting', defaults: { harness: 'claude', harnesses: [{ id: 'claude', name: 'Claude Code', asks: true, needsTicket: false }] } };
   const { ctx, page } = await openWs(browser, { sessions: fresh(SESSIONS), full: FULL, views: { 1: fresh(CONVERSATION) }, cards: { 1: cards }, startDefaults: sd, startAnswer: { started: true, id: 5, outcome: '' } });
   await until(async () => (await page.$eval('.wsc-start', (x) => x.innerText.trim()).catch(() => '')) === 'Start');
   ok('start without asking: the button reads Start', (await page.$eval('.wsc-start', (x) => x.innerText.trim())) === 'Start');

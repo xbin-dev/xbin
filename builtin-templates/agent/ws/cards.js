@@ -12,8 +12,7 @@
 // alone, carrying its request (ws/place.js): the brief's button is the
 // backend's — "Review and start…" opens xbind's approval of the start, and
 // only where the person's own preference lets tile agents start without
-// asking (the backend decides) is it "Start". No fact is joined to another
-// with "·": each is an element.
+// asking (the backend decides) is it "Start".
 import { html, nothing } from '/vendor/lit-all.min.js';
 import { agentCard, requestCard, briefCard, refusalCard, possessive, W } from './words.js';
 
@@ -48,7 +47,7 @@ function sessionCard(a, act) {
   const w = agentCard(a, act.now(), act.tileName);
   return html`<div class="wsc wsc-agent ${w.waits ? 'wsc-waits' : ''}" data-agent=${a.id} data-status=${a.status || ''} data-tile=${a.tile || ''}>
     <div class="wsc-row">
-      <span class="wsc-name">${icon('grid')}<b>${w.tile}</b>${w.harness ? html`<span class="wsc-chip" data-harness>${w.harness}</span>` : nothing}</span>
+      <span class="wsc-name">${icon('grid')}<b>${w.tile}</b><span class="wsc-muted"> · ${w.harness}</span></span>
       <span class="wsc-st ${w.tone ? 'wsc-' + w.tone : ''}">${icon(w.glyph)}${w.word}</span>
       <button class="wsc-open ${w.waits ? 'primary' : ''}" ?disabled=${!a.session} title=${a.session ? `show this session in ${w.tile}` : 'its session isn’t open yet'}
         @click=${() => act.openSession(a)}>${w.button}${icon('external')}</button>
@@ -77,7 +76,7 @@ function requestView(q, act) {
   }
   const opens = btn === W.open; // of a decided plan, xbin's results
   return html`<div class="wsc wsc-req ${w.waits ? 'wsc-waits' : ''} ${w.todo ? 'wsc-open-fail' : ''}" data-req=${q.id} data-ref=${q.ref || ''} data-state=${q.state || ''} data-kind=${w.kind}>
-    <div class="wsc-row"><span class="wsc-name">${icon(w.waits ? 'shield' : w.glyph)}<b>${head}</b></span>${parts(w.parts)}</div>
+    <div class="wsc-row"><span class="wsc-name">${icon(w.waits ? 'shield' : w.glyph)}<b>${head}</b></span>${w.line ? html`<span class="wsc-muted">${w.line}</span>` : nothing}</div>
     <div class="wsc-what"><span class="wsc-quote" title="the agent’s words">${w.what}</span>${w.tile && !w.what.includes(w.tile) ? html` — <b>${w.tile}</b>` : nothing}</div>
     ${w.result ? html`<div class="wsc-line">${w.result}</div>` : nothing}
     ${w.lines && w.lines.length ? html`<ol class="wsc-lines" data-lines>${w.lines.map((l) => html`<li data-n=${l.n} data-result=${l.result}>

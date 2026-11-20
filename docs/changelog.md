@@ -41,8 +41,8 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   every approval Deny is the quiet button on the left and Allow the
   primary on the right; a warning colours Allow and never promotes Deny.
   A permission card places the coding agent's own options so: its
-  rejections left, its first allow right. What a person reads on these
-  surfaces carries no "·": each fact is its own element.
+  rejections left, its first allow right. The new card, list and sheet
+  show each fact as its own element.
 - agent template: `tile_agent_start {harness?, model?, mode?, new?,
   reason?}` (suggestions only where the person named one; `new` against
   continuing), `tile_agent_message` to a session that doesn't ask files

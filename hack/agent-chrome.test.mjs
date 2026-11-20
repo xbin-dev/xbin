@@ -15,12 +15,11 @@ test('a tile call: its heading, what it sends, the three choices and what each a
   const r = call();
   assert.deepEqual(W.heading(r), { before: 'Your agent wants to change something in ', strong: 'Invoices', after: '' });
   assert.equal(W.needTitle(r), 'Approve a change to Invoices');
-  assert.deepEqual(W.sends(r), { text: '{"all":true}', binary: false, clipped: false, parts: ['12 bytes', 'shown in full'], note: '12 bytes, shown in full' });
+  assert.deepEqual(W.sends(r), { text: '{"all":true}', binary: false, clipped: false, note: '12 bytes · shown in full' });
   assert.equal(W.sends(call({ bodySize: 14336, bodyShown: 2048 })).note, 'showing the first 2 KiB of 14 KiB');
   assert.equal(W.levelWords('write'), 'you can write here');
   assert.equal(W.undoWords(r), "xbin can't undo this. Whether Invoices can is up to Invoices.");
-  assert.deepEqual(W.askedList(r, NOW), [`asked ${W.clock(Date.parse(r.created))}`, 'expires in 23 h 58 min'], 'each fact its own element (D250)');
-  assert.equal(W.asked(r, NOW), `asked ${W.clock(Date.parse(r.created))}, expires in 23 h 58 min`);
+  assert.equal(W.asked(r, NOW), `asked ${W.clock(Date.parse(r.created))} · expires in 23 h 58 min`);
   const ch = W.grantChoices(r);
   assert.deepEqual(ch.map((c) => [c.id, c.wider]), [['once', false], ['call', false], ['tile', true]]);
   assert.equal(ch[1].text, r.preview.standing.call, "xbind's own sentence for the scope");
@@ -37,7 +36,7 @@ test('a tile call: its heading, what it sends, the three choices and what each a
 
 test('a body nobody can read says so, and is approved only as unseen', () => {
   const r = call({ body: undefined, bodyBinary: true, bodySize: 3355443, bodySha256: 'ab12', preview: { tile: 'apps/invoices', body: { binary: true, size: 3355443, sha256: 'ab12' } } });
-  assert.deepEqual(W.sends(r), { text: '', binary: true, clipped: false, parts: ['not text — 3.2 MiB, sha256 ab12'], note: 'not text — 3.2 MiB, sha256 ab12' });
+  assert.deepEqual(W.sends(r), { text: '', binary: true, clipped: false, note: 'not text — 3.2 MiB, sha256 ab12' });
   assert.deepEqual(W.approveBody(r, 'once'), { grant: 'once', unseen: true });
 });
 
@@ -46,7 +45,7 @@ test('a tile agent start: the mode leads, and one that never asks is the danger 
     preview: { session: { tile: 'apps/invoices', providerName: 'Claude Code', model: 'sonnet', mode: 'default', asks: true, net: 'none', ...session } } });
   const asks = W.sessionRows(s({}));
   assert.deepEqual([asks.mode.tag, asks.mode.tone, asks.danger], ['asks before it edits or runs anything', 'ok', '']);
-  assert.equal(asks.agent, "Claude Code, model sonnet, through the workspace's connector");
+  assert.equal(asks.agent, "Claude Code · model sonnet, through the workspace's connector");
   assert.equal(asks.network, 'Its model only. No internet.');
   // what it signs in with, by xbind's word (D230): a saved sign-in named; none at all said, with the harness to sign in to
   assert.equal(asks.signin, null);
@@ -83,7 +82,7 @@ test('a tile agent start: the mode leads, and one that never asks is the danger 
   assert.equal(W.allowLabel(s({})), 'Start');
   const never = s({ asks: false, mode: 'bypassPermissions' });
   assert.equal(W.sessionRows(never).mode.tag, 'acts without asking');
-  assert.match(W.sessionRows(never).danger, /in this mode acts without asking: it edits files and runs commands in Invoices without asking you/);
+  assert.match(W.sessionRows(never).danger, /in this mode acts without asking: it edits files and runs commands in Invoices without asking you/, 'the person picked it (D250): never "your agent asked"');
   assert.equal(W.allowLabel(never), 'Start without asking');
   assert.deepEqual(W.grantChoices(never), [], 'asked every time: no standing choice');
   assert.deepEqual(W.approveBody(never, 'tile', 'always'), { grant: 'once' });
@@ -103,8 +102,8 @@ test('a change set: a warned item starts unticked, a blocked one cannot be ticke
   assert.equal(w.heading, 'Your agent proposes 3 admin changes');
   assert.equal(w.apply, 'Apply 1 change…');
   assert.equal(W.reviewWords(cs, []).apply, 'Apply none');
-  assert.deepEqual([w.footer, w.footerNote], ['1 of 3 ticked', W.APPLY_ORDER]);
-  assert.deepEqual(W.needChangeTitle(cs), { title: '3 admin changes proposed', notes: ['1 has a warning', "1 can't be applied"], note: "1 has a warning, 1 can't be applied" });
+  assert.match(w.footer, /^1 of 3 ticked · applied in order as you/);
+  assert.deepEqual(W.needChangeTitle(cs), { title: '3 admin changes proposed', note: "1 has a warning · 1 can't be applied" });
 });
 
 test('results: all, some, none — and what can be undone', () => {
@@ -127,7 +126,7 @@ test('needs you: oldest first, only what waits', () => {
     sessions: [{ id: 't1', cwd: 'apps/orders', providerName: 'Claude Code', pending: 1, origin: 'agent', created: '2026-11-16T10:10:00Z' }, { id: 't2', cwd: 'apps/x', pending: 0, questions: 0, status: 'idle' }],
   }, NOW);
   assert.deepEqual(rows.map((r) => `${r.kind}:${r.id}`), ['session:t1', 'request:r1', 'changeset:c1', 'request:r2']);
-  assert.equal(rows[0].title, 'Orders: Claude Code asks permission');
+  assert.equal(rows[0].title, 'Orders · Claude Code asks permission');
   assert.equal(rows[0].note, 'started by your agent');
   assert.equal(rows[2].title, '1 admin change proposed');
   assert.equal(W.needCount({ pendingRequests: 2, openChangeSets: 1 }), 3);
@@ -295,10 +294,10 @@ test('a long body: the note says how much is shown — "shown in full" only when
   const s = W.sends(req);
   assert.equal(s.clipped, true);
   assert.equal([...s.text].length, 4000, 'the first 4000 characters, never half an emoji');
-  assert.match(s.parts[1], /^first 4000 of 4400 characters$/);
+  assert.match(s.note, /· first 4000 of 4400 characters$/);
   const all = W.sends(req, true);
   assert.equal(all.text, body);
-  assert.equal(all.parts[1], 'shown in full');
+  assert.match(all.note, /· shown in full$/);
   assert.match(W.sends({ kind: 'call', body: 'x'.repeat(4000), bodySize: 4000, bodyShown: true }).note, /shown in full$/, 'exactly CLIP is whole');
   assert.equal(W.clipNote(W.clipText('x'.repeat(4001))), 'first 4000 of 4001 characters');
 });

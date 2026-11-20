@@ -292,7 +292,7 @@ export class BxAgentApprove extends LitElement {
         ${this._tileRow(req)}
         <dt>Action</dt><dd class="mono" data-row="action">${req.method} ${req.target}</dd>
         <dt>Sends</dt><dd data-row="sends">${s.text ? html`${hiddenLine(req.body)}<pre class="body" tabindex="-1">${shown(s.text)}${s.clipped ? '…' : ''}</pre>` : nothing}
-          <div class="small muted parts" data-note>${(s.parts || [s.note]).map((x) => html`<span>${x}</span>`)}${s.clipped ? html`<button class="link" data-show-all @click=${() => this._showAll('_all')}>Show all</button>` : nothing}</div>
+          <div class="small muted" data-note>${s.note}${s.clipped ? html` — <button class="link" data-show-all @click=${() => this._showAll('_all')}>Show all</button>` : nothing}</div>
           ${s.binary ? html`<div class="small err">Nobody can read this before it is sent: allowing it approves bytes you have not seen.</div>` : nothing}</dd>
         <dt>Undo</dt><dd>${shown(undoWords(req))}</dd>
       </dl>
@@ -415,7 +415,7 @@ export class BxAgentApprove extends LitElement {
           ${m.changedLine ? html`<div class="small err" data-row="changed">${m.changedLine}</div>` : nothing}</dd>
         ${m.description ? html`<dt>It says</dt><dd>${this._quote(m.description, 'The server’s own words — not checked by xbin')}</dd>` : nothing}
         <dt>Arguments</dt><dd data-row="arguments">${hiddenLine(m.arguments)}<pre class="body" tabindex="-1">${shown(args.text)}${args.clipped ? '…' : ''}</pre>
-          <div class="small muted parts">${args.clipped ? html`<span>${clipNote(args)}</span><button class="link" data-show-all @click=${() => this._showAll('_all')}>Show all</button>` : nothing}<span>sent exactly like this</span></div></dd>
+          <div class="small muted">${args.clipped ? html`${clipNote(args)} — <button class="link" data-show-all @click=${() => this._showAll('_all')}>Show all</button> · ` : nothing}sent exactly like this</div></dd>
         <dt>Undo</dt><dd>${shown(m.undo)}</dd>
       </dl>
       ${this._quote(req.summary)}
@@ -437,7 +437,7 @@ export class BxAgentApprove extends LitElement {
         <dt>Name and place</dt><dd class="mono">${b.path || b.name || req.target}</dd>
         <dt>Owner</dt><dd data-row="owner">${ownerWords(req)}</dd>
         <dt>Sends</dt><dd>${hiddenLine(req.body)}<pre class="body" tabindex="-1">${shown(s.text)}${s.clipped ? '…' : ''}</pre>
-          <div class="small muted parts" data-note>${(s.parts || [s.note]).map((x) => html`<span>${x}</span>`)}${s.clipped ? html`<button class="link" data-show-all @click=${() => this._showAll('_all')}>Show all</button>` : nothing}</div></dd>
+          <div class="small muted" data-note>${s.note}${s.clipped ? html` — <button class="link" data-show-all @click=${() => this._showAll('_all')}>Show all</button>` : nothing}</div></dd>
       </dl>
       ${this._quote(req.summary)}`;
   }

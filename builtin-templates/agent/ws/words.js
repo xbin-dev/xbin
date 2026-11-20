@@ -153,7 +153,7 @@ export function requestCard(r, now = Date.now(), tileName = (p) => p) {
   const what = r.title || (kind === 'template' ? 'Create a tile' : `${KIND_WORD[kind] || 'a request'}${tile ? ' ' + tile : ''}`);
   const call = r.method && r.path ? `${r.method} ${r.path}` : '';
   const out = { kind, tile, what, call, local, ref: r.ref || '', waits: false, settled: true, button: '', glyph: 'shield', tone: '', head: '', line: '', result: '', parts: [] };
-  const when = (ms) => [ms ? clock(ms) : '', VIA[r.via] || ''].filter(Boolean).join(', ');
+  const when = (ms) => [ms ? clock(ms) : '', VIA[r.via] || ''].filter(Boolean).join(' · ');
   switch (r.state) {
     case 'pending': {
       const left = r.expiresMs ? r.expiresMs - now : 0;
@@ -171,11 +171,9 @@ export function requestCard(r, now = Date.now(), tileName = (p) => p) {
     case 'approved': case 'running': case 'applying':
       return { ...out, head: grantWords(r, tile), glyph: 'clock', line: 'running now…' };
     case 'used':
-      return { ...out, head: grantWords(r, tile), glyph: 'check', tone: 'ok', parts: [when(r.decidedMs), call, r.resultStatus ? String(r.resultStatus) : ''].filter(Boolean),
-        line: [when(r.decidedMs), call, r.resultStatus ? String(r.resultStatus) : ''].filter(Boolean).join(', '), result: r.result || '' };
+      return { ...out, head: grantWords(r, tile), glyph: 'check', tone: 'ok', line: [when(r.decidedMs), call, r.resultStatus ? String(r.resultStatus) : ''].filter(Boolean).join(' · '), result: r.result || '' };
     case 'failed':
-      return { ...out, head: `${grantWords(r, tile)} — it failed`, glyph: 'error', tone: 'bad', parts: [when(r.decidedMs), call, r.resultStatus ? String(r.resultStatus) : ''].filter(Boolean),
-        line: [when(r.decidedMs), call, r.resultStatus ? String(r.resultStatus) : ''].filter(Boolean).join(', '), result: r.result || '' };
+      return { ...out, head: `${grantWords(r, tile)} — it failed`, glyph: 'error', tone: 'bad', line: [when(r.decidedMs), call, r.resultStatus ? String(r.resultStatus) : ''].filter(Boolean).join(' · '), result: r.result || '' };
     case 'denied': return { ...out, head: r.by === 'agent' ? 'Withdrawn by the agent' : 'Denied by you', glyph: 'xmark', line: when(r.decidedMs) };
     case 'expired': return { ...out, head: 'Expired — not approved within 24 hours.', glyph: 'clock', button: 'Ask again' };
     case 'withdrawn': return { ...out, head: 'Withdrawn by the agent', glyph: 'xmark' };

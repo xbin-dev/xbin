@@ -6432,9 +6432,9 @@ here: cut from the old end, never reword.
     always; danger colours only the Approve. A permission card places the
     coding agent's own options so: its rejections left, its first allow
     right, the rest between in its order (superseding "in its order"). No
-    "·" in what a person reads on the surfaces this touched (the owner's
-    rule): facts are elements — the words modules return parts, and
-    their joined accessors join with commas.
+    "·" in the elements this adds or rebuilds (the owner's rule, kept to
+    new elements until broader UX guidelines): facts are elements there;
+    existing lines elsewhere, and the shared words tables, are unchanged.
   - **The app** approves xbind's preselected pick (an older client to the
     approve call) and says where to pick others: the web's sheet. A
     `message` request is a kind it doesn't know, so it shows "update to

@@ -103,8 +103,7 @@ function requestTpl(q) {
   if (REQUEST()) return html`<request id=${q.ref} kind=${KINDS.includes(q.kind) ? q.kind : 'call'}/>${again}`;
   // an app from before the node can't review it: say so; what came of a decided one is words
   return w.waits ? html`<notice tone="warn" title=${W.updateToReview} text=${w.what}/>`
-    // (one text is all such an app draws: the facts a line each — never joined with "·", D250)
-    : html`<notice tone=${w.tone === 'bad' ? 'danger' : w.tone === 'ok' ? 'ok' : 'muted'} title=${w.head} text=${[w.what, w.line, w.result].filter(Boolean).join('\n')}/>`;
+    : html`<notice tone=${w.tone === 'bad' ? 'danger' : w.tone === 'ok' ? 'ok' : 'muted'} title=${w.head} text=${[w.what, w.line, w.result].filter(Boolean).join(' · ')}/>`;
 }
 
 // sessionTpl: a tile agent the agent started. Its session is the app's to
@@ -113,9 +112,8 @@ function requestTpl(q) {
 function sessionTpl(a) {
   if (a.session && SESSION()) return html`<session id=${a.session} tile=${a.tile || nothing}/>`;
   const w = agentCard(a, Date.now(), st.tileName);
-  // the tile, and its coding agent, each its own element (D250: never "Orders · Claude Code")
-  if (!a.session) return cardTpl({ icon: w.glyph, tone: tone(w.tone), title: w.tile, badge: w.word, parts: [w.harness ? { text: w.harness, style: 'footnote', tone: 'muted' } : null, w.line ? { text: w.line } : null], note: w.note });
-  return html`<notice tone=${w.waits ? 'warn' : 'muted'} title=${`${w.tile}: ${w.harness} — ${w.word}`} text=${[w.line, w.note, 'Open it from the tile.'].filter(Boolean).join(' ')}/>`;
+  if (!a.session) return cardTpl({ icon: w.glyph, tone: tone(w.tone), title: `${w.tile} · ${w.harness}`, badge: w.word, parts: [w.line ? { text: w.line } : null], note: w.note });
+  return html`<notice tone=${w.waits ? 'warn' : 'muted'} title=${`${w.tile} · ${w.harness} — ${w.word}`} text=${[w.line, w.note, 'Open it from the tile.'].filter(Boolean).join(' ')}/>`;
 }
 
 // ---- the brief ("scope, then hand off") ----------------------------------------------------------

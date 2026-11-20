@@ -236,7 +236,7 @@ func TestWorkspaceAgent(t *testing.T) {
 		d.Must(t, "PUT", briefAPI, map[string]any{"harness": "fake"}, 200, alice.fr)
 		sd = startDefaults{}
 		d.Must(t, "GET", briefAPI+"/start-defaults", nil, 200, alice.fr).Decode(t, &sd)
-		if sd.Picked != "fake" || sd.Harness != "fake" || sd.Mode != "ask" || !sd.Asks || !sd.Ticket || sd.HarnessName != fakeName || !strings.HasPrefix(sd.Line, fakeName+", asks") /* the line joins its facts with commas: never "·" (D250) */ {
+		if sd.Picked != "fake" || sd.Harness != "fake" || sd.Mode != "ask" || !sd.Asks || !sd.Ticket || sd.HarnessName != fakeName || !strings.HasPrefix(sd.Line, fakeName+" · asks") {
 			t.Fatalf("the start after alice's pick: %+v, want the fake coding agent by xbind's name for it (%q), asking, behind a ticket", sd, fakeName)
 		}
 

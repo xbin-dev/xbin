@@ -115,7 +115,7 @@ export function permView(b, ctx) {
   // a word with a rejection, where the host can send one
   const word = ctx.rejectWord && opts.some((o) => o.reject);
   return html`<div class="bxc-perm" data-pid=${b.pid || ''}>
-    <div class="bxc-q"><b><bx-icon name="warning"></bx-icon>${card.lead}</b>${shown ? html`<span class="bxc-ptitle">${shown}</span>` : nothing}
+    <div class="bxc-q"><b><bx-icon name="warning"></bx-icon>${card.lead}</b>${shown ? html` · <span class="bxc-ptitle">${shown}</span>` : nothing}
       ${card.label && card.label !== shown ? html`<div class="bxc-desc">${card.label}</div>` : nothing}</div>
     ${calls.length ? html`<ul class="bxc-calls">${calls.map((c) => html`<li class="bxc-mono">${c}</li>`)}</ul>` : nothing}
     ${cmd ? commandView(cmd, ctx) : card.raw ? html`<pre class="bxc-cmd">${card.raw}</pre>` : nothing}

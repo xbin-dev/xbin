@@ -111,7 +111,7 @@ async function journeyAgent(browser) {
     await J.click('the plan\'s card: "Review…"', async () => { await f.locator('.wsc-req[data-kind="changeset"] [data-marker]').last().click(); await page.waitForSelector(`${DLG} [role="dialog"][data-view="review"]`, { timeout: 20000 }); });
     const review = await dlg();
     const lines = await page.$$eval(`${DLG} .item .line > span:first-child`, (els) => els.map((e) => e.textContent.trim()));
-    check(/xbin\s*plan/i.test(review) && /Your agent proposes 5 changes/.test(review) && lines[0] === `Create the tile ${J0.DICE} from the template Starter (starter) — yours`
+    check(/xbin · plan/i.test(review) && /Your agent proposes 5 changes/.test(review) && lines[0] === `Create the tile ${J0.DICE} from the template Starter (starter) — yours`
       && /^Start a tile agent in apps\/dice — Fake agent \(tests\), in its mode/.test(lines[1]) && lines[2] === `Create the tile ${ASSISTANT} from the template AI Agent (agent) — yours`
       && lines[3] === `Bind ${ASSISTANT}'s llm to xbin:llm` && lines[4] === `Bind ${ASSISTANT}'s mcp to ${J0.DICE}`,
     `xbin's review of the plan: five lines in xbind's words (${JSON.stringify(lines)})`);

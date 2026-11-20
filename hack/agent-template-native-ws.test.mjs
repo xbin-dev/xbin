@@ -358,8 +358,8 @@ test('an app from before these nodes still gets a native view: every addition ha
   // a request it can't review says so; a decided one is words; a tile agent is named
   assert.deepEqual(find(t, { t: 'notice', p: { title: W.updateToReview } }).p.text, 'Rebuild the order links on the 38 open invoices');
   assert.ok(find(t, { t: 'markdown', has: 'Its start: allowed once by you' }), 'what came of the brief\'s start, on its card');
-  assert.ok(find(t, { t: 'notice', has: 'Orders: Claude Code — working' }));
-  assert.ok(find(t, { t: 'notice', has: 'Invoices: Claude Code — waiting for you' }));
+  assert.ok(find(t, { t: 'notice', has: 'Orders · Claude Code — working' }));
+  assert.ok(find(t, { t: 'notice', has: 'Invoices · Claude Code — waiting for you' }));
   // the plan's tags ride in its lines; the question is the rev-1 form; cards are words
   assert.equal(find(t, { t: 'plan' }).p.entries[3].text, '4. Check both and report back — reads only');
   assert.equal(find(t, { t: 'plan' }).p.tags, undefined);

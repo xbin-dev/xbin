@@ -83,7 +83,6 @@ export class BxAgentChanges extends LitElement {
     .res.ok { color: var(--bx-ok, #A3CF5E); } .res.bad { color: var(--bx-danger, #FF7A7A); } .res.warn { color: var(--bx-warn, #F2994A); }
     .foot { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 8px 16px; border-top: 1px solid var(--bx-border, #33353F); }
     .foot .fw { flex: 1; min-width: 160px; }
-    .parts { display: flex; flex-wrap: wrap; column-gap: 12px; row-gap: 2px; align-items: baseline; }
     .step { display: flex; flex-direction: column; gap: 8px; max-width: 460px; }
     .item.off { border-style: dashed; }
     .item .tag.adm { border-color: var(--bx-warn, #F2994A); color: var(--bx-warn, #F2994A); }
@@ -240,7 +239,7 @@ export class BxAgentChanges extends LitElement {
     if (!cs) return nothing;
     return html`<div class="scrim"></div>
       <div class="dlg" role="dialog" aria-modal="true" aria-labelledby="h" data-view=${this._step ? 'stepup' : this._view} @keydown=${this._key}>
-        <div class="xbar"><bx-icon name="shield"></bx-icon>${(cs.plan ? planWords(cs, this._ticks).bar : ['xbin', 'admin changes']).map((b, i) => html`<span ?data-bar=${i === 1}>${b}</span>`)}${this.person ? html`<span class="who">asking ${this.person}</span>` : nothing}</div>
+        <div class="xbar"><bx-icon name="shield"></bx-icon><span data-bar>${cs.plan ? planWords(cs, this._ticks).bar : 'xbin · admin changes'}</span>${this.person ? html`<span class="who">asking ${this.person}</span>` : nothing}</div>
         ${this._step ? this._stepUp(cs) : this._view === 'results' ? this._results(cs) : this._review(cs)}
       </div>`;
   }
@@ -264,8 +263,8 @@ export class BxAgentChanges extends LitElement {
         ${res && res.text ? html`<div class="small ${res.tone === 'bad' ? 'err' : 'muted'}">${res.text}</div>` : nothing}
         ${it.kind === 'agent.start' && it.start ? this._start(it) : nothing}
         ${it.before != null || it.after != null ? html`<div class="ba mono small"><div class="b" data-before><span class="lb">Before</span>${stateText(it, 'before') ?? '—'}</div><div class="a" data-after><span class="lb">After</span>${stateText(it, 'after') ?? '—'}</div></div>` : nothing}
-        ${(it.effects || []).length ? html`<div class="small parts" data-effects>${[].concat(it.effects).map((x) => html`<span>${x}</span>`)}</div>` : nothing}
-        ${review && (notes.needs || notes.neededBy) ? html`<div class="small muted parts" data-needs>${[notes.needs, notes.neededBy].filter(Boolean).map((x) => html`<span>${x}</span>`)}</div>` : nothing}
+        ${(it.effects || []).length ? html`<div class="small" data-effects>${[].concat(it.effects).join(' · ')}</div>` : nothing}
+        ${review && (notes.needs || notes.neededBy) ? html`<div class="small muted" data-needs>${[notes.needs, notes.neededBy].filter(Boolean).join(' · ')}</div>` : nothing}
         ${!review && it.result === 'applied' && it.undoByHand ? html`<div class="small muted" data-byhand>${it.undoByHand}.</div>` : nothing}
         ${it.why ? html`<div class="quote"><span class="ql">Agent's reason — not checked by xbin</span>${hiddenLine(it.why)}<span class="qt">${shown(it.why)}</span></div>` : nothing}
       </div></li>`;
@@ -283,7 +282,7 @@ export class BxAgentChanges extends LitElement {
     set: (patch) => { this._signins = { ...this._signins, [it.n]: { ...(this._signins[it.n] || {}), ...patch } }; } } : null)}
         <dt>Network</dt><dd>${r.network}</dd>
         <dt>What it will be told</dt><dd>${r.briefBy ? html`<div class="small" data-row="brief-by">${r.briefBy}</div>` : nothing}${hiddenLine(r.brief)}<pre class="brief mono" tabindex="-1" data-row="brief">${shown(brief.text)}${brief.clipped ? '…' : ''}</pre>
-          <div class="small muted parts">${brief.clipped ? html`<span>${clipNote(brief)}</span><button class="link" data-show-all @click=${() => { this._briefs = [...this._briefs, it.n]; }}>Show all</button>` : nothing}<span>sent exactly like this</span></div></dd>
+          <div class="small muted">${brief.clipped ? html`${clipNote(brief)} — <button class="link" data-show-all @click=${() => { this._briefs = [...this._briefs, it.n]; }}>Show all</button> · ` : nothing}sent exactly like this</div></dd>
       </dl>`;
   }
 
@@ -299,7 +298,7 @@ export class BxAgentChanges extends LitElement {
         ${w.ask ? this._askRow(w.ask) : nothing}
         ${this._err ? html`<div class="banner bad" role="alert"><bx-icon name="error"></bx-icon><span>${this._err}</span></div>` : nothing}
       </div>
-      <div class="foot"><span class="fw small muted parts" aria-live="polite"><span data-ticked>${w.footer}</span><span>${w.footerNote}</span></span>
+      <div class="foot"><span class="fw small muted" aria-live="polite">${w.footer}</span>
         <button data-reject ?disabled=${this._busy} @click=${this._reject}>${w.reject}</button>
         ${this.stopped ? this._stop() : html`<button class="primary" data-apply aria-disabled=${this._armed && !this._busy ? 'false' : 'true'} @click=${this._apply}>${w.apply}</button>`}</div>`;
   }
@@ -317,7 +316,7 @@ export class BxAgentChanges extends LitElement {
         ${s.password ? html`<label>Password <input type="password" autocomplete="current-password" id="pw" @keydown=${(e) => { if (e.key === 'Enter') e.preventDefault(); }}></label>
           <p class="small muted">${s.sso} <button class="link" @click=${() => this._signIn()}>Sign in again</button></p>` : nothing}
         ${this._step.error ? html`<div class="banner bad" role="alert"><bx-icon name="error"></bx-icon><span>${this._step.error}</span></div>` : nothing}
-        <p class="small muted parts"><span>${reviewWords(cs, this._ticks).footer}</span><span>${reviewWords(cs, this._ticks).footerNote}</span></p>
+        <p class="small muted">${reviewWords(cs, this._ticks).footer}</p>
       </div></div>
       <div class="foot"><span class="fw"></span>
         <button data-notnow @click=${() => { this._step = null; this._arm(); }}>Not now</button>

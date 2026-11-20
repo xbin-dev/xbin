@@ -67,7 +67,7 @@ async function sheetChecks({ page, S, check, refresh, sentTo, armed, text, shot,
     await review(page, 'request', 'l2');
     await page.waitForSelector(`${SHEET} [data-row="sends"] [data-note]`);
     const clipNote = await text(`${SHEET} [data-row="sends"] [data-note]`);
-    check(/first 4000 of 4940 characters\s*Show all$/.test(clipNote) && !/shown in full/.test(clipNote) && !clipNote.includes('·'), `[${width}] a long body: "first 4000 of 4940 characters", not "shown in full" (${clipNote})`);
+    check(/first 4000 of 4940 characters — Show all$/.test(clipNote) && !/shown in full/.test(clipNote), `[${width}] a long body: "first 4000 of 4940 characters", not "shown in full" (${clipNote})`);
     await shot(page, `agent-chrome-clipped${tag}`, { fullPage: false });
     await page.click(`${SHEET} [data-row="sends"] [data-show-all]`);
     await page.waitForFunction(() => /shown in full/.test(document.querySelector('bx-agent-dock').shadowRoot.querySelector('bx-agent-approve').shadowRoot.querySelector('[data-row="sends"] [data-note]').textContent));

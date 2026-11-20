@@ -19,11 +19,16 @@ Reads with: `docs/workspace-agent.md`, `docs/protocol/delegation.md`
 D238 (plans, the `agent.start` line), D243 (the dock's permission cards),
 D245 (homes on untrusted tiles).
 
-**No "·" in anything a person reads** (the owner, during this batch):
-where a surface this batch touches joined facts with "·", each fact is
-now an element of its own — a chip, a labelled field, a row, a muted item
-laid out with a gap. The words tables return the facts as a list
-(`parts`), and keep their joined accessors for an older shell or app.
+**No "·" in what this batch adds or rebuilds** (the owner, during this
+batch, narrowed later the same day: "keep that for new elements for now,
+and do a bigger refactor once we build broader ux/branding guidelines"):
+the brief's one card and its marker, the one batch and its count badge,
+xbin's start sheet (its picks, their captions, its bar and footer), the
+continue and message items, the preferences — each fact an element of its
+own, a chip, a labelled field, a row, a muted item laid out with a gap.
+Lines this batch only passes through (the call sheet's body note, the plan
+review, the app's sheets and inbox, the shared words tables and the app's
+vectors) keep their "·" until those guidelines.
 
 ## 1. One approval, one place
 

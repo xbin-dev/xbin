@@ -59,7 +59,7 @@ test('unticking a line unticks the lines that need it, and says so', () => {
 test('anyone who is no admin is offered to ask one', () => {
   const cs = dice();
   const w = W.planWords(cs, [1, 2, 4, 5]);
-  assert.deepEqual(w.bar, ['xbin', 'plan'], 'each fact its own element (D250)');
+  assert.equal(w.bar, 'xbin · plan');
   assert.equal(w.heading, 'Your agent proposes 5 changes');
   assert.equal(w.apply, 'Apply 4 changes…');
   assert.equal(w.ask, null);
@@ -87,7 +87,7 @@ test('anyone who is no admin is offered to ask one', () => {
 test('a request from another person says who asks; its lines start as any line does', () => {
   const cs = { id: 'a', plan: true, from: 'bob', state: 'proposed', items: [{ n: 1, of: 3, kind: 'binding.set', line: "Bind apps/helper's llm to xbin:llm", admin: true, warnings: ['SPEND: x'] }] };
   const w = W.planWords(cs, []);
-  assert.deepEqual(w.bar, ['xbin', 'request from bob']);
+  assert.equal(w.bar, 'xbin · request from bob');
   assert.equal(w.heading, 'bob asks for 1 admin change');
   assert.equal(w.reject, 'Decline');
   assert.equal(W.lineState(cs.items[0]), 'ok');
@@ -158,12 +158,11 @@ test('a line that waits: approved, xbin\'s to apply — the review closes itself
   const row = C.needs({ changesets: [cs] }, now)[0];
   assert.deepEqual([row.kind, row.waits, row.action], ['changeset', true, 'Open']);
   assert.match(row.title, /^Waiting: Bind apps\/assistant's mcp to apps\/dice$/);
-  assert.match(row.parts[1], /^lapses in /);
-  assert.equal(row.parts[0], 'xbin applies it once apps/dice provides mcp');
+  assert.match(row.note, /xbin applies it once apps\/dice provides mcp · lapses in /);
   // held: the tile declared something else than was approved
   cs.items[3].wait.held = 'apps/dice declares mcp for the role "writer": what you approved is the role reader';
   assert.match(C.resultOf(cs.items[3]).text, /^Not bound — apps\/dice declares mcp for the role "writer"/);
-  assert.match(C.needs({ changesets: [cs] }, now)[0].parts[0], /^not bound — apps\/dice declares mcp for the role "writer": what you approved is the role reader$/, 'the person reads the whole mismatch in Needs you');
+  assert.match(C.needs({ changesets: [cs] }, now)[0].note, /^not bound — apps\/dice declares mcp for the role "writer": what you approved is the role reader · lapses in /, 'the person reads the whole mismatch in Needs you');
   // ended
   Object.assign(cs.items[3], { result: 'lapsed', error: 'apps/dice did not provide mcp within 24 hours of the plan being applied: nothing was bound' });
   assert.deepEqual([C.resultOf(cs.items[3]).word, C.resultOf(cs.items[3]).text], ['lapsed — never applied', cs.items[3].error]);

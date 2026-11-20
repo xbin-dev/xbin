@@ -237,7 +237,7 @@ export const chatCssText = `
     background: var(--bx-warn-bg, #382F2C); display: flex; flex-direction: column; gap: 8px; }
   .bxc-perm .bxc-q > b bx-icon { color: var(--bx-warn, #F2994A); margin-right: 6px; }
   .bxc-perm .bxc-desc { color: var(--bx-muted, #A3A6B6); margin-top: 2px; }
-  .bxc-perm .bxc-ptitle { font: ${F.code}; display: block; margin-top: 2px; overflow-wrap: anywhere; } /* the call, its own element under the lead (D250: never "lead · call") */
+  .bxc-perm .bxc-ptitle { font: ${F.code}; }
   .bxc-perm .bxc-qmsg { font: ${F.body}; }
   .bxc-perm .bxc-calls { margin: 0; padding-left: 20px; }
   .bxc-perm .bxc-pbody:empty { display: none; }
