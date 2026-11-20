@@ -26,7 +26,8 @@ import '/vendor/bx-icons.js';
 import { limitsCss } from '/vendor/bx-limits.js';
 import { llmCss, lockTpl, errTpl } from '/vendor/llm-css.js';
 import { lockOf, fullyLocked, keyWords, modelsWords, testWords, upstreamBody, upstreamDraft, addressChanged, vaultShut, vaultWords, plural,
-  effortLine, upstreamModels, REASONING_PRESETS, EFFORT_LEVELS, effortDraft, effortRecord, effortDraftWords } from '/vendor/llm-kit.js';
+  effortLine, upstreamModels, REASONING_PRESETS, EFFORT_LEVELS, effortDraft, effortRecord, effortDraftWords,
+  suggestLine, suggestRecord, replayLine } from '/vendor/llm-kit.js';
 
 const NEW = '+';
 
@@ -99,6 +100,14 @@ export class BxLlmUpstreams extends LitElement {
     const m = await this.client.models();
     if (m.ok) this._models = m.data;
   }
+  async _replayReset(u, model) {
+    this._busy = true;
+    const r = await this.client.replayReset(u.name, model);
+    this._busy = false;
+    if (!r.ok) { this._err = `${u.name}: ${r.error}`; return; }
+    this._err = '';
+    this.dispatchEvent(new CustomEvent('llm-config', { detail: r.data, bubbles: true, composed: true }));
+  }
   _draft(patch) { this._desc = { ...this._desc, draft: { ...this._desc.draft, ...patch } }; }
   // _describeTpl: the levels a model takes, ticked; whether it can be turned off; its default — a preset pre-ticks them
   _describeTpl(u, model) {
@@ -125,18 +134,25 @@ export class BxLlmUpstreams extends LitElement {
     if (!this._models) return html`<div class="meta">loading the models…</div>`;
     const models = upstreamModels(this._models, u.name);
     const own = u.reasoning ?? {};
-    const acts = (model, e) => html`<span class="line">
+    const off = u.replayOff ?? {};
+    const acts = (model, e, suggest) => html`<span class="line">
+      ${suggest && !own[model] ? html`<button class="small" data-use=${model} ?disabled=${lock.locked || this._busy} title="describe it with the maker's levels (your entry: change it or forget it later)"
+        @click=${() => this._setReason(u, model, suggestRecord(suggest))}>Use these</button>` : nothing}
       <button class="small" data-describe-open=${model} ?disabled=${lock.locked || this._busy} title=${lock.locked ? 'set by your host — it can’t be changed here' : 'the levels it takes, whether it can be turned off, its default'}
-        @click=${() => { this._desc = { model, draft: effortDraft(e) }; }}>describe…</button>
+        @click=${() => { this._desc = { model, draft: effortDraft(e ?? suggest) }; }}>describe…</button>
       ${own[model] ? html`<button class="small quiet" data-forget=${model} ?disabled=${lock.locked || this._busy} title="forget your description: the upstream's or xbin's applies"
-        @click=${() => this._setReason(u, model, null)}>forget</button>` : nothing}</span>
+        @click=${() => this._setReason(u, model, null)}>forget</button>` : nothing}
+      ${off[model] ? html`<span class="meta" data-replay-off=${model}>${replayLine(off[model])}</span>
+        <button class="small quiet" data-replay-reset=${model} ?disabled=${this._busy} title="send its reasoning back again (a restart does too)"
+          @click=${() => this._replayReset(u, model)}>Reset</button>` : nothing}</span>
       ${this._desc?.model === model ? this._describeTpl(u, model) : nothing}`;
-    const rows = models.map((m) => html`<span class="mono">${m.id}</span><span data-reason-line=${m.id}>${effortLine(m.effort)}</span>
-      ${acts(m.id, own[m.id] ?? m.effort)}`);
-    const families = Object.keys(own).filter((k) => !models.some((m) => m.id === k)).sort().map((k) => html`<span class="mono">${k}</span>
-      <span data-reason-line=${k}>${effortLine(own[k])}</span>${acts(k, own[k])}`);
+    const line = (m) => (!m.effort && suggestLine(m.suggest)) || effortLine(m.effort);
+    const rows = models.map((m) => html`<span class="mono">${m.id}</span><span data-reason-line=${m.id}>${line(m)}</span>
+      ${acts(m.id, own[m.id] ?? m.effort, m.effort ? null : m.suggest)}`);
+    const families = [...new Set([...Object.keys(own), ...Object.keys(off)])].filter((k) => !models.some((m) => m.id === k)).sort().map((k) => html`<span class="mono">${k}</span>
+      <span data-reason-line=${k}>${own[k] ? effortLine(own[k]) : 'Reasoning: not described — no control is offered'}</span>${acts(k, own[k])}`);
     return html`<div class="wide">
-      <div class="meta">What the connector knows of each model's reasoning effort: what you describe here, else the provider's own list, else xbin's table. A model nothing describes gets no effort control, and the efforts callers send pass to it untouched.${this._models.error ? ` (The model list could not be read: ${this._models.error}.)` : ''}</div>
+      <div class="meta">What the connector knows of each model's reasoning effort: what you describe here, else the provider's own list, else — on the model's maker's own API only — xbin's table. A model nothing describes gets no effort control, and the efforts callers send pass to it untouched; where xbin knows its maker's levels, "Use these" describes it with them.${this._models.error ? ` (The model list could not be read: ${this._models.error}.)` : ''}</div>
       ${rows.length || families.length ? html`<div class="reason" data-reason=${u.name}>${rows}${families}</div>` : html`<div class="meta">The provider lists no models.</div>`}
       ${errTpl(this._err)}</div>`;
   }

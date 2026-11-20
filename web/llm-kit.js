@@ -589,11 +589,12 @@ const EFFORT_FROM = { upstream: 'from the upstream', xbin: 'from xbin', admin: '
 // /xbin/llm and bx llm say it.
 export function effortLine(e) {
   const from = EFFORT_FROM[e?.source] ?? (e?.source ? `from ${e.source}` : '');
-  if (e && !Array.isArray(e.supported_levels) && e.reasons === true) return `Reasoning: yes, its levels not described — no control is offered${from ? ` · ${from}` : ''}`;
-  if (!e || !Array.isArray(e.supported_levels)) return 'Reasoning: not described — no control is offered';
-  if (!e.supported_levels.length) return `Reasoning: none (an effort sent is dropped)${from ? ` · ${from}` : ''}`;
+  const tail = e?.replay === 'never' ? ' · its reasoning is not sent back' : '';
+  if (e && !Array.isArray(e.supported_levels) && e.reasons === true) return `Reasoning: yes, its levels not described — no control is offered${from ? ` · ${from}` : ''}${tail}`;
+  if (!e || !Array.isArray(e.supported_levels)) return `Reasoning: not described — no control is offered${tail}`;
+  if (!e.supported_levels.length) return `Reasoning: none (an effort sent is dropped)${from ? ` · ${from}` : ''}${tail}`;
   const notes = [e.default_level ? `default ${effortWord(e.default_level)}` : '', e.can_disable === true ? 'can be off' : e.can_disable === false ? 'always thinks' : ''].filter(Boolean);
-  return `Reasoning: ${e.supported_levels.map(effortWord).join(' · ')}${notes.length ? ` (${notes.join('; ')})` : ''}${from ? ` · ${from}` : ''}`;
+  return `Reasoning: ${e.supported_levels.map(effortWord).join(' · ')}${notes.length ? ` (${notes.join('; ')})` : ''}${from ? ` · ${from}` : ''}${tail}`;
 }
 
 // presetOf(e) → the preset an admin's entry is ('' when it is none of them,
@@ -605,11 +606,43 @@ export function presetOf(e, presets) {
 }
 
 // upstreamModels(list, name) → GET /v1/models' models of one upstream
-// (not the aliases), each {id: its own name, effort}.
+// (not the aliases), each {id: its own name, effort, suggest}: suggest is
+// what xbin's table says of the model on its maker's own API, where this
+// upstream is not that API (the model is undescribed here).
 export function upstreamModels(list, name) {
   const pre = `${name}/`;
+  const rec = (e) => (e && typeof e === 'object' && !Array.isArray(e) ? e : null);
   return (list?.data ?? []).filter((m) => m?.owned_by !== 'alias' && String(m?.id ?? '').startsWith(pre))
-    .map((m) => ({ id: String(m.id).slice(pre.length), effort: m.effort && typeof m.effort === 'object' ? m.effort : null }));
+    .map((m) => ({ id: String(m.id).slice(pre.length), effort: rec(m.effort), suggest: rec(m.xbin_effort_suggestion) }));
+}
+
+// suggestLine(s) → "Reasoning: not described — xbin knows the maker's
+// levels: Low · High · Max (default High)"; '' when s holds no levels.
+export function suggestLine(s) {
+  const ls = (Array.isArray(s?.supported_levels) ? s.supported_levels : []).filter((w) => EFFORT_LEVELS.includes(w));
+  if (!ls.length) return '';
+  const def = EFFORT_LEVELS.includes(s.default_level) ? ` (default ${effortWord(s.default_level)})` : '';
+  return `Reasoning: not described — xbin knows the maker's levels: ${ls.map(effortWord).join(' · ')}${def}`;
+}
+
+// suggestRecord(s) → the admin's entry "Use these" stores: the maker's
+// levels, default, whether it can be off, its aliases — ladder words only.
+export function suggestRecord(s) {
+  const ls = (Array.isArray(s?.supported_levels) ? s.supported_levels : []).filter((w) => EFFORT_LEVELS.includes(w));
+  const rec = { supported_levels: ls };
+  if (typeof s?.can_disable === 'boolean') rec.can_disable = s.can_disable;
+  if (ls.includes(s?.default_level) || (s?.default_level === 'none' && rec.can_disable)) rec.default_level = s.default_level;
+  const al = Object.entries(s?.aliases ?? {}).filter(([k, v]) => EFFORT_LEVELS.includes(k) && ls.includes(v));
+  if (al.length) rec.aliases = Object.fromEntries(al);
+  return rec;
+}
+
+// replayLine(r) → "replay off since 2026-11-20 10:00: the upstream refused
+// reasoning_content" (an upstream's replayOff entry; local time).
+export function replayLine(r) {
+  const d = new Date(r?.since ?? '');
+  const at = Number.isNaN(d.getTime()) ? '' : ` since ${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  return `replay off${at}: the upstream refused ${String(r?.field ?? 'the reasoning sent back')}`;
 }
 
 // EFFORT_LEVELS are the ladder's words a model may take ("none" is "can be

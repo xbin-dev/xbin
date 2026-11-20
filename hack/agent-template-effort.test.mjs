@@ -59,6 +59,23 @@ test('what a level becomes: exact, the alias, the highest at or below, the lowes
   for (const [rec, asked, want] of cases) assert.equal(E.mapLevel(rec, asked), want, `${JSON.stringify(rec?.supported_levels)} ${asked}`);
 });
 
+test('the Config tab keeps a tile default that is no ladder word (l3)', () => {
+  assert.deepEqual(E.configOptions(''), ['', ...E.LADDER]);
+  assert.deepEqual(E.configOptions('high'), ['', ...E.LADDER]);
+  assert.deepEqual(E.configOptions('turbo'), ['', ...E.LADDER, 'turbo'], 'shown as Custom (turbo), saved as it was');
+  const src = readFileSync(new URL('../builtin-templates/agent/agent.js', import.meta.url), 'utf8');
+  assert.match(src, /effortOptions\(c\.reasoningEffort\)/);
+  assert.match(src, /Custom \(\$\{esc\(w\)\}\)/);
+});
+
+test('the mapping rule\'s shared vectors: what the chip shows is what the connector sends (m1)', () => {
+  const v = JSON.parse(readFileSync(new URL('../internal/llm/testdata/effort_mapping.json', import.meta.url), 'utf8'));
+  assert.ok(v.records.length >= 5);
+  for (const c of v.records) {
+    for (const [asked, want] of Object.entries(c.map)) assert.equal(E.mapLevel(c.record, asked), want, `${c.name}: ${asked}`);
+  }
+});
+
 const catalog = {
   data: [
     { id: 'house/deepseek-v4.1-flash', ref: 'house/deepseek-v4.1-flash', provider: 'xbin:llm', effort: deepseek },

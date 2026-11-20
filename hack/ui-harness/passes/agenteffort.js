@@ -82,6 +82,26 @@ async function agentEffort(browser) {
     await page.click('bx-llm-upstreams button[data-forget="gpt-5-fake"]');
     check(await lineIs('gpt-5-fake', /not described/), 'forget: not described again');
 
+    // H1: a model xbin's table knows, on an upstream that is no maker's API (the fake): not described — a
+    // suggestion, and "Use these" describes it with the maker's levels
+    r = await api('PUT', '/llm/upstreams/elsewhere', { baseURL: `${FAKE}/v1`, key: '', models: ['deepseek-v4-flash'] });
+    check(r.ok(), `a second upstream naming deepseek-v4-flash (${r.status()})`);
+    const listed = (await (await api('GET', '/llm/v1/models')).json()).data.find((m) => m.id === 'elsewhere/deepseek-v4-flash');
+    check(listed && !listed.effort && JSON.stringify(listed.xbin_effort_suggestion?.supported_levels) === '["low","high","max"]',
+      `off DeepSeek's API: undescribed, the table's levels a suggestion (${JSON.stringify(listed)})`);
+    await page.goto(`${URL}/xbin/llm`);
+    const row2 = 'bx-llm-upstreams tr[data-upstream="elsewhere"]';
+    await page.waitForSelector(`${row2} button[data-reasoning]`, { timeout: 30000 });
+    await page.click(`${row2} button[data-reasoning]`);
+    await page.waitForSelector('bx-llm-upstreams [data-reason="elsewhere"] [data-reason-line="deepseek-v4-flash"]', { timeout: 20000 });
+    check(await lineOf('deepseek-v4-flash') === 'Reasoning: not described — xbin knows the maker\'s levels: Low · High · Max (default High)',
+      `the suggestion's line (${await lineOf('deepseek-v4-flash')})`);
+    await shot(page, `agent-effort-suggest-${THEME}`, { fullPage: false });
+    await page.click('bx-llm-upstreams button[data-use="deepseek-v4-flash"]');
+    check(await lineIs('deepseek-v4-flash', /^Reasoning: Low · High · Max \(default High; can be off\) · from the admin$/), `Use these: the admin's entry (${await lineOf('deepseek-v4-flash')})`);
+    r = await api('DELETE', '/llm/upstreams/elsewhere');
+    check(r.ok(), `the second upstream removed (${r.status()})`);
+
     // an agent instance of its own, on the connector
     r = await api('POST', '/templates/new', { source: 'agent', path: TILE, partition: false });
     check(r.ok(), `${TILE} made (${r.status()})`);

@@ -336,7 +336,7 @@ test('llmClient: each call\'s method, path and body', async () => {
   const c = llmClient(fetcher);
   await c.status(); await c.config(); await c.putConfig({ people: 'everyone' });
   await c.putUpstream('open ai', { baseURL: 'https://x/v1' }); await c.deleteUpstream('main'); await c.testUpstream('main', 'gpt-5'); await c.testUpstream('main');
-  await c.usage({ period: 'day', user: 'bob', component: '' }); await c.usage(); await c.quotas('bob'); await c.quotas();
+  await c.replayReset('main', 'm'); await c.usage({ period: 'day', user: 'bob', component: '' }); await c.usage(); await c.quotas('bob'); await c.quotas();
   await c.putQuotas({ default: { tokensPerDay: 5 } }); await c.putQuota('user:bob', null); await c.models(); await c.dismissSetup();
   assert.equal(await c.setupPending(), false, 'no llm-setup alert in the answer');
   const get = { method: 'GET', headers: { Accept: 'application/json' } };
@@ -348,6 +348,7 @@ test('llmClient: each call\'s method, path and body', async () => {
     ['/api/xbin/llm/upstreams/main', { method: 'DELETE', headers: { Accept: 'application/json' } }],
     ['/api/xbin/llm/upstreams/main/test', { method: 'POST', headers: JSONH, body: '{"model":"gpt-5"}' }],
     ['/api/xbin/llm/upstreams/main/test', { method: 'POST', headers: JSONH, body: '{}' }],
+    ['/api/xbin/llm/upstreams/main/replay-reset', { method: 'POST', headers: JSONH, body: '{"model":"m"}' }],
     ['/api/xbin/llm/usage?period=day&user=bob', get],
     ['/api/xbin/llm/usage', get],
     ['/api/xbin/llm/quotas?user=bob', get],
@@ -417,7 +418,21 @@ test('reasoning effort: the line a model is described by, the presets, an upstre
   assert.equal(presetOf({ supported_levels: ['low', 'high', 'max'], default_level: 'high', can_disable: true, source: 'admin' }, presets), 'deepseek');
   assert.equal(presetOf({ supported_levels: ['low', 'high', 'max'], default_level: 'high', can_disable: true, source: 'upstream' }, presets), '', 'the upstream\'s own is no admin pick');
   assert.deepEqual(upstreamModels({ data: [{ id: 'h/a', effort: { supported_levels: [] } }, { id: 'h/b', effort: 'x' }, { id: 'xbin/default', owned_by: 'alias' }, { id: 'o/c' }] }, 'h'),
-    [{ id: 'a', effort: { supported_levels: [] } }, { id: 'b', effort: null }]);
+    [{ id: 'a', effort: { supported_levels: [] }, suggest: null }, { id: 'b', effort: null, suggest: null }]);
+});
+
+test('reasoning effort: xbin\'s suggestion off the maker\'s API, "Use these", replay off (D249 H1, m4)', async () => {
+  const { upstreamModels, suggestLine, suggestRecord, replayLine, effortLine } = await import('../web/llm-kit.js');
+  const kimi = { supported_levels: ['low', 'high', 'max', 'turbo'], default_level: 'max', can_disable: false, aliases: { medium: 'high', xhigh: 'ultra' }, source: 'xbin' };
+  assert.deepEqual(upstreamModels({ data: [{ id: 'gw/kimi-k3', xbin_effort_suggestion: kimi }] }, 'gw'), [{ id: 'kimi-k3', effort: null, suggest: kimi }]);
+  assert.equal(suggestLine(kimi), 'Reasoning: not described — xbin knows the maker\'s levels: Low · High · Max (default Max)');
+  assert.equal(suggestLine({ supported_levels: [] }), '');
+  assert.equal(suggestLine(null), '');
+  assert.deepEqual(suggestRecord(kimi), { supported_levels: ['low', 'high', 'max'], can_disable: false, default_level: 'max', aliases: { medium: 'high' } });
+  assert.deepEqual(suggestRecord({ supported_levels: ['low', 'high'], default_level: 'none', can_disable: true }), { supported_levels: ['low', 'high'], can_disable: true, default_level: 'none' });
+  assert.match(replayLine({ since: '2026-11-20T10:00:00Z', field: 'reasoning_content' }), /^replay off since 2026-11-2\d \d\d:\d\d: the upstream refused reasoning_content$/);
+  assert.equal(replayLine({}), 'replay off: the upstream refused the reasoning sent back');
+  assert.equal(effortLine({ replay: 'never', source: 'admin' }), 'Reasoning: not described — no control is offered · its reasoning is not sent back');
 });
 
 test('reasoning effort: the Describe form ↔ the record it saves (D249)', async () => {
