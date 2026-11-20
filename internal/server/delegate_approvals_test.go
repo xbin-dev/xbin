@@ -339,8 +339,16 @@ func realDelegateWorld(t *testing.T, fakeArgs ...string) *dWorld {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
+		// every session ended AND torn down (its history saved) before the test's temp dirs go: a kill alone
+		// raced the removal under load ("directory not empty")
+		tiles := map[string]bool{}
 		for _, si := range w.s.Term.ListFor("alice", "", nil) {
-			w.s.Term.Kill(si.ID)
+			tiles[strings.Trim(si.Cwd, "/")] = true
+		}
+		for tile := range tiles {
+			if err := w.s.Term.StopTileSessions(tile); err != nil {
+				t.Errorf("the test's sessions on %s didn't end: %v", tile, err)
+			}
 		}
 	})
 	return w
