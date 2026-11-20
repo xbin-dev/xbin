@@ -44,8 +44,15 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   by cause: the agent's own mistake is refused before the ticket is spent;
   `failed` only for a backend that files with `knows: ["retry"]`, and
   `…/retry` takes the picks again (no earlier tick kept). An agent's
-  message held behind a turn is checked when it goes in (the `queue`
-  event's `returned`).
+  message held behind a turn is checked when it goes in — on the mode
+  reported and on a switch still in flight — and returned (the `queue`
+  event's `returned`; the agent's compact read of its sessions carries
+  it). An approve that picks or continues needs `seen` (400 without). The
+  person may choose OpenCode for a tile or as their preference: kept
+  (never its mode), preselected warned, never started unasked; the
+  default prefers a coding agent that asks. A saved mode an earlier xbind
+  accepted that no longer asks (v0.3.83: OpenCode's `plan`) is ignored at
+  read and never blocks a write.
   [delegation.md §The person's pick](/docs/protocol/delegation.md),
   [workspace-agent.md](/docs/workspace-agent.md#how-approvals-work).
 - chrome: **the dock's one "Waiting for you" list** — a title with a

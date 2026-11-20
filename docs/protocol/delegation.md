@@ -1173,10 +1173,14 @@ POST   /delegate/requests/<id>/approve
                                  when the tile is no longer as shown.
                                  seen: what the sheet showed of a start
                                  xbind resolves when it is approved (the
-                                 sign-in offered, the network) — where it
-                                 would now be otherwise, 409 {error,
-                                 changed, reload: true}, nothing decided:
-                                 load the request again and show it. via: the person
+                                 sign-in offered, the network; "" for
+                                 none) — required, both, with harness,
+                                 model, mode, remember or continue, or a
+                                 continue the client knows (400 without);
+                                 where it would now be otherwise, 409
+                                 {error, changed, reload: true}, nothing
+                                 decided: load the request again and show
+                                 it. via: the person
                                  decided from a notification's action
                                  (D241): only once, and only a request the
                                  lock-screen rule passes (§Events and
@@ -1326,8 +1330,12 @@ the workspace agent told it. A message held behind a running turn
 session was switched meanwhile to a mode that acts without asking, it
 isn't delivered — the session's `queue` event names it in `returned`,
 with `reason`, and a notice says it ([agents.md](/docs/protocol/agents.md));
-sending it then takes a message approval, as any message to such a
-session does.
+the agent's own read of its sessions (`GET /term/sessions?compact=1`)
+carries `returned: [{id, text, reason, at}]`, its own held messages the
+session didn't take; sending one then takes a message approval, as any
+message to such a session does. A mode switch a client asked for that
+the coding agent hasn't answered yet counts as the session's mode too —
+at that delivery and at the send gate.
 
 **Starting a tile agent.** With a ticket the session opens as the person
 approved it — the harness and mode on the card, which no option of the
@@ -1375,11 +1383,17 @@ continue?: {session, provider, providerName, mode, asks, model, name, started, s
   `from` says which. The default mode is the harness's asking one
   (`defaultMode`). **A coding agent with no mode xbin can vouch asks** —
   OpenCode, whose modes ask or act by its own permission configuration,
-  which xbin doesn't set — is only ever the person's own pick: a
-  suggestion of it is not preselected (`harnessNotTaken`, warned), it is
-  never remembered for a tile nor a preference's coding agent, never
-  started without asking, and a message from the agent to a session of it
-  is always a message approval.
+  which xbin doesn't set: the agent's suggestion of it is not preselected
+  (`harnessNotTaken`, warned); the person's own choice of it (remembered
+  for the tile, or their preference) is — with the warning, `asks:
+  false`, every time; it never starts without asking (403
+  `needs-approval`: "your person's coding agent for this tile acts
+  without asking, so every start is approved on the sheet"); a message
+  from the agent to a session of it is always a message approval; and a
+  plan's `agent.start` line that resolves to it carries the warning, so
+  the review starts it unticked. The workspace's default is a coding
+  agent that asks wherever the tile allows one — OpenCode only where it
+  is all the tile allows, warned.
 - **A suggested mode that doesn't ask is never preselected**: the asking
   default is, `modeNotTaken` names the suggestion, and the sheet warns
   beside it; only the person's own pick makes the start a mode that acts
@@ -1393,9 +1407,11 @@ continue?: {session, provider, providerName, mode, asks, model, name, started, s
   a start's or a resumed session's, 409 for a pick that can't open
   ("this start can't open as you picked it: …"), nothing decided either
   way. `remember: true` keeps for the tile only what the person CHANGED on
-  the sheet — not what was preselected from the agent's suggestion — and
-  never a mode that acts without asking (nor a coding agent without one
-  that asks): the store refuses those, and a read ignores any found there.
+  the sheet — not what was preselected from the agent's suggestion: the
+  coding agent and model (any coding agent's), and the mode only when it
+  asks. The store refuses a mode that acts without asking, and a read
+  ignores one found there (a value an earlier xbind saved under looser
+  rules is ignored, never an error: it never blocks a later write).
   The request records it
   as `chosen`, and the agent is told what ran (the session's row, its
   `request` notice). Changing the coding agent, model or mode is never an
@@ -1408,7 +1424,10 @@ continue?: {session, provider, providerName, mode, asks, model, name, started, s
   model and mode; `continue: false`, or another harness picked, opens a new
   one as picked. A session that can't be continued by then is 409, nothing
   decided ("start a new session instead"). An older client's approve
-  opens a new session, as before. A follow-up is judged where it goes: on
+  opens a new session, as before. Filing such a start judges it as the
+  approval will: a follow-up on the session's live source, not as a new
+  start on what the body suggests; a new session the person picks
+  instead is judged in full when they approve it. A follow-up is judged where it goes: on
   that session's own coding agent and model (its taint, a connector model
   by its own id), as a message to it is — never on what a new start there
   would run on. **A session that carries the person's saved sign-in**

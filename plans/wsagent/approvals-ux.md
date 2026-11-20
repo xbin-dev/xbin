@@ -75,7 +75,7 @@ card (`ws/cards.js:68`).
 |  DONE WHEN   Opening apps/eui shows a 3x3 board ...                    |
 |  LEAVE ALONE Don't add a backend ...                                   |
 |  CHECK BY    Run the tile as a page and play it through ...            |
-|  Runs on   ( OpenCode ) ( asks before acting ) ( no sign-in needed )  |
+|  Runs on   ( OpenCode ) ( acts without asking ) ( no sign-in needed ) |
 |            you choose on the approval                                  |
 |  [shield] Waiting for your approval  ↑ open it                         |
 |  This is what the tile agent is told first. ...                        |
@@ -94,7 +94,7 @@ card (`ws/cards.js:68`).
 | DONE WHEN                            |
 | Opening apps/eui shows ...           |
 | Runs on                              |
-| ( OpenCode ) ( asks before acting )  |
+| ( OpenCode ) ( acts without asking ) |
 | ( no sign-in needed )                |
 | [shield] Waiting for your approval   |
 |          ↑ open it                   |
@@ -111,7 +111,7 @@ card (`ws/cards.js:68`).
 | oldest first                                              |
 |-----------------------------------------------------------|
 | [shield] Start a tile agent in Eui            [Review…]   |
-|          ( OpenCode ) ( asks before acting )              |
+|          ( OpenCode ) ( acts without asking )             |
 |          asked 10:47      expires in 24 h                 |
 |-----------------------------------------------------------|
 | [shield] Change something in Eui              [Review…]   |
@@ -128,7 +128,7 @@ card (`ws/cards.js:68`).
 | Waiting for you (2)   [Review all]   |
 |--------------------------------------|
 | [shield] Start a tile agent in Eui   |
-| ( OpenCode ) ( asks before acting )  |
+| ( OpenCode ) ( acts without asking ) |
 | asked 10:47                          |
 | expires in 24 h                      |
 |                         [Review…]    |
@@ -146,14 +146,20 @@ card (`ws/cards.js:68`).
 +------------------------------------------------------------------+
 | [shield] XBIN  APPROVAL   1 of 2                 asking Ada Admin |
 | Start a tile agent in Eui?                                       |
+|  (!) OpenCode in this mode acts without asking: it edits files   |
+|      and runs commands in eui without asking you. ...            |
 |  Tile          Eui   apps/eui                                    |
 |  Coding agent  [OpenCode              v]                         |
 |                remembered for this tile                          |
 |  Model         [its default           v]                         |
 |                OpenCode's own list shows once a session runs     |
-|  Mode          [plan, asks before acting v]                      |
-|                the default: asks before it edits or runs         |
-|  [x] Remember for this tile                                      |
+|  Mode          [its own default, acts without asking v]          |
+|                OpenCode has no mode that asks first: in any mode |
+|                it edits files and runs commands without asking   |
+|                you.                                              |
+|  [ ] Remember for this tile                                      |
+|      Keeps OpenCode and its model for your next start here,      |
+|      never its mode ...                                          |
 |  Network       Its model only. No internet.                      |
 |  Other tiles   It can call the tile APIs this tile is granted.   |
 |  What it will be told   Written by your agent                    |
@@ -162,13 +168,16 @@ card (`ws/cards.js:68`).
 |  > Details: POST /api/xbin/term/sessions                         |
 |  THE AGENT'S OWN WORDS, NOT CHECKED BY XBIN                      |
 |  asked every time       change in Preferences                    |
-|  [Deny]                                              [Start]     |
+|  [Deny]                               [Start without asking] (!)  |
 +------------------------------------------------------------------+
 ```
 
-A warned approval (a mode that doesn't ask, picked by the person): the
-warning is a banner in the body, Deny stays where it is and quiet, Start
-stays where it is, coloured as the danger it is, armed after 600 ms.
+The owner's case (the re-review, item 3): OpenCode is his own choice for
+the tile, remembered, so it is preselected — and, having no mode that
+asks, warned every time. A warned approval (a mode that doesn't ask, or a
+coding agent with none): the warning is a banner in the body, Deny stays
+where it is and quiet, Start stays where it is, coloured as the danger it
+is, armed after 600 ms; nothing on the sheet says it asks.
 
 ## 2. What the person picks on the approval is the approval
 
@@ -230,17 +239,25 @@ stays where it is, coloured as the danger it is, armed after 600 ms.
   unseen. **OpenCode has none xbin can vouch for** (the review, M2: in
   its own agent table every agent starts from allow-all, `plan` only
   denies edits, and a tile's own config and plugins can loosen any
-  agent): it is only the person's own pick — a suggestion of it isn't
-  preselected (`harnessNotTaken`, warned), it is never remembered, never
-  started unasked, and every agent message to a session of it is a
-  message approval.
+  agent): the agent's suggestion of it isn't preselected
+  (`harnessNotTaken`, warned); the person's own choice of it — remembered
+  for the tile, or their preference — is, warned every time (the banner,
+  the armed delay, the danger-coloured Start; re-review item 3); it never
+  starts unasked ("your person's coding agent for this tile acts without
+  asking, so every start is approved on the sheet"); every agent message
+  to a session of it is a message approval; a plan line that resolves to
+  it carries the warning and starts unticked, as warned lines do (D238).
+  The workspace's default is a coding agent that asks wherever one is
+  allowed — OpenCode only where it is all the tile allows, warned.
 - **A plan's `agent.start` runs the line as reviewed** (the review, H1):
   the open is the line's coding agent, model and mode, whatever the call's
   body named; the line says so, and how to run another.
 - **The approval holds to what the sheet showed** (the review, L2): the
   approve carries `seen: {signInId, net}`; where xbind would now resolve
   the sign-in or the network otherwise, it is 409 `{changed, reload}`,
-  nothing decided, and the sheet reloads.
+  nothing decided, and the sheet reloads. An approve that picks, or
+  continues, without `seen` is 400 (re-review item 5); one that picks
+  nothing (an older client, the app) is as before.
 - A sign-in is never suggested (the body's `signin` stays 403 for the
   agent).
 - Changing the coding agent, model or mode is never a brief edit: the
@@ -291,11 +308,15 @@ choice per tile.
   and tile (`agentSessions.tiles.<tile>`, new; at most 200 tiles, the
   oldest dropped). It is unticked until the person changes a select (then
   ticked for them, and they can untick it). It keeps only the fields the
-  person CHANGED (not a value preselected from the agent's suggestion),
-  and never a mode that doesn't ask, nor a coding agent without one that
-  asks: one predicate in the store (`RememberTile`), which refuses such
-  a value on write and ignores one on read (the review, M1). Such a mode
-  is picked each time, as a bypass mode is in the Agent tab.
+  person CHANGED (not a value preselected from the agent's suggestion) —
+  the coding agent and model of any coding agent, OpenCode's too
+  (re-review item 3) — and never a mode that doesn't ask: one predicate
+  in the store (`RememberTile`), which refuses such a mode on write and
+  ignores one on read (the review, M1). The sheet says beforehand what is
+  kept. Such a mode is picked each time, as a bypass mode is in the Agent
+  tab. A value an earlier xbind stored under looser rules (v0.3.83 took
+  OpenCode's `plan` as an asking mode) is ignored at read, never an error,
+  so it never blocks a later write (re-review item 1).
 - **Precedence on the sheet:** this tile's remembered choice > the
   person's preference > the agent's suggestion > the workspace default,
   per field; under each select a few words say where it came from
@@ -411,7 +432,11 @@ agent that can be prompt-injected would be an act nobody approved.
   would run on (the review, M3). The sheet shows the session's coding
   agent, model, mode and sign-in as elements, warns when it doesn't ask
   or carries a sign-in, and re-arms on every switch between continue and
-  new (L1). **A session that carries the person's saved sign-in**: the
+  new (L1). A start filed as a follow-up is judged at filing as the
+  decide judges it — on the session's live source — not as a new start
+  on the model the body suggests; a new session the person picks instead
+  is judged in full (re-review item 6). **A session that carries the
+  person's saved sign-in**: the
   follow-up uses it, so it needs the explicit, unticked, warned tick "Use
   my sign-in for this follow-up" each time — the rule chosen, as a start
   with that sign-in needs it; without the tick the sheet offers "Start a
@@ -428,7 +453,11 @@ agent that can be prompt-injected would be an act nobody approved.
   L4): if the person switched the session to a mode that acts without
   asking meanwhile, it is not delivered — the queue event lists it in
   `returned` with the reason, and a notice says so; the person's own held
-  messages go in as ever.
+  messages go in as ever. The agent's own read of its sessions carries
+  what was returned, and the conversation is told once, in xbind's words,
+  with what to do (re-review item 4a). A switch the person asked for that
+  the coding agent hasn't answered yet counts as its mode too — at the
+  delivery and at the direct send gate (4b).
 
 ## 6. The buttons
 
@@ -483,7 +512,8 @@ the body, armed after 600 ms (`/vendor/agent-armed.js`, unchanged).
 Each was run RED without its rule (the rule taken out in the code, the
 test run, failing), then GREEN with it restored. The batch's 22 runs are
 in the message of the commit that adds this sentence; the review's 28 in
-the message of the commit after it. 34 rules, each with its test:
+the message of the commit after it; the re-review's in the message of the
+commit that adds rows 35 to 44. 44 rules, each with its test:
 
 | # | Rule | Test |
 |---|---|---|
@@ -521,6 +551,16 @@ the message of the commit after it. 34 rules, each with its test:
 | 32 | the queue route marks the agent's message as the agent's (L4) | `internal/server: TestAgentQueuedMessageIsMarkedAsTheAgents` |
 | 33 | a plan's stubbed open is checked as picked, not only authorised (the review's test fix) | `internal/server: TestPlanStartUsesOnlyTheSignInItsLineNamed` |
 | 34 | the sheet says a model or mode a coding-agent switch reset is the default, not the person's pick — what Remember keeps (M1) | `hack/agent-start-words.test.mjs` |
+| 35 | a file a released xbind wrote (OpenCode's `plan` saved as asking) loads, and never blocks a later write (re-review 1) | `internal/agentprefs: TestAReleasedFileNeverBlocksAWrite` |
+| 36 | the person's OpenCode for a tile: remembered (never its mode), preselected warned (re-review 3) | `internal/server: TestTheOwnersOpenCodeForATile` |
+| 37 | a coding agent with no mode that asks never starts unasked, and says why (re-review 3) | `internal/server: TestTheOwnersOpenCodeForATile` |
+| 38 | the workspace's default prefers a coding agent that asks (re-review 3) | `internal/server: TestTheOwnersOpenCodeForATile` |
+| 39 | the OpenCode sheet: warned, nothing says it asks; Remember says what it keeps (re-review 2, 3) | `hack/agent-start-words.test.mjs`; approvalsUx checks the sheet |
+| 40 | a plan line on the person's OpenCode carries the warning, so it starts unticked (D238) | `internal/server: TestPlanStartUsesOnlyTheSignInItsLineNamed` |
+| 41 | picks and continuing need what the sheet showed (re-review 5) | `internal/server: TestPicksNeedWhatTheSheetShowed` |
+| 42 | a follow-up is filed as it would be decided; a new session picked instead is judged in full (re-review 6) | `internal/server: TestAFollowUpIsFiledAsItWouldBeDecided` |
+| 43 | the agent is told once of a held message xbind returned (re-review 4a) | `builtin-templates/agent/_backend: TestWsEvalApprovalReturnedMessageIsSaidOnce`, `internal/server: TestAgentQueuedMessageIsMarkedAsTheAgents` |
+| 44 | a mode switch in flight counts at the delivery and at the send gate (re-review 4b) | `internal/term: TestAgentMessageHeldIsJudgedWhileASwitchIsInFlight`; the send gate by a widened window (the commit message) |
 
 The agent's side: the retro's session replayed as scripted evals
 (`builtin-templates/agent/_backend/ws_eval_approvals_test.go`): the tic

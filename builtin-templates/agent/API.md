@@ -6092,7 +6092,14 @@ notes and `recall`.
 - A message held behind a session's running turn is judged again when it
   goes in: if the person switched the session to a mode that acts without
   asking meanwhile, it is not delivered: the session's log says so (its
-  `queue` event's `returned`, a notice).
+  `queue` event's `returned`, a notice), and the backend reads it from the
+  session's compact row (`returned`) and tells the conversation once, in
+  xbind's words — "not tried again: to send one now, tile_agent_message
+  files it for your person's approval" (`ws_notify.go wsReturnedNews`).
+- A start on the person's own choice of a coding agent with no mode that
+  asks (OpenCode) is always theirs to approve, warned; the start's answer
+  says so ("your person's coding agent for this tile acts without asking,
+  so every start is approved on the sheet").
 
 **Plans** (`_backend/ws_tools_plan.go`; xbind's
 /docs/protocol/delegation.md §Plans): `plan_propose {title, changes:

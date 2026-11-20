@@ -6457,8 +6457,9 @@ here: cut from the old end, never reword.
     writer to the tile can loosen any agent. Pinning its permissions from
     xbin would not hold against the tile's own plugins, and was never run
     against a live session — so the fallback was built: no mode xbin
-    vouches asks; OpenCode is only the person's own pick, never
-    remembered, never unasked, every agent message to it an approval. A
+    vouches asks; never preselected from the agent's suggestion, never
+    unasked, every agent message to it an approval (the re-review, below,
+    lets the person choose it). A
     continue is judged on the live session's model and taint, and one
     carrying the person's saved sign-in needs their unticked, warned tick
     each time (the rule chosen: a follow-up uses the sign-in as a start
@@ -6468,3 +6469,23 @@ here: cut from the old end, never reword.
     only for a backend that says `knows: ["retry"]`; Try again is the
     sheet again with the sign-in unticked. An agent's held message is
     judged when it goes in (`returned`).
+  - **The re-review (2026-11-20).** Stored data a released xbind wrote
+    never blocks a write: a saved mode that no longer asks (v0.3.83 took
+    OpenCode's `plan` as asking) is ignored at read, not an error — it
+    had made every later write fail, the Agent tab's launcher's included.
+    The owner wants OpenCode for a tile: the coding agent and model a
+    person picks are kept for any coding agent (only a mode that doesn't
+    ask never is), and a remembered OpenCode is preselected WITH the
+    warning, every time, and never starts unasked (the start's answer
+    says why); the default prefers a coding agent that asks. A plan line
+    that resolves to it carries the warning and so starts unticked — how
+    warned lines already work (D238) — rather than being refused at
+    propose. The app already draws `asks: false` as the danger wording
+    with the danger-coloured, armed Start, so it may approve such a start
+    as it is: no app change. The sheet's mode note says "asks" only of a
+    mode that asks. Picks without `seen` are 400 (picks are new here, no
+    released client sends them). A filed follow-up is judged as the
+    decide judges it. A held agent message: judged on a switch in flight
+    too, and the agent is told once when one is returned. Tests that swap
+    the package's globals drain their engine within a deadline that fails
+    the test before restoring them (the flake "no plan waits").
