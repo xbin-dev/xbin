@@ -81,13 +81,7 @@ func (s *Server) sendsRefusal(p auth.Principal, id, text string) (why, refusal s
 		why, refusal = modeRefusal(info, s.Term.AgentOriginMode(id), p.UserID), "mode"
 	}
 	if why == "" {
-		t := sendTargetOf(info)
-		if t.served == agentpolicy.ServedConnector {
-			// the connector's model it calls — the row's is the harness's own
-			// name for its setting, which needn't be one of the connector's
-			t.model = s.Term.AgentConnectorModel(id)
-		}
-		why, refusal = s.sendRefusal(p, t), "taint"
+		why, refusal = s.sendRefusal(p, s.liveTarget(id, info)), "taint"
 	}
 	if why == "" {
 		return "", ""
@@ -105,14 +99,24 @@ func (s *Server) sendsRefusalPast(p auth.Principal, id, text string) (why, refus
 	if why := harnessCommand(text); why != "" {
 		return why, "command"
 	}
+	if why := s.sendRefusal(p, s.liveTarget(id, info)); why != "" {
+		return why, "taint"
+	}
+	return "", ""
+}
+
+// liveTarget is live session id as what is sent to it reaches a model: its
+// tile, who serves it now, and — on the connector — the connector's model
+// it calls (the row's model is the harness's own name for its setting,
+// which needn't be one of the connector's). A message to it, and a start
+// that continues it (D250 review M3), are judged on this — never on what a
+// new start there would run on.
+func (s *Server) liveTarget(id string, info term.SessionInfo) sendTarget {
 	t := sendTargetOf(info)
 	if t.served == agentpolicy.ServedConnector {
 		t.model = s.Term.AgentConnectorModel(id)
 	}
-	if why := s.sendRefusal(p, t); why != "" {
-		return why, "taint"
-	}
-	return "", ""
+	return t
 }
 
 // harnessCommand is why text may not go to a tile agent from a person's
@@ -193,6 +197,17 @@ func (s *Server) sendRefusal(p auth.Principal, t sendTarget) string {
 // would run on its person's own sign-in, or by a choice, is vouched for by
 // nothing.
 func (s *Server) startRefusal(p auth.Principal, ask sessionAsk) (refusal, why string) {
+	if refusal, why := s.startScopeRefusal(p, ask); why != "" {
+		return refusal, why
+	}
+	return s.startTaintRefusal(p, ask)
+}
+
+// startScopeRefusal is startRefusal's first half: what the brief says
+// (a harness command) and where (a tile hidden from the person or outside
+// the conversation's scope) — what holds whether the start opens a session
+// or continues the one there.
+func (s *Server) startScopeRefusal(p auth.Principal, ask sessionAsk) (refusal, why string) {
 	if why := harnessCommand(ask.Prompt); why != "" {
 		return "command", why
 	}
@@ -208,6 +223,13 @@ func (s *Server) startRefusal(p auth.Principal, ask sessionAsk) (refusal, why st
 			return "hidden", hiddenByScope(p.UserID)
 		}
 	}
+	return "", ""
+}
+
+// startTaintRefusal is startRefusal's second half: the conversation's taint
+// against the model a NEW session there would run on (a continued session
+// is judged on its live source instead: liveTarget).
+func (s *Server) startTaintRefusal(p auth.Principal, ask sessionAsk) (refusal, why string) {
 	if h, ok := s.handleOf(p); !ok || len(h.Tainted) == 0 {
 		return "", "" // nothing to hold it to: don't resolve a harness for it
 	}

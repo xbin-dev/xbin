@@ -5,8 +5,11 @@ package server
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/xbin-dev/xbin/internal/agent"
 	"github.com/xbin-dev/xbin/internal/agentprefs"
@@ -172,5 +175,50 @@ func TestRememberKeepsOnlyThePersonsOwnPick(t *testing.T) {
 	}
 	if p, _ := w.s.startPick(ap, "apps/x", startSuggestion{}, nil); p.Mode != "default" {
 		t.Fatalf("a start without asking after it opens in: %+v", p)
+	}
+}
+
+// Continuing a session is judged as a message to that session is: on its
+// live source — who serves it now — never on what a new start there would
+// run on (D250 review M3). Here a new start on Finance's own tile would be
+// held to Finance's rule and pass, while the session there runs on a source
+// nothing vouches for: after the conversation read Finance's data, the
+// follow-up into it is refused, and the ticket isn't spent.
+func TestContinueIsJudgedOnTheLiveSession(t *testing.T) {
+	w := realDelegateWorld(t)
+	w.s.AgentWorld = fakeWorld{}
+	if err := os.MkdirAll(filepath.Join(w.s.Term.Root, "apps", "mail"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	alice, person := delegateCred("d-alice"), w.cookie("alice")
+	first := startBody("apps/mail", "Goal: sort the mail.", "provider", "fake")
+	req := w.ask(alice, "POST", "/api/xbin/term/sessions", first)
+	w.approve(person, req.ID, "")
+	var a struct{ ID string }
+	if rec := w.do(w.full, "POST", "/api/xbin/term/sessions", first, alice, header(HeaderTicket, req.ID)); rec.Code != 200 || json.Unmarshal(rec.Body.Bytes(), &a) != nil {
+		t.Fatalf("the first start: %d %s", rec.Code, rec.Body.String())
+	}
+	var next delegation.Request
+	body := startBody("apps/mail", "Goal: and file it.", "continue", a.ID)
+	for deadline := time.Now().Add(20 * time.Second); ; time.Sleep(100 * time.Millisecond) {
+		waitIdle(t, w, a.ID)
+		if next = w.ask(alice, "POST", "/api/xbin/term/sessions", body); sessOf(next)["continue"] != nil {
+			if rec := w.do(w.full, "POST", "/api/xbin/delegate/requests/"+next.ID+"/approve", `{"knows":["continue"]}`, person); rec.Code == 200 {
+				break
+			}
+		}
+		w.do(w.full, "DELETE", "/api/xbin/delegate/requests/"+next.ID, "", alice)
+		if time.Now().After(deadline) {
+			t.Fatal("the idle session was never offered to continue")
+		}
+	}
+	if rec := w.do(w.full, "GET", "/api/xbin/components/apps/mail", "", alice); rec.Code != 200 { // the conversation reads Finance's data
+		t.Fatalf("read apps/mail: %d", rec.Code)
+	}
+	if rec := w.do(w.full, "POST", "/api/xbin/term/sessions", body, alice, header(HeaderTicket, next.ID)); rec.Code != 403 || !strings.Contains(rec.Body.String(), "Finance allows private models only") {
+		t.Fatalf("a follow-up into a session nothing vouches for, from a conversation holding Finance's data: %d %s", rec.Code, rec.Body.String())
+	}
+	if got, _ := w.store.Request("alice", next.ID); got.State != delegation.Approved {
+		t.Fatalf("the refusal spent the ticket: %s", got.State)
 	}
 }

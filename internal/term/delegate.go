@@ -185,7 +185,7 @@ func (m *Manager) DelegateStartSource(userID, rel, harness, asked string) (held 
 	if !rule.Forced {
 		return false, nil
 	}
-	if asked != "" {
+	if asked = connectorModelID(harness, asked); asked != "" {
 		models = append(models, asked)
 	}
 	if m.LLM != nil {
@@ -194,6 +194,17 @@ func (m *Manager) DelegateStartSource(userID, rel, harness, asked string) (held 
 		}
 	}
 	return true, models
+}
+
+// connectorModelID is model as the connector names it: a harness writes
+// the connector's models with its own prefix (OpenCode: "xbin/<id>",
+// acp.Connector.ModelPrefix), which is no part of the model an org's rule
+// is asked about (D250 review M3).
+func connectorModelID(harness, model string) string {
+	if prov, ok := agent.Lookup(harness); ok && prov.Connector != nil && prov.Connector.ModelPrefix != "" {
+		return strings.TrimPrefix(model, prov.Connector.ModelPrefix)
+	}
+	return model
 }
 
 // AgentConnectorModel is the connector's model that live agent session id

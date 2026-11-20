@@ -297,3 +297,22 @@ func TestDelegateStartCarriesItsFirstPrompt(t *testing.T) {
 	}
 	endFake(t, r, info2.ID)
 }
+
+// A harness writes the connector's models with its own prefix (OpenCode:
+// "xbin/<id>"): the model an org's rule is asked about is the connector's
+// id, without it (D250 review M3) — "xbin/local/a" judged as upstream
+// "xbin" would refuse a private model the rule allows.
+func TestConnectorModelIDDropsTheHarnessPrefix(t *testing.T) {
+	oc, _ := agent.Lookup("opencode")
+	if oc.Connector == nil || oc.Connector.ModelPrefix == "" {
+		t.Skip("OpenCode's entry names no model prefix")
+	}
+	for in, want := range map[string]string{oc.Connector.ModelPrefix + "local/a": "local/a", "local/a": "local/a", "": ""} {
+		if got := connectorModelID("opencode", in); got != want {
+			t.Errorf("opencode %q: %q, want %q", in, got, want)
+		}
+	}
+	if got := connectorModelID("claude", "xbin/local/a"); got != "xbin/local/a" {
+		t.Errorf("a harness with no prefix: %q", got)
+	}
+}

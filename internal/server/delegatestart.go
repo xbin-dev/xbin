@@ -73,7 +73,11 @@ func (s *Server) startStill(p auth.Principal, r delegation.Request, st *term.Del
 	}
 	eff := asked
 	eff.Provider, eff.Model, eff.Options = st.Provider, st.Model, nil
-	if code, why := s.startRefusal(p, eff); why != "" {
+	refuse := s.startRefusal
+	if st.Continue != "" {
+		refuse = s.startScopeRefusal // a follow-up into the session there: its live source is judged below (continuable)
+	}
+	if code, why := refuse(p, eff); why != "" {
 		return code, "", why
 	}
 	if st.Continue != "" {

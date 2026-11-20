@@ -388,6 +388,11 @@ func (s *Server) continuable(p auth.Principal, sid, tile string) (map[string]any
 	case info.Kind != "agent" || info.Status != "idle" || info.Pending > 0 || info.Questions > 0:
 		return nil, "that session is busy (working, or waiting for its person)"
 	}
+	// what the follow-up tells it goes to THAT session's model: judged on its live source, as a message to it is
+	// (D250 review M3), never on what a new start there would run on
+	if why := s.sendRefusal(p, s.liveTarget(sid, info)); why != "" {
+		return nil, why
+	}
 	prov, _ := agent.Lookup(info.Provider)
 	return map[string]any{"session": sid, "provider": info.Provider, "providerName": cmp.Or(prov.Name, info.Provider), "mode": info.Mode, "asks": prov.Asks(info.Mode),
 		"model": info.Model, "name": info.Name, "started": info.Created, "since": info.LastActive}, ""

@@ -818,7 +818,13 @@ func (s *Server) delegateApproval(w http.ResponseWriter, r *http.Request, p auth
 	if session {
 		asked := sessionAskOf(body)
 		row.Tile = asked.Cwd
-		if refusal, why := s.startRefusal(p, asked); why != "" { // before a ticket is spent
+		refuse := s.startRefusal
+		if asked.Continue != "" && ticket != "" {
+			// what opens is the person's choice on the approval — the session there, or a new one — judged as
+			// that with the ticket (startStill): not as a new start here (D250 review M3)
+			refuse = s.startScopeRefusal
+		}
+		if refusal, why := refuse(p, asked); why != "" { // before a ticket is spent
 			return nil, http.StatusForbidden, refusal, why
 		}
 	}
