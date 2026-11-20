@@ -130,25 +130,25 @@ func TestDelegateSendRules(t *testing.T) {
 		}
 	}
 
+	// a message to a session takes no approval only where its mode asks before every edit and command; in any
+	// other — whatever mode its person approved it in — each text is theirs to approve (D251)
 	claude := func(mode string) term.SessionInfo { return term.SessionInfo{Provider: "claude", Mode: mode} }
 	for name, c := range map[string]struct {
 		info    term.SessionInfo
-		started string
 		refused bool
 	}{
-		"started asking, still asking":                  {claude("default"), "default", false},
-		"started asking, in plan":                       {claude("plan"), "default", false},
-		"started asking, the person switched to bypass": {claude("bypassPermissions"), "default", true},
-		"started asking, switched to accept edits":      {claude("acceptEdits"), "default", true},
-		"approved in bypass, still there":               {claude("bypassPermissions"), "bypassPermissions", false},
-		"approved in accept edits, now bypass":          {claude("bypassPermissions"), "acceptEdits", true},
-		"a harness xbind doesn't know":                  {term.SessionInfo{Provider: "nope", Mode: "x"}, "", true},
+		"asking":                       {claude("default"), false},
+		"in plan":                      {claude("plan"), false},
+		"in bypass":                    {claude("bypassPermissions"), true},
+		"in accept edits":              {claude("acceptEdits"), true},
+		"in auto (the default, D251)":  {claude("auto"), true},
+		"a harness xbind doesn't know": {term.SessionInfo{Provider: "nope", Mode: "x"}, true},
 	} {
-		why := modeRefusal(c.info, c.started, "alice")
+		why := modeRefusal(c.info, "alice")
 		if (why != "") != c.refused {
 			t.Errorf("%s: %q, want refused %v", name, why, c.refused)
 		}
-		if c.refused && !strings.Contains(why, "doesn't ask before it acts") {
+		if c.refused && !strings.Contains(why, "goes to it only with their approval of that text") {
 			t.Errorf("%s: the reason: %q", name, why)
 		}
 	}
@@ -300,7 +300,7 @@ func TestDelegateSendsLive(t *testing.T) {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	both("a session switched to yolo", "carry on", "mode", "doesn't ask before it acts")
+	both("a session switched to yolo", "carry on", "mode", "goes to it only with their approval of that text")
 	if c, b := send("prompt", "carry on", person); c != 200 {
 		t.Fatalf("the person's own prompt in that mode: %d %s", c, b)
 	}

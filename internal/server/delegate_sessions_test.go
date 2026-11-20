@@ -473,7 +473,8 @@ func TestDelegateStartDefaultsAndPrompt(t *testing.T) {
 		}
 		return decode[startDefaultsView](t, rec)
 	}
-	// no preference: every harness the rules allow, each start approved, in a mode that asks
+	// no preference: every harness the rules allow, each start approved, in its work mode (D251), which
+	// doesn't ask
 	d := get()
 	if len(d.Harnesses) == 0 || d.Harness == "" {
 		t.Fatalf("no harness on apps/x: %+v", d)
@@ -484,12 +485,12 @@ func TestDelegateStartDefaultsAndPrompt(t *testing.T) {
 		}
 	}
 	claude, ok := d.of("claude")
-	if !ok || !claude.Asks || claude.Mode == "" {
+	if !ok || claude.Asks || claude.Mode != "auto" {
 		t.Fatalf("claude isn't among %+v", d.Harnesses)
 	}
-	// the person lets starts go unasked, on a network of their choosing
+	// the person lets starts go unasked, in a mode that asks they named, on a network of their choosing
 	w.policy.set(func(p *dPolicy) {
-		p.prefs["alice"] = delegation.StartPrefs{Mode: claude.Mode, Net: "internet", API: true}
+		p.prefs["alice"] = delegation.StartPrefs{Mode: "default", Net: "internet", API: true}
 	})
 	d = get()
 	if h, _ := d.of(d.Harness); h.NeedsTicket || h.Net != "internet" || !h.Asks {
@@ -506,13 +507,13 @@ func TestDelegateStartDefaultsAndPrompt(t *testing.T) {
 	body, _ := json.Marshal(map[string]string{"cwd": "apps/x", "kind": "agent", "prompt": brief})
 	req := w.ask(alice, "POST", "/api/xbin/term/sessions", string(body))
 	sess, _ := req.Preview["session"].(map[string]any)
-	if sess["provider"] != get().Harness || sess["mode"] == "" || sess["asks"] != true || sess["prompt"] != brief {
+	if sess["provider"] != get().Harness || sess["mode"] == "" || sess["asks"] != false || sess["prompt"] != brief {
 		t.Fatalf("the card of a start that named nothing: %v", sess)
 	}
-	// a mode that edits on its own is never "asks" — and, the agent's suggestion, never preselected (D250): the
-	// card shows the asking default, the suggestion beside it
+	// a mode that edits on its own is never "asks" — and, the agent's suggestion, a preselection the person sees
+	// (D251)
 	edits, _ := json.Marshal(map[string]string{"cwd": "apps/x", "kind": "agent", "provider": "claude", "mode": "acceptEdits"})
-	if card, _ := w.ask(alice, "POST", "/api/xbin/term/sessions", string(edits)).Preview["session"].(map[string]any); card["asks"] != true || card["mode"] != "default" || card["modeNotTaken"] != "acceptEdits" {
+	if card, _ := w.ask(alice, "POST", "/api/xbin/term/sessions", string(edits)).Preview["session"].(map[string]any); card["asks"] != false || card["mode"] != "acceptEdits" || card["modeNotTaken"] != nil {
 		t.Errorf("the card of a start the agent suggested acceptEdits for: %v", card)
 	}
 	// the brief is part of what the ticket binds: another one isn't this start

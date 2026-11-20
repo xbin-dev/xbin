@@ -74,8 +74,11 @@ func TestPlanStartsATileAgent(t *testing.T) {
 	it := cs.Items[0]
 	var start map[string]any
 	_ = json.Unmarshal(it.Start, &start)
-	if it.Line != `Start a tile agent in apps/x — Claude Code, in its mode "default", which asks before it edits or runs anything` || it.Admin || it.Blocked != "" || len(it.Warnings) != 0 ||
-		start["asks"] != true || start["prompt"] != "Goal: fix the bug." || start["provider"] != "claude" || it.UndoByHand == "" || cs.Session == "" {
+	// (in Claude Code's work mode, which acts without asking: a fact on the line, no warning — an ordinary line,
+	// ticked like the others, D251)
+	if it.Line != `Start a tile agent in apps/x — Claude Code, in its mode "auto", which acts without asking` || it.Admin || it.Blocked != "" || len(it.Warnings) != 0 ||
+		start["asks"] != false || start["prompt"] != "Goal: fix the bug." || start["provider"] != "claude" || it.UndoByHand == "" || cs.Session == "" ||
+		!strings.Contains(strings.Join(it.Effects, " "), "It edits files and runs commands in this tile's sandbox without asking you. You approve what your agent tells it.") {
 		t.Fatalf("the start line: %+v (start %v)", it, start)
 	}
 	// only its person applies it — and it reaches the open with every gate passed (503: no bx in this fixture)
@@ -86,17 +89,22 @@ func TestPlanStartsATileAgent(t *testing.T) {
 		t.Fatalf("applying the start: %+v", done.Items[0])
 	}
 
-	// a mode that doesn't ask, suggested by the agent: never taken (D250) — the line asks, and says what it left out
+	// a bypass mode, suggested by the agent: never taken — only its person names one — the line says what it left
+	// out; any other mode it suggests is the line's (D251)
 	_, cs, _ = plan(`[{"kind":"agent.start","args":{"tile":"apps/x","brief":"go","harness":"claude","mode":"bypassPermissions"}}]`)
-	if it := cs.Items[0]; len(it.Warnings) != 0 || !strings.Contains(it.Line, `"default"`) || !strings.Contains(strings.Join(it.Effects, " "), `suggested the mode "bypassPermissions", which acts without asking: not taken`) {
-		t.Fatalf("a start the agent suggested a mode that doesn't ask for: %+v", it)
+	if it := cs.Items[0]; len(it.Warnings) != 0 || !strings.Contains(it.Line, `"auto"`) || !strings.Contains(strings.Join(it.Effects, " "), `suggested the mode "bypassPermissions", which skips every check: not taken`) {
+		t.Fatalf("a start the agent suggested a bypass mode for: %+v", it)
 	}
-	// …and a mode that acts without asking is never remembered for the tile (D250 review M1): the line asks
+	_, cs, _ = plan(`[{"kind":"agent.start","args":{"tile":"apps/x","brief":"go","harness":"claude","mode":"default"}}]`)
+	if it := cs.Items[0]; len(it.Warnings) != 0 || !strings.Contains(it.Line, `"default", which asks before it edits or runs anything`) {
+		t.Fatalf("a start the agent suggested its asking mode for: %+v", it)
+	}
+	// …and a mode remembered for the tile is the line's (D251), an ordinary line
 	if err := w.s.AgentPrefs.RememberTile("alice", "apps/x", agentprefs.TileStart{Harness: "claude", Mode: "acceptEdits"}, 1); err != nil {
 		t.Fatal(err)
 	}
 	_, cs, _ = plan(`[{"kind":"agent.start","args":{"tile":"apps/x","brief":"go"}}]`)
-	if it := cs.Items[0]; len(it.Warnings) != 0 || !strings.Contains(it.Line, `"default"`) {
+	if it := cs.Items[0]; len(it.Warnings) != 0 || !strings.Contains(it.Line, `"acceptEdits", which acts without asking`) {
 		t.Fatalf("a start after acceptEdits was remembered for the tile: %+v", it)
 	}
 	if err := w.s.AgentPrefs.RememberTile("alice", "apps/x", agentprefs.TileStart{Harness: "claude"}, 2); err != nil {
@@ -119,7 +127,7 @@ func TestPlanStartsATileAgent(t *testing.T) {
 	}
 	_ = json.Unmarshal(rec.Body.Bytes(), &dry)
 	if rec.Code != 200 || !dry.DryRun || dry.ID != "" || len(dry.Items) != 2 || dry.Items[0].N != 1 || dry.Items[1].N != 2 ||
-		dry.Items[0].Line != `Start a tile agent in apps/x — Claude Code, in its mode "default", which asks before it edits or runs anything` || dry.Items[0].Blocked != "" || dry.Items[1].Blocked != lineBlockedForAgent {
+		dry.Items[0].Line != `Start a tile agent in apps/x — Claude Code, in its mode "auto", which acts without asking` || dry.Items[0].Blocked != "" || dry.Items[1].Blocked != lineBlockedForAgent {
 		t.Fatalf("a plan's dry run: %d %s", rec.Code, rec.Body.String())
 	}
 	if sets() != before {
@@ -307,8 +315,8 @@ func TestPlanStartUsesOnlyTheSignInItsLineNamed(t *testing.T) {
 		opened = append(opened, *d)
 		return "sess", 200, ""
 	}
-	// a coding agent with no mode xbin can vouch asks (OpenCode, D250 review M2): a plan's line — whose review
-	// picks nothing — never takes it from the agent's suggestion; the line says so, and what runs instead
+	// OpenCode — no mode that asks (D250 review M2) — is an ordinary choice (D251): the agent's suggestion of it is
+	// the line's, an ordinary line in its own mode, no warning; so is the person's own choice of it for the tile
 	{
 		rec := w.do(w.full, "POST", "/api/xbin/delegate/plans", `{"title":"t","items":[{"kind":"agent.start","args":{"tile":"apps/x","brief":"go","harness":"opencode"}}]}`, alice)
 		var cs delegation.ChangeSet
@@ -318,35 +326,28 @@ func TestPlanStartUsesOnlyTheSignInItsLineNamed(t *testing.T) {
 			t.Fatalf("a plan that starts OpenCode: %d %s", rec.Code, rec.Body.String())
 		}
 		it := full.Items[0]
-		if it.Line != `Start a tile agent in apps/x — Claude Code, in its mode "default", which asks before it edits or runs anything` || it.Blocked != "" || len(it.Warnings) != 0 ||
-			!strings.Contains(strings.Join(it.Effects, " "), "suggested OpenCode, which acts without asking in every mode: not taken") {
+		if it.Line != `Start a tile agent in apps/x — OpenCode, in its own default mode, which acts without asking` || it.Blocked != "" || len(it.Warnings) != 0 {
 			t.Fatalf("the line OpenCode was suggested for: %q blocked %q warnings %q effects %q", it.Line, it.Blocked, it.Warnings, it.Effects)
 		}
 		opened = nil
 		done := decode[delegation.ChangeSet](t, w.do(w.full, "POST", "/api/xbin/delegate/changesets/"+cs.ID+"/approve", `{"items":[1]}`, own))
-		if done.Items[0].Result != delegation.ItemApplied || len(opened) != 1 || opened[0].Provider != "claude" || opened[0].Mode != "default" || !opened[0].Approved {
+		if done.Items[0].Result != delegation.ItemApplied || len(opened) != 1 || opened[0].Provider != "opencode" || opened[0].Mode != "" || !opened[0].Approved {
 			t.Fatalf("applying it: %+v (error %q; opens %+v)", done.Items[0].Result, done.Items[0].Error, opened)
 		}
-		// the person's own choice of it for the tile is kept — its coding agent, never its mode (D250 re-review
-		// item 3) — and a plan's line there then resolves to it WITH the warning: a warned line starts unticked
-		// on the review (D238), so its tick is the person's warned approval of exactly that
 		if err := w.s.AgentPrefs.RememberTile("alice", "apps/x", agentprefs.TileStart{Harness: "opencode", Mode: "build"}, 3); err != nil {
 			t.Fatal(err)
-		}
-		if r, _ := w.s.AgentPrefs.TileChoice("alice", "apps/x"); r == nil || r.Harness != "opencode" || r.Mode != "" {
-			t.Fatalf("OpenCode remembered for the tile: %+v", r)
 		}
 		rec = w.do(w.full, "POST", "/api/xbin/delegate/plans", `{"title":"t","items":[{"kind":"agent.start","args":{"tile":"apps/x","brief":"go"}}]}`, alice)
 		var cs2 delegation.ChangeSet
 		_ = json.Unmarshal(rec.Body.Bytes(), &cs2)
 		full2, _ := w.store.ChangeSet("alice", cs2.ID)
-		if it := full2.Items; len(it) != 1 || len(it[0].Warnings) != 1 || !strings.HasPrefix(it[0].Warnings[0], "ACTS WITHOUT ASKING: OpenCode has no mode that asks before it acts") {
+		if it := full2.Items; len(it) != 1 || len(it[0].Warnings) != 0 || it[0].Line != `Start a tile agent in apps/x — OpenCode, in its mode "build", which acts without asking` {
 			t.Fatalf("a line on the person's OpenCode: %+v", full2.Items)
 		}
 		opened = nil
 		done2 := decode[delegation.ChangeSet](t, w.do(w.full, "POST", "/api/xbin/delegate/changesets/"+cs2.ID+"/approve", `{"items":[1]}`, own))
-		if done2.Items[0].Result != delegation.ItemApplied || len(opened) != 1 || opened[0].Provider != "opencode" || opened[0].Mode != "" || !opened[0].Picked {
-			t.Fatalf("the warned line, ticked: %+v (error %q; opens %+v)", done2.Items[0].Result, done2.Items[0].Error, opened)
+		if done2.Items[0].Result != delegation.ItemApplied || len(opened) != 1 || opened[0].Provider != "opencode" || opened[0].Mode != "build" || !opened[0].Picked {
+			t.Fatalf("the line, ticked: %+v (error %q; opens %+v)", done2.Items[0].Result, done2.Items[0].Error, opened)
 		}
 		if _, err := w.s.AgentPrefs.Update("alice", []byte(`{"agentSessions":{"tiles":null}}`)); err != nil {
 			t.Fatal(err)

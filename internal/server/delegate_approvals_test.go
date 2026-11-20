@@ -45,20 +45,19 @@ func sessOf(r delegation.Request) map[string]any {
 // The retro's root cause: a coding agent whose catalog names no default
 // mode (OpenCode; the scripted fake with --no-default-mode plays it) was
 // refused on its own ticket, after the ticket was spent — "the approval no
-// longer covered the call". Now it opens, by default, in the mode in which
-// it asks; and a ticket whose mode is its own default (an approval of
-// before) opens too.
+// longer covered the call". Now it opens, by default, in its work mode
+// (D251: the one it works through a task in without stopping to ask); and a
+// ticket whose mode is its own default (an approval of before) opens too.
 func TestNoDefaultModeStartsOnItsTicket(t *testing.T) {
 	t.Setenv(agent.FakeEnv, "/nonexistent/fakeacp --no-default-mode")
 	w := delegateWorld(t)
 	alice, person := delegateCred("d-alice"), w.cookie("alice")
 	body := startBody("apps/x", "Goal: a tic tac toe game.", "provider", "fake")
 	req := w.ask(alice, "POST", "/api/xbin/term/sessions", body)
-	if s := sessOf(req); s["provider"] != "fake" || s["mode"] != "ask" || s["asks"] != true {
+	if s := sessOf(req); s["provider"] != "fake" || s["mode"] != "auto" || s["asks"] != false {
 		t.Fatalf("the card of a start of a coding agent with no default mode: %v", s)
 	}
-	// start-defaults says so too: what the agent's backend reads to know a session in that mode asks (the
-	// approvalsUx pass: its tile agent was said to "act without asking" in its asking mode)
+	// start-defaults says so too: what the agent's backend reads to know whether a session in that mode asks
 	sd := w.do(w.full, "GET", "/api/xbin/delegate/start-defaults?tile=apps/x", "", alice)
 	var d struct {
 		Harnesses []struct {
@@ -68,7 +67,7 @@ func TestNoDefaultModeStartsOnItsTicket(t *testing.T) {
 	}
 	_ = json.Unmarshal(sd.Body.Bytes(), &d)
 	for _, h := range d.Harnesses {
-		if h.ID == "fake" && (h.Mode != "ask" || !h.Asks) {
+		if h.ID == "fake" && (h.Mode != "auto" || h.Asks) {
 			t.Fatalf("start-defaults of a coding agent with no default mode: %+v", h)
 		}
 	}
@@ -153,8 +152,8 @@ func TestApproveChoicesAreByHandChoices(t *testing.T) {
 	if got.Chosen == nil || got.Chosen.Provider != "codex" || got.Chosen.Mode != "read-only" || s["provider"] != "codex" || s["asks"] != true || fmt.Sprint(s["from"]) != "map[harness:you mode:you model:you]" {
 		t.Fatalf("the approved pick: %+v, card %v", got.Chosen, s)
 	}
-	// (remembered: what the person changed — the coding agent; read-only came with it: Codex's default, not theirs)
-	if ts := w.s.AgentPrefs.Get("alice").AgentSessions.Tiles["apps/x"]; ts.Harness != "codex" || ts.Mode != "" {
+	// (remembered: what the person changed — the coding agent, and read-only: Codex's default is its work mode, D251)
+	if ts := w.s.AgentPrefs.Get("alice").AgentSessions.Tiles["apps/x"]; ts.Harness != "codex" || ts.Mode != "read-only" {
 		t.Fatalf("remember for this tile: %+v", ts)
 	}
 	if d, _ := ticketStart(got); d == nil || d.Provider != "codex" || d.Mode != "read-only" || !d.Picked {
@@ -162,20 +161,22 @@ func TestApproveChoicesAreByHandChoices(t *testing.T) {
 	}
 }
 
-// The agent's suggestion never selects a mode that doesn't ask, nor a
+// The agent's suggestion of a mode is a preselection the person sees —
+// any mode but a bypass one, which only the person names (D251) — never a
 // sign-in; the person's preference for the tile outranks the suggestion.
-func TestSuggestionNeverPicksANonAskingModeOrSignin(t *testing.T) {
+func TestSuggestionNeverPicksABypassModeOrSignin(t *testing.T) {
 	w := delegateWorld(t)
 	alice := delegateCred("d-alice")
-	for _, mode := range []string{"acceptEdits", "auto", "bypassPermissions"} {
+	for mode, want := range map[string]string{"acceptEdits": "acceptEdits", "auto": "auto", "default": "default", "bypassPermissions": "auto"} {
 		r := w.ask(alice, "POST", "/api/xbin/term/sessions", startBody("apps/x", "go", "provider", "claude", "mode", mode))
-		if s := sessOf(r); s["mode"] != "default" || s["asks"] != true || s["modeNotTaken"] != mode || fmt.Sprint(s["suggested"]) != "map[harness:claude mode:"+mode+"]" {
+		notTaken := map[bool]any{true: mode, false: nil}[want != mode]
+		if s := sessOf(r); s["mode"] != want || s["modeNotTaken"] != notTaken || fmt.Sprint(s["suggested"]) != "map[harness:claude mode:"+mode+"]" {
 			t.Errorf("suggested %s: the card %v", mode, s)
 		}
-		// approved as shown (an older client: no pick), it opens in the asking mode
+		// approved as shown (an older client: no pick), it opens as preselected
 		w.approve(w.cookie("alice"), r.ID, "")
 		got, _ := w.store.Request("alice", r.ID)
-		if d, _ := ticketStart(got); d == nil || d.Mode != "default" {
+		if d, _ := ticketStart(got); d == nil || d.Mode != want {
 			t.Errorf("suggested %s: the ticket's start %+v", mode, d)
 		}
 	}

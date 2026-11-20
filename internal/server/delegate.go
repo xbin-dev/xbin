@@ -896,14 +896,23 @@ func (s *Server) delegateApproval(w http.ResponseWriter, r *http.Request, p auth
 		if differs != "" {
 			return nil, http.StatusForbidden, "needs-approval", differs + ask
 		}
-		if prov, known := agent.Lookup(cmp.Or(provider, s.startDefaults(p, asked.Cwd).Harness)); known && prov.AskingMode() == "" {
-			// the person's own choice may be a coding agent with no mode that asks (D250 re-review item 3): it
-			// never starts unasked, whatever their preference says — each start is theirs to approve, warned
-			return nil, http.StatusForbidden, "needs-approval", "your person's coding agent for this tile, " + prov.Name + ", acts without asking, so every start is approved on the sheet" + ask
-		}
 		prefs, ok := s.agentPolicy().StartPrefs(p.UserID, asked.Cwd, provider)
+		// a start with no sheet opens only in a mode that asks (D251): the mode it would open in — the
+		// preference's, else the coding agent's asking one, as the open takes it (term/delegate.go)
+		prov, known := agent.Lookup(cmp.Or(provider, s.startDefaults(p, asked.Cwd).Harness))
+		if ok && known && !prov.Asks(cmp.Or(prefs.Mode, prov.AskingMode())) || ok && !known {
+			ok = false
+		}
 		if !ok {
-			return nil, http.StatusForbidden, "needs-approval", "starting a tile agent needs its person's approval" + ask
+			why := "starting a tile agent needs its person's approval"
+			if s.AgentPrefs != nil {
+				if a, _ := s.AgentPrefs.AgentStartFor(p.UserID, prov.ID); !a.Ask {
+					// "start without asking" with no mode that asks named (or a coding agent with none): the default
+					// of their agent's sessions acts without asking, which no path without the sheet starts
+					why = "the sessions your person's agent starts act without asking, so every start is approved on the sheet: one approval, the same start — it starts without asking only in a mode that asks they named"
+				}
+			}
+			return nil, http.StatusForbidden, "needs-approval", why + ask
 		}
 		row.Under = "preference"
 		return &term.DelegateStart{Prefs: &prefs, Provider: provider, Model: model}, 0, "", "" // the harness the preference was read for: what opens must be it

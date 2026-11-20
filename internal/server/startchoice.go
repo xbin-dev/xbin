@@ -89,30 +89,18 @@ type harnessChoice struct {
 type startPick struct {
 	Harness, Model, Mode string
 	From                 map[string]string // harness | model | mode → from…
-	// ModeNotTaken: a mode the agent suggested that doesn't ask — shown
-	// beside the picker, never picked for the person. HarnessNotTaken: a
-	// coding agent it suggested that has no mode that asks (OpenCode).
-	ModeNotTaken, HarnessNotTaken string
-	Harnesses                     []harnessChoice
+	// ModeNotTaken: a bypass (Explicit) mode the agent suggested — shown
+	// beside the picker, never picked for the person: one is named by them.
+	ModeNotTaken string
+	Harnesses    []harnessChoice
 }
 
-// askingMode is the mode prov opens in when nothing says otherwise: the one
-// in which it asks before every edit and command (acp.Provider.AskingMode:
-// the one source), else — a coding agent with none, OpenCode — its own
-// default, which doesn't ask: shown, and warned, as such.
-func askingMode(prov agent.Provider) string {
-	return cmp.Or(prov.AskingMode(), prov.DefaultMode)
-}
-
-// vouched: a coding agent with a mode xbin can vouch asks before it acts —
-// the only kind the agent's suggestion or the workspace's default may
-// preselect (D250 review M2: OpenCode has none). The person's own choice
-// (remembered for the tile, or their preference) may be one with none: it
-// is preselected with its warning, and never starts without the sheet
-// (re-review item 3).
-func vouched(id string) bool {
-	prov, ok := agent.Lookup(id)
-	return ok && prov.AskingMode() != ""
+// workMode is the mode prov opens in when nothing says otherwise: the one
+// in which it works through a task in its sandbox without stopping to ask
+// (acp.Provider.WorkMode: the one source; D251) — "" for one that opens as
+// it opens itself (OpenCode).
+func workMode(prov agent.Provider) string {
+	return prov.WorkMode()
 }
 
 // modesOf are the modes prov may start in, as the Agent tab offers them:
@@ -136,17 +124,7 @@ func modesOf(prov agent.Provider) []modeChoice {
 		// the catalog lists no modes of its own and names no default: it opens as it opens itself
 		out = append([]modeChoice{{ID: "", Name: "its own default", Asks: false}}, out...)
 	}
-	// the ones that ask first: the default is one of them
-	slices.SortStableFunc(out, func(a, b modeChoice) int {
-		switch {
-		case a.Asks == b.Asks:
-			return 0
-		case a.Asks:
-			return -1
-		}
-		return 1
-	})
-	return out
+	return out // (in the catalog's order: the default is the work mode, whichever, D251)
 }
 
 func hasMode(modes []modeChoice, id string) bool {
@@ -206,7 +184,7 @@ func (s *Server) startPick(p auth.Principal, tile string, sug startSuggestion, p
 		if !ok {
 			continue
 		}
-		c := harnessChoice{ID: h.ID, Name: h.Name, DefaultMode: askingMode(prov), Modes: modesOf(prov), NoSignIn: h.NoSignIn, Net: def.netFor(h.ID)}
+		c := harnessChoice{ID: h.ID, Name: h.Name, DefaultMode: workMode(prov), Modes: modesOf(prov), NoSignIn: h.NoSignIn, Net: def.netFor(h.ID)}
 		c.Models = []modelChoice{{ID: ""}}
 		if s.Term != nil && h.NoSignIn {
 			if ms, _, ok := s.Term.ConnectorModels(ctx, personOf(p).UserID, tile, prov); ok {
@@ -242,41 +220,36 @@ func (s *Server) startPick(p auth.Principal, tile string, sug startSuggestion, p
 	switch {
 	case person != nil && allowed(person.Provider):
 		out.Harness, out.From["harness"] = person.Provider, fromPerson
-	// (the person's own choice, whatever its modes — one with none that asks is preselected warned; the agent's
-	// suggestion of one is said, not taken)
 	case tileChoice != nil && allowed(tileChoice.Harness):
 		out.Harness, out.From["harness"] = tileChoice.Harness, fromTile
 	case allowed(prefs.AgentSessions.Harness):
 		out.Harness, out.From["harness"] = prefs.AgentSessions.Harness, fromPreference
-	case allowed(sug.Harness) && vouched(sug.Harness):
+	case allowed(sug.Harness):
 		out.Harness, out.From["harness"] = sug.Harness, fromAgent
 	default:
 		out.Harness, out.From["harness"] = def.Harness, fromDefault
 	}
-	if allowed(sug.Harness) && !vouched(sug.Harness) && out.Harness != sug.Harness {
-		out.HarnessNotTaken = sug.Harness
-	}
 	hc := out.Harnesses[slices.IndexFunc(out.Harnesses, func(c harnessChoice) bool { return c.ID == out.Harness })]
 	prov, _ := agent.Lookup(out.Harness)
 	sameSug := sug.Harness == "" || sug.Harness == out.Harness
-	// its mode: only one that asks is preselected for the person
-	asks := func(m string) bool { return m != "" && prov.Asks(m) && hasMode(hc.Modes, m) }
+	// its mode: any of its modes is a choice (D251) — a bypass one only by the person's own pick on the sheet
+	choice := func(m string) bool { return m != "" && hasMode(hc.Modes, m) && !explicitMode(hc.Modes, m) }
 	switch {
 	case person != nil && person.Provider == out.Harness && hasMode(hc.Modes, person.Mode):
 		out.Mode, out.From["mode"] = person.Mode, fromPerson
-	case tileChoice != nil && tileChoice.Harness == out.Harness && asks(tileChoice.Mode):
-		// the person's own last pick here — only one that asks is ever remembered, or taken (D250 review M1)
+	case tileChoice != nil && tileChoice.Harness == out.Harness && choice(tileChoice.Mode):
 		out.Mode, out.From["mode"] = tileChoice.Mode, fromTile
-	case asks(prefs.AgentSessions.Modes[out.Harness]):
+	case choice(prefs.AgentSessions.Modes[out.Harness]):
 		out.Mode, out.From["mode"] = prefs.AgentSessions.Modes[out.Harness], fromPreference
-	case sameSug && asks(sug.Mode):
+	case sameSug && choice(sug.Mode):
 		out.Mode, out.From["mode"] = sug.Mode, fromAgent
 	default:
 		out.Mode, out.From["mode"] = hc.DefaultMode, fromDefault
 	}
-	if sameSug && sug.Mode != "" && !prov.Asks(sug.Mode) && out.From["mode"] != fromPerson {
+	if sameSug && sug.Mode != "" && explicitMode(hc.Modes, sug.Mode) && out.From["mode"] != fromPerson {
 		out.ModeNotTaken = sug.Mode
 	}
+	_ = prov
 	// its model
 	switch {
 	case person != nil && person.Provider == out.Harness && hasModel(hc.Models, person.Model):
@@ -357,12 +330,12 @@ func ownFields(shown map[string]any, harnesses []harnessChoice, c delegation.Sta
 
 // rememberedOf is what "Remember for this tile" keeps of c on top of prev
 // (D250 review M1): only the fields the person changed (c.Own) — a model or
-// a mode with the coding agent it is of — and never a mode that acts
-// without asking (the predicate the sheet's warning uses; the store drops
-// it again). ok false: nothing of theirs is left to keep.
+// a mode with the coding agent it is of; any mode but a bypass one, which
+// is named on each approval (D251; the store drops it again). ok false:
+// nothing of theirs is left to keep.
 func rememberedOf(prev *agentprefs.TileStart, c delegation.StartChoice) (agentprefs.TileStart, bool) {
 	prov, _ := agent.Lookup(c.Provider)
-	own := slices.DeleteFunc(slices.Clone(c.Own), func(f string) bool { return f == "mode" && !prov.Asks(c.Mode) })
+	own := slices.DeleteFunc(slices.Clone(c.Own), func(f string) bool { return f == "mode" && !prov.Safe(c.Mode) })
 	if len(own) == 0 {
 		return agentprefs.TileStart{}, false
 	}
@@ -419,31 +392,22 @@ func (s *Server) continuable(p auth.Principal, sid, tile string) (map[string]any
 	out := map[string]any{"session": sid, "provider": info.Provider, "providerName": cmp.Or(prov.Name, info.Provider), "mode": info.Mode, "asks": prov.Asks(info.Mode),
 		"model": info.Model, "name": info.Name, "started": info.Created, "since": info.LastActive, "signIn": ""}
 	if si := info.Signin; si != nil && si.Source == "saved" && si.ID != "" {
-		// it carries the person's saved sign-in: a follow-up into it uses it — their tick, each time (D230, D250 review L1)
+		// it carries the person's saved sign-in: a fact the sheet shows — they ticked it when the session started, and a
+		// follow-up is the same session doing more of what they approved (D251: no tick again)
 		out["signIn"], out["signInId"], out["signInName"] = "saved", si.ID, si.Name
 	}
 	return out, ""
 }
 
-// continueTickRefusal is why a follow-up into live session can't be
-// approved as asked ("" it can): the session carries the person's saved
-// sign-in, so a follow-up into it is a use of that sign-in — the person's
-// own tick, each time, as a start with it (D230; D250 review L1); without
-// it, a new session, which has none.
-func continueTickRefusal(live map[string]any, ticked bool) string {
-	if id, _ := live["signInId"].(string); id != "" && !ticked {
-		return "this session carries your saved sign-in, and a follow-up into it uses it: tick \"Use my sign-in for this follow-up\", or start a new session instead"
-	}
-	return ""
-}
-
 // continueSigninStill is why an approved follow-up can't go into live
-// session as approved ("" it can): it carries the person's saved sign-in,
-// and they didn't tick that sign-in for it — or it carries another than
-// the one they ticked (approved: the approval's session preview).
-func continueSigninStill(live, approved map[string]any, used bool) string {
-	if id, _ := live["signInId"].(string); id != "" && (!used || approved["signInId"] != id) {
-		return "the session your person chose to continue carries their saved sign-in, which they didn't tick for this follow-up: file the start again"
+// session as approved ("" it can): it carries another saved sign-in than
+// the one its approval showed (approved: the approval's session preview) —
+// no tick is asked for one it carried then (D251), but the session must
+// still be the one shown.
+func continueSigninStill(live, approved map[string]any) string {
+	id, _ := live["signInId"].(string)
+	if shown, _ := approved["signInId"].(string); id != shown {
+		return "the session your person chose to continue carries another sign-in than the one they were shown: file the start again"
 	}
 	return ""
 }
@@ -454,7 +418,7 @@ type pickBody struct {
 	Remember             bool
 	Continue             *bool
 	Knows                []string
-	Signin               bool // the sign-in line ticked: for a continue, the session's own sign-in (D250 review L1)
+	Signin               bool // the sign-in line ticked (a new session's: D230)
 	Seen                 *seenBasis
 }
 
@@ -464,6 +428,10 @@ type pickBody struct {
 type seenBasis struct {
 	SignInID *string `json:"signInId"`
 	Net      *string `json:"net"`
+	// Harness and Mode: for a continue, the session's own as the sheet
+	// showed them (D251) — it must still be that session
+	Harness *string `json:"harness,omitempty"`
+	Mode    *string `json:"mode,omitempty"`
 }
 
 // seenChanged is the refusal of an approval whose sheet showed something
@@ -479,11 +447,15 @@ func seenRefusal(seen *seenBasis, preview map[string]any) string {
 	}
 	id, _ := preview["signInId"].(string)
 	net, _ := preview["net"].(string)
+	harness, _ := preview["provider"].(string)
+	mode, _ := preview["mode"].(string)
 	switch {
 	case seen.SignInID != nil && *seen.SignInID != id:
 		return seenChanged + "signin\x00the saved sign-in this start offers changed since your sheet showed it: look again — nothing was decided"
 	case seen.Net != nil && *seen.Net != net:
 		return seenChanged + "net\x00the network this start would have changed since your sheet showed it: look again — nothing was decided"
+	case seen.Harness != nil && *seen.Harness != harness, seen.Mode != nil && *seen.Mode != mode:
+		return seenChanged + "session\x00the session this would continue is no longer as your sheet showed it (its coding agent or mode changed): look again — nothing was decided"
 	}
 	return ""
 }
@@ -565,9 +537,6 @@ func (s *Server) startPickFor(a delegateActor, req delegation.Request, b pickBod
 			return nil, nil, http.StatusConflict, "the session this would continue runs " + prov + ", which may no longer run on " + tile + ": start a new session instead"
 		}
 		live, _ := s.continuable(pp, sid, tile)
-		if why := continueTickRefusal(live, b.Signin); why != "" {
-			return nil, nil, http.StatusConflict, why
-		}
 		mode, _ := offered["mode"].(string)
 		model, _ := offered["model"].(string)
 		c := delegation.StartChoice{Provider: prov, Mode: mode, Model: model, Continue: sid}
@@ -577,7 +546,7 @@ func (s *Server) startPickFor(a delegateActor, req delegation.Request, b pickBod
 		// the sign-in the tick is held to is the session's own (no trust line: it was asked when the session began)
 		cont["signInId"], cont["signIn"] = live["signInId"], live["signIn"]
 		delete(cont, "signInTrust")
-		if why := seenRefusal(b.Seen, map[string]any{"signInId": live["signInId"], "net": shown["net"]}); why != "" {
+		if why := seenRefusal(b.Seen, map[string]any{"signInId": live["signInId"], "net": shown["net"], "provider": live["provider"], "mode": live["mode"]}); why != "" {
 			return nil, nil, http.StatusConflict, why
 		}
 		out["session"] = cont

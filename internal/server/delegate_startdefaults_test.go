@@ -79,10 +79,9 @@ func TestDelegateStartDefaultsRunnable(t *testing.T) {
 		t.Fatalf("signed in to the preferred one: %q", d.Harness)
 	}
 
-	// her saved choice (starts unasked, on Claude Code's mode) wins, even unusable
+	// her saved choice (starts unasked, in Claude Code's asking mode she named) wins, even unusable
 	llm = rows(nil)
-	claude, _ := get().of("claude")
-	w.policy.set(func(p *dPolicy) { p.prefs["alice"] = delegation.StartPrefs{Mode: claude.Mode, API: true} })
+	w.policy.set(func(p *dPolicy) { p.prefs["alice"] = delegation.StartPrefs{Mode: "default", API: true} })
 	t.Cleanup(func() { w.policy.set(func(p *dPolicy) { delete(p.prefs, "alice") }) })
 	if d := get(); d.Harness != first {
 		t.Fatalf("her saved choice: %q", d.Harness)
@@ -220,7 +219,7 @@ func TestDelegateStartDefaultsSavedSignIn(t *testing.T) {
 		t.Fatalf("approved with the tick: the ticket's start %+v", d)
 	}
 	// the tick is this start's: her preference to start unasked changes nothing of it
-	w.policy.set(func(p *dPolicy) { p.prefs["alice"] = delegation.StartPrefs{Mode: c.Mode, API: true} })
+	w.policy.set(func(p *dPolicy) { p.prefs["alice"] = delegation.StartPrefs{Mode: "default", API: true} })
 	if c2, _ := get().of("claude"); c2.SignIn == "saved" || c2.NeedsTicket {
 		t.Fatalf("an unasked start was promised her sign-in: %+v", c2)
 	}

@@ -33,7 +33,8 @@ func TestPlanStartRunsTheReviewedLine(t *testing.T) {
 	w.s.AgentWorld = fakeWorld{}
 	w.s.ChangeSets = planStub{}
 	alice, own := delegateCred("d-alice"), w.cookie("alice")
-	if err := w.s.AgentPrefs.RememberTile("alice", "apps/x", agentprefs.TileStart{Harness: "fake", Model: "fake-fast"}, 1); err != nil {
+	// the person's own choice for the tile — fake, fast, in its asking mode — outranks the line's suggestion
+	if err := w.s.AgentPrefs.RememberTile("alice", "apps/x", agentprefs.TileStart{Harness: "fake", Model: "fake-fast", Mode: "ask"}, 1); err != nil {
 		t.Fatal(err)
 	}
 	rec := w.do(w.full, "POST", "/api/xbin/delegate/plans", `{"title":"t","items":[{"kind":"agent.start","args":{"tile":"apps/x","brief":"Goal: a game.","harness":"fake","model":"fake-default","mode":"auto"}}]}`, alice)
@@ -71,7 +72,7 @@ func TestPlanStartRunsTheReviewedLine(t *testing.T) {
 		t.Fatalf("a line whose suggestion the person's choice outranks: %+v (opened %s)", done2.Items[0], info2.Provider)
 	}
 	effects := strings.Join(it.Effects, " ")
-	if !strings.Contains(effects, `suggested the mode "auto", which acts without asking: not taken`) || !strings.Contains(effects, "a single start's approval") {
+	if !strings.Contains(effects, "What runs is this line's coding agent, model and mode") || !strings.Contains(effects, "a single start's approval") {
 		t.Fatalf("the line says what runs and where it is changed: %q", effects)
 	}
 }
@@ -114,17 +115,20 @@ func TestOpenCodeHasNoAskingMode(t *testing.T) {
 	if h, ok := sd.of("opencode"); !ok || h.Asks || !h.NeedsTicket {
 		t.Fatalf("OpenCode in start-defaults: %+v", h)
 	}
-	// the agent suggests it: not preselected — the default is, and the sheet says which was not taken
+	// the agent suggests it: a preselection the person sees, like any coding agent (D251) — in its own mode
 	req := w.ask(alice, "POST", "/api/xbin/term/sessions", startBody("apps/x", "go", "provider", "opencode"))
-	if s := sessOf(req); s["provider"] == "opencode" || s["harnessNotTaken"] != "opencode" {
+	if s := sessOf(req); s["provider"] != "opencode" || s["mode"] != "" || s["asks"] != false || s["harnessNotTaken"] != nil {
 		t.Fatalf("a suggested OpenCode: %v", s)
 	}
-	// a session of it its person approved in build: the agent's messages are each theirs to approve
-	if why := modeRefusal(term.SessionInfo{Provider: "opencode", Mode: "build"}, "build", "alice"); why == "" {
-		t.Fatal("an OpenCode session takes the agent's messages unapproved")
+	// every message of the agent's to a session that acts without asking is its person's to approve — whatever
+	// mode they approved the session in (D251: no exemption for "the mode approved")
+	for _, in := range []term.SessionInfo{{Provider: "opencode", Mode: "build"}, {Provider: "claude", Mode: "acceptEdits"}, {Provider: "claude", Mode: "auto"}, {Provider: "codex", Mode: "agent"}} {
+		if why := modeRefusal(in, "alice"); why == "" {
+			t.Errorf("%s in %s takes the agent's messages unapproved", in.Provider, in.Mode)
+		}
 	}
-	if why := modeRefusal(term.SessionInfo{Provider: "claude", Mode: "acceptEdits"}, "acceptEdits", "alice"); why != "" {
-		t.Fatalf("a Claude Code session approved in acceptEdits: %s", why)
+	if why := modeRefusal(term.SessionInfo{Provider: "claude", Mode: "default"}, "alice"); why != "" {
+		t.Fatalf("a Claude Code session that asks: %s", why)
 	}
 }
 
@@ -149,37 +153,34 @@ func TestRememberKeepsOnlyThePersonsOwnPick(t *testing.T) {
 			t.Fatalf("approve %s: %d %s", body, rec.Code, rec.Body.String())
 		}
 	}
-	// the agent suggested Claude Code on sonnet; the person changes only the coding agent: only that is theirs
-	approve(`{"harness":"codex","model":"","mode":"read-only","remember":true,"knows":["continue"]}`)
+	// the agent suggested Claude Code on sonnet; the person changes only the coding agent (Codex comes in its own
+	// default, its work mode): only that is theirs
+	approve(`{"harness":"codex","model":"","mode":"agent","remember":true,"knows":["continue"]}`)
 	if r := remembered(); r == nil || r.Harness != "codex" || r.Model != "" || r.Mode != "" {
 		t.Fatalf("the person changed the coding agent only: %+v", r)
 	}
 	forget()
-	// …only the mode, to one that acts without asking: nothing of theirs is left to remember
-	approve(`{"harness":"claude","model":"sonnet","mode":"acceptEdits","remember":true,"knows":["continue"]}`)
-	if r := remembered(); r != nil {
-		t.Fatalf("a mode that acts without asking, on the agent's suggestion otherwise: %+v", r)
+	// …only the mode — to accept edits, or to one that asks: a mode is a choice like any other (D251), kept
+	for _, mode := range []string{"acceptEdits", "default"} {
+		approve(`{"harness":"claude","model":"sonnet","mode":"` + mode + `","remember":true,"knows":["continue"]}`)
+		if r := remembered(); r == nil || r.Harness != "claude" || r.Model != "" || r.Mode != mode {
+			t.Fatalf("the person changed the mode only, to %s: %+v", mode, r)
+		}
+		forget()
 	}
-	// …the model (their preference's opus preselected, they pick sonnet) and a mode that acts without asking:
-	// the model is kept, with the coding agent it is of, and the mode is dropped
+	// …the model (their preference's opus preselected, they pick sonnet), the mode left at its default: the model
+	// is kept, with the coding agent it is of
 	if _, err := w.s.AgentPrefs.Update("alice", []byte(`{"harnesses":{"claude":{"model":"opus"}}}`)); err != nil {
 		t.Fatal(err)
 	}
 	approve(`{"harness":"claude","model":"sonnet","mode":"auto","remember":true,"knows":["continue"]}`)
 	if r := remembered(); r == nil || r.Harness != "claude" || r.Model != "sonnet" || r.Mode != "" {
-		t.Fatalf("a changed model and a mode that acts without asking: %+v", r)
+		t.Fatalf("a changed model, the default mode: %+v", r)
 	}
-	// the next start — on a sheet with no picker (the app approves what is preselected), or none — asks
+	// the next start preselects what was kept, in the work mode
 	req := w.ask(alice, "POST", "/api/xbin/term/sessions", startBody("apps/x", "go"))
-	if s := sessOf(req); s["provider"] != "claude" || s["model"] != "sonnet" || s["mode"] != "default" || s["asks"] != true {
+	if s := sessOf(req); s["provider"] != "claude" || s["model"] != "sonnet" || s["mode"] != "auto" || s["asks"] != false {
 		t.Fatalf("the start after it: %v", s)
-	}
-	ap := auth.Principal{UserID: "alice", Via: "delegate", Agent: dHolder}
-	if pr, _, differs := w.s.unaskedStart(ap, sessionAsk{Cwd: "apps/x"}); pr != "claude" || differs != "" {
-		t.Fatalf("a start without asking after it: %s %s", pr, differs)
-	}
-	if p, _ := w.s.startPick(ap, "apps/x", startSuggestion{}, nil); p.Mode != "default" {
-		t.Fatalf("a start without asking after it opens in: %+v", p)
 	}
 }
 
@@ -228,28 +229,19 @@ func TestContinueIsJudgedOnTheLiveSession(t *testing.T) {
 	}
 }
 
-// A follow-up into a session that carries the person's saved sign-in is a
-// use of that sign-in: it needs their own tick on the approval, each time
-// (D230), or the sheet's other choice — a new session, which has none — and
-// at the redeem the session must still carry the one they ticked (D250
-// review L1).
-func TestContinueIntoASessionWithASignInNeedsTheTick(t *testing.T) {
+// A follow-up into a session that carries the person's saved sign-in
+// needs no tick (D251: they ticked it when the session started; a
+// follow-up is the same session doing more of what they approved) — but
+// at the redeem the session must still carry the sign-in it carried when
+// the sheet showed it.
+func TestContinueIntoASessionWithASignInIsThatSession(t *testing.T) {
 	live := map[string]any{"session": "s-1", "provider": "claude", "signIn": "saved", "signInId": "si_1", "signInName": "work"}
 	plain := map[string]any{"session": "s-2", "provider": "claude", "signIn": ""}
-	if why := continueTickRefusal(live, false); !strings.Contains(why, "tick") || !strings.Contains(why, "start a new session instead") {
-		t.Fatalf("a follow-up into a session with a sign-in, unticked: %q", why)
+	if continueSigninStill(live, map[string]any{"signInId": "si_1"}) != "" || continueSigninStill(plain, nil) != "" || continueSigninStill(plain, map[string]any{}) != "" {
+		t.Fatal("the session as shown, refused at the redeem")
 	}
-	if continueTickRefusal(live, true) != "" || continueTickRefusal(plain, false) != "" {
-		t.Fatal("a ticked follow-up, or one into a session with no sign-in, refused")
-	}
-	if continueSigninStill(live, map[string]any{"signInId": "si_1"}, false) == "" {
-		t.Fatal("redeemed without the tick")
-	}
-	if continueSigninStill(live, map[string]any{"signInId": "si_2"}, true) == "" {
-		t.Fatal("redeemed into a session carrying another sign-in than the one ticked")
-	}
-	if continueSigninStill(live, map[string]any{"signInId": "si_1"}, true) != "" || continueSigninStill(plain, nil, false) != "" {
-		t.Fatal("a ticked follow-up, or one into a session with no sign-in, refused at the redeem")
+	if continueSigninStill(live, map[string]any{"signInId": "si_2"}) == "" || continueSigninStill(live, map[string]any{}) == "" || continueSigninStill(plain, map[string]any{"signInId": "si_1"}) == "" {
+		t.Fatal("redeemed into a session carrying another sign-in than the one shown")
 	}
 }
 
@@ -352,7 +344,8 @@ func TestAgentQueuedMessageIsMarkedAsTheAgents(t *testing.T) {
 	alice, person := delegateCred("d-alice"), w.cookie("alice")
 	body := startBody("apps/x", "Goal: a game.", "provider", "fake")
 	req := w.ask(alice, "POST", "/api/xbin/term/sessions", body)
-	w.approve(person, req.ID, "")
+	// (in its asking mode, picked: the agent's messages go to it unapproved until the person switches it)
+	w.do(w.full, "POST", "/api/xbin/delegate/requests/"+req.ID+"/approve", w.seen("alice", req.ID, `{"harness":"fake","mode":"ask"}`), person)
 	var a struct{ ID string }
 	if rec := w.do(w.full, "POST", "/api/xbin/term/sessions", body, alice, header(HeaderTicket, req.ID)); rec.Code != 200 || json.Unmarshal(rec.Body.Bytes(), &a) != nil {
 		t.Fatalf("the start: %d %s", rec.Code, rec.Body.String())
@@ -431,44 +424,47 @@ returned:
 	}
 }
 
-// The owner's case (D250 re-review item 3): he wants OpenCode — a coding
-// agent with no mode xbin vouches asks — for a tile. Its coding agent and
-// model are remembered (the mode never), and preselected on every later
-// approval WITH the warning; it never starts without the sheet, whatever
-// the person's preference; the workspace's default is one that asks
-// wherever one is allowed, OpenCode only where it is all the tile allows.
+// The owner's case (D250 re-review item 3; D251): he wants OpenCode for a
+// tile. Its coding agent, model and mode are remembered like any other's,
+// and preselected on every later approval — an ordinary start, which acts
+// without asking (as every coding agent's default does now); it never
+// starts without the sheet, whatever the person's preference; the default
+// is any coding agent that runs as things are.
 func TestTheOwnersOpenCodeForATile(t *testing.T) {
 	w := delegateWorld(t)
 	alice, person := delegateCred("d-alice"), w.cookie("alice")
-	// picked on the sheet, remembered: OpenCode and its model are kept
+	// the default of a start nobody chose anything for: the coding agent's work mode (D251)
+	if s := sessOf(w.ask(alice, "POST", "/api/xbin/term/sessions", startBody("apps/x", "go", "provider", "claude"))); s["mode"] != "auto" || s["asks"] != false {
+		t.Fatalf("Claude Code's default for a start the agent asks for: %v", s)
+	}
+	// picked on the sheet, remembered: OpenCode, its model and its mode are kept
 	r := w.ask(alice, "POST", "/api/xbin/term/sessions", startBody("apps/x", "go"))
-	if rec := w.do(w.full, "POST", "/api/xbin/delegate/requests/"+r.ID+"/approve", w.seen("alice", r.ID, `{"harness":"opencode","mode":"","remember":true}`), person); rec.Code != 200 {
+	if rec := w.do(w.full, "POST", "/api/xbin/delegate/requests/"+r.ID+"/approve", w.seen("alice", r.ID, `{"harness":"opencode","mode":"build","remember":true}`), person); rec.Code != 200 {
 		t.Fatalf("approve OpenCode, remembered: %d %s", rec.Code, rec.Body.String())
 	}
-	if got, _ := w.s.AgentPrefs.TileChoice("alice", "apps/x"); got == nil || got.Harness != "opencode" || got.Mode != "" {
+	if got, _ := w.s.AgentPrefs.TileChoice("alice", "apps/x"); got == nil || got.Harness != "opencode" || got.Mode != "build" {
 		t.Fatalf("OpenCode remembered for the tile: %+v", got)
 	}
-	// the next start there preselects it, warned
+	// the next start there preselects it, in build
 	s := sessOf(w.ask(alice, "POST", "/api/xbin/term/sessions", startBody("apps/x", "more")))
-	if s["provider"] != "opencode" || s["asks"] != false || fmt.Sprint(s["from"]) != "map[harness:tile mode:default model:default]" {
+	if s["provider"] != "opencode" || s["mode"] != "build" || s["asks"] != false || fmt.Sprint(s["from"]) != "map[harness:tile mode:tile model:default]" {
 		t.Fatalf("the next start: %v", s)
 	}
-	// never unasked: the person's preference to start without asking doesn't reach it
+	// never without the sheet: the person's "start without asking" doesn't reach a mode that doesn't ask — and
+	// the agent is told so in plain words
 	w.policy.set(func(d *dPolicy) { d.prefs["alice"] = delegation.StartPrefs{} })
+	if _, err := w.s.AgentPrefs.Update("alice", []byte(`{"agentSessions":{"start":"allow"}}`)); err != nil {
+		t.Fatal(err)
+	}
 	rec := w.do(w.full, "POST", "/api/xbin/term/sessions", `{"cwd":"apps/x","kind":"agent","prompt":"go"}`, alice)
-	if rec.Code != 403 || !strings.Contains(rec.Body.String(), "acts without asking, so every start is approved on the sheet") {
+	if rec.Code != 403 || !strings.Contains(rec.Body.String(), "act without asking, so every start is approved on the sheet") {
 		t.Fatalf("an unasked start on the person's OpenCode: %d %s", rec.Code, rec.Body.String())
 	}
-	// the workspace's default: one that asks where one is allowed (no saved choice of the person's)
+	// the default coding agent: the first allowed that runs as things are — whatever its modes (D251)
 	w.policy.set(func(d *dPolicy) { delete(d.prefs, "alice") })
 	if _, err := w.s.AgentPrefs.Update("alice", []byte(`{"agentSessions":{"tiles":null}}`)); err != nil {
 		t.Fatal(err)
 	}
-	if def := w.s.startDefaults(auth.Principal{UserID: "alice", Agent: dHolder}, "apps/x"); def.Harness == "opencode" || !vouched(def.Harness) {
-		t.Fatalf("the default where coding agents that ask are allowed: %q", def.Harness)
-	}
-	// …even where only OpenCode would run as things are (the workspace's model serves it alone): the sheet then
-	// offers the sign-in, or the person picks OpenCode themselves, warned
 	saved := startLLMOf
 	startLLMOf = func(_ *Server, _ auth.Principal, _ string, provs []agent.Provider) map[string]*term.ProviderLLM {
 		out := map[string]*term.ProviderLLM{}
@@ -479,14 +475,8 @@ func TestTheOwnersOpenCodeForATile(t *testing.T) {
 		return out
 	}
 	t.Cleanup(func() { startLLMOf = saved })
-	if def := w.s.startDefaults(auth.Principal{UserID: "alice", Agent: dHolder}, "apps/x"); def.Harness == "opencode" {
-		t.Fatalf("the default where only OpenCode runs as things are: %q", def.Harness)
-	}
-	w.policy.set(func(d *dPolicy) {
-		d.denyHarness = map[string]bool{"claude": true, "codex": true, "gemini": true, "fake": true}
-	})
 	if def := w.s.startDefaults(auth.Principal{UserID: "alice", Agent: dHolder}, "apps/x"); def.Harness != "opencode" {
-		t.Fatalf("the default where OpenCode is all the tile allows: %q", def.Harness)
+		t.Fatalf("the default where only OpenCode runs as things are: %q", def.Harness)
 	}
 }
 
@@ -519,10 +509,15 @@ func (w *dWorld) seen(user, id, body string) string {
 			}
 		}
 	}
+	seen := map[string]any{"signInId": sid, "net": net}
 	if c, _ := s["continue"].(map[string]any); c != nil && m["continue"] != false && (m["harness"] == nil || m["harness"] == c["provider"]) {
-		sid, _ = c["signInId"].(string)
+		seen["signInId"], _ = c["signInId"].(string)
+		seen["harness"], seen["mode"] = c["provider"], c["mode"] // the session as the sheet shows it (D251)
+		if seen["signInId"] == nil {
+			seen["signInId"] = ""
+		}
 	}
-	m["seen"] = map[string]any{"signInId": sid, "net": net}
+	m["seen"] = seen
 	b, _ := json.Marshal(m)
 	return string(b)
 }
