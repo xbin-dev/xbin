@@ -451,7 +451,7 @@ export class BxAgentApprove extends LitElement {
     const label = v ? v.label : req.kind === 'message' ? messageView(req).label : allowLabel(req, this._choice);
     return html`<div class="foot">
       <span class="when small muted">${when.map((x) => html`<span>${x}</span>`)}</span>
-      <button data-deny ?disabled=${this._busy} @click=${this._deny}>Deny</button>
+      ${/* the quiet one — filled only where nothing can be allowed and it is the sheet's one button (as the app's) */ ''}<button data-deny class=${this.stopped ? 'primary' : ''} ?disabled=${this._busy} @click=${this._deny}>Deny</button>
       ${this.stopped ? this._stop() : html`<button class="primary ${danger ? 'danger' : ''} arming" data-allow=${this._choice} aria-disabled=${on ? 'false' : 'true'} aria-label=${v || req.kind === 'message' ? label : allowSpoken(req, this._choice)}
         @click=${this._allow}>${shown(label)}</button>`}
     </div>`;

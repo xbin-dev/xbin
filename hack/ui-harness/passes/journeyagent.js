@@ -165,8 +165,8 @@ async function journeyAgent(browser) {
     await J.click('the dock: "Needs you"', async () => { await page.click(`${DOCK} button[data-needs]`); await page.waitForSelector(`${DOCK} bx-agent-permits .bxc-perm button.bxc-primary`, { timeout: 30000 }); });
     const perm = (await page.locator(`${DOCK} bx-agent-permits .bxc-perm`).first().innerText()).replace(/\s+/g, ' ');
     const offered = await page.locator(`${DOCK} bx-agent-permits .bxc-btns button`).allInnerTexts();
-    check(/curl -fsS/.test(perm) && /docs\/mcp\.md/.test(perm) && /asks to run a command/.test(perm) && offered.join('|') === 'Allow once|Allow always|Reject',
-      `the permission is drawn by xbin in the dock, as the tile's window draws it: the command exactly, and its choices (${offered.join(', ')}; ${perm.slice(0, 120)})`);
+    check(/curl -fsS/.test(perm) && /docs\/mcp\.md/.test(perm) && /asks to run a command/.test(perm) && offered.join('|') === 'Reject|Allow always|Allow once',
+      `the permission is drawn by xbin in the dock, as the tile's window draws it: the command exactly, and its choices — the rejection left, the primary allow right (D250) (${offered.join(', ')}; ${perm.slice(0, 120)})`);
     check((await f.locator('bx-agent-permits, .bxc-perm').count()) === 0, 'the agent\'s page draws no permission card: it can\'t answer for the person');
     const waitingRow = (await page.locator(`${DOCK} bx-agent-needs li[data-kind="changeset"]`).first().innerText().catch(() => '')).replace(/\s+/g, ' ');
     check(/Waiting: Bind apps\/assistant's mcp to apps\/dice/.test(waitingRow) && /xbin applies it once apps\/dice provides mcp\s+lapses in 23 h/.test(waitingRow) && !waitingRow.includes('·'), `Needs you also lists the line that waits (${waitingRow})`);
