@@ -430,8 +430,8 @@ test('reasoning effort: xbin\'s suggestion off the maker\'s API, "Use these", re
   assert.equal(suggestLine(null), '');
   assert.deepEqual(suggestRecord(kimi), { supported_levels: ['low', 'high', 'max'], can_disable: false, default_level: 'max', aliases: { medium: 'high' } });
   assert.deepEqual(suggestRecord({ supported_levels: ['low', 'high'], default_level: 'none', can_disable: true }), { supported_levels: ['low', 'high'], can_disable: true, default_level: 'none' });
-  assert.match(replayLine({ since: '2026-11-20T10:00:00Z', field: 'reasoning_content' }), /^replay off since 2026-11-2\d \d\d:\d\d: the upstream refused reasoning_content$/);
-  assert.equal(replayLine({}), 'replay off: the upstream refused the reasoning sent back');
+  assert.match(replayLine({ since: '2026-11-20T10:00:00Z', field: 'reasoning_content', callers: 3 }), /^replay off for 3 callers since 2026-11-2\d \d\d:\d\d: the upstream refused reasoning_content$/);
+  assert.equal(replayLine({ callers: 1 }), 'replay off for 1 caller: the upstream refused the reasoning sent back');
   assert.equal(effortLine({ replay: 'never', source: 'admin' }), 'Reasoning: not described — no control is offered · its reasoning is not sent back');
 });
 

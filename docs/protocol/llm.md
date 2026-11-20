@@ -137,10 +137,17 @@ POST   /llm/v1/responses           a caller. OpenAI's Responses request,
                                    it, named the same way; a refusal that
                                    named reasoning_content, the request
                                    without it then working, is remembered
-                                   in memory per upstream and model (later
-                                   calls send none; the view's replayOff;
-                                   POST …/replay-reset or a restart
-                                   forgets it)
+                                   in memory for that caller (tile + person,
+                                   or person), upstream (at its address) and
+                                   model: that caller's later calls send
+                                   none — never another caller's (the
+                                   view's replayOff {since, field, callers};
+                                   POST …/replay-reset, a change of the
+                                   upstream or a restart forgets it; at most
+                                   1024, least recently used first). Named:
+                                   the parsed error's param, code, or its
+                                   message outside quoted text — never the
+                                   raw body
 GET    /llm/v1/models              a caller. {object: "list", data: [{id,
                                    object, owned_by, alias_of?, effort?,
                                    …}],
@@ -332,7 +339,7 @@ GET    /llm/config                 admin. The configuration in force, the
                                    baseURL, key: {set, source?: vault|host,
                                    hint?}, models, private, prices?,
                                    reasoning?, replayOff?: {<model>:
-                                   {since, field}}, source: admin|host,
+                                   {since, field, callers}}, source: admin|host,
                                    locked, reason?}], defaults:
                                    {model?, roles}, aliases, quotas,
                                    sessions: {agents, terminals, openaiEnv},

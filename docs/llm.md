@@ -172,13 +172,24 @@ know which wire a provider has.
   isn't about the context's size) gets the request once more without it,
   and the answer names `input.reasoning`. Only when its refusal named the
   field (`reasoning_content`) and the request without it worked is that
-  remembered — in memory, per upstream and model: later calls send none
-  (and name `input.reasoning`), the model's row on `/xbin/llm` says *replay
-  off since …: the upstream refused reasoning_content* with a **Reset**
-  (`POST …/upstreams/<name>/replay-reset`, `bx llm upstream replay-reset`),
-  and a restart forgets it. A refusal that names no field is never
-  remembered (a caller can provoke one). An entry that says only
-  `{"replay": "never"}` stops it for good, and changes nothing else.
+  remembered — in memory, for **that caller** (the calling tile and the
+  person it acts for, or the person calling directly), that upstream (at
+  its address) and that model: that caller's later calls send none (and
+  name `input.reasoning`); the model's row on `/xbin/llm` says *replay off
+  for N callers since …: the upstream refused reasoning_content* with a
+  **Reset** (`POST …/upstreams/<name>/replay-reset`, `bx llm upstream
+  replay-reset`), and a restart or any change of the upstream forgets it
+  (at most 1024 entries; the least recently used goes first). "Named" is
+  read from the provider's parsed error alone — its `param`, its `code`,
+  or its message naming the field outside any quoted text (a quoted span
+  counts only when it is the field alone) — never from the raw body, so
+  request text a provider echoes back is no evidence. **What one caller can
+  and cannot cause**: a caller can switch replay off for its own calls (say
+  by sending reasoning items that make the upstream refuse) — never for
+  another caller's, which keep sending their reasoning; it cannot make the
+  connector remember a refusal that didn't name the field, nor one whose
+  retry failed. An entry that says only `{"replay": "never"}` stops it for
+  every caller, and changes nothing else.
 - **Of the answer**: streamed text, reasoning text (as a reasoning
   summary), tool calls — several in one answer, also from a provider that
   numbers every call `0` and tells them apart by id — a refusal
@@ -308,8 +319,9 @@ reasoning at all. What the connector knows of an upstream's model is its
    requests relayed as they came), and its model object carries
    `xbin_effort_suggestion` (the maker's record). `/xbin/llm` says *not
    described — xbin knows the maker's levels: Low · High · Max* with
-   **Use these** (an admin's entry, made of them) and *describe…*; `bx llm
-   models` prints the `--reasoning` that does the same.
+   **Use these** (an admin's entry, made of them: levels, default, aliases)
+   and *describe…*; `bx llm upstream set <name> --reasoning
+   '<model>=maker'` stores the same record.
 
 The record a call is mapped by is the one the model list gives: for an
 upstream that passes names through, its list is read for the call's

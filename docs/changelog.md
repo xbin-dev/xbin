@@ -51,8 +51,9 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
     reasoning item — dropped before without a word — is named
     (`input.reasoning`); an upstream that answers `400` to a request
     carrying it gets the request once more without it, and one whose
-    refusal named `reasoning_content` is remembered (in memory, per
-    upstream and model; `/xbin/llm` shows it with a Reset;
+    error named `reasoning_content` is remembered (in memory, for that
+    caller, upstream and model only — one caller never turns it off for
+    another; `/xbin/llm` shows it with a Reset;
     `POST /api/xbin/llm/upstreams/<name>/replay-reset`, `bx llm upstream
     replay-reset`).
   - a request that sends a model's reasoning back may name that model
@@ -64,8 +65,9 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
     content, as it came — only to the provider and model that produced it
     (the one the connector says answered); a provider that 400s on it gets
     the call once more without it, and a conversation whose provider's
-    refusal named the field stops sending it (the conversation says so; a
-    later refusal without it brings it back, once). Its `reasoningEffort`
+    refusal named the field stops sending it to that model (the
+    conversation says so; a later refusal without it brings it back, once
+    per model). Its `reasoningEffort`
     default goes only to a model that reasons by its record (a model whose
     record says none gets no `reasoning_effort` and no Responses
     `reasoning` block; one with no record, as before).

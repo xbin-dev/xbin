@@ -637,12 +637,14 @@ export function suggestRecord(s) {
   return rec;
 }
 
-// replayLine(r) → "replay off since 2026-11-20 10:00: the upstream refused
-// reasoning_content" (an upstream's replayOff entry; local time).
+// replayLine(r) → "replay off for 2 callers since 2026-11-20 10:00: the
+// upstream refused reasoning_content" (an upstream's replayOff entry: the
+// callers whose translated calls no longer send it; local time).
 export function replayLine(r) {
   const d = new Date(r?.since ?? '');
   const at = Number.isNaN(d.getTime()) ? '' : ` since ${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-  return `replay off${at}: the upstream refused ${String(r?.field ?? 'the reasoning sent back')}`;
+  const n = Number.isInteger(r?.callers) && r.callers > 0 ? r.callers : 1;
+  return `replay off for ${n} caller${n === 1 ? '' : 's'}${at}: the upstream refused ${String(r?.field ?? 'the reasoning sent back')}`;
 }
 
 // EFFORT_LEVELS are the ladder's words a model may take ("none" is "can be

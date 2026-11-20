@@ -49,8 +49,9 @@ the same upstream and model only. Other reasoning items are still not sent,
 and are now named (`input.reasoning` in `X-XBin-LLM-Dropped`). This is so
 for every model, described or not. An upstream that answers `400` to a
 request carrying `reasoning_content` gets the request once more without
-it; when its refusal named the field and the request without it worked,
-the connector remembers it for that model until an admin's Reset or a
+it; when its error named the field and the request without it worked,
+the connector remembers it for that caller, upstream and model (never for
+another caller) until an admin's Reset, a change of the upstream, or a
 restart.
 
 **The agent template** sends a model's plain reasoning back on later turns
@@ -60,8 +61,8 @@ produced it — the one the connector says answered, and a request that
 carries it names that model, so an alias pointed elsewhere refuses it
 (`409 xbin_llm_model_moved`) and the call goes once more without; a
 provider that 400s on it gets the call once more without it, and when its
-refusal named the field that conversation stops sending it (the
-conversation says so). Its default `reasoningEffort` goes only to a model that reasons by
+refusal named the field that conversation stops sending it to that model
+(the conversation says so). Its default `reasoningEffort` goes only to a model that reasons by
 its description; a model described as having none gets no
 `reasoning_effort`, and no `reasoning` block on the Responses wire.
 

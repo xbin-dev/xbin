@@ -6277,4 +6277,12 @@ here: cut from the old end, never reword.
     maker's table until models are listed). One mapping rule, one set of
     test vectors read by Go and JS. Compaction's estimate counts the
     reasoning that goes back. The Responses wire asks for no summary it
-    didn't before when no level is set.
+    didn't before when no level is set. *Second review:* the connector's
+    memory is per caller (tile + person, or person) + upstream at its
+    address + model, LRU-bounded, dropped on any change of the upstream —
+    one caller (which could forge a reasoning item, the tag being no
+    secret) can switch replay off only for itself; "named" is read from the
+    parsed error's param, code or unquoted message, never the raw body (an
+    echo of request text is no evidence). The agent's memory is per
+    conversation *and* model (its Via). `bx … --reasoning <model>=maker`
+    stores the record *Use these* stores, aliases included.

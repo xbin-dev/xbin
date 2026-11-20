@@ -138,7 +138,7 @@ bx llm upstream add <name> <base-url> [--key-file <f> | --key-stdin | --no-key]
           [--responses-via auto|upstream|chat]
           | set <name> [--url <u>] [--models a,b | --any-model] [--private | --public] [--key… | --no-key] [--price …]
             [--responses-via …]  (chat: Responses calls are translated for an upstream that has only chat completions, D244)
-            [--reasoning <model>=openai|toggle|deepseek|none|<levels>[/<default>]|-]…  (a model's reasoning effort, D249)
+            [--reasoning <model>=openai|toggle|deepseek|none|maker|<levels>[/<default>]|-]…  (a model's reasoning effort, D249)
           | rm <name> | test <name> [<model>] | replay-reset <name> [<model>]
                                        its providers (admin): the key goes to
                                        the vault; test makes a one-line call
@@ -552,7 +552,9 @@ turned off; `/high`: its default), and `--reasoning <model>=-` forgets it
 models` each model's "Reasoning: Low · High · Max (default High; can be
 off) · from the upstream" — or, for a model xbin's table knows on an
 upstream that is not its maker's API, "not described — xbin knows the
-maker's levels: …" with the `--reasoning` that adopts them. `bx llm`
+maker's levels: …" with the `--reasoning '<model>=maker'` that adopts them
+(the record `/xbin/llm`'s *Use these* stores: the maker's levels, default
+and aliases). `bx llm`
 also says which models a translated call no longer sends their reasoning
 back to (their upstream refused it); `upstream replay-reset <name>
 [<model>]` sends it again. `upstream test <name> [<model>]` makes the smallest call through it —
