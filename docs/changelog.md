@@ -12,6 +12,66 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-20
 
+- workspace agent: **one approval, one place; a start is the person's
+  pick; a follow-up goes to the session that is there** (D250). A tile
+  agent's start binds its tile, brief and kind: the person picks the
+  coding agent, model and mode on xbin's sheet (`POST
+  /delegate/requests/<id>/approve {harness?, model?, mode?, remember?,
+  continue?, knows?}`, validated as a by-hand start), preselected by this
+  tile's remembered choice, the person's preference, the agent's
+  suggestion, the default — `preview.session.choices`, `from`,
+  `suggested`, `modeNotTaken`; a suggested mode that doesn't ask is never
+  preselected. New preference keys `agentSessions.harness` and
+  `agentSessions.tiles` ("Remember for this tile"); the agent reads the
+  result as start-defaults' `chosen`. A start may name `continue: <its
+  idle session there>` (`preview.session.continue`), and a message to a
+  session whose mode doesn't ask is a request of kind `message` instead of
+  a refusal. A refused ticket carries `reason` and says what differed;
+  nothing is spent by a refusal. A start that fails for a reason that
+  isn't the agent's is state `failed` (`failure {why, retry}`, `GET
+  /delegate/requests?failed=1`, `POST /delegate/requests/<id>/retry`,
+  refusal `start-failed`). `GET /delegate/tile`'s sessions carry `model`,
+  `asks`, `started`, `since`; a plan's `agent.start` takes `model`, and
+  runs exactly the line reviewed. "Remember for this tile" keeps only what
+  the person changed, never a mode that acts without asking; a coding
+  agent with no mode xbin can vouch asks (OpenCode) is only the person's
+  own pick (`harnessNotTaken`), never remembered or started unasked. The
+  approve carries what the sheet showed (`seen: {signInId?, net?}`): 409
+  `{changed, reload: true}` when xbind would now resolve it otherwise. A
+  follow-up into a session is judged on that session's model, and into one
+  that carries the person's saved sign-in needs `signin: true`
+  (`continue.signIn`, `signInId`, `signInName`). Failures are classified
+  by cause: the agent's own mistake is refused before the ticket is spent;
+  `failed` only for a backend that files with `knows: ["retry"]`, and
+  `…/retry` takes the picks again (no earlier tick kept). An agent's
+  message held behind a turn is checked when it goes in — on the mode
+  reported and on a switch still in flight — and returned (the `queue`
+  event's `returned`; the agent's compact read of its sessions carries
+  it). An approve that picks or continues needs `seen` (400 without). The
+  person may choose OpenCode for a tile or as their preference: kept
+  (never its mode), preselected warned, never started unasked; the
+  default prefers a coding agent that asks. A saved mode an earlier xbind
+  accepted that no longer asks (v0.3.83: OpenCode's `plan`) is ignored at
+  read and never blocks a write.
+  [delegation.md §The person's pick](/docs/protocol/delegation.md),
+  [workspace-agent.md](/docs/workspace-agent.md#how-approvals-work).
+- chrome: **the dock's one "Waiting for you" list** — a title with a
+  count, each pending act once, oldest first, one action each, Review all
+  past one review, Try again on a failed start; the conversation's card
+  for a pending act is a marker that opens it, never a second approve. On
+  every approval Deny is the quiet button on the left and Allow the
+  primary on the right; a warning colours Allow and never promotes Deny.
+  A permission card places the coding agent's own options so: its
+  rejections left, its first allow right. The new card, list and sheet
+  show each fact as its own element.
+- agent template: `tile_agent_start {harness?, model?, mode?, new?,
+  reason?}` (suggestions only where the person named one; `new` against
+  continuing), `tile_agent_message` to a session that doesn't ask files
+  one approval, `tile_agents` and `tile_status` list this conversation's
+  sessions and the person's own; the brief's card has no coding-agent
+  picker and start-defaults carries `model`, `from` and `chips`. The iOS
+  app approves xbin's preselected pick and says where to pick others.
+
 - tiles: **BREAKING — a link, a FIFO or a file over 32 MiB in a tile is
   never followed or read.** Instantiating a workspace template no longer
   copies a link's target: such a file is skipped and named (`skipped`,

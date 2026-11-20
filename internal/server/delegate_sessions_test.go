@@ -509,10 +509,11 @@ func TestDelegateStartDefaultsAndPrompt(t *testing.T) {
 	if sess["provider"] != get().Harness || sess["mode"] == "" || sess["asks"] != true || sess["prompt"] != brief {
 		t.Fatalf("the card of a start that named nothing: %v", sess)
 	}
-	// a mode that edits on its own is never "asks": the card says so, and it takes a ticket
+	// a mode that edits on its own is never "asks" — and, the agent's suggestion, never preselected (D250): the
+	// card shows the asking default, the suggestion beside it
 	edits, _ := json.Marshal(map[string]string{"cwd": "apps/x", "kind": "agent", "provider": "claude", "mode": "acceptEdits"})
-	if card, _ := w.ask(alice, "POST", "/api/xbin/term/sessions", string(edits)).Preview["session"].(map[string]any); card["asks"] != false || card["mode"] != "acceptEdits" {
-		t.Errorf("the card of a start in acceptEdits: %v", card)
+	if card, _ := w.ask(alice, "POST", "/api/xbin/term/sessions", string(edits)).Preview["session"].(map[string]any); card["asks"] != true || card["mode"] != "default" || card["modeNotTaken"] != "acceptEdits" {
+		t.Errorf("the card of a start the agent suggested acceptEdits for: %v", card)
 	}
 	// the brief is part of what the ticket binds: another one isn't this start
 	w.approve(w.cookie("alice"), req.ID, "once")

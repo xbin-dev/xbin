@@ -247,6 +247,7 @@ POST /delegate/plans	no-tile
 POST /delegate/requests	no-tile
 POST /delegate/requests/{id}/approve	no-tile
 POST /delegate/requests/{id}/deny	no-tile
+POST /delegate/requests/{id}/retry	no-tile
 POST /delegate/sessions	no-tile
 POST /delegate/sessions/{id}/allows	no-tile
 POST /delegate/sessions/{id}/taint	no-tile

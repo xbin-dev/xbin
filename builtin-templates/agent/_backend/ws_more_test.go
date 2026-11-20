@@ -184,7 +184,9 @@ func TestWsBriefCard(t *testing.T) {
 	if len(agents) != 1 || agents[0].Harness != "Codex" || fx.x.said[agents[0].Session][0] != asked.Prompt {
 		t.Fatalf("the tile agent: %+v, told %q", agents, fx.x.said)
 	}
-	if up := fx.updates(t, s); len(up) != 1 || !strings.Contains(up[0], "tile agent #1 started in apps/orders (Codex, asks before acting)") {
+	// the person edited the brief's text before approving: the agent is told so, with what was sent (D250)
+	if up := fx.updates(t, s); len(up) != 1 || !strings.Contains(up[0], "tile agent #1 started in apps/orders: Codex, asks before acting.") ||
+		!strings.Contains(up[0], "Your person edited the brief before approving; what was sent:") || !strings.Contains(up[0], "every order of the month") {
 		t.Fatalf("the start's update: %q", up)
 	}
 	// asked again after the edit and approved: the same request, the same call
@@ -220,7 +222,7 @@ func TestWsBriefCard(t *testing.T) {
 	if !start.Started || len(agents) != 2 || !strings.Contains(fx.x.said[agents[1].Session][0], "Goal: Export orders as a PDF, one page each") {
 		t.Fatalf("Start on the brief: %+v, told %q", start, fx.x.said)
 	}
-	if up := fx.updates(t, s); len(up) != 2 || !strings.Contains(up[1], "tile agent #2 started in apps/orders (Claude Code") {
+	if up := fx.updates(t, s); len(up) != 2 || !strings.Contains(up[1], "tile agent #2 started in apps/orders: Claude Code") {
 		t.Fatalf("the second start's update: %q", up)
 	}
 	// a brief the agent wrote and didn't ask for: the card's button asks

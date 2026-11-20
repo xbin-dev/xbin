@@ -180,7 +180,7 @@ async function permissions(a, check) {
   await say(a, 'perm');
   await a.waitForSelector('.hask:not(.hq)', { timeout: 20000 });
   const opts = await a.$$eval('.hask .bxc-btns button', (els) => els.map((e) => `${e.dataset.option}:${e.dataset.kind}:${e.textContent.trim()}`));
-  check(opts.join(' ') === 'once:allow_once:Allow once always:allow_always:Allow always no:reject_once:Reject', `"perm": the card offers the agent's own options (${opts.join(' ')})`);
+  check(opts.join(' ') === 'no:reject_once:Reject always:allow_always:Allow always once:allow_once:Allow once', `"perm": the card offers the agent's own options — the rejection left, its first allow right (D250) (${opts.join(' ')})`);
   const lead = await a.textContent('.hask .bxc-q');
   const asked = await a.textContent('.hask pre.bxc-cmd');
   check(/Fake agent \(tests\) asks to run a command/.test(lead.replace(/\s+/g, ' ')) && asked.trim() === 'run ls', `…saying what it asks (${lead.replace(/\s+/g, ' ').trim()}: ${asked.trim()})`);

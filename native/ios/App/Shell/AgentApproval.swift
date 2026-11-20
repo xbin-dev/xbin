@@ -14,12 +14,15 @@ import XbinRenderer
 //   - The agent's own words are quoted, labelled unchecked; nothing of the
 //     request is rendered as markdown, a link or an image — verbatim text.
 //   - Deny left, Allow right, equal width, at the bottom; stacked (Allow
-//     below) at accessibility sizes.
-//   - "Always, every change to <tile>" is a second sheet whose primary
-//     button is Go back, and which asks Face ID.
+//     below) at accessibility sizes. Allow is always the primary button and
+//     Deny (Go back) the quiet one, in the same places on every sheet
+//     (D250): a warned approval colours Allow as the danger it is, and
+//     never promotes Deny.
+//   - "Always, every change to <tile>" is a second sheet, armed late, which
+//     asks Face ID.
 //   - A tile agent's start leads with its mode; one that never asks — any
 //     mode xbind doesn't say asks: only a harness's ask or plan mode does —
-//     is said in the danger wording, and Deny becomes the primary button.
+//     is said in the danger wording, and its Allow is the danger colour.
 //   - What WIDENS the grant is armed like Allow (the web chrome's
 //     WidenGuard): a standing choice, "until I take it back" — dimmed and
 //     inert for 600 ms after the sheet shows, while another sheet covers it
@@ -286,14 +289,15 @@ struct AgentDurationPicker: View {
 }
 
 /// Deny and Allow at the bottom of a sheet: Deny left, Allow right, equal
-/// width; stacked with Allow below at accessibility sizes. `primaryDeny`
-/// (a mode that never asks; the wider grant's Go back) makes the safe
-/// button the filled one and the other an outlined danger.
+/// width; stacked with Allow below at accessibility sizes. Allow is the
+/// primary button, Deny the quiet one, always (D250); `warned` (a mode that
+/// never asks; the wider grant) colours Allow as the danger it is — Deny is
+/// never promoted.
 struct AgentDecisionBar: View {
     let deny: String
     let allow: String
     var allowSpoken: String = ""
-    var primaryDeny = false
+    var warned = false
     /// The buttons' identifiers' prefix (a sheet over another names its own).
     var id = "approval"
     var armed: Bool
@@ -335,7 +339,8 @@ struct AgentDecisionBar: View {
     @ViewBuilder private var denyButton: some View {
         let b = Button(action: onDeny) { Text(verbatim: deny).frame(maxWidth: .infinity, minHeight: height) }
             .disabled(working)
-        Group { if primaryDeny || !stopped.isEmpty { b.xbinPrimary() } else { b.xbinSecondary() } }
+        // the quiet one — the filled one only where nothing can be allowed and it is the sheet's one button
+        Group { if !stopped.isEmpty { b.xbinPrimary() } else { b.xbinSecondary() } }
             .accessibilityIdentifier("\(id)-deny")
     }
 
@@ -360,7 +365,7 @@ struct AgentDecisionBar: View {
         }
         .disabled(!armed || working)
         .accessibilityLabel(Text(verbatim: allowSpoken.isEmpty ? allow : allowSpoken))
-        Group { if primaryDeny { b.xbinSecondary().tint(XbinColor.danger) } else { b.xbinPrimary() } }
+        Group { if warned { b.xbinPrimary().tint(XbinColor.danger) } else { b.xbinPrimary() } }
             .accessibilityIdentifier("\(id)-allow")
     }
 }
@@ -596,7 +601,10 @@ struct AgentApprovalSheet: View {
                 Text(AgentReveal.attributed(t.name, font: .body.weight(.semibold)))
                 Text(AgentReveal.attributed([t.path, t.org].filter { !$0.isEmpty }.joined(separator: " · "), font: XbinFont.code)).foregroundStyle(XbinColor.muted)
             }
-            ApprovalRow(label: "Coding agent") { Text(verbatim: s.agent).font(.callout) }
+            ApprovalRow(label: "Coding agent") {
+                Text(verbatim: s.agent).font(.callout)
+                if !s.picks.isEmpty { Text(verbatim: s.picks).font(.caption).foregroundStyle(XbinColor.muted).accessibilityIdentifier("approval-picks") }
+            }
             if !s.signIn.isEmpty {
                 // what the session runs on, in xbin's words (D230): a saved sign-in goes in only by a tick on the web's sheet
                 ApprovalRow(label: "Sign-in") {
@@ -634,7 +642,7 @@ struct AgentApprovalSheet: View {
     private func buttons(_ r: DelegateRequest) -> some View {
         AgentDecisionBar(deny: "Deny", allow: DelegationWords.allowLabel(r, choice: choice),
                          allowSpoken: DelegationWords.allowSpoken(r, choice: choice),
-                         primaryDeny: r.neverAsks, armed: arming.armed, working: working,
+                         warned: r.neverAsks, armed: arming.armed, working: working,
                          stopped: DelegationWords.stopLine(stop),
                          onDeny: { deny(r) },
                          onAllow: {
@@ -700,8 +708,9 @@ struct AgentApprovalSheet: View {
 }
 
 /// The wider grant's second step: what "every change" means, for how long,
-/// and two buttons — Go back, the primary one, and Allow every change,
-/// which is armed late and asks Face ID.
+/// and two buttons — Go back, the quiet one on the left, and Allow every
+/// change on the right in the danger colour, which is armed late and asks
+/// Face ID (D250: the same places as every sheet).
 struct AgentWiderSheet: View {
     let workspace: WorkspaceModel
     let request: DelegateRequest
@@ -742,7 +751,7 @@ struct AgentWiderSheet: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             AgentDecisionBar(deny: w.back, allow: w.allow, allowSpoken: DelegationWords.allowSpoken(request, choice: .tile),
-                             primaryDeny: true, id: "wider", armed: arming.armed, working: working, stopped: stopped,
+                             warned: true, id: "wider", armed: arming.armed, working: working, stopped: stopped,
                              onDeny: { done(false) }, onAllow: allow)
         }
         .background(XbinColor.background)

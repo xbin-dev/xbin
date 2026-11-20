@@ -265,8 +265,9 @@ export const BRIEF_BY_AGENT = 'Written by your agent';
 /**
  * sessionRows(req): a tile agent start as the sheet's rows —
  * {agent, mode: {tag, tone, text}, network, others, brief, danger}: the
- * mode leads; one that never asks is the danger wording, and Deny becomes
- * the primary button.
+ * mode leads; one that never asks is the danger wording in the body, and
+ * Allow is coloured as the danger it is — in its place: Deny is never made
+ * the primary button (D250).
  */
 export function sessionRows(req) {
   const s = (req.preview && req.preview.session) || {};
@@ -295,7 +296,8 @@ export function sessionRows(req) {
     brief,
     // who wrote it, as xbind says (D248 review): xbind's update brief is xbin's; any other text the agent's, whatever it says
     briefBy: !brief ? '' : s.briefBy === 'xbin' ? BRIEF_BY_XBIN : BRIEF_BY_AGENT,
-    danger: asks ? '' : 'Your workspace agent asked for a mode that never asks. You will not get a chance to stop a single edit or command.',
+    // (the agent can't pick a mode that never asks — D250: only the person can, on the sheet)
+    danger: asks ? '' : `${who} in this mode acts without asking: it edits files and runs commands in ${t} without asking you. You will not get a chance to stop a single edit or command.`,
     comes: `Its questions and permission requests come to you, in ${t} and in Needs you. Your workspace agent can't answer them.`,
   };
 }

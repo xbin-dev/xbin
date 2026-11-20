@@ -294,6 +294,12 @@ export function createStore({ paint = () => {}, post = () => false, frame = null
     announce('xbin shows the request to review.');
     return ok;
   }
+  /** openNeeds(): ask the chrome to show the one batch of what waits (D250: a start to try again is there). */
+  function openNeeds() {
+    const ok = post(dock.openView('needs'));
+    announce(ok ? 'xbin shows what waits for you.' : 'Open the workspace agent in xbin to see what waits.');
+    return ok;
+  }
   /** signIn(harness): ask the chrome for a coding agent's sign-in; the chrome draws it and tells us when the sign-ins changed. */
   function signIn(harness) {
     const ok = post(dock.openSignin(harness));
@@ -553,7 +559,7 @@ export function createStore({ paint = () => {}, post = () => false, frame = null
     S, session, bag, soon, get layout() { return layout; }, place,
     loadState, loadSessions, loadCards, loadConnection, loadEmpty, current, select, boot, announce,
     offline, paused, delegation, fill, send, stop, takeBack, composerNow, hint, hasUserMessage, replies, reply,
-    tileName, onContext, dropContext, contextNow, review, chrome: (msg) => post(msg), startDefaults, signIn, signinsChanged, briefSave, briefStart,
+    tileName, onContext, dropContext, contextNow, review, openNeeds, chrome: (msg) => post(msg), startDefaults, signIn, signinsChanged, briefSave, briefStart,
     openScope, models, scope, counts, isPrivate, budget, sessions, openNotebook, notebook, showWhatCan,
     banners, needs, working, wire, busy: () => { const v = session.current(); return !!(v && busy(v.run.status)); },
   };

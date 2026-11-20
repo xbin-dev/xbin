@@ -167,6 +167,14 @@ body.bx { margin: 0; overflow: hidden; background: var(--bx-panel); color: var(-
 .wsc-quote { font-style: italic; }
 .wsc-wrap { white-space: normal; }
 .wsc-pick { display: inline-flex; gap: 6px; align-items: center; }
+/* facts, each an element of its own (D250: never a line joined with "·") */
+.wsc-parts, .wsc-chips { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 2px 12px; font: var(--bx-font-meta); color: var(--bx-muted); }
+.wsc-chips { gap: 4px 6px; }
+.wsc-chip { display: inline-flex; align-items: center; padding: 0 6px; min-height: 18px; border: 1px solid var(--bx-border); border-radius: var(--bx-radius); color: var(--bx-text); white-space: nowrap; }
+.wsc-chip.wsc-ok { color: var(--bx-ok); border-color: currentColor; } .wsc-chip.wsc-bad { color: var(--bx-danger); border-color: currentColor; } .wsc-chip.wsc-warn { color: var(--bx-warn); border-color: currentColor; }
+/* the marker: what waits, opened in xbin's chrome — a link, never a filled button (D250) */
+.bx .wsc-marker { display: inline-flex; gap: 4px; align-items: center; font-weight: 600; color: var(--bx-warn); }
+.bx .wsc-marker[data-marker="retry"] { color: var(--bx-danger); }
 .wsc-call { color: var(--bx-muted); }
 .bxc-host:has(.wsc-waits) { box-shadow: inset 2px 0 0 var(--bx-warn); }
 .bxc-host:has(.wsc-policy) { box-shadow: inset 2px 0 0 var(--bx-warn); }

@@ -35,7 +35,7 @@ const card = await page.textContent('.ask.approve.grant');
 ok('the card says what is asked', card.includes('The agent asks to read your other conversations and automations'), card);
 ok('…and which calls', card.includes('threads_list'));
 const buttons = await page.$$eval('.ask.approve.grant button', (els) => els.map((e) => e.textContent.trim()));
-ok('its owner gets Allow once · Allow here for 1 hour · Deny', buttons.join('|') === 'Allow once|Allow here for 1 hour|Deny', buttons.join('|'));
+ok('its owner gets Deny, Allow here for 1 hour, Allow once (D250: Deny left, the primary right)', buttons.join('|') === 'Deny|Allow here for 1 hour|Allow once', buttons.join('|'));
 await page.click('.ask.approve.grant button:has-text("Allow here for 1 hour")');
 await page.waitForFunction(() => window.__calls.some((c) => c.method === 'POST' && c.url.endsWith('/runs/1/approve')));
 const body = await page.evaluate(() => window.__calls.find((c) => c.url.endsWith('/runs/1/approve')).body);
@@ -99,6 +99,6 @@ const own = await page.evaluate(async () => {
   return { text, buttons, said };
 });
 ok('chat-cards.js still exports approvalTpl: its lead, its calls, Approve / Deny → decide', own.text.includes('My module wants to run') && own.text.includes('x_tool') && own.text.includes('y_tool')
-  && own.buttons.join('|') === 'Approve|Deny' && JSON.stringify(own.said) === '[[true,null],[false,null]]', JSON.stringify(own));
+  && own.buttons.join('|') === 'Deny|Approve' && JSON.stringify(own.said) === '[[true,null],[false,null]]', JSON.stringify(own));
 await browser.close();
 done('grant');

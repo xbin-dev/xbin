@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/xbin-dev/xbin/internal/agent"
+	"github.com/xbin-dev/xbin/internal/agentprefs"
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/delegation"
 	"github.com/xbin-dev/xbin/internal/term"
@@ -85,10 +86,21 @@ func TestPlanStartsATileAgent(t *testing.T) {
 		t.Fatalf("applying the start: %+v", done.Items[0])
 	}
 
-	// a mode that doesn't ask: the danger wording, as a warning (the review starts it unticked)
+	// a mode that doesn't ask, suggested by the agent: never taken (D250) — the line asks, and says what it left out
 	_, cs, _ = plan(`[{"kind":"agent.start","args":{"tile":"apps/x","brief":"go","harness":"claude","mode":"bypassPermissions"}}]`)
-	if it := cs.Items[0]; len(it.Warnings) != 1 || !strings.HasPrefix(it.Warnings[0], "ACTS WITHOUT ASKING: ") || !strings.Contains(it.Line, "bypassPermissions") {
-		t.Fatalf("a start in a mode that doesn't ask: %+v", it)
+	if it := cs.Items[0]; len(it.Warnings) != 0 || !strings.Contains(it.Line, `"default"`) || !strings.Contains(strings.Join(it.Effects, " "), `suggested the mode "bypassPermissions", which acts without asking: not taken`) {
+		t.Fatalf("a start the agent suggested a mode that doesn't ask for: %+v", it)
+	}
+	// …and a mode that acts without asking is never remembered for the tile (D250 review M1): the line asks
+	if err := w.s.AgentPrefs.RememberTile("alice", "apps/x", agentprefs.TileStart{Harness: "claude", Mode: "acceptEdits"}, 1); err != nil {
+		t.Fatal(err)
+	}
+	_, cs, _ = plan(`[{"kind":"agent.start","args":{"tile":"apps/x","brief":"go"}}]`)
+	if it := cs.Items[0]; len(it.Warnings) != 0 || !strings.Contains(it.Line, `"default"`) {
+		t.Fatalf("a start after acceptEdits was remembered for the tile: %+v", it)
+	}
+	if err := w.s.AgentPrefs.RememberTile("alice", "apps/x", agentprefs.TileStart{Harness: "claude"}, 2); err != nil {
+		t.Fatal(err)
 	}
 	// a harness command is nobody's to approve
 	if _, cs, _ = plan(`[{"kind":"agent.start","args":{"tile":"apps/x","brief":" /model opus"}}]`); !strings.Contains(cs.Items[0].Blocked, "its own commands") {
@@ -287,13 +299,16 @@ func TestPlanStartUsesOnlyTheSignInItsLineNamed(t *testing.T) {
 			t.Error("a plan's start reached the open with no authorisation")
 			return "", 500, "no authorisation"
 		}
+		if !d.Picked {
+			// unpicked, the open runs what the body names — the agent's suggestion — not the reviewed line (D250 review
+			// H1; this stub reads no further than the authorisation: TestPlanStartRunsTheReviewedLine opens for real)
+			t.Errorf("a plan's start reached the open unpicked: %+v", *d)
+		}
 		opened = append(opened, *d)
 		return "sess", 200, ""
 	}
-	// a coding agent with no default mode of its own in the catalog (OpenCode): the line says so in words, warns —
-	// xbind vouches for no mode it wasn't given — and applies; it used to be shown as the mode "" and refused at
-	// Apply ("the start names no coding agent and mode"), so a plan could never start one (the real-model run,
-	// 2026-11-17)
+	// a coding agent with no mode xbin can vouch asks (OpenCode, D250 review M2): a plan's line — whose review
+	// picks nothing — never takes it from the agent's suggestion; the line says so, and what runs instead
 	{
 		rec := w.do(w.full, "POST", "/api/xbin/delegate/plans", `{"title":"t","items":[{"kind":"agent.start","args":{"tile":"apps/x","brief":"go","harness":"opencode"}}]}`, alice)
 		var cs delegation.ChangeSet
@@ -303,14 +318,38 @@ func TestPlanStartUsesOnlyTheSignInItsLineNamed(t *testing.T) {
 			t.Fatalf("a plan that starts OpenCode: %d %s", rec.Code, rec.Body.String())
 		}
 		it := full.Items[0]
-		if it.Line != "Start a tile agent in apps/x — OpenCode, in its own default mode" || it.Blocked != "" || len(it.Warnings) != 1 ||
-			!strings.HasPrefix(it.Warnings[0], "ACTS WITHOUT ASKING: in its own default mode OpenCode edits files and runs commands in apps/x without asking you.") {
-			t.Fatalf("the line that starts OpenCode: %q blocked %q warnings %q", it.Line, it.Blocked, it.Warnings)
+		if it.Line != `Start a tile agent in apps/x — Claude Code, in its mode "default", which asks before it edits or runs anything` || it.Blocked != "" || len(it.Warnings) != 0 ||
+			!strings.Contains(strings.Join(it.Effects, " "), "suggested OpenCode, which acts without asking in every mode: not taken") {
+			t.Fatalf("the line OpenCode was suggested for: %q blocked %q warnings %q effects %q", it.Line, it.Blocked, it.Warnings, it.Effects)
 		}
 		opened = nil
 		done := decode[delegation.ChangeSet](t, w.do(w.full, "POST", "/api/xbin/delegate/changesets/"+cs.ID+"/approve", `{"items":[1]}`, own))
-		if done.Items[0].Result != delegation.ItemApplied || len(opened) != 1 || opened[0].Provider != "opencode" || opened[0].Mode != "" || !opened[0].Approved {
+		if done.Items[0].Result != delegation.ItemApplied || len(opened) != 1 || opened[0].Provider != "claude" || opened[0].Mode != "default" || !opened[0].Approved {
 			t.Fatalf("applying it: %+v (error %q; opens %+v)", done.Items[0].Result, done.Items[0].Error, opened)
+		}
+		// the person's own choice of it for the tile is kept — its coding agent, never its mode (D250 re-review
+		// item 3) — and a plan's line there then resolves to it WITH the warning: a warned line starts unticked
+		// on the review (D238), so its tick is the person's warned approval of exactly that
+		if err := w.s.AgentPrefs.RememberTile("alice", "apps/x", agentprefs.TileStart{Harness: "opencode", Mode: "build"}, 3); err != nil {
+			t.Fatal(err)
+		}
+		if r, _ := w.s.AgentPrefs.TileChoice("alice", "apps/x"); r == nil || r.Harness != "opencode" || r.Mode != "" {
+			t.Fatalf("OpenCode remembered for the tile: %+v", r)
+		}
+		rec = w.do(w.full, "POST", "/api/xbin/delegate/plans", `{"title":"t","items":[{"kind":"agent.start","args":{"tile":"apps/x","brief":"go"}}]}`, alice)
+		var cs2 delegation.ChangeSet
+		_ = json.Unmarshal(rec.Body.Bytes(), &cs2)
+		full2, _ := w.store.ChangeSet("alice", cs2.ID)
+		if it := full2.Items; len(it) != 1 || len(it[0].Warnings) != 1 || !strings.HasPrefix(it[0].Warnings[0], "ACTS WITHOUT ASKING: OpenCode has no mode that asks before it acts") {
+			t.Fatalf("a line on the person's OpenCode: %+v", full2.Items)
+		}
+		opened = nil
+		done2 := decode[delegation.ChangeSet](t, w.do(w.full, "POST", "/api/xbin/delegate/changesets/"+cs2.ID+"/approve", `{"items":[1]}`, own))
+		if done2.Items[0].Result != delegation.ItemApplied || len(opened) != 1 || opened[0].Provider != "opencode" || opened[0].Mode != "" || !opened[0].Picked {
+			t.Fatalf("the warned line, ticked: %+v (error %q; opens %+v)", done2.Items[0].Result, done2.Items[0].Error, opened)
+		}
+		if _, err := w.s.AgentPrefs.Update("alice", []byte(`{"agentSessions":{"tiles":null}}`)); err != nil {
+			t.Fatal(err)
 		}
 		// …and a start of a coding agent that HAS a default is never opened with no mode
 		if noDefaultMode("claude") || noDefaultMode("codex") || noDefaultMode("no-such-agent") || !noDefaultMode("opencode") {

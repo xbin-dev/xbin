@@ -18,9 +18,7 @@ func partAgent(t *testing.T) (*Agent, http.Handler) {
 	t.Helper()
 	t.Setenv("XBIN_COMPONENT", "apps/agent")
 	ag := newTestAgent(t, newTestDB(t))
-	old := agent
-	agent = ag
-	t.Cleanup(func() { agent = old })
+	useGlobalAgent(t, ag)
 	mux := http.NewServeMux()
 	routes(mux)
 	return ag, mux
@@ -327,9 +325,7 @@ func TestOldManagerDegrade(t *testing.T) {
 func TestPartitionSandboxes(t *testing.T) {
 	t.Setenv("XBIN_COMPONENT", "apps/agent")
 	ag := newTestAgent(t, newTestDB(t))
-	old := agent
-	agent = ag
-	t.Cleanup(func() { agent = old })
+	useGlobalAgent(t, ag)
 	root, _ := ag.db.createRun("x", "", 0)
 	label := func() map[string]string {
 		var req sbxCreate

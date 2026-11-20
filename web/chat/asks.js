@@ -75,6 +75,10 @@ const optionButton = (b, ctx, o, primary, busy, feedback) => html`<button class=
   data-option=${o.id || o.decision || ''} data-kind=${o.kind || o.decision || ''} title=${o.title || nothing} ?disabled=${busy}
   @click=${() => choose(b, ctx, o, feedback ? feedback() : '')}>${o.explicit ? html`<bx-icon name="warning"></bx-icon>` : nothing}${o.name}</button>`;
 
+// the same places on every approval (D250): a rejection — the quiet secondary — on the left, the primary allow on the
+// right, the agent's other options between them in its order
+const placed = (opts, first) => [...opts.filter((o) => o.reject), ...opts.filter((o) => !o.reject && o !== first), ...(first ? [first] : [])];
+
 const noteOf = (b, ctx) => { const n = ctx.note ? ctx.note(b) : ''; return n ? html`<div class="bxc-note bxc-err">${n}</div>` : nothing; };
 const hiddenNote = (card, ctx) => (card.hidden ? html`<div class="bxc-note">${card.hidden === 1 ? 'One option' : `${card.hidden} options`} that would stop ${nameOf(ctx)} asking — only the owner may pick ${card.hidden === 1 ? 'it' : 'them'}.</div>` : nothing);
 
@@ -119,7 +123,7 @@ export function permView(b, ctx) {
     ${card.description ? html`<div class="bxc-desc">${card.description}</div>` : nothing}
     ${can.answer ? html`${word ? html`<input class="bxc-txt bxc-word" placeholder=${`optional — tell ${nameOf(ctx)} why (sent with a rejection)`}
         .value=${bag.feedback || ''} @input=${(e) => { bag.feedback = e.target.value; }}>` : nothing}
-      <div class="bxc-btns">${opts.map((o) => optionButton(b, ctx, o, o === first, busy, word && o.reject ? () => { const fb = bag.feedback || ''; bag.feedback = ''; return fb; } : null))}</div>
+      <div class="bxc-btns">${placed(opts, first).map((o) => optionButton(b, ctx, o, o === first, busy, word && o.reject ? () => { const fb = bag.feedback || ''; bag.feedback = ''; return fb; } : null))}</div>
       ${card.rule ? html`<div class="bxc-rulenote">${card.rule}.</div>` : nothing}
       ${hiddenNote(card, ctx)}${noteOf(b, ctx)}` : viewOnly(ctx)}
   </div>`;

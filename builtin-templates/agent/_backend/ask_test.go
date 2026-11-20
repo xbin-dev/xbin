@@ -28,9 +28,7 @@ func TestRunKind(t *testing.T) {
 // assistant message instead — and only quick asks, since the list is polled.
 func TestListRunsCarriesTheLastAnswer(t *testing.T) {
 	db := newTestDB(t)
-	prev := agent
-	agent = &Agent{db: db}
-	t.Cleanup(func() { agent = prev })
+	useGlobalAgent(t, &Agent{db: db})
 
 	quick, _ := db.createRun("q", "", 0)
 	db.setRunKind(quick, "quick")

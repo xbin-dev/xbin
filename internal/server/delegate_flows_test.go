@@ -42,9 +42,11 @@ func TestDelegateSessionStart(t *testing.T) {
 	const bypass = `{"cwd":"apps/x","kind":"agent","provider":"claude","mode":"bypassPermissions","net":"internet"}`
 	req := w.ask(alice, "POST", "/api/xbin/term/sessions", bypass)
 	sess, _ := req.Preview["session"].(map[string]any)
-	if req.Kind != delegation.KindSession || req.Tile != "apps/x" || req.State != delegation.Pending || sess["mode"] != "bypassPermissions" ||
-		sess["asks"] != false || sess["net"] != "internet" || sess["provider"] != "claude" || req.Summary != "the agent's words" || req.Body != bypass {
-		t.Fatalf("the request (its card says this mode doesn't ask): %+v", req)
+	// D250: the body's mode is the agent's suggestion — one that doesn't ask is never preselected: the card shows
+	// the asking default, and the suggestion beside it (modeNotTaken) for the person to pick, or not
+	if req.Kind != delegation.KindSession || req.Tile != "apps/x" || req.State != delegation.Pending || sess["mode"] != "default" ||
+		sess["asks"] != true || sess["modeNotTaken"] != "bypassPermissions" || sess["net"] != "internet" || sess["provider"] != "claude" || req.Summary != "the agent's words" || req.Body != bypass {
+		t.Fatalf("the request (its card preselects the asking mode, the suggestion beside it): %+v", req)
 	}
 	// pending: not a ticket yet
 	if c, b := create("", bypass, alice, header(HeaderTicket, req.ID)); c != 403 || !strings.Contains(b, `"refusal":"ticket"`) {
@@ -63,7 +65,7 @@ func TestDelegateSessionStart(t *testing.T) {
 	}
 	w.approve(person, req.ID, "")
 	// bound: another body is another start
-	if c, b := create("", plain, alice, header(HeaderTicket, req.ID)); c != 403 || !strings.Contains(b, "exactly what the person saw") {
+	if c, b := create("", plain, alice, header(HeaderTicket, req.ID)); c != 403 || !strings.Contains(b, `"reason":"bound"`) || !strings.Contains(b, "the start changed after approval (mode, net)") {
 		t.Fatalf("the ticket, another body: %d %s", c, b)
 	}
 	// bob's agent can't use alice's ticket

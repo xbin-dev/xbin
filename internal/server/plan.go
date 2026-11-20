@@ -518,17 +518,23 @@ func lineStale(it delegation.ChangeItem, pv delegation.ChangePreview) bool {
 // pinStart is an agent.start line as its person was shown it: where the
 // line named no coding agent or mode, the ones xbind resolved and showed
 // (start) are what is asked for when it is applied — a default that moved
-// since never starts something else.
+// since never starts something else. A mode is filled in only for the
+// coding agent the line named (or none): where the person's choice for the
+// tile outranked the agent's suggestion, the shown mode is another coding
+// agent's, and the line is re-described as it was proposed (D250 review
+// H1) — what opens is the shown start itself (planStart), and any change
+// since makes the line stale.
 func pinStart(op delegation.ChangeOp, start json.RawMessage) delegation.ChangeOp {
 	var shown struct{ Provider, Mode string }
 	var args map[string]any
 	if op.Kind != delegation.KindAgentStart || json.Unmarshal(start, &shown) != nil || json.Unmarshal(op.Args, &args) != nil {
 		return op
 	}
-	if h, _ := args["harness"].(string); h == "" && shown.Provider != "" {
-		args["harness"] = shown.Provider
+	named, _ := args["harness"].(string)
+	if named == "" && shown.Provider != "" {
+		args["harness"], named = shown.Provider, shown.Provider
 	}
-	if m, _ := args["mode"].(string); m == "" && shown.Mode != "" {
+	if m, _ := args["mode"].(string); m == "" && shown.Mode != "" && named == shown.Provider {
 		args["mode"] = shown.Mode
 	}
 	op.Args, _ = json.Marshal(args)

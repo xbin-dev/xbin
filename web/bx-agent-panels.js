@@ -4,12 +4,18 @@
  * dock (and /xbin/agent) hosts, each reading the document's store
  * (agent-chrome-store.js) — trusted chrome, the person's own session:
  *
- *   <bx-agent-needs>      the Needs-you tray: requests, proposed change sets,
- *                         tile agent sessions that wait — oldest first
+ *   <bx-agent-needs>      the one batch of what waits for the person (D250):
+ *                         "Waiting for you" and its count, each pending act
+ *                         once, oldest first, one action each — requests,
+ *                         plans and admin changes, a start that failed to
+ *                         open (Try again), tile agent sessions that wait —
+ *                         and Review all when more than one opens a review
  *   <bx-agent-approvals>  the standing approvals, each with Take back
  *   <bx-agent-activity>   "What my agent did": the audit log in sentences
  *                         (Changes · Refused · Everything)
- *   <bx-agent-prefs>      what a tile agent the agent starts gets, whether it
+ *   <bx-agent-prefs>      what a tile agent the agent starts gets — the coding
+ *                         agent, each one's mode and model, what was
+ *                         remembered for tiles (D250) —, whether it
  *                         reads the web and uses MCP tools, and — for
  *                         admins — the opt-in to proposing admin changes;
  *                         opened from the dock's own menu, never by the
@@ -20,8 +26,9 @@
  *                         not available, turned off, paused, held
  *
  * Events (bubbling, composed): bx-agent-review {kind, id} (a row's
- * Review…), bx-agent-open-session {tile, session} (a waiting session's
- * Open), bx-agent-back (a panel's Back).
+ * Review…), bx-agent-review-all {items: [{kind, id}]} (the batch's Review
+ * all), bx-agent-open-session {tile, session} (a waiting session's Open),
+ * bx-agent-back (a panel's Back).
  */
 import { LitElement, html, css, nothing } from '/vendor/lit-all.min.js';
 import '/vendor/bx-icons.js';
@@ -29,7 +36,8 @@ import { chromeCss } from '/vendor/agent-chrome-css.js';
 import { agentStore } from '/vendor/agent-chrome-store.js';
 import { WidenGuard } from '/vendor/bx-agent-approve.js';
 import '/vendor/bx-agent-permits.js';
-import { needs, standingRow, STANDING_NOTE, didByDay, DID_FILTERS, DID_NOTE, clock, stateWords, setupSteps, SETUP_INTRO, dockState, sessionModes, neverAsks, netPrefs } from '/vendor/agent-chrome-words.js';
+import { standingRow, STANDING_NOTE, didByDay, DID_FILTERS, DID_NOTE, clock, stateWords, setupSteps, SETUP_INTRO, dockState, sessionModes, neverAsks, netPrefs } from '/vendor/agent-chrome-words.js';
+import { batch, batchTitle } from '/vendor/agent-start-words.js';
 
 // an element that draws the store: it subscribes while it is in the page
 class StoreView extends LitElement {
@@ -43,21 +51,37 @@ class StoreView extends LitElement {
 }
 
 export class BxAgentNeeds extends StoreView {
+  static properties = { _err: { state: true }, _busy: { state: true } };
   static styles = [chromeCss, css`:host { display: block; background: var(--bx-panel-2, #262730); border-bottom: 1px solid var(--bx-border-strong, #666A7E);
-    box-shadow: var(--bx-shadow-pop, 0 12px 32px rgba(0, 0, 0, 0.6)); max-height: 60vh; overflow: auto; } .hd { padding: 8px 12px 0; display: flex; gap: 8px; align-items: baseline; }`];
+    box-shadow: var(--bx-shadow-pop, 0 12px 32px rgba(0, 0, 0, 0.6)); max-height: 60vh; overflow: auto; }
+    .hd { padding: 8px 12px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; } .hd h3 { color: var(--bx-text, #E9EAF0); } .hd .grow { flex: 1; }
+    .list > li .tx { display: flex; flex-direction: column; gap: 2px; } .list > li > button { flex: none; }`];
 
+  constructor() { super(); this._err = ''; this._busy = ''; }
   connectedCallback() { super.connectedCallback(); this.store.readSessions(); }
   /** rearm(): every permission card waits again (something brought the tray into view — a page's message may). */
   rearm() { for (const p of this.renderRoot.querySelectorAll('bx-agent-permits')) p.rearm(); }
 
+  _act(r) {
+    if (r.kind === 'session') return this.fire('bx-agent-open-session', { tile: r.tile, session: r.id });
+    return this.fire('bx-agent-review', { kind: r.kind === 'retry' ? 'request' : r.kind, id: r.id });
+  }
+
   render() {
-    const rows = needs(this.store);
-    return html`<div class="hd"><h3>Needs you</h3><span class="small muted">oldest first · approvals expire</span></div>
-      ${rows.length ? html`<ul class="list" aria-label="Needs you">${rows.map((r) => html`<li data-kind=${r.kind} data-id=${r.id}>
-        <span class="tx"><b>${r.title}</b>${r.note ? html`<div class="small muted">${r.note}</div>` : nothing}
+    const rows = batch(this.store);
+    const t = batchTitle(rows);
+    return html`<div class="hd"><h3 data-batch-title>${t.title}</h3>${t.count ? html`<span class="count" data-batch-count>${t.count}</span>` : nothing}
+        <span class="small muted grow">oldest first</span>
+        ${t.reviewAll ? html`<button class="primary" data-review-all @click=${() => this.fire('bx-agent-review-all', { items: rows.filter((r) => r.review).map((r) => ({ kind: r.kind, id: r.id })) })}>${t.reviewAll}</button>` : nothing}</div>
+      ${rows.length ? html`<ul class="list" aria-label=${t.title}>${rows.map((r) => html`<li data-kind=${r.kind} data-id=${r.id}>
+        <span class="tx"><b>${r.title}</b>
+          ${r.chips.length ? html`<span class="chips" data-chips>${r.chips.map((c) => html`<span class="chip">${c}</span>`)}</span>` : nothing}
+          ${r.parts.length ? html`<span class="parts small muted" data-parts>${r.parts.map((p) => html`<span>${p}</span>`)}</span>` : nothing}
           ${r.permits ? html`<bx-agent-permits data-permits .session=${r.id} .agentName=${r.agentName} @bx-agent-permitted=${() => this.store.readSessions()}></bx-agent-permits>` : nothing}</span>
-        <button @click=${() => (r.kind === 'session' ? this.fire('bx-agent-open-session', { tile: r.tile, session: r.id }) : this.fire('bx-agent-review', { kind: r.kind, id: r.id }))}>${r.action}</button></li>`)}</ul>`
-        : html`<div class="empty" data-empty>Nothing needs you</div>`}`;
+        ${r.kind === 'retry' ? html`<button data-retry @click=${() => this.fire('bx-agent-review', { kind: 'request', id: r.id })}>${r.action}</button>`
+          : html`<button data-act @click=${() => this._act(r)}>${r.action}</button>`}</li>`)}</ul>`
+        : html`<div class="empty" data-empty>Nothing waits for you</div>`}
+      ${this._err ? html`<div class="banner bad" role="alert"><bx-icon name="error"></bx-icon><span>${this._err}</span></div>` : nothing}`;
   }
 }
 
@@ -120,7 +144,8 @@ export class BxAgentPrefs extends StoreView {
   static styles = [chromeCss, css`:host { display: flex; flex-direction: column; min-height: 0; flex: 1; } .sec { padding: 12px; display: flex; flex-direction: column; gap: 8px; border-bottom: 1px solid var(--bx-border, #33353F); }
     label.row { display: flex; gap: 8px; align-items: flex-start; } label.row input { margin-top: 3px; } label.row.sub { padding-left: 24px; }
     label.mode { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; } label.mode .nm { flex: 1 1 120px; min-width: 0; }
-    label.mode select { flex: 1 1 160px; min-width: 0; max-width: 100%; } ul.outside { margin: 0 0 0 24px; padding-left: 16px; overflow-wrap: anywhere; }`];
+    label.mode select, label.mode input { flex: 1 1 160px; min-width: 0; max-width: 100%; } label.mode.sub { padding-left: 16px; }
+    ul.outside { margin: 0 0 0 24px; padding-left: 16px; overflow-wrap: anywhere; }`];
   // what widens the agent's reach — starting without asking, the internet, other tiles' APIs, the admin opt-in — answers
   // only a deliberate click, as Allow does (bx-agent-approve.js WidenGuard)
   constructor() { super(); this._prefs = null; this._provs = []; this._err = ''; this._widen = new WidenGuard(this); }
@@ -130,9 +155,9 @@ export class BxAgentPrefs extends StoreView {
     this.store.providers().then((p) => { this._provs = p; });
   }
 
-  async _save(patch) {
+  async _save(patch, top = false) {
     this._err = '';
-    const r = await this.store.setPrefs({ agentSessions: patch });
+    const r = await this.store.setPrefs(top ? patch : { agentSessions: patch });
     if (r.ok) this._prefs = r.prefs; else this._err = r.error;
   }
 
@@ -161,17 +186,31 @@ export class BxAgentPrefs extends StoreView {
         <label class="row"><input type="radio" name="start" data-start="allow" data-widen="on" .checked=${start === 'allow'} @click=${this._widen.click} @keydown=${this._widen.key}
           @change=${() => this._save({ start: 'allow' })}>
           <span>Start without asking<div class="small muted">Only in a mode that asks before acting, with the network below. You are told in the chat.</div></span></label></div>
-      <div class="sec" data-modes><h3>Started tile agents get</h3>
-        <div class="small muted">The mode each coding agent starts in. Only modes that ask you before acting are offered.</div>
-        ${sessionModes(this._provs, a.modes).map((r) => html`<label class="mode"><span class="nm">${r.name}</span>
+      <div class="sec" data-modes><h3>Sessions my workspace agent starts</h3>
+        <div class="small muted">What its approval preselects, and what a start without asking runs. On the approval you can always pick another; a choice you remember for a tile comes first there.</div>
+        <label class="mode"><span class="nm">Coding agent</span>
+          <select data-pref-harness aria-label="The coding agent sessions my agent starts run on" @change=${(e) => this._save({ harness: e.target.value || null })}>
+            <option value="" ?selected=${!a.harness}>The workspace's default</option>
+            ${(this._provs || []).map((p) => html`<option value=${p.id} ?selected=${p.id === a.harness}>${p.name || p.id}</option>`)}</select></label>
+        ${sessionModes(this._provs, a.modes).map((r) => html`<div class="small muted">${r.name}</div>
+          <label class="mode sub"><span class="nm">Mode</span>
           <select data-mode=${r.id} aria-label=${`Mode for ${r.name}`} @change=${(e) => this._save({ modes: { [r.id]: e.target.value || null } })}>
             <option value="" ?selected=${!r.value}>Its own asking mode</option>
             ${r.options.map((o) => html`<option value=${o.id} ?selected=${o.id === r.value}>${o.name}</option>`)}</select></label>
+          <label class="mode sub"><span class="nm">Model</span>
+            <input data-model=${r.id} aria-label=${`Model for ${r.name}`} placeholder="its default" .value=${((this._prefs.harnesses || {})[r.id] || {}).model || ''}
+              @change=${(e) => this._save({ harnesses: { [r.id]: { model: e.target.value.trim() || null } } }, true)}></label>
           ${r.never.length ? html`<div class="small muted" data-never=${r.id}>${neverAsks(r.never)}</div>` : nothing}`)}
+        <div class="small muted">A model here is also what your own sessions of that coding agent start on.</div>
         <label class="row"><input type="checkbox" data-net data-widen="off" .checked=${!a.net || a.net === 'none'} @click=${this._widen.click} @keydown=${this._widen.key}
           @change=${(e) => this._save({ net: e.target.checked ? 'none' : null })}><span>Its model only. No internet.</span></label>
         <label class="row"><input type="checkbox" data-api data-widen="on" .checked=${a.api !== false} @click=${this._widen.click} @keydown=${this._widen.key}
           @change=${(e) => this._save({ api: e.target.checked })}><span>Other tiles: it may call the tile APIs its tile is granted</span></label></div>
+      ${Object.keys(a.tiles || {}).length ? html`<div class="sec" data-remembered><h3>Remembered for tiles</h3>
+        <div class="small muted">What you asked an approval to remember for a tile. It comes first on that tile's approvals.</div>
+        <ul class="list">${Object.entries(a.tiles).sort(([x], [y]) => x.localeCompare(y)).map(([tile, c]) => html`<li data-tile=${tile}>
+          <span class="tx"><b class="mono">${tile}</b><span class="chips">${[c.harness, c.model ? `model ${c.model}` : '', c.mode ? `mode ${c.mode}` : ''].filter(Boolean).map((x) => html`<span class="chip">${x}</span>`)}</span></span>
+          <button data-forget=${tile} @click=${() => this._save({ tiles: { [tile]: null } })}>Forget</button></li>`)}</ul></div>` : nothing}
       <div class="sec" data-net-tools><h3>The web and MCP tools</h3>
         ${netPrefs(st).map((x) => html`<label class="row ${x.sub ? 'sub' : ''}"><input type="checkbox" data-net-pref=${x.id} data-widen="on" .checked=${x.on} ?disabled=${!x.allowed}
             @click=${this._widen.click} @keydown=${this._widen.key} @change=${(e) => this._net(e, x.id)}>

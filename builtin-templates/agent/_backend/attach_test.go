@@ -97,11 +97,21 @@ func addToolResult(t *testing.T, db *DB, runID int64, c toolCall, content string
 	}
 }
 
-// useGlobalAgent points the handlers' package-level agent at ag for one test.
+// useGlobalAgent points the handlers' package-level agent at ag for one
+// test — the one way a test swaps it. At its end, before it is put back,
+// ag's engine is drained (drainEngine: its actors and project work stop
+// within a deadline, or the test fails). Registered after the swap, so it
+// runs before the engine's own Shutdown, which then puts back the project
+// worker's agent and engine its takeover set (newTestAgent).
 func useGlobalAgent(t *testing.T, ag *Agent) {
 	prev := agent
 	agent = ag
-	t.Cleanup(func() { agent = prev })
+	t.Cleanup(func() {
+		if ag != nil && ag.eng != nil {
+			drainEngine(t, ag.eng)
+		}
+		agent = prev
+	})
 }
 
 func serve(h http.HandlerFunc, method, target string, runID int64, body []byte, ctype string) *httptest.ResponseRecorder {

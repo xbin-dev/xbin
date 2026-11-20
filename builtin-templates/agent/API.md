@@ -6024,8 +6024,8 @@ orgs, reason, offer: {newSession: {model}}}`.
 | `DELETE /ws/sessions/{id}` | not Main. Closes the handle and withdraws its pending requests; tile agents it started keep running, as their person's |
 | `GET /ws/sessions/{id}/connection?whatIf=<model>` | `{connection: {counts, orgs: [{id, name, kind, state, reason?, tiles, connected}]}, summary, model, handle, budget?}`; `budget` `{tokens, window, setting}`: how much of the conversation its model is sent again with each call — the workspace's context budget (`contextBudget` of xbind's `GET /delegate/state`) under the model's window (D246; absent from an xbind before it), which the scope panel says under the model; with `whatIf` also `whatIf: {model, connects, disconnects, counts, summary, allowed, taintedOrgs}` and, when not allowed, `offer: {newSession: {model}}`. Totals and org-level reasons only: the page reads the tiles' names from xbind itself (`GET /api/xbin/agents/connection?session=<handle>`) |
 | `GET /ws/sessions/{id}/cards` | `{requests: [{id, kind: call\|session\|template\|changeset\|web\|mcp, ref, callId?, tile, title, method, path, brief, state, outcome, createdMs, decidedMs, expiresMs?, grant?, grantUntilMs?, by?, via?, resultStatus?, result?}], agents: [{id, session, tile, harness, mode, asks, brief?, request?, callId?, status, waits, waiting, last, turn, held, startedMs, updatedMs}], briefs: [{id, callId?, tile, goal, doneWhen, leaveAlone, checkBy, state, edited}], plan: [{text, kind: reads\|asks, state}], refusals: [{id, callId, tool, kind, reason, tile, createdMs}], ask?}` — the fields are described under "In fields" below. `ref` is xbind's request id: what its approval chrome is opened with. `session` is xbind's session id: what `open({session})` takes. A run event for the session says the cards changed |
-| `PUT /ws/sessions/{id}/briefs/{bid}` | `{goal?, doneWhen?, leaveAlone?, checkBy?, harness?}`: the person's edit, and their pick of a coding agent among what the tile allows (409 otherwise; `""`: xbind's default again). A request already filed for the old brief is withdrawn and filed again |
-| `GET /ws/sessions/{id}/briefs/{bid}/start-defaults` | what the brief's start would run on, from xbind: `{defaults, picked, harness, harnessName, line}` ("Claude Code · asks before acting") |
+| `PUT /ws/sessions/{id}/briefs/{bid}` | `{goal?, doneWhen?, leaveAlone?, checkBy?, harness?}`: the person's edit of the brief's text. A request already filed for the old brief is withdrawn and filed again. `harness` (a coding agent among what the tile allows; 409 otherwise, `""` xbind's default again) is kept for an older page: the page no longer offers it — the person picks the coding agent, model and mode on xbin's approval (D250), and a pick is never an edit (`edited` is the text's alone) |
+| `GET /ws/sessions/{id}/briefs/{bid}/start-defaults` | what the brief's start would run on, from xbind: `{defaults, picked, harness, harnessName, mode, asks, model, from, chips, line}` — what xbin's approval would preselect and where each part came from (`from`, xbind's start-defaults `chosen`), each fact a chip of its own (`chips: [{text, kind: harness\|model\|mode\|signin, tone?}]`), and `line` them joined with commas for a view that draws text ("Claude Code, asks before acting") |
 | `POST /ws/sessions/{id}/briefs/{bid}/start` | "Review and start…" → `{request, id}` (the request to review; filed now when the agent hadn't asked), or `{started, id, outcome}` where the person's preferences let tile agents start without xbind asking — there the click is the confirmation. Which one is xbind's dry run of the start at the click, not when the agent asked: a start that needs an approval now (the preference changed, or the call itself is refused `needs-approval`) is filed, and answered as `{request, id}` |
 | `GET /ws/needs` | `{items, count}`: what waits for the person because of the agent, oldest first per session — `approval` and `changeset` (with `request`), `tile-agent` (with `tileSession`, `text`), `question` (the agent's own `ask_user`: `text`, and `ask` — its kind —, `choices`, `callId`, and for a redirect `tile`) |
 | `GET /ws/empty?session=` | the empty state, computed from xbind's map without a model call: `{heading, line, can[], cant[], connected, notConnected, summary, placeholder, hint, startersTitle, starters: [{kind: Ask\|Fix\|Change\|New, text, tile?, blank?}], off?}`. A starter fills the composer; a tile that reports a failure becomes a Fix. Nothing in `cant` is a thing the agent can get done another way: a tile's code is in `can` ("by briefing that tile's own agent"); the web and MCP tools are in `can` when the session's reach has them, in `cant` with who can turn them on when it doesn't. `off` is the agent's switch when xbind says it can't act (`paused`, `workspace-off`, `held`, `no-agent` — an admin too has no agent unless one was given them): `line` then says which, who changes it and where, and `can` and `starters` are empty |
@@ -6060,6 +6060,46 @@ answer say so, and that it never merges or edits code itself; on an xbind
 before the read it says it can't tell) —
 with the core `ask_user` (here it takes `choices`, a `kind` and a `tile`),
 notes and `recall`.
+
+**A start is the person's pick; a follow-up goes to the session there**
+(D250; xbind's /docs/protocol/delegation.md §The person's pick):
+
+- `tile_agent_start {brief | tile, harness?, model?, mode?, new?, reason?}`
+  — `harness`, `model` and `mode` only where the person named one: each is
+  a suggestion they see on xbin's approval ("suggested by your agent"),
+  where they pick what runs; a suggested mode that acts without asking is
+  never picked for them. The tool reads xbind's `chosen` (start-defaults)
+  first and says it. Where this conversation has an idle session on the
+  tile the start continues it (xbind's `continue`; the person may start a
+  new one instead) — `new: true`, with `reason` shown to the person, asks
+  for a new one. Its pending answer says when the request expires and that
+  waiting is fine; what ran (the person's pick, or the session continued)
+  or why it didn't start reaches the conversation as an update.
+- `tile_agent_message` to a session of this conversation's whose mode
+  doesn't ask is filed as ONE approval of that message (xbind's `message`
+  request, the whole text shown): approved, the backend sends exactly it,
+  once. A session that asks takes messages as before.
+- `tile_agents [{tile}]` and `tile_status` list this conversation's
+  sessions with their state, coding agent, model, mode and brief line, and
+  the person's own sessions on those tiles (theirs: not the agent's to
+  drive).
+- A refused ticket's answer names what differed (xbind's `reason`), and a
+  start that failed for a reason not the agent's says the person can try
+  it again from xbin's list — the agent files nothing new. The backend
+  files every start with `knows: ["retry"]`, which is what lets xbind keep
+  such a start for the person's Try again; a start the agent got wrong is
+  refused before its ticket is spent, never "failed".
+- A message held behind a session's running turn is judged again when it
+  goes in: if the person switched the session to a mode that acts without
+  asking meanwhile, it is not delivered: the session's log says so (its
+  `queue` event's `returned`, a notice), and the backend reads it from the
+  session's compact row (`returned`) and tells the conversation once, in
+  xbind's words — "not tried again: to send one now, tile_agent_message
+  files it for your person's approval" (`ws_notify.go wsReturnedNews`).
+- A start on the person's own choice of a coding agent with no mode that
+  asks (OpenCode) is always theirs to approve, warned; the start's answer
+  says so ("your person's coding agent for this tile acts without asking,
+  so every start is approved on the sheet").
 
 **Plans** (`_backend/ws_tools_plan.go`; xbind's
 /docs/protocol/delegation.md §Plans): `plan_propose {title, changes:

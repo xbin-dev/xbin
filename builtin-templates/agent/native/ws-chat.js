@@ -135,18 +135,22 @@ function briefTpl(blk) {
     bag.err = (await st.briefStart(b)) || '';
     bag.busy = false; ctx.paint();
   };
-  const pick = async (e) => { bag.busy = true; ctx.paint(); bag.err = (await st.briefSave(b, { harness: String(e.value ?? '') })) || ''; bag.busy = false; ctx.paint(); };
   const fields = w.fields.flatMap((f) => (editing
     ? [{ field: { label: f.label, value: (bag.vals || {})[f.key] || '', input: (e) => { bag.vals[f.key] = e.value; } } }]
     : [{ caption: f.label }, { text: f.value || '—' }]));
   const buttons = editing
     ? [{ label: 'Save', role: 'primary', disabled: bag.busy, tap: save }, { label: 'Cancel', disabled: bag.busy, tap: () => { bag.editing = false; bag.vals = null; ctx.paint(); } }]
     : [w.button ? { label: w.button, role: 'primary', icon: w.button === W.start ? 'play' : 'shield', disabled: bag.busy || w.none || (st.offline() && w.button !== W.start), tap: start } : null,
+      // ONE item a pending start (D250): the marker opens the app's own approval of it — never an Allow of its own
+      w.waiting ? { label: `${W.marker} ↑ ${W.markerOpen}`, role: 'plain', icon: 'shield', disabled: st.offline(), tap: () => st.review(w.request) } : null,
       w.editable && CARD() ? { label: 'Edit', icon: 'pencil', role: 'plain', tap: () => { bag.vals = Object.fromEntries(w.fields.map((f) => [f.key, f.value])); bag.editing = true; ctx.paint(); } } : null];
   return cardTpl({ icon: 'doc', title: w.title, badge: w.status,
     parts: [...fields, bag.err ? { notice: { tone: 'danger', text: bag.err } } : null,
-      w.harnesses.length > 1 && w.editable && !editing ? { picker: { label: 'Coding agent', value: w.picked, options: w.harnesses.map((h) => ({ value: h.id, label: h.name })), change: pick } } : null,
-      w.runsOn ? { text: w.runsOn, style: 'footnote', tone: 'muted' } : null,
+      // what it would run on, a fact an element (D250: never one line joined with "·"); the person picks on the approval
+      ...(w.editable && w.chips.length ? [{ caption: 'Runs on' }, ...w.chips.map((c) => ({ text: c.text, style: 'footnote', tone: c.tone === 'bad' ? 'danger' : c.tone === 'ok' ? 'ok' : 'muted' })),
+        w.pickNote ? { text: w.pickNote, style: 'footnote', tone: 'muted' } : null] : []),
+      ...(w.waiting ? w.parts.map((p) => ({ text: p, style: 'footnote', tone: 'muted' })) : []),
+      w.outcome ? { text: w.outcome, style: 'footnote' } : null,
       w.signin ? { notice: { tone: 'warn', text: w.signin.elsewhere } } : null], // the app has no sign-in card: say so (D230)
     note: w.editable ? w.note : '', buttons });
 }

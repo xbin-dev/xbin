@@ -37,6 +37,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/xbin-dev/xbin/internal/agent"
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/registry"
 	"github.com/xbin-dev/xbin/internal/term"
@@ -172,6 +173,13 @@ type standingSession struct {
 	Waits    int    `json:"waits,omitempty"` // permission requests and questions waiting for the person
 	Turn     int    `json:"turn,omitempty"`
 	Last     string `json:"last,omitempty"`
+	// D250: what the agent needs to follow up in the session that is there
+	// rather than open another — its model, whether its mode asks before
+	// acting, when it started and when it last did something
+	Model   string `json:"model,omitempty"`
+	Asks    bool   `json:"asks"`
+	Started string `json:"started,omitempty"`
+	Since   string `json:"since,omitempty"`
 }
 
 func (s *Server) registerTileStandingAPI() {
@@ -326,7 +334,9 @@ func (s *Server) standingSessions(p auth.Principal, tile string) []standingSessi
 				by = "this agent"
 			}
 		}
-		row := standingSession{ID: si.ID, By: by, Status: si.Status, Mode: si.Mode, Provider: si.Provider, Waits: si.Pending + si.Questions}
+		prov, _ := agent.Lookup(si.Provider)
+		row := standingSession{ID: si.ID, By: by, Status: si.Status, Mode: si.Mode, Provider: si.Provider, Waits: si.Pending + si.Questions,
+			Model: si.Model, Asks: prov.Asks(si.Mode), Started: si.Created, Since: si.LastActive}
 		if turn, last, ok := s.Term.AgentGlance(si.ID); ok {
 			row.Turn, row.Last = int(turn), last
 		}

@@ -38,6 +38,10 @@ export const W = Object.freeze({
   goAhead: 'Go ahead',
   changePlan: 'Change the plan',
   review: 'Review…',
+  // the conversation's marker for what waits (D250): it opens the one item in xbin's chrome — never an Allow of its own
+  marker: 'Waiting for your approval',
+  markerOpen: 'open it',
+  retryMarker: 'Try again in Waiting for you',
   open: 'Open',
   reviewStart: 'Review and start…',
   start: 'Start',
@@ -128,7 +132,7 @@ export function agentCard(a, now = Date.now(), tileName = (p) => p) {
 
 // ---- a request for the person's approval (cards → requests) -----------------------------
 
-const KIND_WORD = { call: 'change something in', session: 'start a tile agent in', template: 'create a tile', changeset: 'propose admin changes', web: 'read a web page', mcp: 'use a tool of' };
+const KIND_WORD = { call: 'change something in', session: 'start a tile agent in', template: 'create a tile', changeset: 'propose admin changes', web: 'read a web page', mcp: 'use a tool of', message: 'send a message to the tile agent in' };
 // where the person decided (a request's `via`)
 const VIA = { app: 'in the app', device: 'on a device', page: 'on the brief' };
 
@@ -148,18 +152,21 @@ export function requestCard(r, now = Date.now(), tileName = (p) => p) {
   const local = !r.ref || /^(brief|resume):/.test(r.ref);
   const what = r.title || (kind === 'template' ? 'Create a tile' : `${KIND_WORD[kind] || 'a request'}${tile ? ' ' + tile : ''}`);
   const call = r.method && r.path ? `${r.method} ${r.path}` : '';
-  const out = { kind, tile, what, call, local, ref: r.ref || '', waits: false, settled: true, button: '', glyph: 'shield', tone: '', head: '', line: '', result: '' };
+  const out = { kind, tile, what, call, local, ref: r.ref || '', waits: false, settled: true, button: '', glyph: 'shield', tone: '', head: '', line: '', result: '', parts: [] };
   const when = (ms) => [ms ? clock(ms) : '', VIA[r.via] || ''].filter(Boolean).join(' · ');
   switch (r.state) {
     case 'pending': {
       const left = r.expiresMs ? r.expiresMs - now : 0;
-      return { ...out, waits: true, settled: false, head: 'Waiting for your approval', tone: 'warn', button: local ? '' : W.review,
-        line: [r.createdMs ? `asked ${clock(r.createdMs)}` : '', left > 0 ? `expires in ${inWords(left)}` : ''].filter(Boolean).join(' · ') };
+      // each fact its own element (D250): the parts; line joins them for a view that draws text
+      const parts = [r.createdMs ? `asked ${clock(r.createdMs)}` : '', left > 0 ? `expires in ${inWords(left)}` : ''].filter(Boolean);
+      return { ...out, waits: true, settled: false, head: W.marker, tone: 'warn', button: local ? '' : W.review, parts, line: parts.join(', ') };
     }
+    case 'retry': // approved, and the tile agent didn't start: its person tries it again from xbin's batch (D250)
+      return { ...out, waits: true, settled: false, head: 'Approved, but the tile agent didn’t start', glyph: 'error', tone: 'bad', result: r.result || '', button: W.retryMarker };
     case 'proposed': {
       const left = r.expiresMs ? r.expiresMs - now : 0;
-      return { ...out, waits: true, settled: false, head: r.title || 'Admin changes proposed', tone: 'warn', button: W.review,
-        line: [r.createdMs ? `proposed ${clock(r.createdMs)}` : '', left > 0 ? `expires in ${inWords(left)}` : ''].filter(Boolean).join(' · ') };
+      const parts = [r.createdMs ? `proposed ${clock(r.createdMs)}` : '', left > 0 ? `expires in ${inWords(left)}` : ''].filter(Boolean);
+      return { ...out, waits: true, settled: false, head: r.title || 'Admin changes proposed', tone: 'warn', button: W.review, parts, line: parts.join(', ') };
     }
     case 'approved': case 'running': case 'applying':
       return { ...out, head: grantWords(r, tile), glyph: 'clock', line: 'running now…' };
@@ -243,12 +250,19 @@ export function briefCard(b, tileName = (p) => p, sd = null) {
   const pickedId = (sd && sd.harness) || b.harness || '';
   const needs = sd && sd.needsSignIn && (st === 'draft' || st === 'asked') ? (sd.defaults.harnesses || []).find((h) => h.id === pickedId) : null;
   const runsOn = sd ? sd.line || '' : [b.harness ? harness(b.harness) : ''].filter(Boolean).join('');
+  // what it would run on, a fact a chip (D250: never a line joined with "·"); the person picks on the approval
+  const chips = sd && Array.isArray(sd.chips) ? sd.chips.map((c) => ({ text: String(c.text || ''), tone: c.tone || '' })) : runsOn ? [{ text: runsOn, tone: '' }] : [];
   const free = !!sd && sd.ticket === false && !!sd.harness;
+  const q = b.request || null; // its latest request (ws/place.js): the one card a start
+  const rc = q ? requestCard(q) : null;
   return {
     title: `Brief for ${possessive(tile)} agent`, tile, state: st, status: words[st] ?? st,
     fields: BRIEF_FIELDS.map(([k, label]) => ({ key: k, label, value: b[k] || '' })),
     editable: st === 'draft' || st === 'asked',
-    button: st === 'draft' ? (free ? W.start : W.reviewStart) : st === 'asked' ? W.review : '',
+    // the brief's own button: Review and start… (or Start where its person lets it start unasked) — once asked, the
+    // marker opens xbin's approval instead (D250: never a second button beside it); a start their preference lets
+    // through is confirmed here; a brief whose request isn't in view keeps the old way to it
+    button: st === 'draft' ? (free ? W.start : W.reviewStart) : st === 'asked' && rc && rc.local && rc.waits ? W.start : st === 'asked' && !q ? W.review : '',
     runsOn, harnesses, picked: pickedId, none: !!sd && !sd.harness,
     // xbind says a session of the picked coding agent would start signed out (D230): sign in first, in xbin's own card
     signin: needs ? { harness: needs.id, name: needs.name || harness(needs.id), button: `Sign in to ${needs.name || harness(needs.id)}…`,
@@ -259,6 +273,12 @@ export function briefCard(b, tileName = (p) => p, sd = null) {
     edited: !!b.edited,
     // who wrote it (D248 review): xbind's update brief, word for word, or the agent's (a person's edit makes it theirs)
     by: b.xbin ? BRIEF_BY_XBIN : 'Written by your agent',
+    chips, pickNote: st === 'draft' || st === 'asked' ? 'You pick the coding agent, its model and its mode on the approval.' : '',
+    // the request it carries (D250): waiting — the marker that opens xbin's approval; failed to start — the way to
+    // Try again; decided — what came of it
+    request: q, waiting: !!(rc && rc.waits && rc.button === W.review), parts: rc ? rc.parts : [],
+    retry: !!(rc && q.state === 'retry'),
+    outcome: rc && !rc.waits ? `Its start: ${[rc.head.charAt(0).toLowerCase() + rc.head.slice(1), rc.result].filter(Boolean).join(' — ')}` : rc && q.state === 'retry' ? `Its start: approved, and the tile agent didn’t start — ${rc.result}` : '',
   };
 }
 

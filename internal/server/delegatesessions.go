@@ -468,6 +468,20 @@ type startDefaultsView struct {
 	Harness   string         `json:"harness"` // the default: the first the person lets start unasked, else the first allowed that can run (startDefaults)
 	Harnesses []startHarness `json:"harnesses"`
 	Why       string         `json:"why,omitempty"` // no harness may run there: the rule's reason
+	// Chosen is what a start the agent files now would preselect on the
+	// approval, with where each part came from (D250): the agent reads its
+	// person's choice for the tile here, so it stops asking — and sets
+	// nothing (GET /delegate/start-defaults only).
+	Chosen *startChosen `json:"chosen,omitempty"`
+}
+
+// startChosen is startDefaultsView.Chosen.
+type startChosen struct {
+	Harness string            `json:"harness"`
+	Model   string            `json:"model"`
+	Mode    string            `json:"mode"`
+	Asks    bool              `json:"asks"`
+	From    map[string]string `json:"from"`
 }
 
 func (d startDefaultsView) of(id string) (startHarness, bool) {
@@ -478,6 +492,7 @@ func (d startDefaultsView) of(id string) (startHarness, bool) {
 	}
 	return startHarness{}, false
 }
+func (d startDefaultsView) allows(id string) bool    { _, ok := d.of(id); return id != "" && ok }
 func (d startDefaultsView) modeFor(id string) string { h, _ := d.of(id); return h.Mode }
 func (d startDefaultsView) netFor(id string) string  { h, _ := d.of(id); return h.Net }
 
@@ -517,6 +532,13 @@ func (s *Server) startDefaults(p auth.Principal, tile string) startDefaultsView 
 		if m, err := prov.ResolveMode(h.Mode); err == nil { // "" is the harness's own default
 			h.Mode = m
 		}
+		if h.Mode == "" {
+			// a harness with no default mode of its own (OpenCode) opens in its
+			// asking mode, as the approval's default and an unasked start do
+			// (D250, startchoice.go askingMode) — said so here, so what reads
+			// this (the agent's backend) knows a session in it asks
+			h.Mode = askingMode(prov)
+		}
 		if !prov.Asks(h.Mode) {
 			// a mode not known to ask its person (a harness that keeps its
 			// modes to itself, or a preference the catalog no longer
@@ -536,20 +558,34 @@ func (s *Server) startDefaults(p auth.Principal, tile string) startDefaultsView 
 			break
 		}
 	}
-	if first := out.Harnesses; out.Harness == "" && len(first) > 0 &&
+	// the workspace's default is one with a mode that asks wherever one is allowed (D250 re-review item 3); a
+	// coding agent with none (OpenCode) only where it is all the tile allows — preselected warned, as ever
+	cands := slices.DeleteFunc(slices.Clone(out.Harnesses), func(h startHarness) bool { return !vouched(h.ID) })
+	if len(cands) == 0 {
+		cands = out.Harnesses
+	}
+	if first := cands; out.Harness == "" && len(first) > 0 &&
 		(llm != nil && !runsNow(llm[first[0].ID]) || llm == nil && first[0].SignIn == "needed") {
 		// the first allowed can't run as things are: the first the
 		// workspace's model serves — a session the agent starts has no
 		// sign-in of the person's unless they tick one on its approval
-		for _, h := range out.Harnesses {
+		for _, h := range cands {
 			if h.NoSignIn {
 				out.Harness = h.ID
 				break
 			}
 		}
 	}
-	if out.Harness == "" && len(out.Harnesses) > 0 {
-		out.Harness = out.Harnesses[0].ID
+	if out.Harness == "" && len(cands) > 0 {
+		out.Harness = cands[0].ID
+	}
+	// the person's own: their choice remembered for this tile, then their
+	// preference — an allowed one wins over the workspace's default (D250)
+	prefs := s.startPrefsOf(p.UserID)
+	if ts, ok := prefs.AgentSessions.Tiles[tile]; ok && out.allows(ts.Harness) {
+		out.Harness = ts.Harness
+	} else if out.allows(prefs.AgentSessions.Harness) {
+		out.Harness = prefs.AgentSessions.Harness
 	}
 	if len(out.Harnesses) > 0 {
 		out.Why = ""
@@ -664,7 +700,12 @@ func (s *Server) apiStartDefaults(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusForbidden, p.UserID+" doesn't have terminal access there: their agent can't start a tile agent", delegationDocs)
 		return
 	}
-	WriteJSON(w, http.StatusOK, s.startDefaults(p, tile))
+	out := s.startDefaults(p, tile)
+	if pick, why := s.startPick(p, tile, startSuggestion{}, nil); why == "" {
+		prov, _ := agent.Lookup(pick.Harness)
+		out.Chosen = &startChosen{Harness: pick.Harness, Model: pick.Model, Mode: pick.Mode, Asks: prov.Asks(pick.Mode), From: pick.From}
+	}
+	WriteJSON(w, http.StatusOK, out)
 }
 
 // sessionOrgs reads {orgs: […]} and checks each is one the person can see

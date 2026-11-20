@@ -29,16 +29,31 @@
  * never allows — Deny and Escape ("not now") are always there. The wider
  * standing choice is held the same way (WidenGuard). Focus lands on the
  * heading and stays in the sheet.
+ *
+ * A tile agent's start is PICKED here (D250): the coding agent, its model
+ * and its mode — preselected from the person's choice for the tile, their
+ * preference, the agent's suggestion and the default, each said — and
+ * "Remember for this tile"; the pick rides the approval and is what runs.
+ * A mode the agent suggested that acts without asking is never preselected.
+ * Picking one that acts without asking arms Allow again. Where the start
+ * would continue the agent's own idle session there, that is the first
+ * choice and "Start a new session instead" the second.
+ *
+ * The buttons, on every kind (D250): Deny on the left, the quiet
+ * secondary; Allow on the right, the primary — coloured as danger where the
+ * act is (a mode that acts without asking, the wider standing grant), never
+ * by promoting Deny. A warning is said in the body.
  */
-import { LitElement, html, css, nothing } from '/vendor/lit-all.min.js';
+import { LitElement, html, css, nothing, keyed } from '/vendor/lit-all.min.js';
 import '/vendor/bx-icons.js';
 import { chromeCss } from '/vendor/agent-chrome-css.js';
 import { agentStore } from '/vendor/agent-chrome-store.js';
 import '/vendor/agent-signin.js';
 import { uncovered } from '/vendor/agent-armed.js';
 import { trustWords, offerWords } from '/vendor/agent-signins.js';
+import { pickOf, picked, startView, choose, contChoice, pickBody, messageView, askedParts } from '/vendor/agent-start-words.js';
 import {
-  CHOICES, DURATIONS, heading, tile, levelWords, sends, undoWords, grantChoices, allowLabel, allowSpoken, approveBody, widerWords, sessionRows, asked, settled,
+  CHOICES, DURATIONS, heading, tile, levelWords, sends, undoWords, grantChoices, allowLabel, allowSpoken, approveBody, widerWords, sessionRows, settled,
   stopRefusal, stopWords, reveal, HIDDEN_NOTE, clipText, clipNote, ownerWords, webRows, mcpRows, READ_WEB,
 } from '/vendor/agent-chrome-words.js';
 
@@ -129,6 +144,7 @@ export class BxAgentApprove extends LitElement {
     request: { attribute: false }, person: { type: String }, position: { type: String },
     _choice: { state: true }, _duration: { state: true }, _step: { state: true }, _armed: { state: true }, _busy: { state: true }, _err: { state: true }, _all: { state: true },
     _stopped: { state: true }, _allBrief: { state: true }, _ticks: { state: true }, // _ticks: the start's own sign-in lines {signin, trust, all}
+    _pick: { state: true }, // a start's coding agent, model and mode as the person picks them here (D250)
   };
 
   static styles = [chromeCss, css`
@@ -149,6 +165,14 @@ export class BxAgentApprove extends LitElement {
     .foot { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 8px 12px; border-top: 1px solid var(--bx-border, #33353F); }
     .foot .when { flex: 1; min-width: 120px; }
     .brief { max-height: 220px; }
+    .pick { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+    .pick select { max-width: 100%; }
+    .pick .from { color: var(--bx-muted, #A3A6B6); }
+    .cont { display: flex; flex-direction: column; gap: 4px; }
+    .cont label { display: flex; gap: 8px; align-items: flex-start; padding: 6px 8px; border: 1px solid var(--bx-border, #33353F); border-radius: var(--bx-radius, 2px); cursor: pointer; }
+    .cont label.on { border-color: var(--bx-accent, #8C9BFF); background: var(--bx-selection, #262C5C); }
+    details.call summary { cursor: pointer; color: var(--bx-muted, #A3A6B6); }
+    .foot .when { display: flex; flex-wrap: wrap; gap: 2px 12px; }
     @media (prefers-reduced-motion: no-preference) { button.arming { transition: opacity .15s; } }
   `];
 
@@ -159,13 +183,18 @@ export class BxAgentApprove extends LitElement {
     this._stopped = ''; // a 409's refusal: the agent stopped while the sheet was open
     this._allBrief = false;
     this._ticks = {};
+    this._pick = null;
     this._timer = 0;
     this.store = agentStore();
     this._widen = new WidenGuard(this); // the wider standing choices
   }
 
   willUpdate(ch) {
-    if (ch.has('request')) { this._choice = 'once'; this._duration = ''; this._step = 'main'; this._err = ''; this._all = false; this._allBrief = false; this._stopped = ''; this._ticks = {}; this._arm(); }
+    if (ch.has('request')) {
+      this._choice = 'once'; this._duration = ''; this._step = 'main'; this._err = ''; this._all = false; this._allBrief = false; this._stopped = ''; this._ticks = {};
+      this._pick = this.request && this.request.kind === 'session' ? pickOf(this.request) : null;
+      this._arm();
+    }
   }
 
   updated(ch) {
@@ -199,11 +228,24 @@ export class BxAgentApprove extends LitElement {
     if (!this._may(e) || this.stopped) return;
     const req = this.request;
     if (req.kind === 'call' && this._choice === 'tile' && this._step === 'main') { this._step = 'wider'; this._arm(); return; }
+    if (this._pick && startView(req, this._pick).needsTick && !this._ticks.signin) return; // a follow-up with a sign-in: only once ticked
     this._busy = true; this._err = '';
-    const r = await this.store.approve(req.id, approveBody(req, this._choice, this._duration || CHOICES.duration[this._choice], this._ticks));
+    const body = { ...approveBody(picked(req, this._pick || {}), this._choice, this._duration || CHOICES.duration[this._choice], this._ticks), ...(this._pick ? pickBody(req, this._pick) : {}) };
+    if (req.state === 'failed') { delete body.grant; delete body.scope; delete body.unseen; delete body.continue; delete body.remember; }
+    const r = req.state === 'failed' ? await this.store.retry(req.id, body) : await this.store.approve(req.id, body);
     this._busy = false;
     // stopped meanwhile: say why where Allow was — never send it again
-    if (r.ok) this._done('allow'); else if (r.stopped) this._stopAt(r.stopped); else if (r.gone) this._done('gone'); else { this._err = r.error; this._arm(); }
+    if (r.ok) this._done('allow'); else if (r.stopped) this._stopAt(r.stopped); else if (r.changed) this._reload(r.error); else if (r.gone) this._done('gone'); else { this._err = r.error; this._arm(); }
+  }
+
+  // what the sheet showed changed since (D250 review L2): nothing was decided — read the request again, show it as it
+  // is now (the picks, the ticks and the delay start over), and say why
+  async _reload(why) {
+    const fresh = await this.store.request(this.request.id);
+    if (!fresh) { this._done('gone'); return; }
+    this.request = fresh;
+    await this.updateComplete;
+    this._err = why;
   }
 
   async _deny(e) {
@@ -228,19 +270,24 @@ export class BxAgentApprove extends LitElement {
   render() {
     const req = this.request;
     if (!req) return nothing;
-    const pending = req.state === 'pending';
-    const h = heading(req);
+    // a start that failed for a reason not the agent's: its person's Try again is decided here, like an approval —
+    // its earlier picks preselected, the sign-in unticked, Allow armed late (D250 review L3)
+    const retrying = req.state === 'failed' && !!(req.failure && req.failure.retry);
+    const pending = req.state === 'pending' || retrying;
+    const v = req.kind === 'session' && this._pick ? startView(req, this._pick) : null;
+    const h = req.kind === 'message' ? messageView(req).heading : v && v.continuing ? { before: 'Continue the session in ', strong: heading(req).strong, after: '?' }
+      : retrying ? { before: 'Try again to start a tile agent in ', strong: heading(req).strong, after: '?' } : heading(req);
     return html`<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="h" aria-roledescription="xbin approval" data-kind=${req.kind} data-step=${this._step} @keydown=${this._key}>
-      <div class="xbar"><bx-icon name="shield"></bx-icon><span>xbin · approval</span>${this.position ? html`<span>${this.position}</span>` : nothing}
+      <div class="xbar"><bx-icon name="shield"></bx-icon><span>xbin</span><span>approval</span>${this.position ? html`<span data-position>${this.position}</span>` : nothing}
         ${this.person ? html`<span class="who">asking ${this.person}</span>` : nothing}</div>
       ${!pending ? html`<div class="in"><h2 id="h" tabindex="-1">${shown(h.before)}<b>${shown(h.strong)}</b>${shown(h.after)}</h2><p>${settled(req)}</p></div>
           <div class="foot"><span class="when"></span><button class="primary" @click=${() => this._done('gone')}>Close</button></div>`
         : this._step === 'wider' ? this._wider(req) : html`<div class="in">
           <h2 id="h" tabindex="-1">${shown(h.before)}<b>${shown(h.strong)}</b>${shown(h.after)}</h2>
           ${req.preview && req.preview.readWeb ? html`<div class="banner warn" data-read-web><bx-icon name="globe"></bx-icon><span>${READ_WEB}</span></div>` : nothing}
-          ${req.kind === 'session' ? this._session(req) : req.kind === 'template' ? this._template(req) : req.kind === 'web' ? this._web(req) : req.kind === 'mcp' ? this._mcp(req) : this._call(req)}
+          ${req.kind === 'session' ? this._session(req, v) : req.kind === 'message' ? this._message(req) : req.kind === 'template' ? this._template(req) : req.kind === 'web' ? this._web(req) : req.kind === 'mcp' ? this._mcp(req) : this._call(req)}
           ${this._err ? html`<div class="banner bad" role="alert"><bx-icon name="error"></bx-icon><span>${this._err}</span></div>` : nothing}
-        </div>${this._foot(req)}`}
+        </div>${this._foot(req, v)}`}
     </div>`;
   }
 
@@ -250,7 +297,7 @@ export class BxAgentApprove extends LitElement {
 
   _tileRow(req) {
     const t = tile(req), p = req.preview || {};
-    return html`<dt>Tile</dt><dd><b>${shown(t.name)}</b> <span class="mono muted">${shown(t.path)}</span>${t.org ? html` <span class="muted">· ${shown(t.org)}</span>` : nothing}
+    return html`<dt>Tile</dt><dd><span class="parts"><b>${shown(t.name)}</b><span class="mono muted">${shown(t.path)}</span>${t.org ? html`<span class="muted" data-org>${shown(t.org)}</span>` : nothing}</span>
       ${levelWords(p.level) ? html`<div class="small muted">${levelWords(p.level)}</div>` : nothing}</dd>`;
   }
 
@@ -293,27 +340,71 @@ export class BxAgentApprove extends LitElement {
         <p class="small muted">${w.ends}</p>
         ${this._err ? html`<div class="banner bad" role="alert"><bx-icon name="error"></bx-icon><span>${this._err}</span></div>` : nothing}
       </div>
-      <div class="foot"><span class="when small muted">${asked(req)}</span>
-        ${this.stopped ? this._stop() : html`<button class="danger arming" data-allow="tile" aria-disabled=${this._armed && !this._busy ? 'false' : 'true'} @click=${this._allow}>${w.allow}</button>`}
-        <button class="primary" data-back @click=${() => { this._step = 'main'; this._arm(); }}>${w.back}</button></div>`;
+      <div class="foot"><span class="when small muted">${askedParts(req).map((x) => html`<span>${x}</span>`)}</span>
+        <button data-back @click=${() => { this._step = 'main'; this._arm(); }}>${w.back}</button>
+        ${this.stopped ? this._stop() : html`<button class="primary danger arming" data-allow="tile" aria-disabled=${this._armed && !this._busy ? 'false' : 'true'} @click=${this._allow}>${w.allow}</button>`}</div>`;
   }
 
-  _session(req) {
-    const r = sessionRows(req);
+  _session(req, v) {
+    const eff = this._pick ? picked(req, this._pick) : req;
+    const r = sessionRows(eff);
     const brief = clipText(r.brief, this._allBrief);
-    return html`${r.danger ? html`<div class="banner bad" role="alert"><bx-icon name="error"></bx-icon><span>${r.danger}</span></div>` : nothing}
+    const set = (field, value) => {
+      const was = v ? v.asks : true;
+      this._pick = choose(this._pick, req, field, value);
+      if (field === 'harness') this._ticks = {}; // the sign-in offered is that coding agent's
+      if (was && !startView(req, this._pick).asks) this._arm(); // what is allowed now acts without asking: Allow waits again
+    };
+    return html`${v && v.cont ? html`<div class="cont" role="radiogroup" aria-label="Where it goes" data-continue>
+        ${/* every switch arms Allow again, and drops a tick that was the other choice's (D250 review L1) */ ''}<label class=${v.continuing ? 'on' : ''}><input type="radio" name="cont" data-cont="continue" .checked=${v.continuing} @change=${() => { this._pick = contChoice(this._pick, req, true); this._ticks = {}; this._arm(); }}>
+          <span><b>${v.cont.label}</b><span class="chips">${v.cont.chips.map((c) => html`<span class="chip">${c}</span>`)}</span></span></label>
+        <label class=${v.continuing ? '' : 'on'}><input type="radio" name="cont" data-cont="new" .checked=${!v.continuing} @change=${() => { this._pick = contChoice(this._pick, req, false); this._ticks = {}; this._arm(); }}>
+          <span>${v.cont.sub}</span></label>
+        ${v.continuing && v.cont.signIn ? html`<div class="trustline" data-cont-signin-line>
+          <div class="small"><span class="tag bad"><bx-icon name="warning"></bx-icon>YOUR SIGN-IN</span> <span data-warn>${v.cont.signIn.warn}</span></div>
+          <label class="row"><input type="checkbox" data-cont-signin data-widen="on" .checked=${!!this._ticks.signin} @click=${this._widen.click} @keydown=${this._widen.key}
+            @change=${(e) => { this._ticks = { signin: e.target.checked }; }}><span><b>${v.cont.signIn.line}</b> <bx-agent-signin view="name" sid=${v.cont.signIn.id}></bx-agent-signin></span></label>
+          ${this._ticks.signin ? nothing : html`<div class="small muted" data-unticked>${v.cont.signIn.untickedNote}</div>`}</div>` : nothing}</div>` : nothing}
+      ${(v ? !v.asks : r.danger) ? html`<div class="banner bad" role="alert" data-danger><bx-icon name="error"></bx-icon><span>${v ? v.danger : r.danger}</span></div>` : nothing}
       <dl class="rows">
-        <dt>Mode</dt><dd data-row="mode"><span class="tag ${r.mode.tone}">${r.mode.tag}</span>${r.mode.name ? html` <span class="mono muted">${r.mode.name}</span>` : nothing}<div>${r.mode.text}</div></dd>
+        ${v && v.pickers.length ? v.pickers.map((pk) => html`<dt><label for=${`pick-${pk.id}`}>${pk.label}</label></dt><dd class="pick" data-pick=${pk.id}>
+            ${/* a new select for new options: one whose options are swapped under it keeps the old (dirty) selection, and
+                 showed a blank mode after the coding agent changed (the approvalsUx pass) */ ''}${keyed(`${pk.id}:${pk.options.map((o) => o.value).join('\n')}`, html`<select id=${`pick-${pk.id}`} data-select=${pk.id} .value=${pk.value} @change=${(e) => set(pk.id, e.target.value)}>
+              ${pk.options.map((o) => html`<option value=${o.value} ?selected=${o.value === pk.value}>${o.label}</option>`)}</select>`)}
+            ${pk.from ? html`<span class="small from" data-from=${pk.id}>${pk.from}</span>` : nothing}
+            ${pk.note ? html`<span class="small muted">${pk.note}</span>` : nothing}
+            ${pk.warn ? html`<span class="small err" data-not-taken>${pk.warn}</span>` : nothing}</dd>`)
+          : html`<dt>Coding agent</dt><dd>${r.agent}</dd>`}
+        ${v && v.remember.shown ? html`<dt></dt><dd><label class="small"><input type="checkbox" data-remember .checked=${!!this._pick.remember}
+            @change=${(e) => { this._pick = { ...this._pick, remember: e.target.checked }; }}> ${v.remember.label}</label>
+          <div class="small muted">${v.remember.note}</div></dd>` : nothing}
+        ${v && (v.pickers.length || v.continuing) ? nothing /* the Mode picker says it (and a continued session's chips): not a second Mode row */
+          : html`<dt>Mode</dt><dd data-row="mode"><span class="tag ${r.mode.tone}">${r.mode.tag}</span>${r.mode.name ? html` <span class="mono muted">${r.mode.name}</span>` : nothing}<div>${r.mode.text}</div></dd>`}
         ${this._tileRow(req)}
-        <dt>Coding agent</dt><dd>${r.agent}</dd>
-        ${signinRow(r, { ...this._ticks, guard: this._widen, set: (patch) => { this._ticks = { ...this._ticks, ...patch }; } })}
+        ${v && v.continuing ? nothing : signinRow(r, { ...this._ticks, guard: this._widen, set: (patch) => { this._ticks = { ...this._ticks, ...patch }; } })}
         <dt>Network</dt><dd>${r.network}</dd>
         <dt>Other tiles</dt><dd>${r.others}</dd>
         <dt>What it will be told</dt><dd>${r.briefBy ? html`<div class="small" data-row="brief-by">${r.briefBy}</div>` : nothing}${hiddenLine(r.brief)}<pre class="body brief" tabindex="-1" data-row="brief">${r.brief ? html`${shown(brief.text)}${brief.clipped ? '…' : ''}` : '(nothing: it starts without a message)'}</pre>
-          <div class="small muted">${brief.clipped ? html`${clipNote(brief)} — <button class="link" data-show-all @click=${() => this._showAll('_allBrief')}>Show all</button> · ` : nothing}sent exactly like this</div></dd>
+          <div class="small muted">${brief.clipped ? html`${clipNote(brief)} — <button class="link" data-show-all @click=${() => this._showAll('_allBrief')}>Show all</button> ` : nothing}sent exactly like this</div></dd>
       </dl>
+      <details class="call small" data-details><summary>Details</summary><div class="mono" data-call>${v ? v.details : `${req.method} ${req.target}`}</div></details>
       ${this._quote(req.summary)}
       <p class="small muted">${r.comes}</p>`;
+  }
+
+  // a message to a tile agent that acts without asking (D250): the whole text, sent exactly so, once
+  _message(req) {
+    const m = messageView(req);
+    const t = clipText(m.text, this._all);
+    return html`<div class="banner warn" data-why><bx-icon name="warning"></bx-icon><span>${m.why}</span></div>
+      <dl class="rows">
+        ${this._tileRow(req)}
+        <dt>Tile agent</dt><dd><span class="chips">${m.agent.map((c) => html`<span class="chip">${c}</span>`)}</span></dd>
+        <dt>Message</dt><dd>${hiddenLine(m.text)}<pre class="body" tabindex="-1" data-row="message">${shown(t.text)}${t.clipped ? '…' : ''}</pre>
+          <div class="small muted">${t.clipped ? html`${clipNote(t)} — <button class="link" data-show-all @click=${() => this._showAll('_all')}>Show all</button> ` : nothing}sent exactly like this, once</div></dd>
+      </dl>
+      <details class="call small" data-details><summary>Details</summary><div class="mono" data-call>${req.method} ${req.target}</div></details>
+      ${this._quote(req.summary)}`;
   }
 
   // a web page the conversation would read (D239): the whole address, why xbin asks, once only
@@ -372,14 +463,18 @@ export class BxAgentApprove extends LitElement {
       ${this._quote(req.summary)}`;
   }
 
-  _foot(req) {
-    const never = req.kind === 'session' && !(req.preview && req.preview.session && req.preview.session.asks === true);
-    const on = this._armed && !this._busy;
+  // Deny on the left, the quiet secondary; Allow on the right, the primary — coloured as danger where the act is,
+  // never by promoting Deny (D250). The when: each fact an element of its own.
+  _foot(req, v) {
+    const danger = req.kind === 'session' && !(v ? v.asks : req.preview && req.preview.session && req.preview.session.asks === true);
+    const on = this._armed && !this._busy && !(v && v.needsTick && !this._ticks.signin); // (a follow-up with a sign-in: only once ticked)
+    const when = req.kind === 'call' || req.kind === 'mcp' ? askedParts(req) : ['asked every time', ...(req.kind === 'session' ? ['change in Preferences'] : [])];
+    const label = req.state === 'failed' ? 'Try again' : v ? v.label : req.kind === 'message' ? messageView(req).label : allowLabel(req, this._choice);
     return html`<div class="foot">
-      <span class="when small muted">${req.kind === 'call' || req.kind === 'mcp' ? asked(req) : `asked every time${req.kind === 'session' ? ' · change in Preferences' : ''}`}</span>
-      <button class=${never || this.stopped ? 'primary' : ''} data-deny ?disabled=${this._busy} @click=${this._deny}>Deny</button>
-      ${this.stopped ? this._stop() : html`<button class="${never ? 'danger' : 'primary'} arming" data-allow=${this._choice} aria-disabled=${on ? 'false' : 'true'} aria-label=${allowSpoken(req, this._choice)}
-        @click=${this._allow}>${shown(allowLabel(req, this._choice))}</button>`}
+      <span class="when small muted">${when.map((x) => html`<span>${x}</span>`)}</span>
+      ${/* the quiet one — filled only where nothing can be allowed and it is the sheet's one button (as the app's) */ ''}<button data-deny class=${this.stopped ? 'primary' : ''} ?disabled=${this._busy} @click=${this._deny}>Deny</button>
+      ${this.stopped ? this._stop() : html`<button class="primary ${danger ? 'danger' : ''} arming" data-allow=${this._choice} aria-disabled=${on ? 'false' : 'true'} aria-label=${v || req.kind === 'message' ? label : allowSpoken(req, this._choice)}
+        @click=${this._allow}>${shown(label)}</button>`}
     </div>`;
   }
 

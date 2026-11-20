@@ -137,7 +137,7 @@ async function journeyReal(browser) {
     if (!planned) { J.deadEnd('no plan to review: the journey stops here'); throw new Error('no plan'); }
 
     J.section('the one review');
-    await J.click('the plan\'s card: "Review…"', async () => { await f.locator('.wsc-req[data-kind="changeset"] button.primary').last().click(); await page.waitForSelector(`${DLG} [role="dialog"][data-view="review"]`, { timeout: 20000 }); });
+    await J.click('the plan\'s card: "Review…"', async () => { await f.locator('.wsc-req[data-kind="changeset"] [data-marker]').last().click(); await page.waitForSelector(`${DLG} [role="dialog"][data-view="review"]`, { timeout: 20000 }); });
     const lines = await page.$$eval(`${DLG} .item .line > span:first-child`, (els) => els.map((e) => e.textContent.trim()));
     say(`the plan, in xbind's words: ${JSON.stringify(lines)}`);
     const ticks = await page.$$eval(`${DLG} .item`, (els) => els.map((e) => ({ n: e.dataset.n, on: e.querySelector('input').checked, off: e.querySelector('input').disabled, admin: !!e.querySelector('[data-admin]') })));

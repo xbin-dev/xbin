@@ -6,6 +6,7 @@ package server
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -41,7 +42,7 @@ func (s *Server) planStart(ctx context.Context, a planAgent, pv delegation.Chang
 	if a.gone != "" || a.p.Agent == "" {
 		return http.StatusConflict, cmpOr(a.gone, "a tile agent is started for the conversation that asks for it"), nil
 	}
-	var shown struct{ Provider, Mode, Net string }
+	var shown struct{ Provider, Mode, Model, Net string }
 	if json.Unmarshal(pv.Start, &shown) != nil || shown.Provider == "" || shown.Mode == "" && !noDefaultMode(shown.Provider) {
 		return http.StatusConflict, "the start names no coding agent and mode: ask your agent to propose it again", nil
 	}
@@ -80,7 +81,10 @@ func (s *Server) planStart(ctx context.Context, a planAgent, pv delegation.Chang
 			slog.Info("a plan's trust line could not be kept: the start runs without the sign-in", "tile", tile, "err", err)
 		}
 	}
-	ctx = context.WithValue(auth.WithPrincipal(ctx, a.p), delegateStartKey{}, &term.DelegateStart{Approved: true, Provider: shown.Provider, Mode: shown.Mode, Net: shown.Net,
+	// what the review showed is what opens (D250 review H1): the coding agent, mode and model the line resolved
+	// — Picked, so the open takes them whatever the call body names (the agent's own suggestion, which the
+	// chain may have outranked: the person's choice for the tile, a suggested mode that doesn't ask)
+	ctx = context.WithValue(auth.WithPrincipal(ctx, a.p), delegateStartKey{}, &term.DelegateStart{Approved: true, Picked: true, Provider: shown.Provider, Mode: shown.Mode, Model: shown.Model, Net: shown.Net,
 		Signin: named.SignInID, TrustAsked: trustAsked})
 	if s.PlanStarter != nil { // (tests: the open itself, authorised as above)
 		id, status, refusal := s.PlanStarter(ctx, a.p, pv.Call.Body)
@@ -155,9 +159,14 @@ func (d *delegateRuntime) allowDry(user, conv string) (ok bool, wait time.Durati
 	return share.take(d.clock(), planDryShareBurst, planDryShareRefill)
 }
 
-// previewStart describes agent.start {tile, brief, harness?, mode?}: a
-// tile agent started on tile with the brief as its first prompt — what a
-// single start's request shows (sessionPreview), as a line. A tile an
+// previewStart describes agent.start {tile, brief, harness?, model?,
+// mode?}: a tile agent started on tile with the brief as its first prompt —
+// what a single start's request shows (sessionPreview), as a line. The
+// harness, model and mode are the agent's suggestion, as on a single start
+// (D250): the person's choice for the tile and their preference outrank
+// them, and a suggested mode that doesn't ask is never taken (the line says
+// so) — a plan's review has no pickers, so the line resolves by that chain
+// and shows where each part came from. A tile an
 // earlier line creates can't be asked yet: the start is described from the
 // person's preferences and the harness catalog, and checked when applied.
 // brief is the agent's text, or {"template": "update"}: xbind's update
@@ -169,6 +178,7 @@ func (s *Server) previewStart(a planAgent, op delegation.ChangeOp, planned []del
 		Tile     string          `json:"tile"`
 		BriefRaw json.RawMessage `json:"brief"`
 		Harness  string          `json:"harness"`
+		Model    string          `json:"model"`
 		Mode     string          `json:"mode"`
 		Brief    string          `json:"-"`
 	}
@@ -200,8 +210,8 @@ func (s *Server) previewStart(a planAgent, op delegation.ChangeOp, planned []del
 	switch {
 	case in.Tile == "" || strings.TrimSpace(in.Brief) == "":
 		return delegation.ChangePreview{}, errors.New("agent.start names a tile and the brief the tile agent is told first")
-	case !nameOK(in.Tile) || !nameOK(in.Harness) || !nameOK(in.Mode):
-		return delegation.ChangePreview{}, errors.New("tile, harness and mode are names")
+	case !nameOK(in.Tile) || !nameOK(in.Harness) || !nameOK(in.Mode) || len(in.Model) > 256:
+		return delegation.ChangePreview{}, errors.New("tile, harness, model and mode are names")
 	case len(in.Brief) > maxStartPrompt:
 		return delegation.ChangePreview{}, fmt.Errorf("a start's brief is at most %d KiB", maxStartPrompt>>10)
 	}
@@ -211,6 +221,9 @@ func (s *Server) previewStart(a planAgent, op delegation.ChangeOp, planned []del
 	}
 	if in.Mode != "" {
 		call["mode"] = in.Mode
+	}
+	if in.Model != "" {
+		call["model"] = in.Model
 	}
 	body, _ := json.Marshal(call)
 	pv := delegation.ChangePreview{Line: "Start a tile agent in " + in.Tile,
@@ -234,6 +247,7 @@ func (s *Server) previewStart(a planAgent, op delegation.ChangeOp, planned []del
 			pv.Blocked = why
 			return pv, nil
 		}
+		delete(shown, "choices") // a plan's review picks nothing: the line is what the chain resolved (D250)
 		pv.Tiles = []string{in.Tile}
 	} else {
 		pv.Uses, pv.Deferred = []int{n}, true
@@ -244,30 +258,35 @@ func (s *Server) previewStart(a planAgent, op delegation.ChangeOp, planned []del
 			return pv, nil
 		}
 		def := s.startDefaults(p, in.Tile)
-		harness, mode := in.Harness, in.Mode
-		if harness == "" {
-			if harness = def.Harness; harness == "" {
-				pv.Blocked = def.Why
-				return pv, nil
-			}
+		if _, ok := agent.Lookup(in.Harness); in.Harness != "" && !ok {
+			return delegation.ChangePreview{}, fmt.Errorf("unknown coding agent %q", in.Harness)
 		}
+		pick, why := s.startPick(p, in.Tile, startSuggestion{Harness: in.Harness, Model: in.Model, Mode: in.Mode}, nil)
+		if why != "" {
+			pv.Blocked = why
+			return pv, nil
+		}
+		harness, mode := pick.Harness, pick.Mode
 		prov, ok := agent.Lookup(harness)
 		if !ok {
 			return delegation.ChangePreview{}, fmt.Errorf("unknown coding agent %q", harness)
-		}
-		if _, allowed := def.of(harness); !allowed {
-			pv.Blocked = harness + " may not run on " + in.Tile
-			return pv, nil
-		}
-		if mode == "" {
-			mode = def.modeFor(harness)
 		}
 		mode, err := prov.ResolveMode(mode)
 		if err != nil {
 			return delegation.ChangePreview{}, err
 		}
 		shown = map[string]any{"tile": in.Tile, "provider": prov.ID, "providerName": prov.Name, "mode": mode, "asks": prov.Asks(mode),
-			"options": map[string]string{}, "prompt": in.Brief, "net": def.netFor(harness), "api": true, "vm": false, "gpu": "", "model": "", "name": "", "resume": false}
+			"options": map[string]string{}, "prompt": in.Brief, "net": def.netFor(harness), "api": true, "vm": false, "gpu": "", "model": pick.Model, "name": "", "resume": false,
+			"from": pick.From}
+		if pick.ModeNotTaken != "" {
+			shown["modeNotTaken"] = pick.ModeNotTaken
+		}
+		if pick.HarnessNotTaken != "" {
+			shown["harnessNotTaken"] = pick.HarnessNotTaken
+		}
+		if pick.Model != "" {
+			shown["options"] = map[string]string{"model": pick.Model}
+		}
 		// what it runs on as things are, and — a tile this plan makes the
 		// person's own — their default saved sign-in, OFFERED like any
 		// start's (D230: the line's own tick): the open judges the tile
@@ -304,11 +323,25 @@ func (s *Server) previewStart(a planAgent, op delegation.ChangeOp, planned []del
 	}
 	pin, _ := json.Marshal(pinned)
 	pv.Pin = delegation.BodyHash(pin)
+	// the review picks nothing: the line is what runs, and where another is picked (D250 review H1)
+	pv.Effects = append(pv.Effects, "What runs is this line's coding agent, model and mode. To run others, ask your agent for a single start's approval, where you pick them, or change your choice for the tile in your preferences.")
+	if hn, _ := shown["harnessNotTaken"].(string); hn != "" {
+		hp, _ := agent.Lookup(hn)
+		pv.Effects = append(pv.Effects, fmt.Sprintf("Your agent suggested %s, which acts without asking in every mode: not taken. To start it, approve a single start where you can pick it.", cmp.Or(hp.Name, hn)))
+	}
+	if nt, _ := shown["modeNotTaken"].(string); nt != "" {
+		// D250: the agent's suggestion never picks a mode that acts without asking — the review has no picker to pick it
+		pv.Effects = append(pv.Effects, fmt.Sprintf("Your agent suggested the mode %q, which acts without asking: not taken. To start it that way, change the session's mode once it runs, or approve a single start where you can pick it.", nt))
+	}
 	if asks {
-		pv.Effects = []string{"It asks you before it edits a file or runs a command: its questions and permission requests come to you, never to your workspace agent."}
+		pv.Effects = append(pv.Effects, "It asks you before it edits a file or runs a command: its questions and permission requests come to you, never to your workspace agent.")
 	} else {
 		// only a harness's ask or plan mode is one xbind vouches for: anything else is the danger wording, and starts unticked
 		pv.Warnings = []string{fmt.Sprintf("ACTS WITHOUT ASKING: %s %s edits files and runs commands in %s without asking you. You will not get a chance to stop a single edit or command.", inTheMode, name, in.Tile)}
+		if pp, _ := agent.Lookup(fmt.Sprint(shown["provider"])); pp.ID != "" && pp.AskingMode() == "" {
+			// (the person's own choice of a coding agent with no mode that asks: D250 re-review item 3)
+			pv.Warnings = []string{fmt.Sprintf("ACTS WITHOUT ASKING: %s has no mode that asks before it acts: it edits files and runs commands in %s without asking you. You will not get a chance to stop a single edit or command.", name, in.Tile)}
+		}
 	}
 	return pv, nil
 }

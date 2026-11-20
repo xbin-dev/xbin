@@ -96,6 +96,20 @@ func handleRecreateSandbox(w http.ResponseWriter, r *http.Request) {
 	if !decodeBody(w, r, &body) {
 		return
 	}
+	// the sandbox's ref and whether one is being made, read together: the making job sets the one and clears the other
+	// in one transaction, and p was read before — a second recreate at once, its p read before that job committed and
+	// the marker after, took the stale empty ref for "no sandbox" and named no manager (400 instead of 409)
+	cur, making := p.SandboxRef, false
+	if err := projAg().db.Tx(func(t *DB) error {
+		if err := t.q.QueryRow(`SELECT sandbox_ref FROM projects WHERE id=?`, p.ID).Scan(&cur); err != nil {
+			return err
+		}
+		making = t.getSetting(sbxNewKey(p.ID)) != ""
+		return nil
+	}); err != nil {
+		writeProjErr(w, err)
+		return
+	}
 	switch {
 	case p.Kind == projTeam:
 		xbin.WriteError(w, http.StatusConflict, "a team project's definition has no workspace to recreate: each member's is their own")
@@ -103,7 +117,7 @@ func handleRecreateSandbox(w http.ResponseWriter, r *http.Request) {
 	case p.State != projActive:
 		xbin.WriteError(w, http.StatusConflict, "this project is "+p.State)
 		return
-	case p.SandboxRef == "" && projAg().db.getSetting(sbxNewKey(p.ID)) != "":
+	case cur == "" && making:
 		xbin.WriteError(w, http.StatusConflict, "the project's sandbox is being made")
 		return
 	}
@@ -112,7 +126,7 @@ func handleRecreateSandbox(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
 	defer cancel()
-	old := p.SandboxRef
+	old := cur // (p's version is still the one read first: the transaction below refuses a project that changed since)
 	gone := false
 	if old != "" {
 		var err error

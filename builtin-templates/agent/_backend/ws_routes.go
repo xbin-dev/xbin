@@ -461,7 +461,8 @@ func handleWsBriefPut(w http.ResponseWriter, r *http.Request) {
 	set(&b.DoneWhen, body.DoneWhen)
 	set(&b.LeaveAlone, body.LeaveAlone)
 	set(&b.CheckBy, body.CheckBy)
-	if was != [4]string{b.Goal, b.DoneWhen, b.LeaveAlone, b.CheckBy} {
+	textChanged := was != [4]string{b.Goal, b.DoneWhen, b.LeaveAlone, b.CheckBy}
+	if textChanged {
 		b.Xbin = "" // the person's words now: sent as text, labelled the agent's brief as edited
 	}
 	if b.Goal == "" || b.DoneWhen == "" {
@@ -483,8 +484,10 @@ func handleWsBriefPut(w http.ResponseWriter, r *http.Request) {
 		}
 		b.Harness = pick
 	}
-	if _, err := agent.db.q.Exec(`UPDATE ws_briefs SET goal=?, done_when=?, leave_alone=?, check_by=?, harness=?, edited=1, xbin=?, updated_ms=? WHERE id=?`,
-		b.Goal, b.DoneWhen, b.LeaveAlone, b.CheckBy, b.Harness, b.Xbin, nowMs(), b.ID); err != nil {
+	// "edited" is the brief's TEXT, by its person: a coding agent picked is never an edit (D250 — the agent read a
+	// harness switch as "your person edited it" and blamed the brief for four rounds)
+	if _, err := agent.db.q.Exec(`UPDATE ws_briefs SET goal=?, done_when=?, leave_alone=?, check_by=?, harness=?, edited=CASE WHEN ? THEN 1 ELSE edited END, xbin=?, updated_ms=? WHERE id=?`,
+		b.Goal, b.DoneWhen, b.LeaveAlone, b.CheckBy, b.Harness, textChanged, b.Xbin, nowMs(), b.ID); err != nil {
 		xbin.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -508,7 +511,7 @@ func handleWsBriefPut(w http.ResponseWriter, r *http.Request) {
 			_ = wsX.Withdraw(r.Context(), s.Handle, old)
 		}
 	}
-	b.Edited = true
+	b.Edited = b.Edited || textChanged
 	agent.wsChanged(s.Run, "brief")
 	xbin.WriteJSON(w, http.StatusOK, map[string]any{"brief": b})
 }
@@ -532,12 +535,22 @@ func handleWsBriefDefaults(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := orStr(b.Harness, d.Harness)
+	mode, asks, model := "", false, ""
+	from := map[string]string{}
+	if c := d.Chosen; c != nil && b.Harness == "" { // what xbin's approval preselects now, and where from (D250)
+		id, mode, asks, model, from = c.Harness, c.Mode, c.Asks, c.Model, c.From
+	}
 	h, _ := d.of(id)
-	out := map[string]any{"defaults": d, "picked": b.Harness, "harness": id, "harnessName": orStr(h.Name, id), "mode": h.Mode, "asks": h.Asks, "net": h.Net, "ticket": h.NeedsTicket}
+	if mode == "" {
+		mode, asks = h.Mode, h.Asks
+	}
+	out := map[string]any{"defaults": d, "picked": b.Harness, "harness": id, "harnessName": orStr(h.Name, id), "mode": mode, "asks": asks, "net": h.Net, "ticket": h.NeedsTicket,
+		"model": model, "from": from, "chips": wsRunsOnChips(h, id, model, asks)}
 	if id == "" { // no coding agent may run there: xbind says why
 		out["line"] = orStr(d.Why, "No coding agent may run in this tile")
 	} else {
-		out["line"] = orStr(h.Name, id) + " · " + map[bool]string{true: "asks before acting", false: "acts without asking"}[h.Asks]
+		// (one fact a chip on the card — "chips", D250; the line, as before, for a view that draws text)
+		out["line"] = orStr(h.Name, id) + " · " + map[bool]string{true: "asks before acting", false: "acts without asking"}[asks]
 		if h.NoSignIn {
 			out["line"] = out["line"].(string) + " · no sign-in needed"
 		}
@@ -554,6 +567,33 @@ func handleWsBriefDefaults(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	xbin.WriteJSON(w, http.StatusOK, out)
+}
+
+// wsRunsOnChips is what a start would run on as the brief's card shows it:
+// one fact a chip, never a line joined with "·" (D250) — the coding agent,
+// its model where one is set, whether it asks, its sign-in.
+func wsRunsOnChips(h wsHarness, id, model string, asks bool) []map[string]string {
+	if id == "" {
+		return nil
+	}
+	chips := []map[string]string{{"text": orStr(h.Name, id), "kind": "harness"}}
+	if model != "" {
+		chips = append(chips, map[string]string{"text": "model " + model, "kind": "model"})
+	}
+	if asks {
+		chips = append(chips, map[string]string{"text": "asks before acting", "kind": "mode", "tone": "ok"})
+	} else {
+		chips = append(chips, map[string]string{"text": "acts without asking", "kind": "mode", "tone": "bad"})
+	}
+	switch {
+	case h.NoSignIn:
+		chips = append(chips, map[string]string{"text": "no sign-in needed", "kind": "signin"})
+	case h.SignIn == "needed" && h.SignInOffered:
+		chips = append(chips, map[string]string{"text": "signed out unless you tick your sign-in", "kind": "signin", "tone": "warn"})
+	case h.SignIn == "needed":
+		chips = append(chips, map[string]string{"text": "needs your sign-in", "kind": "signin", "tone": "warn"})
+	}
+	return chips
 }
 
 // handleWsBriefStart is "Review and start…" on a brief's card: it answers

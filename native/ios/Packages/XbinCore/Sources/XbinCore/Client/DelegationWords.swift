@@ -375,7 +375,9 @@ public enum DelegationWords {
     }
 
     /// A tile agent's start as the sheet's rows: the mode leads; one that
-    /// never asks is the danger wording, and Deny becomes the primary button.
+    /// never asks is the danger wording in the body, and Allow is coloured
+    /// as the danger it is, in its place — Deny is never made the primary
+    /// button (D250).
     public struct SessionRows: Sendable, Equatable {
         public var agent: String
         public var modeTag: String
@@ -406,7 +408,16 @@ public enum DelegationWords {
         /// change it (the web's words). "" where nothing is offered.
         public var signInTrustWhose: String = ""
         public var signInTrust: String = ""
+        /// Where xbind offers the person a pick of coding agent, model and
+        /// mode on the approval (D250's `choices`): the app approves xbind's
+        /// preselection, and says where the pick is. "" where none is offered.
+        public var picks: String = ""
     }
+
+    /// What the app says of a start whose coding agent, model and mode the
+    /// person may pick on the web's sheet (D250).
+    public static let picksOnWeb = "The coding agent, model and mode are as xbin preselected them. To pick others, review this start on the web."
+
 
     /// Whose tile it is and who else can change it — the web's
     /// `trustWords(...).whose`, from xbind's trust question.
@@ -468,7 +479,8 @@ public enum DelegationWords {
             network: net.isEmpty || net == "none" ? "Its model only. No internet." : "Network: \(net)",
             others: s["api"]?.boolValue == false ? "It can call no other tile." : "It can call the tile APIs this tile is granted.",
             brief: brief,
-            danger: asks ? "" : "Your workspace agent asked for a mode that never asks. You will not get a chance to stop a single edit or command.",
+            // (the agent can't pick a mode that never asks — D250: only the person can)
+            danger: asks ? "" : "\(who) in this mode acts without asking: it edits files and runs commands in \(t) without asking you. You will not get a chance to stop a single edit or command.",
             comes: "Its questions and permission requests come to you, in \(t) and in Needs you. Your workspace agent can't answer them.",
             briefBy: brief.isEmpty ? "" : s["briefBy"]?.stringValue == "xbin" ? briefByXbin : briefByAgent,
             signIn: offer ? runs : saved ? "Uses your saved \(who) sign-in"
@@ -476,7 +488,8 @@ public enum DelegationWords {
             signInHolds: saved ? "The tile's coding agent will hold that sign-in: it, and anything it runs in \(t), can read it." : "",
             signInTrustWhose: whose,
             signInTrust: offer ? "To use your saved \(who) sign-in for this session, allow it on the web: it is a line you tick there"
-                + (whose.isEmpty ? "." : ", with the tile's trust line under it.") + " Allowed here, the session has no saved sign-in." : "")
+                + (whose.isEmpty ? "." : ", with the tile's trust line under it.") + " Allowed here, the session has no saved sign-in." : "",
+            picks: s["choices"]?.objectValue != nil ? picksOnWeb : "")
     }
 
     private static func nonEmpty(_ s: String?) -> String? { (s ?? "").isEmpty ? nil : s }

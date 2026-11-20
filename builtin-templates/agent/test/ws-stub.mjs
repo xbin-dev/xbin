@@ -106,7 +106,7 @@ export function WS_STUB(seed) {
       Object.assign(b, JSON.parse(o.body || '{}'), { edited: true, updatedMs: Date.now() });
       return json({ brief: b });
     }],
-    ['GET', /\/ws\/sessions\/(\d+)\/briefs\/(\d+)\/start-defaults$/, () => json(S.startDefaults || { harness: 'claude', harnessName: 'Claude Code', asks: true, ticket: true, line: 'Claude Code · asks before acting',
+    ['GET', /\/ws\/sessions\/(\d+)\/briefs\/(\d+)\/start-defaults$/, () => json(S.startDefaults || { harness: 'claude', harnessName: 'Claude Code', asks: true, ticket: true, line: 'Claude Code · asks before acting', chips: [{ text: 'Claude Code', tone: '' }, { text: 'asks before acting', tone: 'ok' }],
       defaults: { harness: 'claude', harnesses: [{ id: 'claude', name: 'Claude Code', asks: true, needsTicket: true }] } })],
     ['POST', /\/ws\/sessions\/(\d+)\/briefs\/(\d+)\/start$/, (m) => json(S.startAnswer || { request: 'rq-brief-' + m[2], id: 77 })],
     ['GET', /\/ws\/needs$/, () => json({ items: [], count: 0 })],

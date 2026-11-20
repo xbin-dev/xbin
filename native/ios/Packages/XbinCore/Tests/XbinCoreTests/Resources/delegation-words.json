@@ -2256,7 +2256,7 @@
     "others": "It can call no other tile.",
     "brief": "Goal: add CSV export.\nDone when: the export test passes.",
     "briefBy": "Written by your agent",
-    "danger": "Your workspace agent asked for a mode that never asks. You will not get a chance to stop a single edit or command.",
+    "danger": "Claude Code in this mode acts without asking: it edits files and runs commands in Orders without asking you. You will not get a chance to stop a single edit or command.",
     "comes": "Its questions and permission requests come to you, in Orders and in Needs you. Your workspace agent can't answer them.",
     "runs": "",
     "trustWhose": ""
@@ -4343,7 +4343,7 @@
     "others": "It can call the tile APIs this tile is granted.",
     "brief": "Goal: export the ‮invoices‬.\nDone when: the test passes.",
     "briefBy": "Written by your agent",
-    "danger": "Your workspace agent asked for a mode that never asks. You will not get a chance to stop a single edit or command.",
+    "danger": "Claude Code in this mode acts without asking: it edits files and runs commands in Orders without asking you. You will not get a chance to stop a single edit or command.",
     "comes": "Its questions and permission requests come to you, in Orders and in Needs you. Your workspace agent can't answer them.",
     "runs": "",
     "trustWhose": ""
@@ -4479,7 +4479,7 @@
     "others": "It can call the tile APIs this tile is granted.",
     "brief": "Goal: add CSV export.\nDone when: the export test passes.",
     "briefBy": "Written by your agent",
-    "danger": "Your workspace agent asked for a mode that never asks. You will not get a chance to stop a single edit or command.",
+    "danger": "Claude Code in this mode acts without asking: it edits files and runs commands in Orders without asking you. You will not get a chance to stop a single edit or command.",
     "comes": "Its questions and permission requests come to you, in Orders and in Needs you. Your workspace agent can't answer them.",
     "runs": "",
     "trustWhose": ""
@@ -14446,7 +14446,7 @@
       "others": "It can call the tile APIs this tile is granted.",
       "brief": "Goal: pay ‮evil‬ now",
       "briefBy": "Written by your agent",
-      "danger": "Your workspace agent asked for a mode that never asks. You will not get a chance to stop a single edit or command.",
+      "danger": "Codex in this mode acts without asking: it edits files and runs commands in Dice without asking you. You will not get a chance to stop a single edit or command.",
       "comes": "Its questions and permission requests come to you, in Dice and in Needs you. Your workspace agent can't answer them."
      }
     },
@@ -16862,7 +16862,7 @@
       "others": "It can call the tile APIs this tile is granted.",
       "brief": "Goal: roll_dice.\nDone when: tools/list names it.",
       "briefBy": "Written by your agent",
-      "danger": "Your workspace agent asked for a mode that never asks. You will not get a chance to stop a single edit or command.",
+      "danger": "codex in this mode acts without asking: it edits files and runs commands in Dice without asking you. You will not get a chance to stop a single edit or command.",
       "comes": "Its questions and permission requests come to you, in Dice and in Needs you. Your workspace agent can't answer them."
      }
     }

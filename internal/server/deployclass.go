@@ -516,6 +516,7 @@ var routeClasses = map[string]RouteClass{
 	"GET /delegate/requests/{id}":            PrimaryOnly,
 	"POST /delegate/requests/{id}/approve":   PrimaryOnly,
 	"POST /delegate/requests/{id}/deny":      PrimaryOnly,
+	"POST /delegate/requests/{id}/retry":     PrimaryOnly,
 	"DELETE /delegate/requests/{id}":         PrimaryOnly,
 	"GET /delegate/approvals":                PrimaryOnly,
 	"POST /delegate/approvals":               PrimaryOnly,

@@ -65,6 +65,8 @@ type fakeXbin struct {
 
 	updates fakeUpdates // what has an update waiting, and a builtin.update line's outcome (ws_fake_updates_test.go; D248)
 
+	apx fakeApprovals // the person's pick on a start's approval, a start that fails to open, messages for approval (ws_fake_approvals_test.go; D250)
+
 	said  map[string][]string // messages delivered to each tile agent
 	calls []string            // every call made, in order ("Request r-1", "Call POST /api/…")
 }
@@ -660,6 +662,7 @@ func (f *fakeXbin) StartDefaults(_ context.Context, sid, tile string) (wsStartDe
 	for _, h := range f.harnesses {
 		d.Harnesses = append(d.Harnesses, wsHarness{ID: h.ID, Name: h.Name, Mode: "default", Asks: true, Net: "model", NeedsTicket: f.startAsk})
 	}
+	d.Chosen = f.apx.chosenFor(tile, d.Harness)
 	return d, nil
 }
 
@@ -740,6 +743,10 @@ func (f *fakeXbin) AgentStart(_ context.Context, sid string, a wsAgentStart, tic
 			ans.Dry.Tile = t.Path
 		}
 		return wsAgent{}, ans.Dry, err
+	}
+	// the person's pick on the approval is what opens (D250); a start that fails to open is xbind's to say
+	if ag, err, done := f.ticketedStart(sid, a, ticket); done {
+		return ag, nil, err
 	}
 	// xbind resolves the harness: the person's pick when the tile allows it,
 	// else their preference (here: the first)

@@ -73,13 +73,15 @@ test('the conversation: the agent\'s cards where it made them, a request and a t
   assert.match(plan.p.meta, /you said go ahead/);
   // a request xbind holds is named by xbind's id and nothing else: the app draws it
   const reqs = all(t.root, { t: 'request' });
-  assert.deepEqual(reqs.map((n) => n.p), [{ id: 'rq-11', kind: 'session' }, { id: 'rq-12', kind: 'call' }]);
-  assert.deepEqual(reqs.map((n) => n.e || []), [[], []], 'a request node takes no event of the tile\'s');
+  // (a brief's start is its brief's card — one item a pending act, D250 — never a request node beside it)
+  assert.deepEqual(reqs.map((n) => n.p), [{ id: 'rq-12', kind: 'call' }]);
+  assert.deepEqual(reqs.map((n) => n.e || []), [[]], 'a request node takes no event of the tile\'s');
   // a tile agent is xbind's session, by id
   assert.deepEqual(all(t.root, { t: 'session' }).map((n) => n.p), [{ id: 'ts-7', tile: 'sales/orders' }, { id: 'ts-8', tile: 'sales/invoices' }]);
   // the brief that started one, and xbin's refusal with the ways forward
   const brief = find(t, { t: 'card', p: { title: 'Brief for Orders’ agent' } });
   assert.equal(brief.p.badge, 'Started');
+  assert.ok(all(brief, { t: 'text' }).some((x) => /^Its start: allowed once by you/.test(x.p.text || '')), 'the brief carries what came of its start');
   assert.equal(all(brief, { t: 'button' }).length, 0, 'a started brief has nothing left to press');
   const refusal = find(t, { t: 'card', p: { title: 'Ledger is blocked by a rule' } });
   assert.deepEqual(all(refusal, { t: 'button' }).map((b) => b.p.label), ['Change the model…', 'Open scope']);
@@ -269,7 +271,9 @@ test('the brief: editable, and its one button files the start and asks the app t
   const card = find(r.snapshots.brief, { t: 'card', p: { title: 'Brief for Orders’ agent' } });
   assert.deepEqual(all(card, { t: 'button' }).map((b) => [b.p.label, b.p.role]), [['Review and start…', 'primary'], ['Edit', 'plain']]);
   assert.match(card.p.note, /the tile agent asks you before it acts/);
-  assert.ok(find(card, { t: 'text', p: { text: 'Claude Code · asks before acting' } }), 'what it will run on, from xbind');
+  // what it will run on, from xbind: each fact its own element (D250), never one line joined with "·"
+  assert.ok(find(card, { t: 'text', p: { text: 'Claude Code' } }) && find(card, { t: 'text', p: { text: 'asks before acting' } }), 'what it will run on, from xbind');
+  assert.ok(!JSON.stringify(card).includes('·'), 'no "·" on the brief');
   assert.deepEqual(all(find(r.snapshots.editing, { t: 'card' }), { t: 'field' }).map((f) => [f.p.label, f.p.kind]), [['Goal', 'multiline'], ['Done when', 'multiline'], ['Leave alone', 'multiline'], ['Check by', 'multiline']]);
   assert.equal(JSON.parse(sent(r, 'PUT', /\/briefs\/4$/)[0].body).goal, 'Export as CSV and XLSX');
   assert.equal(sent(r, 'POST', /\/briefs\/4\/start$/).length, 1);
@@ -353,7 +357,7 @@ test('an app from before these nodes still gets a native view: every addition ha
   for (const prim of ['card', 'connection', 'request', 'session']) assert.equal(find(t, { t: prim }), null, `no ${prim}`);
   // a request it can't review says so; a decided one is words; a tile agent is named
   assert.deepEqual(find(t, { t: 'notice', p: { title: W.updateToReview } }).p.text, 'Rebuild the order links on the 38 open invoices');
-  assert.ok(find(t, { t: 'notice', has: 'Allowed once by you' }));
+  assert.ok(find(t, { t: 'markdown', has: 'Its start: allowed once by you' }), 'what came of the brief\'s start, on its card');
   assert.ok(find(t, { t: 'notice', has: 'Orders · Claude Code — working' }));
   assert.ok(find(t, { t: 'notice', has: 'Invoices · Claude Code — waiting for you' }));
   // the plan's tags ride in its lines; the question is the rev-1 form; cards are words

@@ -84,6 +84,16 @@ type DelegateStart struct {
 	// Prefs: the person's preferences for sessions their agent starts
 	// without asking; nil when they allow none.
 	Prefs *delegation.StartPrefs
+	// Model is the model the session starts on — the person's pick on the
+	// approval, or their preference's (D250); "" the harness's own default.
+	// With Picked the open takes Provider, Mode and Model as these say,
+	// whatever the request's body named (the agent's suggestion).
+	Model  string
+	Picked bool
+	// Continue is a live session of the agent's on the same tile that the
+	// person chose to continue instead of opening one (D250): the start's
+	// first prompt goes to it.
+	Continue string
 }
 
 // EffectiveStart is what a delegate's session start amounts to once the
@@ -175,7 +185,7 @@ func (m *Manager) DelegateStartSource(userID, rel, harness, asked string) (held 
 	if !rule.Forced {
 		return false, nil
 	}
-	if asked != "" {
+	if asked = connectorModelID(harness, asked); asked != "" {
 		models = append(models, asked)
 	}
 	if m.LLM != nil {
@@ -184,6 +194,17 @@ func (m *Manager) DelegateStartSource(userID, rel, harness, asked string) (held 
 		}
 	}
 	return true, models
+}
+
+// connectorModelID is model as the connector names it: a harness writes
+// the connector's models with its own prefix (OpenCode: "xbin/<id>",
+// acp.Connector.ModelPrefix), which is no part of the model an org's rule
+// is asked about (D250 review M3).
+func connectorModelID(harness, model string) string {
+	if prov, ok := agent.Lookup(harness); ok && prov.Connector != nil && prov.Connector.ModelPrefix != "" {
+		return strings.TrimPrefix(model, prov.Connector.ModelPrefix)
+	}
+	return model
 }
 
 // AgentConnectorModel is the connector's model that live agent session id
@@ -268,8 +289,8 @@ func (m *Manager) delegateOpen(p auth.Principal, a *AgentOpen, rel string, prov 
 		// opens (a resumed session's harness, say) is another
 		return "", "", who + "starts without asking only the harness its person's preference is for: that preference is for " + cmp.Or(d.Provider, "none") + ", and this would open " + prov.ID
 	}
-	mode = cmp.Or(d.Prefs.Mode, prov.DefaultMode)
-	if !prov.Asks(mode) { // whatever the store handed over: unasked, only a mode that asks before every edit and command
+	mode = cmp.Or(d.Prefs.Mode, prov.AskingMode()) // (the one asking mode start-defaults says too: D250 review M2)
+	if !prov.Asks(mode) {                          // whatever the store handed over: unasked, only a mode that asks before every edit and command
 		return "", "", who + "starting without asking needs a mode known to ask its person: choose one for " + prov.ID + " in the agent preferences"
 	}
 	a.NoAPI = !d.Prefs.API
@@ -284,6 +305,30 @@ func DelegateProvider(a AgentOpen) string {
 		return a.Delegate.Provider
 	}
 	return a.Provider
+}
+
+// ConnectorModels are the models a new agent session of prov that userID
+// opens on tile may be started on through the workspace's LLM connector,
+// as its CLI writes them (the harness's ModelPrefix + the connector's id),
+// and the default among them; ok false where the connector doesn't serve
+// prov there — its models are then the CLI's own, known once a session
+// runs (D250: the approval's Model picker).
+func (m *Manager) ConnectorModels(ctx context.Context, userID, tile string, prov agent.Provider) (models []string, def string, ok bool) {
+	if m.LLM == nil || prov.Connector == nil || prov.Connector.ModelOption == "" {
+		return nil, "", false
+	}
+	offer, ok := m.LLM.Offer(ctx, llmUser(openOpts{userID: userID}), tile, KindAgent)
+	if !ok || !offer.Agents || llmWhyNot(prov, offer) != "" {
+		return nil, "", false
+	}
+	k := prov.Connector
+	for _, cm := range offer.Models {
+		models = append(models, k.ModelPrefix+cm.ID)
+	}
+	if offer.Model != "" {
+		def = k.ModelPrefix + offer.Model
+	}
+	return models, def, len(models) > 0
 }
 
 // AgentEnded says how an agent session of p that is no longer live ended:

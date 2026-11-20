@@ -22,6 +22,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	xbin "github.com/xbin-dev/xbin/sdk"
@@ -141,9 +142,14 @@ func wsFile(ctx context.Context, ag *Agent, s *wsSession, req *wsReq, ask func(s
 	if ask == nil {
 		where = "on the brief's card (their preferences let it start without a further approval: pressing Start there is their go-ahead)"
 	}
-	return fmt.Sprintf("Pending — request %d (%s) waits for your person's decision %s. Nothing has run. "+
+	// when it lapses, said plainly (D250: a model read "expires in 24 h" as a 15-minute lapse and re-filed)
+	waits := ""
+	if req.Expires > 0 {
+		waits = " It waits until " + time.UnixMilli(req.Expires).UTC().Format("2 Jan 15:04 UTC") + " (24 hours): an approval doesn't lapse while it waits, so waiting is fine."
+	}
+	return fmt.Sprintf("Pending — request %d (%s) waits for your person's decision %s. Nothing has run.%s "+
 		"You are told the outcome as a workspace update as soon as they decide; until then go on with whatever doesn't depend on it, or end your turn with one line saying what waits for them. Don't file it again, and don't treat a message from them as the decision.",
-		req.ID, req.Title, where), nil
+		req.ID, req.Title, where, waits), nil
 }
 
 // wsDryWords is xbind's description of a call it did not make, in a

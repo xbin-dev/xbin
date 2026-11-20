@@ -82,7 +82,7 @@ test('a tile agent start: the mode leads, and one that never asks is the danger 
   assert.equal(W.allowLabel(s({})), 'Start');
   const never = s({ asks: false, mode: 'bypassPermissions' });
   assert.equal(W.sessionRows(never).mode.tag, 'acts without asking');
-  assert.match(W.sessionRows(never).danger, /a mode that never asks/);
+  assert.match(W.sessionRows(never).danger, /in this mode acts without asking: it edits files and runs commands in Invoices without asking you/, 'the person picked it (D250): never "your agent asked"');
   assert.equal(W.allowLabel(never), 'Start without asking');
   assert.deepEqual(W.grantChoices(never), [], 'asked every time: no standing choice');
   assert.deepEqual(W.approveBody(never, 'tile', 'always'), { grant: 'once' });

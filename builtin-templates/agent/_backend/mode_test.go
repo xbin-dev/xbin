@@ -125,9 +125,7 @@ func TestNotePartitionID(t *testing.T) {
 	t.Setenv("XBIN_COMPONENT", "apps/agent")
 	setMode(t, modeUser, "alice")
 	ag := newTestAgent(t, newTestDB(t))
-	old := agent
-	agent = ag
-	t.Cleanup(func() { agent = old })
+	useGlobalAgent(t, ag)
 	if agentHome() != "user:alice" {
 		t.Fatalf("before any call: home %q, want the partition key", agentHome())
 	}

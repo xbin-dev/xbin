@@ -154,12 +154,17 @@ export function compose(blocks, cards, run, opts = {}) {
   }
   for (const b of list) if (b.k === 'step' && b.kind === 'ask' && (!b.detail || b.detail.kind === 'ask_user' || !b.detail.kind)) slot(b.id).hide = true;
 
-  // briefs: in place of the tile_agent_brief call that wrote them (their callId), else by time
+  // briefs: in place of the tile_agent_brief call that wrote them (their callId), else by time. ONE card a start
+  // (D250): a brief's card carries its latest request — waiting, or what came of it — and no request card of
+  // its own is drawn beside it
   const briefAt = new Map(); // brief id → its card's anchor
   const briefs = Array.isArray(c.briefs) ? c.briefs : [];
+  const reqsAll = Array.isArray(c.requests) ? c.requests : [];
+  const ofBrief = new Map(); // brief id → its latest request
+  for (const q of reqsAll) if (q.brief && (!ofBrief.has(q.brief) || (ofBrief.get(q.brief).createdMs || 0) <= (q.createdMs || 0))) ofBrief.set(q.brief, q);
   for (const br of briefs) {
     const call = br.callId && byCall.get(br.callId);
-    const blk = host('brief', 'ws:brief:' + br.id, br);
+    const blk = host('brief', 'ws:brief:' + br.id, ofBrief.has(br.id) ? { ...br, request: ofBrief.get(br.id) } : br);
     if (call) { place(blk, call.id, 'replace'); briefAt.set(br.id, call.id); } else { const a = anchorAt(br.createdMs || 0); place(blk, a); briefAt.set(br.id, a); }
   }
 
@@ -168,6 +173,7 @@ export function compose(blocks, cards, run, opts = {}) {
   const reqAt = new Map();
   const reqs = (Array.isArray(c.requests) ? c.requests : []).slice().sort((a, b) => (a.createdMs || 0) - (b.createdMs || 0) || a.id - b.id);
   for (const q of reqs) {
+    if (q.brief && briefAt.has(q.brief)) { reqAt.set(q.id, briefAt.get(q.brief)); continue; } // its brief's card is the one card (D250)
     const blk = host('request', 'ws:req:' + q.id, q);
     const call = q.callId && byCall.get(q.callId);
     if (call && !(at.get(call.id) && at.get(call.id).replace)) { place(blk, call.id, 'replace'); reqAt.set(q.id, call.id); continue; }

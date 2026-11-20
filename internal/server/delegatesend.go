@@ -12,7 +12,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/xbin-dev/xbin/internal/agent"
 	"github.com/xbin-dev/xbin/internal/agentpolicy"
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/term"
@@ -55,6 +54,11 @@ func (s *Server) drivesRefusal(p auth.Principal, id string) string {
 //     holds data of (sendRefusal).
 func (s *Server) delegateSends(w http.ResponseWriter, r *http.Request, id, text string) bool {
 	why, refusal := s.sendsRefusal(auth.PrincipalOf(r), id, text)
+	if refusal == "mode" && messageApproved(r, id) {
+		// its person approved exactly this message to this session, as it is now (delegatemessage.go): the mode
+		// rule's way forward — the taint and the command rules still hold
+		why, refusal = s.sendsRefusalPast(auth.PrincipalOf(r), id, text)
+	}
 	if why == "" {
 		return true
 	}
@@ -73,21 +77,45 @@ func (s *Server) sendsRefusal(p auth.Principal, id, text string) (why, refusal s
 	}
 	why, refusal = harnessCommand(text), "command"
 	if why == "" {
-		why, refusal = modeRefusal(info, s.Term.AgentOriginMode(id), p.UserID), "mode"
+		why, refusal = s.sessionModeRefusal(id, info, p.UserID), "mode"
 	}
 	if why == "" {
-		t := sendTargetOf(info)
-		if t.served == agentpolicy.ServedConnector {
-			// the connector's model it calls — the row's is the harness's own
-			// name for its setting, which needn't be one of the connector's
-			t.model = s.Term.AgentConnectorModel(id)
-		}
-		why, refusal = s.sendRefusal(p, t), "taint"
+		why, refusal = s.sendRefusal(p, s.liveTarget(id, info)), "taint"
 	}
 	if why == "" {
 		return "", ""
 	}
 	return why, refusal
+}
+
+// sendsRefusalPast is sendsRefusal without the mode rule: for a message
+// its person approved (D250).
+func (s *Server) sendsRefusalPast(p auth.Principal, id, text string) (why, refusal string) {
+	info, live := s.Term.Info(id)
+	if !live {
+		return "", ""
+	}
+	if why := harnessCommand(text); why != "" {
+		return why, "command"
+	}
+	if why := s.sendRefusal(p, s.liveTarget(id, info)); why != "" {
+		return why, "taint"
+	}
+	return "", ""
+}
+
+// liveTarget is live session id as what is sent to it reaches a model: its
+// tile, who serves it now, and — on the connector — the connector's model
+// it calls (the row's model is the harness's own name for its setting,
+// which needn't be one of the connector's). A message to it, and a start
+// that continues it (D250 review M3), are judged on this — never on what a
+// new start there would run on.
+func (s *Server) liveTarget(id string, info term.SessionInfo) sendTarget {
+	t := sendTargetOf(info)
+	if t.served == agentpolicy.ServedConnector {
+		t.model = s.Term.AgentConnectorModel(id)
+	}
+	return t
 }
 
 // harnessCommand is why text may not go to a tile agent from a person's
@@ -103,10 +131,29 @@ func harnessCommand(text string) string {
 // modeRefusal is why a session in info's current mode takes no message
 // from its person's agent: the mode doesn't ask before every edit and
 // command (acp.Provider.Asks), and it isn't the mode the person approved
-// the session in (started: "" for a session that isn't the agent's).
+// the session in (started: "" for a session that isn't the agent's) — or
+// its coding agent has no mode xbin can vouch for at all (OpenCode, D250
+// review M2: a writer to the tile can redefine what each of its modes
+// does), so what the person approved names no behaviour: each message is
+// theirs to approve.
+// sessionModeRefusal is modeRefusal for live session id: on the mode it
+// reports, and on a mode a switch asked for that it hasn't reported yet —
+// the one it may be in by the time the text reaches it (D250 re-review 4b).
+func (s *Server) sessionModeRefusal(id string, info term.SessionInfo, user string) string {
+	started := s.Term.AgentOriginMode(id)
+	if why := modeRefusal(info, started, user); why != "" {
+		return why
+	}
+	if pending := s.Term.AgentPendingMode(id); pending != "" {
+		in := info
+		in.Mode = pending
+		return modeRefusal(in, started, user)
+	}
+	return ""
+}
+
 func modeRefusal(info term.SessionInfo, started, user string) string {
-	prov, ok := agent.Lookup(info.Provider)
-	if ok && prov.Asks(info.Mode) || started != "" && info.Mode == started {
+	if term.MessageModeOK(info.Provider, info.Mode, started) { // (the one predicate: the held queue's delivery uses it too)
 		return ""
 	}
 	return "this session is now in the mode " + strconv.Quote(info.Mode) + ", which doesn't ask before it acts, and " + user + " didn't approve it in that mode: it takes no messages from their agent until they switch it back (or they send them)"
@@ -164,6 +211,17 @@ func (s *Server) sendRefusal(p auth.Principal, t sendTarget) string {
 // would run on its person's own sign-in, or by a choice, is vouched for by
 // nothing.
 func (s *Server) startRefusal(p auth.Principal, ask sessionAsk) (refusal, why string) {
+	if refusal, why := s.startScopeRefusal(p, ask); why != "" {
+		return refusal, why
+	}
+	return s.startTaintRefusal(p, ask)
+}
+
+// startScopeRefusal is startRefusal's first half: what the brief says
+// (a harness command) and where (a tile hidden from the person or outside
+// the conversation's scope) — what holds whether the start opens a session
+// or continues the one there.
+func (s *Server) startScopeRefusal(p auth.Principal, ask sessionAsk) (refusal, why string) {
 	if why := harnessCommand(ask.Prompt); why != "" {
 		return "command", why
 	}
@@ -179,6 +237,13 @@ func (s *Server) startRefusal(p auth.Principal, ask sessionAsk) (refusal, why st
 			return "hidden", hiddenByScope(p.UserID)
 		}
 	}
+	return "", ""
+}
+
+// startTaintRefusal is startRefusal's second half: the conversation's taint
+// against the model a NEW session there would run on (a continued session
+// is judged on its live source instead: liveTarget).
+func (s *Server) startTaintRefusal(p auth.Principal, ask sessionAsk) (refusal, why string) {
 	if h, ok := s.handleOf(p); !ok || len(h.Tainted) == 0 {
 		return "", "" // nothing to hold it to: don't resolve a harness for it
 	}
@@ -216,6 +281,12 @@ type sessionAsk struct {
 	Resume                           string
 	Model                            string
 	Options                          map[string]string
+	// Continue: the agent's own idle session on the tile, which the start
+	// continues unless its person starts a new one (D250) — always asked
+	Continue string
+	// Kind and Signin: what the body says it is, and a saved sign-in it
+	// names — neither is a workspace agent's to get wrong or to pick
+	Kind, Signin string
 	// planned: the tile is one an earlier line of the same plan makes
 	// (previewStart): it isn't there yet, by design. Never read from a body.
 	planned bool
@@ -234,10 +305,14 @@ func sessionAskOf(body []byte) sessionAsk {
 // and the body names no mode or picker of its own (naming one is asking
 // for something else). What a dry run of a start answers.
 func (s *Server) startsUnasked(p auth.Principal, ask sessionAsk) bool {
-	if ask.Mode != "" || ask.Net != "" || ask.API != nil || ask.VM || ask.Resume != "" {
+	if ask.Mode != "" || ask.Net != "" || ask.API != nil || ask.VM || ask.Resume != "" || ask.Continue != "" {
+		return false
+	}
+	provider, _, differs := s.unaskedStart(p, ask) // the person's own choice of coding agent and model wins (D250)
+	if differs != "" {
 		return false
 	}
 	def := s.startDefaults(p, ask.Cwd)
-	h, ok := def.of(cmp.Or(ask.Provider, def.Harness))
+	h, ok := def.of(cmp.Or(provider, def.Harness))
 	return ok && !h.NeedsTicket
 }

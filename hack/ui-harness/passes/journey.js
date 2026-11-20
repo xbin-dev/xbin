@@ -93,9 +93,13 @@ async function boot(name, o = {}) {
     }, null, 1) + '\n');
     fake = spawn(path.join(REPO, 'bin/fakeopenai'), ['-addr', FAKE], { cwd: REPO, stdio: ['ignore', out('fakeopenai.log'), out('fakeopenai.err')] });
   }
-  if (o.plant) plant(ws); // the scripted coding agent's binary, where the dice tile will be made (a real one comes from the rootfs)
+  // the scripted coding agent's binary, where the dice tile will be made (a real one comes from the rootfs) — or
+  // in another tile (o.fake: {tile, args}: its arguments, e.g. --no-default-mode, which makes it a coding agent
+  // whose catalog names no default mode, as OpenCode's does)
+  const fakeTile = (o.fake && o.fake.tile) || DICE;
+  if (o.plant || o.fake) plant(ws, fakeTile);
   const env = { ...process.env, XBIN_SDK_PATH: path.join(REPO, 'sdk'), XBIN_BIN: path.join(REPO, 'bin'), XBIN_LLM_CONFIG: path.join(dir, 'llm.jsonc'),
-    XBIN_AGENT_FAKE: path.join(ws, DICE, '.bin', 'fakeacp') };
+    XBIN_AGENT_FAKE: [path.join(ws, fakeTile, '.bin', 'fakeacp'), ...((o.fake && o.fake.args) || [])].join(' ') };
   if (o.real) delete env.XBIN_AGENT_FAKE; // the coding agents are the rootfs's own
   if (o.llm === false) delete env.XBIN_LLM_CONFIG;
   delete env.XBIN_VAULT_PASSPHRASE; // manual unseal, the installer's default: the vault boots unconfigured
@@ -124,9 +128,9 @@ async function boot(name, o = {}) {
   return { url: URL, dir, ws, token: fs.readFileSync(path.join(ws, '.xbin', 'token'), 'utf8').trim(), stop };
 }
 
-/** plant(ws): the scripted coding agent's binary inside the dice tile's directory — which need not be a tile yet (its sandbox sees its own directory). */
-function plant(ws) {
-  const tile = path.join(ws, DICE);
+/** plant(ws, tile): the scripted coding agent's binary inside the dice tile's directory (or tile's) — which need not be a tile yet (its sandbox sees its own directory). */
+function plant(ws, at = DICE) {
+  const tile = path.join(ws, at);
   fs.mkdirSync(path.join(tile, '.bin'), { recursive: true });
   fs.copyFileSync(path.join(REPO, 'bin/fakeacp'), path.join(tile, '.bin', 'fakeacp'));
   fs.chmodSync(path.join(tile, '.bin', 'fakeacp'), 0o755);

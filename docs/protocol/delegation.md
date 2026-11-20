@@ -251,8 +251,16 @@ GET    /delegate/start-defaults  the person's agent. ?tile= → {tile,
                                  have one to tick) — "connector",
                                  "own" (the tile's own login, as a session
                                  last saw it) or "needed" (none: the
-                                 person signs in first). 403 without
-                                 terminal access to the tile
+                                 person signs in first). chosen: {harness,
+                                 model, mode, asks, from: {harness, model,
+                                 mode}} — what a start filed now would
+                                 preselect on the approval, and where each
+                                 part came from (D250, §The person's
+                                 pick): the agent reads its person's
+                                 choice here, and names a coding agent,
+                                 model or mode in a start only where the
+                                 person named one. 403 without terminal
+                                 access to the tile
 GET    /delegate/map            a person, or their agent. {user, tiles:
                                  [{tile, title, kind: "app" | "page",
                                  orgs, state, agent, tileAgents}],
@@ -346,7 +354,9 @@ GET    /docs/page               signed in. ?path=&section= → {path, title,
   CURRENT mode doesn't ask before every edit and command and isn't the
   mode its person approved the start in: one they have since switched to
   such a mode takes no more of the agent's messages until they switch it
-  back. The person's own messages are never judged by these.
+  back — or until the person approves that one message: a request of kind
+  `message` (§Approval requests and tickets). The person's own messages
+  are never judged by these.
 - **Taint from elsewhere.** What the agent keeps itself (its notebook) is
   stamped with orgs by the agent: before reading a page into a
   conversation it asks `…/allows` for the page's orgs, and after reading
@@ -377,7 +387,7 @@ replaces, so it reaches nothing those don't (D246):
  cron?: [{name, schedule, path, next?, lastRun?, lastStatus?, dormant?}],
  log: {shown, lines?, why?},
  sessions: [{id, by: person | "this agent" | "another agent", status, mode?,
-             provider?, waits?, turn?, last?}]}
+             provider?, model?, asks, started?, since?, waits?, turn?, last?}]}
 ```
 
 | Part | As | Its gate |
@@ -391,7 +401,7 @@ replaces, so it reaches nothing those don't (D246):
 | slots declared, provides, exposes | the manifest (`GET /code/file?file=xbin.json`) | read |
 | `cron` | `GET /cron/jobs` as the person's terminal on the tile lists its own — the one part no delegate read gives (`GET /cron/jobs` is never delegated), said at `GET /logs`' gate, whose lines tell of the same runs; a name past 64 characters cut short | a workspace admin, or terminal level (on a partitioned tile, whose terminals list their partition's: an admin) |
 | `log` | `GET /logs` (its last 30 lines, 4 KiB) | terminal level, on a tile that isn't partitioned (each partition keeps its own); else `shown: false` and why |
-| `sessions` | the person's `GET /term/sessions?compact=1` | their own sessions |
+| `sessions` | the person's `GET /term/sessions?compact=1`, with each one's model, whether its mode asks before acting (`asks`), when it started and when it last did something (`since`) — what the agent needs to follow up in the session that is there (D250) | their own sessions |
 
 The request is held as any read that names a tile: one answer for a tile
 that isn't there or that the person can't read (`403 {refusal: "tile"}`),
@@ -868,7 +878,7 @@ with the person's partition).
 
 | `kind` | When | `id` |
 |---|---|---|
-| `request` | an approval request was approved, denied, withdrawn, used, or expired | the request |
+| `request` | an approval request was approved, denied, withdrawn, used, failed, approved again by its person's Try again, or expired | the request |
 | `approval` | a standing approval was added or taken back | the approval |
 | `changeset` | a change set was decided, applied or withdrawn | the set |
 | `state` | the person paused or resumed their agent, or changed what it may propose or reach (the web, MCP tools); delegation was switched on or off for the workspace, or its web and MCP policy changed | — |
@@ -1103,7 +1113,13 @@ agent's sandbox can ask and can read, and nothing more.
 ```
 POST   /delegate/requests       the person's agent only. {method, path,
                                  body? | bodyBase64?, contentType?,
-                                 summary?} → the request, pending. path is
+                                 summary?, knows?: ["retry"]} → the
+                                 request, pending. knows ["retry"] (a
+                                 start): the backend waits for its
+                                 person's Try again on a start that failed
+                                 for a reason not its own (§A start that
+                                 fails) — without it, the open's answer
+                                 comes back as it is. path is
                                  the call's path under /api/ with its query
                                  (at most 2048 bytes, no _method); the body
                                  at most 256 KiB; contentType the
@@ -1112,12 +1128,20 @@ POST   /delegate/requests       the person's agent only. {method, path,
                                  none is said). Only a call that needs
                                  approval (400 otherwise): a non-GET call
                                  to a tile's API, POST /term/sessions,
-                                 POST /templates/new. 403 when the tile or
-                                 its org refuses the call anyway; 409 past
-                                 20 pending
+                                 POST /templates/new, and a message to a
+                                 session the agent started whose mode
+                                 doesn't ask (POST /api/xbin/term/
+                                 sessions/<id>/prompt or …/queue, body
+                                 {text}: kind "message" — 400 where the
+                                 session asks: send it, no approval
+                                 needed). 403 when the tile or its org
+                                 refuses the call anyway; 409 past 20
+                                 pending
 GET    /delegate/requests       the person, or their agent's page.
                                  {requests}, oldest first; ?all=1 adds the
-                                 ones decided in the last day
+                                 ones decided in the last day; ?failed=1
+                                 the starts that failed and may be tried
+                                 again (failure.retry)
 GET    /delegate/requests/<id>  the person, their agent's page, or their
                                  agent (it polls: state approved = a
                                  ticket)
@@ -1127,15 +1151,36 @@ POST   /delegate/requests/<id>/approve
                                  {grant?: "once" | "hour" | "always",
                                  scope?: "call" | "tile", unseen?: true,
                                  signin?: true, trust?: true,
-                                 via?: "notification"}
-                                 → {request, approval?, trust?}. signin: a
+                                 via?: "notification", harness?, model?,
+                                 mode?, remember?: true, continue?: false,
+                                 knows?: ["continue"], seen?: {signInId?,
+                                 net?}}
+                                 → {request, approval?, trust?}. harness,
+                                 model, mode: a tile agent start's, as the
+                                 person picked them on the sheet (D250,
+                                 §The person's pick) — absent, what the
+                                 preview shows; remember: keep the pick for
+                                 the tile; knows ["continue"]: the client
+                                 shows a continue (preview.session.
+                                 continue), which the approval then is
+                                 unless continue: false. signin: a
                                  tile agent's start whose sheet offered
                                  the person's saved sign-in (preview.
                                  session.signInId), ticked — without it
                                  the session has none. trust: its trust
                                  line (signInTrust), ticked with it — "I
                                  trust this tile's source"; 409 {changed}
-                                 when the tile is no longer as shown. via: the person
+                                 when the tile is no longer as shown.
+                                 seen: what the sheet showed of a start
+                                 xbind resolves when it is approved (the
+                                 sign-in offered, the network; "" for
+                                 none) — required, both, with harness,
+                                 model, mode, remember or continue, or a
+                                 continue the client knows (400 without);
+                                 where it would now be otherwise, 409
+                                 {error, changed, reload: true}, nothing
+                                 decided: load the request again and show
+                                 it. via: the person
                                  decided from a notification's action
                                  (D241): only once, and only a request the
                                  lock-screen rule passes (§Events and
@@ -1154,6 +1199,17 @@ POST   /delegate/requests/<id>/approve
 POST   /delegate/requests/<id>/deny
                                  the person. {via?: "notification"} →
                                  {request}
+POST   /delegate/requests/<id>/retry
+                                 the person, in their own session.
+                                 {harness?, model?, mode?, signin?: true,
+                                 trust?: true, seen?} — the sheet again,
+                                 its earlier picks preselected; validated
+                                 as an approval's, and no earlier tick
+                                 carried over (signin only as ticked now).
+                                 A start that failed to open for a reason
+                                 that isn't the agent's (state failed,
+                                 failure.retry) is a ticket again, for 15
+                                 minutes → {request}. 409 otherwise
 DELETE /delegate/requests/<id>  the person, or their agent. withdraws a
                                  pending or approved request
 ```
@@ -1161,13 +1217,22 @@ DELETE /delegate/requests/<id>  the person, or their agent. withdraws a
 A request:
 
 ```
-{id, user, agent, kind: "call" | "session" | "template",
+{id, user, agent, kind: "call" | "session" | "template" | "message",
  method, target, tile?, contentType?, body?, bodyShown, bodySize, bodySha256,
- summary?, preview: {class, tile?, owner?, level?, role?, standing?, session?},
- state: "pending" | "approved" | "denied" | "used" | "expired" | "withdrawn",
+ summary?, preview: {class, tile?, owner?, level?, role?, standing?, session?, message?},
+ state: "pending" | "approved" | "denied" | "used" | "expired" | "withdrawn" | "failed",
  grant?, created, decided?, expires, decidedVia?, decidedFrom?, decidedDevice?,
- withdrawnBy?}
+ withdrawnBy?, chosen?: {provider, model?, mode?, remember?, continue?},
+ failure?: {at, why, retry?}, retries?}
 ```
+
+`chosen` is what the person picked on a start's approval — what opens.
+`failed` is a start that was approved and made, and didn't open; `failure.
+why` says why in xbind's words, and `failure.retry` that the reason isn't
+the agent's (the coding agent or the sandbox didn't start): the person's
+Try again (`…/retry`) makes it a ticket once more, and the agent is told
+(a `request` notice: it is approved again) to make the same start. A kind a client doesn't
+know is never one it decides: it says to review it where it can.
 
 `body` is shown while the request is pending or approved, when it is text.
 A body that isn't — not UTF-8, or with control characters — sets
@@ -1188,7 +1253,12 @@ providerName, mode, asks, options, net, api, vm, gpu, model, name,
 resume}`: the harness and mode the session **will** run in — a resumed
 session's come from its history when the request names none — and every
 option the start carries; `asks: false` means the mode lets the tile agent
-act without asking — say so on the card. A pending request expires after 24
+act without asking — say so on the card. A new session's start also
+carries what the person may pick (§The person's pick): `choices`,
+`from`, `suggested?`, `modeNotTaken?` and `continue?`. For a message,
+`preview.message` is `{session, provider, providerName, mode, asks: false,
+model, name, status, text}` — show the whole text: approving sends exactly
+it, once, to that session. A pending request expires after 24
 hours; decided and withdrawn ones are kept a day, 200 a person at most.
 
 **What a start leaves out, xbind fills.** A start may name only its tile
@@ -1255,7 +1325,17 @@ it is ended. **Nothing the agent sends the session afterwards is approved
 one by one**: `…/prompt` and `…/queue` on a session it started are free
 acts. What stands between a later message and a change is the session's
 own mode — a mode that asks its person (`asks: true`) asks them, whatever
-the workspace agent told it.
+the workspace agent told it. A message held behind a running turn
+(`…/queue` answered `queued`) is judged again when it goes in: if the
+session was switched meanwhile to a mode that acts without asking, it
+isn't delivered — the session's `queue` event names it in `returned`,
+with `reason`, and a notice says it ([agents.md](/docs/protocol/agents.md));
+the agent's own read of its sessions (`GET /term/sessions?compact=1`)
+carries `returned: [{id, text, reason, at}]`, its own held messages the
+session didn't take; sending one then takes a message approval, as any
+message to such a session does. A mode switch a client asked for that
+the coding agent hasn't answered yet counts as the session's mode too —
+at that delivery and at the send gate.
 
 **Starting a tile agent.** With a ticket the session opens as the person
 approved it — the harness and mode on the card, which no option of the
@@ -1270,6 +1350,120 @@ its options only a model or a thinking level is set — any other ends it.
 A preference applies to the harness it was set for, in a mode that asks.
 Also: and the session's row carries `origin: "agent"`. An agent
 resumes only past sessions it started.
+
+### The person's pick
+
+**A start's ticket binds what the agent chose; the person picks what it
+runs on** (D250). The ticket binds the tile, the brief (the body, by its
+hash) and the kind of act. The coding agent, its model and its mode are
+the person's, picked on xbin's sheet when they approve — among exactly
+what they could pick starting a session there by hand: a harness the
+tile's orgs allow, one of its modes, a model the workspace's connector
+serves for it there (or the harness's own default). What the start's body
+names (`provider`, `model` or `options.model`, `mode`) is the agent's
+**suggestion**; a plan's `agent.start` line takes `harness`, `model` and
+`mode` the same way, and shows the chain's result with where each came
+from. A new session's `preview.session` carries:
+
+```
+choices: {harnesses: [{id, name, defaultMode, modes: [{id, name, asks, explicit?}],
+                       models: [{id, from?: "connector" | "tile" | "preference" | "agent"}],
+                       modelsKnown, noSignIn?, signIn?, signInId?, signInTrust?}]},
+from: {harness, model, mode},        // "tile" | "preference" | "agent" | "default"
+suggested?: {harness?, model?, mode?},
+modeNotTaken?: "<mode>",             // suggested, doesn't ask: not preselected
+harnessNotTaken?: "<harness>",       // suggested, has no mode that asks: not preselected
+continue?: {session, provider, providerName, mode, asks, model, name, started, since,
+            signIn, signInId?, signInName?}
+```
+
+- **Preselected by one chain, per field**: this tile's remembered choice
+  (`agentSessions.tiles`, [agents.md](/docs/protocol/agents.md)) > the
+  person's preference > the agent's suggestion > the workspace's default;
+  `from` says which. The default mode is the harness's asking one
+  (`defaultMode`) — for a coding agent whose entry names no default mode
+  but lists a mode that asks, that one: the start is strict, so it opens
+  in it or not at all (the agent is switched before the brief goes; one
+  that refuses the switch never gets it). **A coding agent with no mode xbin can vouch asks** —
+  OpenCode, whose modes ask or act by its own permission configuration,
+  which xbin doesn't set: the agent's suggestion of it is not preselected
+  (`harnessNotTaken`, warned); the person's own choice of it (remembered
+  for the tile, or their preference) is — with the warning, `asks:
+  false`, every time; it never starts without asking (403
+  `needs-approval`: "your person's coding agent for this tile acts
+  without asking, so every start is approved on the sheet"); a message
+  from the agent to a session of it is always a message approval; and a
+  plan's `agent.start` line that resolves to it carries the warning, so
+  the review starts it unticked. The workspace's default is a coding
+  agent that asks wherever the tile allows one — OpenCode only where it
+  is all the tile allows, warned.
+- **A suggested mode that doesn't ask is never preselected**: the asking
+  default is, `modeNotTaken` names the suggestion, and the sheet warns
+  beside it; only the person's own pick makes the start a mode that acts
+  without asking. An `explicit` (bypass) mode is never preselected at all.
+- **A sign-in is never suggested or picked here**: D230's unticked line
+  (`signin`) stands, offered for the harness the person picks.
+- `modelsKnown: false`: the harness's own models are only known once a
+  session runs — the list is "its default" plus what xbind knows; say so.
+- **The approve call carries the pick** (`harness`, `model`, `mode`,
+  `remember`), validated as a by-hand start's: 400 for a field that isn't
+  a start's or a resumed session's, 409 for a pick that can't open
+  ("this start can't open as you picked it: …"), nothing decided either
+  way. `remember: true` keeps for the tile only what the person CHANGED on
+  the sheet — not what was preselected from the agent's suggestion: the
+  coding agent and model (any coding agent's), and the mode only when it
+  asks. The store refuses a mode that acts without asking, and a read
+  ignores one found there (a value an earlier xbind saved under looser
+  rules is ignored, never an error: it never blocks a later write).
+  The request records it
+  as `chosen`, and the agent is told what ran (the session's row, its
+  `request` notice). Changing the coding agent, model or mode is never an
+  edit of the brief.
+- **Continuing.** A start's body may name `continue: "<session id>"` — a
+  live, idle session this agent started for the person on the same tile,
+  nothing waiting in it. xbind offers it (`preview.session.continue`) to a
+  client that shows it (`knows: ["continue"]` on the approve): approved,
+  the start's first prompt goes to that session, on its own coding agent,
+  model and mode; `continue: false`, or another harness picked, opens a new
+  one as picked. A session that can't be continued by then is 409, nothing
+  decided ("start a new session instead"). An older client's approve
+  opens a new session, as before. Filing such a start judges it as the
+  approval will: a follow-up on the session's live source, not as a new
+  start on what the body suggests; a new session the person picks
+  instead is judged in full when they approve it. A follow-up is judged where it goes: on
+  that session's own coding agent and model (its taint, a connector model
+  by its own id), as a message to it is — never on what a new start there
+  would run on. **A session that carries the person's saved sign-in**
+  (`continue.signIn: "saved"`, `signInId`, `signInName`): a follow-up into
+  it uses that sign-in, so it needs the same unticked, warned tick as a
+  start with it — `signin: true` on the approve, each time; without it,
+  409, and the sheet offers "Start a new session instead" (which has
+  none). The redeem checks the session still carries the sign-in ticked.
+- **A plan's `agent.start` line runs as it was reviewed**: the open is the
+  line's coding agent, model and mode, whatever the call's body named; to
+  run others the agent asks for a single start's approval, where the
+  person picks.
+
+**A refused ticket says what differed.** Beside `refusal: "ticket"` the
+answer carries `reason` — `missing`, `pending`, `denied`, `used`,
+`withdrawn`, `expired`, `voided`, `failed`, `bound` (the method, path,
+type or body), `brief`, `tile`, `choice` (what the person picked can't open
+now), `session` (a message's session isn't as approved) — and the error
+says it in words: which part, since when, and what to do. Nothing is
+spent by a refusal: a ticket is checked whole before it is used.
+
+**A start that fails is classified by its cause.** One the agent got
+wrong — not a tile agent's start, a saved sign-in named — is refused
+before its ticket is spent (`reason: "bound"`), never `failed`. One that
+fails for a reason that isn't the agent's — the coding agent or the
+sandbox didn't start, xbind was busy — is `failed` on the request, for a
+backend that filed it with `knows: ["retry"]`, answered `{refusal:
+"start-failed", reason: "failed", retry, request, error}`: with `retry:
+true` the person's Try again (`…/retry`, the sheet again: the earlier
+picks preselected, the sign-in unticked) makes it a ticket once more, and
+the agent makes the same start when told; it files no new request. A
+backend that didn't say it knows gets the open's answer as before, and
+the request is used.
 
 ## Standing approvals
 

@@ -36,16 +36,15 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/delegation"
 	"github.com/xbin-dev/xbin/internal/events"
-	"github.com/xbin-dev/xbin/internal/term"
 	"github.com/xbin-dev/xbin/internal/util"
 )
 
@@ -67,6 +66,7 @@ func (s *Server) registerDelegationAPI() {
 	s.RegisterAPI("GET /delegate/requests/{id}", s.apiDelegateRequest)
 	s.RegisterAPI("POST /delegate/requests/{id}/approve", s.apiDelegateRequestDecide)
 	s.RegisterAPI("POST /delegate/requests/{id}/deny", s.apiDelegateRequestDecide)
+	s.RegisterAPI("POST /delegate/requests/{id}/retry", s.apiDelegateRequestRetry)
 	s.RegisterAPI("DELETE /delegate/requests/{id}", s.apiDelegateRequestWithdraw)
 	s.RegisterAPI("GET /delegate/approvals", s.apiDelegateApprovals)
 	s.RegisterAPI("POST /delegate/approvals", s.apiDelegateApprovalAdd)
@@ -487,9 +487,11 @@ func (s *Server) apiDelegateRequestNew(w http.ResponseWriter, r *http.Request) {
 		// bound like the body. Absent with a body: application/json.
 		ContentType *string `json:"contentType"`
 		Summary     string  `json:"summary"`
+		// Knows: what the backend understands of D250's answers ("retry": a failed start, tried again by its person)
+		Knows []string `json:"knows"`
 	}
 	if err := DecodeJSON(r, &in); err != nil || in.Method == "" || in.Path == "" {
-		WriteError(w, http.StatusBadRequest, "need {method, path, body? | bodyBase64?, contentType?, summary?}", delegationDocs)
+		WriteError(w, http.StatusBadRequest, "need {method, path, body? | bodyBase64?, contentType?, summary?, knows?}", delegationDocs)
 		return
 	}
 	body := []byte(in.Body)
@@ -517,7 +519,7 @@ func (s *Server) apiDelegateRequestNew(w http.ResponseWriter, r *http.Request) {
 	case v.deny != "":
 		WriteError(w, http.StatusBadRequest, "this call isn't delegated: "+v.deny, delegationDocs)
 		return
-	case !v.effect || !(v.tileAPI || v.row.ticket || v.pattern == webFetchPattern || v.pattern == mcpCallPattern):
+	case !v.effect || !(v.tileAPI || v.row.ticket || v.pattern == webFetchPattern || v.pattern == mcpCallPattern || messagePatterns[v.pattern]):
 		WriteError(w, http.StatusBadRequest, "this call needs no approval: make it", delegationDocs)
 		return
 	case v.tileAPI && s.mcpEndpointOf(u.Path) != "":
@@ -536,7 +538,8 @@ func (s *Server) apiDelegateRequestNew(w http.ResponseWriter, r *http.Request) {
 	case len(body) > 0:
 		ctype = "application/json"
 	}
-	req := delegation.Request{User: a.user, Agent: p.Agent, Method: method, Target: requestTarget(sr), Tile: v.tile, ContentType: ctype, Summary: in.Summary, Kind: delegation.KindCall}
+	req := delegation.Request{User: a.user, Agent: p.Agent, Method: method, Target: requestTarget(sr), Tile: v.tile, ContentType: ctype, Summary: in.Summary, Kind: delegation.KindCall,
+		Session: p.AgentSession}
 	preview := map[string]any{"class": v.class, "reversible": false}
 	switch {
 	case v.tileAPI:
@@ -581,6 +584,15 @@ func (s *Server) apiDelegateRequestNew(w http.ResponseWriter, r *http.Request) {
 		}
 		req.Tile = ask["tile"].(string)
 		preview["tile"], preview["owner"], preview["session"] = req.Tile, s.policy().OwnerOf(req.Tile), ask
+	case messagePatterns[v.pattern]: // a message to a tile agent that acts without asking (delegatemessage.go, D250)
+		req.Kind = delegation.KindMessage
+		mp, tile, status, why := s.messagePreview(p, u.Path, body)
+		if why != "" {
+			WriteError(w, status, why, delegationDocs)
+			return
+		}
+		req.Tile = tile
+		preview["tile"], preview["message"] = tile, mp
 	case v.pattern == mcpCallPattern: // one tool of an MCP tile (delegatemcp.go)
 		req.Kind = delegation.KindMCP
 		mp, tile, status, why := s.mcpRequestPreview(r.Context(), p, body)
@@ -622,6 +634,9 @@ func (s *Server) apiDelegateRequestNew(w http.ResponseWriter, r *http.Request) {
 		preview["body"] = map[string]any{"binary": true, "size": len(body), "sha256": delegation.BodyHash(body)}
 	}
 	req.Preview = preview
+	if slices.Contains(in.Knows, "retry") {
+		req.Knows = []string{"retry"}
+	}
 	out, err := s.Delegation.NewRequest(req, body)
 	switch {
 	case errors.Is(err, delegation.ErrTooMany):
@@ -641,79 +656,12 @@ func (s *Server) apiDelegateRequestNew(w http.ResponseWriter, r *http.Request) {
 // It shows what the start AMOUNTS TO (term.DelegateEffective): the harness
 // and mode a resumed session takes from its history entry, not only what
 // the body says; every option the body carries; whether that mode asks
-// before acting; the sandbox pickers. The ticket is bound to the harness
-// and mode shown here (delegateApproval hands them to the open), and to
-// the body — so to every option — by its hash.
+// before acting; the sandbox pickers. The ticket is bound to the body by
+// its hash — the tile, the brief, the kind of act: what the agent chose
+// (D250) — and the start opens with the coding agent, model and mode shown
+// here, or the ones the person picks on the approval (sessionPreviewFor).
 func (s *Server) sessionPreview(p auth.Principal, body []byte) (map[string]any, string) {
-	var b struct {
-		Cwd, Kind, Provider, Mode, Net, GPU, Name, Model, Resume string
-		API                                                      *bool
-		VM                                                       bool
-		Options                                                  map[string]string
-		Prompt                                                   string
-	}
-	if json.Unmarshal(body, &b) != nil || b.Cwd == "" {
-		return nil, "a session start names its tile: {cwd, kind:\"agent\", provider?, …}"
-	}
-	if len(b.Prompt) > maxStartPrompt {
-		return nil, fmt.Sprintf("a start's first prompt is at most %d KiB", maxStartPrompt>>10)
-	}
-	if _, why := s.startRefusal(p, sessionAskOf(body)); why != "" {
-		return nil, why // no approval makes it startable: don't put it in front of the person
-	}
-	// what the request leaves out, xbind fills from the person's
-	// preferences for sessions their agent starts and the tile's orgs'
-	// rules (startDefaults) — and shows: the card says the EFFECTIVE values
-	def := s.startDefaults(p, strings.Trim(b.Cwd, "/"))
-	if b.Resume == "" {
-		if b.Provider == "" {
-			if def.Harness == "" {
-				return nil, def.Why
-			}
-			b.Provider = def.Harness
-		}
-		if b.Net == "" {
-			b.Net = def.netFor(b.Provider)
-		}
-		if b.Mode == "" {
-			b.Mode = def.modeFor(b.Provider)
-		}
-	}
-	if s.Term == nil {
-		return nil, "terminals are not enabled"
-	}
-	eff, _, err := s.Term.DelegateEffective(p, term.AgentOpen{Cwd: b.Cwd, Provider: b.Provider, Mode: b.Mode, Resume: b.Resume})
-	if err != nil {
-		return nil, err.Error()
-	}
-	if err := s.agentPolicy().SessionAllows(delegation.Subject{Holder: p.Agent, User: p.UserID, Tile: eff.Tile, Model: p.AgentModel}, eff.Provider.ID); err != nil {
-		return nil, err.Error()
-	}
-	options := map[string]string{}
-	for k, v := range b.Options {
-		options[k] = v
-	}
-	if b.Model != "" { // the body's shorthand for options.model
-		options["model"] = b.Model
-	}
-	// signIn: what it runs on as things are; signInId OFFERS the person's saved sign-in (the sheet's own line,
-	// unticked; the label is drawn from their list); signInTrust: the trust line that goes with it (signinstrust.go)
-	signIn, signInID, trust := s.approvalSignIn(p, eff.Tile, eff.Provider)
-	return map[string]any{
-		"signIn": signIn, "signInId": signInID, "signInTrust": trustLine(trust),
-		"tile": eff.Tile, "provider": eff.Provider.ID, "providerName": eff.Provider.Name, "mode": eff.Mode,
-		// false: this mode lets the tile agent act without asking. The mode
-		// alone decides it: a delegate's start is strict (acp.Config.Strict)
-		// — the mode is in force or the session ends, and no option but a
-		// model or a thinking level is set
-		"asks":    eff.Provider.Asks(eff.Mode),
-		"options": options, // every setting the start carries; none of them can change the mode
-		// what the session will be told first: sent by xbind itself once the
-		// session is up, and bound by the ticket with the rest of the body.
-		// Nothing the agent sends the session later is approved one by one.
-		"prompt": b.Prompt,
-		"net":    b.Net, "api": b.API == nil || *b.API, "vm": b.VM, "gpu": b.GPU, "model": options["model"], "name": b.Name, "resume": eff.Resumes,
-	}, ""
+	return s.sessionPreviewFor(p, body, nil)
 }
 
 // apiDelegateRequests — GET /delegate/requests[?all=1]: the person or
@@ -724,11 +672,16 @@ func (s *Server) apiDelegateRequests(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	rows, err := s.Delegation.Requests(a.user, r.URL.Query().Get("all") == "")
+	all, failed := r.URL.Query().Get("all") != "", r.URL.Query().Get("failed") != ""
+	rows, err := s.Delegation.Requests(a.user, false)
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, "the requests can't be read", delegationDocs)
 		return
 	}
+	// pending ones; ?all=1 every one of the last day; ?failed=1 also the starts that failed and may be tried again (D250)
+	rows = slices.DeleteFunc(rows, func(q delegation.Request) bool {
+		return !all && q.State != delegation.Pending && !(failed && q.State == delegation.Failed && q.Failure != nil && q.Failure.Retry)
+	})
 	for i := range rows {
 		rows[i] = a.shown(rows[i])
 	}
@@ -776,10 +729,23 @@ func (s *Server) apiDelegateRequestDecide(w http.ResponseWriter, r *http.Request
 		// and recorded as such
 		Via            string `json:"via"`
 		signinTickBody        // a start's "use my sign-in" line and its trust line, ticked, and what the sheet showed (signinstrust.go)
+		// a tile agent start's coding agent, model and mode as the person
+		// picked them on the sheet (D250): absent, what the preview shows;
+		// remember: keep the pick for the tile; continue false: a new
+		// session rather than the one the preview offers to continue —
+		// offered only to a client that knows it (knows: ["continue"])
+		Harness  *string  `json:"harness"`
+		Model    *string  `json:"model"`
+		Mode     *string  `json:"mode"`
+		Remember bool     `json:"remember"`
+		Continue *bool    `json:"continue"`
+		Knows    []string `json:"knows"`
+		// seen: what the sheet showed of what is resolved again now — the sign-in it offered, the network (D250 review L2)
+		Seen *seenBasis `json:"seen"`
 	}
 	if r.ContentLength != 0 {
 		if err := DecodeJSON(r, &body); err != nil {
-			WriteError(w, http.StatusBadRequest, `need {grant?: "once" | "hour" | "always", scope?: "call" | "tile", unseen?: true, signin?: true, trust?: true, via?: "notification"}`, delegationDocs)
+			WriteError(w, http.StatusBadRequest, `need {grant?: "once" | "hour" | "always", scope?: "call" | "tile", unseen?: true, signin?: true, trust?: true, via?: "notification", harness?, model?, mode?, remember?: true, continue?: false, knows?: [..], seen?: {signInId?, net?}}`, delegationDocs)
 			return
 		}
 	}
@@ -806,7 +772,7 @@ func (s *Server) apiDelegateRequestDecide(w http.ResponseWriter, r *http.Request
 		// show in full (the same rule the push offered it by)
 		if body.Via == viaNotification && found && cur.State == delegation.Pending {
 			ok, why := delegation.LockScreenOffer(cur)
-			if grant != delegation.GrantOnce || scope != "" || unseen || body.Signin || body.Trust {
+			if grant != delegation.GrantOnce || scope != "" || unseen || body.Signin || body.Trust || body.Harness != nil || body.Model != nil || body.Mode != nil || body.Remember {
 				ok, why = false, "only an approval of this one call can be given from a notification"
 			}
 			if !ok {
@@ -819,13 +785,31 @@ func (s *Server) apiDelegateRequestDecide(w http.ResponseWriter, r *http.Request
 	if a.p.Via == "device" {
 		device = a.p.DeviceID
 	}
+	// a start's coding agent, model and mode: the person's pick, validated as theirs by hand (D250) — and the
+	// preview redrawn for it, which the sign-in ticks below are held to
+	var chosen *delegation.StartChoice
+	var redrawn map[string]any
+	if approve {
+		var status int
+		var why string
+		chosen, redrawn, status, why = s.startPickOf(a, r.PathValue("id"), pickBody{Harness: body.Harness, Model: body.Model, Mode: body.Mode, Remember: body.Remember,
+			Continue: body.Continue, Knows: body.Knows, Signin: body.Signin, Seen: body.Seen})
+		if what, words, ok := strings.Cut(strings.TrimPrefix(why, seenChanged), "\x00"); ok && strings.HasPrefix(why, seenChanged) {
+			WriteJSON(w, status, map[string]any{"error": words, "changed": what, "reload": true, "docs": delegationDocs})
+			return
+		}
+		if why != "" {
+			WriteError(w, status, why, delegationDocs)
+			return
+		}
+	}
 	// a start's sign-in lines, ticked: held to what the sheet showed, before anything is decided
-	basis, ok := s.approveTicks(w, a.user, r.PathValue("id"), approve && body.Signin, approve && body.Trust, body.Shown)
+	basis, ok := s.approveTicksOn(w, a.user, r.PathValue("id"), redrawn, approve && body.Signin, approve && body.Trust, body.Shown)
 	if !ok {
 		return
 	}
 	req, ap, err := s.Delegation.DecideAs(a.user, r.PathValue("id"), delegation.Decision{Grant: grant, Scope: scope, Via: a.via,
-		Unseen: unseen, UseSignin: approve && body.Signin, From: body.Via, Device: device})
+		Unseen: unseen, UseSignin: approve && body.Signin, From: body.Via, Device: device, Chosen: chosen, Preview: redrawn})
 	switch {
 	case errors.Is(err, delegation.ErrUnseenBody):
 		// say what would be approved: bytes of this size and hash, unread
@@ -857,6 +841,16 @@ func (s *Server) apiDelegateRequestDecide(w http.ResponseWriter, r *http.Request
 		s.notifyAt(req.Expires, a.user, req.ID, req.Agent) // a ticket nobody used
 	}
 	out := map[string]any{"request": req}
+	if chosen != nil && chosen.Remember && req.State == delegation.Approved && s.AgentPrefs != nil {
+		// "Remember for this tile": the person's own act, made only here — of the fields they changed on the sheet,
+		// and never a mode that doesn't ask (D250 review M1)
+		prev, _ := s.AgentPrefs.TileChoice(a.user, req.Tile)
+		if ts, ok := rememberedOf(prev, *chosen); ok {
+			if err := s.AgentPrefs.RememberTile(a.user, req.Tile, ts, time.Now().Unix()); err != nil {
+				out["rememberError"] = err.Error()
+			}
+		}
+	}
 	if approve && body.Trust && req.State == delegation.Approved {
 		s.approvalTrust(out, a.user, req, basis) // the trust line, ticked (signinstrust.go)
 	}

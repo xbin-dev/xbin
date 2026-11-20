@@ -6388,3 +6388,115 @@ here: cut from the old end, never reword.
     echo of request text is no evidence). The agent's memory is per
     conversation *and* model (its Via). `bx … --reasoning <model>=maker`
     stores the record *Use these* stores, aliases included.
+
+- **D250 — One approval, one place: a start is the person's pick on
+  xbin's sheet, a follow-up continues the session that is there, and a
+  refusal says what differed (2026-11-20; the owner's test session of
+  2026-11-21 and the agent's retro; spec `plans/wsagent/approvals-ux.md`).**
+  "turn eui into a tic tac toe game" took five approval rounds and
+  started nothing. The causes, in the code: the conversation drew a
+  brief's start twice (`ws/place.js` placed a request card beside the
+  brief's, each with a Review…); a coding agent with no default mode
+  (OpenCode) was refused on its own ticket AFTER the ticket was spent
+  (`ticketStart` wanted a mode; the plan path had the exception), in the
+  words "the approval no longer covered the call (it expired after 15
+  minutes, or the tile changed)"; the coding agent was picked on the
+  agent's page, which re-filed the start and marked the brief "edited by
+  your person"; a mode that doesn't ask turned Deny into the primary
+  button and Approve red.
+  - **The ticket binds what the agent chose, the approval what the person
+    chose.** Tile, brief text (the body's hash) and kind stay bound; the
+    coding agent, model and mode are the approve call's (`harness`,
+    `model`, `mode`), validated as a by-hand start's, and are what opens.
+    The agent suggests (`suggest` in a start's body; `agent.start` takes
+    `model` too); the person's tile choice and preference outrank the
+    suggestion; a suggested mode that doesn't ask is never preselected; a
+    sign-in is never suggested (D230 unchanged). Rejected: binding the
+    harness and asking again on a change (the five rounds); letting the
+    agent's page carry the pick (it renders a model's text); re-binding
+    the ticket to the person's edited brief inside xbind (the edit is made
+    on the agent's page, which can't act as the person at xbind — the
+    backend files the superseding request and the sheet shows it).
+  - **Preferences reuse the store that exists:** `agentSessions.harness`
+    and `agentSessions.tiles` are new keys of the agent preferences; the
+    model is `harnesses.<id>.model`, the Agent tab's. No admin default:
+    the workspace agent's host/admin layering doesn't cover start choices.
+  - **One item a pending act; one batch** ("Waiting for you" with a
+    count, Review all). **Continue by default** a live idle session this
+    conversation started on the tile; a message to a session that doesn't
+    ask is a `message` request instead of a refusal.
+  - **Refusals name the field** (`reason` beside `refusal: "ticket"`) and
+    spend nothing; a start that fails for a reason not the agent's is
+    `failed`, with Try again for the person (`…/retry`).
+  - **Buttons:** Approve primary on the right, Deny quiet on the left,
+    always; danger colours only the Approve. A permission card places the
+    coding agent's own options so: its rejections left, its first allow
+    right, the rest between in its order (superseding "in its order"). No
+    "·" in the elements this adds or rebuilds (the owner's rule, kept to
+    new elements until broader UX guidelines): facts are elements there;
+    existing lines elsewhere, and the shared words tables, are unchanged.
+  - **The app** approves xbind's preselected pick (an older client to the
+    approve call) and says where to pick others: the web's sheet. A
+    `message` request is a kind it doesn't know, so it shows "update to
+    review" and never decides it.
+  - **Not built:** pickers on a plan's start line (the line resolves by
+    the same chain and shows where each came from); page-driving
+    verification (a proposal in the spec, §7c); an admin default for start
+    choices.
+  - **The review's follow-ups (2026-11-20).** A plan's `agent.start`
+    opens exactly the line reviewed (it ran the agent's suggestion: the
+    open was unpicked). "Remember" keeps only the fields the person
+    changed, and never a mode that acts without asking — one predicate in
+    the store, refused on write and ignored on read. OpenCode: read from
+    the pinned rootfs binary's own agent table (v1.18.32, not run), every
+    agent starts from `{"*": "allow"}` (asking only for paths outside the
+    project and for `.env` files); `build` adds nothing that asks; `plan`
+    denies edits but its plan files and still runs every command and
+    fetches every page unasked; and the tile's own `opencode.json`,
+    `.opencode/` config, agents and plugins load into the session, so a
+    writer to the tile can loosen any agent. Pinning its permissions from
+    xbin would not hold against the tile's own plugins, and was never run
+    against a live session — so the fallback was built: no mode xbin
+    vouches asks; never preselected from the agent's suggestion, never
+    unasked, every agent message to it an approval (the re-review, below,
+    lets the person choose it). A
+    continue is judged on the live session's model and taint, and one
+    carrying the person's saved sign-in needs their unticked, warned tick
+    each time (the rule chosen: a follow-up uses the sign-in as a start
+    with it would; without the tick, a new session). The approve carries
+    what the sheet showed (`seen`); a different resolution is 409 with
+    `reload`, nothing spent. Failures are classified by cause, `failed`
+    only for a backend that says `knows: ["retry"]`; Try again is the
+    sheet again with the sign-in unticked. An agent's held message is
+    judged when it goes in (`returned`).
+  - **The re-review (2026-11-20).** Stored data a released xbind wrote
+    never blocks a write: a saved mode that no longer asks (v0.3.83 took
+    OpenCode's `plan` as asking) is ignored at read, not an error — it
+    had made every later write fail, the Agent tab's launcher's included.
+    The owner wants OpenCode for a tile: the coding agent and model a
+    person picks are kept for any coding agent (only a mode that doesn't
+    ask never is), and a remembered OpenCode is preselected WITH the
+    warning, every time, and never starts unasked (the start's answer
+    says why); the default prefers a coding agent that asks. A plan line
+    that resolves to it carries the warning and so starts unticked — how
+    warned lines already work (D238) — rather than being refused at
+    propose. The app already draws `asks: false` as the danger wording
+    with the danger-coloured, armed Start, so it may approve such a start
+    as it is: no app change. The sheet's mode note says "asks" only of a
+    mode that asks. Picks without `seen` are 400 (picks are new here, no
+    released client sends them). A filed follow-up is judged as the
+    decide judges it. A held agent message: judged on a switch in flight
+    too, and the agent is told once when one is returned. Tests that swap
+    the package's globals drain their engine within a deadline that fails
+    the test before restoring them (the flake "no plan waits").
+  - **A coding agent with no default mode that lists an asking mode
+    starts IN it, and the line says it asks** — superseding master's "a
+    harness with no default mode is shown with no mode, warned": a
+    delegate's start is strict (the handshake's session/set_mode, refused
+    → the start fails before the brief; the first prompt waits for the
+    start), checked on real sessions in `test/isolated` (the agent opening
+    in another mode reports the asking one after the open and asks; one
+    that refuses the switch never takes the brief). One with no mode that
+    asks (OpenCode's shape) is shown with no mode, warned, unticked. Not
+    detected: an agent that acknowledges set_mode and stays in its own —
+    xbind takes the agent's answer, as for any coding agent's mode.

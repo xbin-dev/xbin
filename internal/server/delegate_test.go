@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/xbin-dev/xbin/internal/agentprefs"
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/delegation"
 	"github.com/xbin-dev/xbin/internal/events"
@@ -74,6 +75,8 @@ type dPolicy struct {
 	// readLevel: DelegateTile refuses a write to these tiles as the broker
 	// does one whose agent level is "read".
 	readLevel map[string]bool
+	// denyHarness: an org's coding-agent list keeps these out (SessionAllows)
+	denyHarness map[string]bool
 }
 
 func (d *dPolicy) TileAllows(s delegation.Subject) error {
@@ -87,7 +90,15 @@ func (d *dPolicy) TileAllows(s delegation.Subject) error {
 	}
 	return err
 }
-func (d *dPolicy) SessionAllows(s delegation.Subject, _ string) error { return d.TileAllows(s) }
+func (d *dPolicy) SessionAllows(s delegation.Subject, provider string) error {
+	d.mu.Lock()
+	no := d.denyHarness[provider]
+	d.mu.Unlock()
+	if no {
+		return errors.New("the org's rules don't allow " + provider + " here")
+	}
+	return d.TileAllows(s)
+}
 func (d *dPolicy) StartPrefs(user, _, _ string) (delegation.StartPrefs, bool) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -148,6 +159,8 @@ func delegateWorld(t *testing.T) *dWorld {
 	s.Auth.RegisterInstance("i-main", "apps/x")
 	s.Auth.RegisterInstanceDeployment("i-dev", "apps/x", "dev")
 	s.Delegation, s.AgentPolicy, s.Pol = w.store, w.policy, w.policy
+	s.AgentPrefs = agentprefs.New(t.TempDir()) // the people's agent preferences (D250: their choices for a tile's starts)
+	s.AgentPrefs.Person = func(string) (int64, bool) { return 1, true }
 	s.Term.AgentPolicy = w.policy
 
 	root := t.TempDir()

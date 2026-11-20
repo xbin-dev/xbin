@@ -44,6 +44,10 @@ const (
 	Used      = "used"
 	Expired   = "expired"
 	Withdrawn = "withdrawn"
+	// Failed: an approved start was made, and the open failed for a reason
+	// that isn't the agent's (Failure says what; with Failure.Retry the
+	// person may try it again: Retry). D250.
+	Failed = "failed"
 )
 
 // How a request is approved.
@@ -60,6 +64,11 @@ const (
 	KindTemplate = "template" // POST /templates/new
 	KindWeb      = "web"      // POST /delegate/web/fetch: a URL the conversation may read (D239)
 	KindMCP      = "mcp"      // POST /delegate/mcp/call: a tool of an MCP server (D239)
+	// KindMessage: a message to a tile agent session the agent started whose
+	// mode doesn't ask before it acts (POST /term/sessions/<id>/prompt or
+	// …/queue): such a session acts on what it is told, so the message is
+	// the person's to approve (D250)
+	KindMessage = "message"
 )
 
 // Standing approval scopes.
@@ -152,6 +161,57 @@ type Request struct {
 	// person's agent stopped for good (WithdrawPending); "" when the agent
 	// or the person took it back.
 	WithdrawnBy string `json:"withdrawnBy,omitempty"`
+	// Session is the agent session (handle) that filed it: a start's
+	// approval is drawn again for the person's pick under the same
+	// conversation's scope, taint and model (D250).
+	Session string `json:"session,omitempty"`
+	// ApprovedAt is when the person allowed it (zero: never): what a
+	// refusal of a lapsed ticket says, "the approval of 10:47 expired at
+	// 11:02" (D250).
+	ApprovedAt time.Time `json:"approvedAt,omitempty"`
+	// Voided: the ticket was ended unused because the agent was stopped
+	// (paused, switched off, held) after the approval (VoidTickets).
+	Voided bool `json:"voided,omitempty"`
+	// Chosen is what the person picked on a tile agent start's approval —
+	// the coding agent, model and mode the session opens with, whatever the
+	// agent suggested, and whether it continues a session that is there
+	// (D250). nil: what the preview showed when it was decided.
+	Chosen *StartChoice `json:"chosen,omitempty"`
+	// Failure is why an approved start didn't open (state Failed).
+	Failure *Failure `json:"failure,omitempty"`
+	// Retries counts the person's Try again on a failed start.
+	Retries int `json:"retries,omitempty"`
+	// Knows is what the agent's backend that filed it said it understands
+	// of D250's answers: "retry" — a start that fails for a reason not the
+	// agent's is Failed, and its person may try it again (an older backend
+	// gets the open's answer, as before).
+	Knows []string `json:"knows,omitempty"`
+}
+
+// StartChoice is a person's pick on a tile agent start's approval (D250):
+// the ticket binds the tile, the brief and the kind of act — what the
+// agent chose — and these are the person's.
+type StartChoice struct {
+	Provider string `json:"provider"`
+	Model    string `json:"model,omitempty"`
+	Mode     string `json:"mode,omitempty"`
+	// Remember: the person asked xbind to keep the pick for this tile.
+	Remember bool `json:"remember,omitempty"`
+	// Own: the fields of the pick the person themselves changed on the
+	// sheet (harness | model | mode) — all "Remember" keeps (D250 review
+	// M1); the rest was preselected for them. Not stored.
+	Own []string `json:"-"`
+	// Continue is the live session the start continues instead of opening
+	// one (the person chose it on the approval).
+	Continue string `json:"continue,omitempty"`
+}
+
+// Failure is what came of an approved start that didn't open: xbind's
+// words, and whether the person may try it again without a new request.
+type Failure struct {
+	At    time.Time `json:"at"`
+	Why   string    `json:"why"`
+	Retry bool      `json:"retry,omitempty"`
 }
 
 // WithdrawnByXbin marks a request or change set xbind withdrew because the
@@ -404,6 +464,11 @@ type Decision struct {
 	Unseen            bool
 	UseSignin         bool // the start's own "use my sign-in" line, ticked
 	From, Device      string
+	// Chosen: a tile agent start's coding agent, model and mode as the
+	// person picked them (D250); Preview, the request's preview redrawn for
+	// that pick (nil: kept as it was).
+	Chosen  *StartChoice
+	Preview map[string]any
 }
 
 // DecideAs is DecideWith with where the decision was made recorded.
@@ -464,11 +529,17 @@ func (s *Store) DecideAs(user, id string, d Decision) (Request, *Approval, error
 	r.DecidedFrom, r.DecidedDevice = d.From, d.Device
 	r.ApprovedUnseen = grant != "" && r.BodyBinary
 	r.UseSignin = grant != "" && d.UseSignin && r.Kind == KindSession
+	if grant != "" && r.Kind == KindSession {
+		r.Chosen = d.Chosen
+		if d.Preview != nil {
+			r.Preview = d.Preview
+		}
+	}
 	var ap *Approval
 	if grant == "" {
 		r.State, r.Body = Denied, ""
 	} else {
-		r.State, r.Expires = Approved, now.Add(TicketTTL)
+		r.State, r.Expires, r.ApprovedAt = Approved, now.Add(TicketTTL), now
 		if grant != GrantOnce {
 			give := Approval{User: user, Tile: r.Tile, Scope: scope, Method: r.Method, Path: r.Path(), Via: via, Request: r.ID}
 			if scope == ScopeTool {
@@ -515,25 +586,46 @@ func (s *Store) Withdraw(user, id string) (Request, error) {
 // method, its path with the query, its body and the type it is sent as —
 // reaching the tile it resolved to when they approved it. A ticket is spent
 // by the attempt that matches it, never by one that doesn't: a wrong guess
-// burns nothing.
+// burns nothing. A refusal is a *RedeemError, which says what differed
+// (errors.Is ErrNoTicket or ErrTicketBound, as before D250).
 func (s *Store) Redeem(user, id, method, target, tile, contentType string, body []byte) (Request, error) {
+	return s.RedeemCall(user, id, TicketCall{Method: method, Target: target, Tile: tile, ContentType: contentType, Body: body}, nil)
+}
+
+// TicketCall is the call a ticket is redeemed for.
+type TicketCall struct {
+	Method, Target, Tile, ContentType string
+	Body                              []byte
+}
+
+// RedeemCall is Redeem with the caller's own check of the approved request
+// (check, nil for none), made under the same lock before the ticket is
+// spent: a check that refuses spends nothing. It must not call the store.
+func (s *Store) RedeemCall(user, id string, c TicketCall, check func(Request) *RedeemError) (Request, error) {
 	if s == nil {
-		return Request{}, ErrNoTicket
+		return Request{}, &RedeemError{Reason: ReasonMissing, Msg: "this xbind keeps no approvals"}
 	}
 	p := s.lock(user)
 	defer p.mu.Unlock()
 	doc, _, err := s.requests(p, user)
 	if err != nil {
-		return Request{}, ErrNoTicket
+		return Request{}, &RedeemError{Reason: ReasonMissing, Msg: "the approvals can't be read"}
 	}
 	i := slices.IndexFunc(doc.Requests, func(r Request) bool { return r.ID == id })
-	if i < 0 || doc.Requests[i].State != Approved {
-		return Request{}, ErrNoTicket
+	if i < 0 {
+		return Request{}, &RedeemError{Reason: ReasonMissing, Msg: "no request " + id + " for this person: it was never filed here, or was dropped long ago — file it again"}
 	}
 	r := &doc.Requests[i]
-	if r.Method != method || r.Target != target || r.ContentType != contentType || r.BodySize != len(body) || r.BodySHA256 != BodyHash(body) ||
-		r.Kind == KindCall && r.Tile != tile {
-		return Request{}, ErrTicketBound
+	if r.State != Approved {
+		return Request{}, notApproved(*r, s.now())
+	}
+	if e := callDiffers(*r, c); e != nil {
+		return Request{}, e
+	}
+	if check != nil {
+		if e := check(*r); e != nil {
+			return Request{}, e
+		}
 	}
 	r.State, r.Body, r.Decided = Used, "", s.now().UTC().Truncate(time.Second)
 	out := *r
@@ -703,8 +795,8 @@ func (s *Store) VoidTickets(user string) (int, error) {
 	}
 	now, n := s.now().UTC().Truncate(time.Second), 0
 	for i := range doc.Requests {
-		if r := &doc.Requests[i]; r.State == Approved {
-			r.State, r.Body, r.Expires = Expired, "", now
+		if r := &doc.Requests[i]; r.State == Approved || r.State == Failed {
+			r.State, r.Body, r.Expires, r.Voided = Expired, "", now, true
 			n++
 		}
 	}

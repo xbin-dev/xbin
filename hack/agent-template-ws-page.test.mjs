@@ -87,7 +87,8 @@ test('a request\'s card from its fields: waiting with Review… and its expiry; 
   const p = r({ state: 'pending' });
   assert.equal(p.button, 'Review…');
   assert.match(p.line, /expires in 23 h 58 min/);
-  assert.equal(r({ state: 'pending', expiresMs: t0 + 3_600_000 }).line.split(' · ')[1], 'expires in 58 min', 'the expiry is the field, not 24 h from asking');
+  assert.equal(r({ state: 'pending', expiresMs: t0 + 3_600_000 }).parts[1], 'expires in 58 min', 'the expiry is the field, not 24 h from asking');
+  assert.deepEqual(p.parts, ['asked ' + W.clock(t0), 'expires in 23 h 58 min'], 'each fact its own element (D250): no "·"');
   assert.equal(r({ state: 'proposed', kind: 'changeset', title: '5 admin changes proposed' }).button, 'Review…');
   const used = r({ state: 'used', by: 'person', grant: 'once', via: 'app', resultStatus: 200, result: 'POST /x → 200', outcome: 'never drawn' });
   assert.deepEqual([used.head, used.result], ['Allowed once by you', 'POST /x → 200']);
@@ -330,7 +331,9 @@ test('compose: each card where the conversation made it; nothing lost; the redun
   assert.match(at('cp1').replace[0].meta, /^you said go ahead/);
   assert.equal(at('cp2').hide, true, 'a later plan call is hidden');
   assert.deepEqual(at('cb1').replace.map((b) => b.k), ['ws:brief:4']);
-  assert.deepEqual(at('cb1').after.map((b) => b.k), ['ws:req:11', 'ws:agent:7'], 'the start request after its brief, the tile agent it started after it');
+  // ONE card a start (D250): the brief's card carries its request — no request card beside it — and the tile agent it started follows
+  assert.deepEqual(at('cb1').after.map((b) => b.k), ['ws:agent:7'], 'the tile agent its start started after the brief');
+  assert.equal(at('cb1').replace[0].data.request.id, 11, 'the brief carries its start request');
   assert.deepEqual(at('cc1').replace.map((b) => b.k), ['ws:req:12'], 'a request in place of the call that filed it');
   assert.equal(at('ca1').replace[0].kind, 'ask');
   assert.equal(at('ca1').replace[0].action, null, 'the newest question waits');
@@ -339,7 +342,8 @@ test('compose: each card where the conversation made it; nothing lost; the redun
   // the agent started by request 11 sits with the brief's group; one of no request or brief, by time (the end)
   const placed = [...L.at.values()].flatMap((e) => [...(e.replace || []), ...e.after]).concat(L.tail).map((b) => b.k);
   assert.ok(placed.includes('ws:agent:7') && placed.includes('ws:agent:9'));
-  for (const k of ['ws:brief:4', 'ws:req:11', 'ws:req:12', 'ws:agent:7', 'ws:agent:9', 'ws:ref:3', 'ws:ref:2']) assert.equal(placed.filter((x) => x === k).length, 1, `${k} once`);
+  for (const k of ['ws:brief:4', 'ws:req:12', 'ws:agent:7', 'ws:agent:9', 'ws:ref:3', 'ws:ref:2']) assert.equal(placed.filter((x) => x === k).length, 1, `${k} once`);
+  assert.equal(placed.filter((x) => x === 'ws:req:11').length, 0, 'a brief\'s start is never a second card');
   assert.deepEqual(at('cc1').after.map((b) => b.k), ['ws:ref:3'], 'a refusal after the call it answers (its callId)');
   // a host block's version moves with what it shows
   const v1 = at('cc1').replace[0].v;
@@ -358,8 +362,8 @@ test('compose: each card where the conversation made it; nothing lost; the redun
   };
   const B = compose(blocks, byId, { status: 'idle' }, { words: W.W });
   const where = (k) => [...B.at.entries()].filter(([, e]) => [...(e.replace || []), ...e.after].some((b) => b.k === k)).map(([id]) => id).join();
-  assert.equal(where('ws:req:11'), 'cp2', 'the start\'s request in place of the call that filed it');
-  assert.equal(where('ws:agent:7'), 'cp2', 'a tile agent after the request that started it, by the request\'s id — not after the request whose outcome names "#7"');
+  assert.equal(where('ws:req:11'), '', 'the start\'s request is its brief\'s card (D250): no card of its own');
+  assert.equal(where('ws:agent:7'), 'cb1', 'a tile agent after the request that started it — its brief\'s card —, by the request\'s id — not after the request whose outcome names "#7"');
   assert.equal(where('ws:agent:8'), 'ca1', 'its request not on the list: after the call that filed it');
   assert.notEqual(where('ws:agent:9'), 'cc1', 'a row with neither field is not agent #7: the words of request 12 name another');
   byId.agents[2].id = 7; byId.agents.shift();
@@ -373,7 +377,7 @@ test('compose: each card where the conversation made it; nothing lost; the redun
   const far = compose(blocks, { requests: [{ id: 12, kind: 'call', ref: 'rq-12', callId: 'gone', state: 'pending', createdMs: 0 }] }, {}, { words: W.W });
   assert.deepEqual([far.at.get('m1').after.map((b) => b.k), far.at.get('cc1')], [['ws:req:12'], undefined]);
   // no transcript yet: everything at the tail
-  assert.equal(compose([], cards, {}, { words: W.W }).tail.length, 9);
+  assert.equal(compose([], cards, {}, { words: W.W }).tail.length, 8, '(the start\'s request rides its brief\'s card)');
   // a redirect: a card of its own, carrying the tile and the person's own words before it
   const red = [{ k: 'user', id: 'm1', text: 'change line 40 in export.go' }, tool('r1', 'ask_user', '', { args: JSON.stringify({ question: 'Q', kind: 'redirect', tile: 'sales/orders/' }) })];
   const R = compose(red, { ask: null }, {}, { words: W.W }).at.get('cr1').replace[0];
