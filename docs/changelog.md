@@ -31,7 +31,21 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   isn't the agent's is state `failed` (`failure {why, retry}`, `GET
   /delegate/requests?failed=1`, `POST /delegate/requests/<id>/retry`,
   refusal `start-failed`). `GET /delegate/tile`'s sessions carry `model`,
-  `asks`, `started`, `since`; a plan's `agent.start` takes `model`.
+  `asks`, `started`, `since`; a plan's `agent.start` takes `model`, and
+  runs exactly the line reviewed. "Remember for this tile" keeps only what
+  the person changed, never a mode that acts without asking; a coding
+  agent with no mode xbin can vouch asks (OpenCode) is only the person's
+  own pick (`harnessNotTaken`), never remembered or started unasked. The
+  approve carries what the sheet showed (`seen: {signInId?, net?}`): 409
+  `{changed, reload: true}` when xbind would now resolve it otherwise. A
+  follow-up into a session is judged on that session's model, and into one
+  that carries the person's saved sign-in needs `signin: true`
+  (`continue.signIn`, `signInId`, `signInName`). Failures are classified
+  by cause: the agent's own mistake is refused before the ticket is spent;
+  `failed` only for a backend that files with `knows: ["retry"]`, and
+  `…/retry` takes the picks again (no earlier tick kept). An agent's
+  message held behind a turn is checked when it goes in (the `queue`
+  event's `returned`).
   [delegation.md §The person's pick](/docs/protocol/delegation.md),
   [workspace-agent.md](/docs/workspace-agent.md#how-approvals-work).
 - chrome: **the dock's one "Waiting for you" list** — a title with a

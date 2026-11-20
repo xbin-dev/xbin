@@ -6443,3 +6443,28 @@ here: cut from the old end, never reword.
     the same chain and shows where each came from); page-driving
     verification (a proposal in the spec, §7c); an admin default for start
     choices.
+  - **The review's follow-ups (2026-11-20).** A plan's `agent.start`
+    opens exactly the line reviewed (it ran the agent's suggestion: the
+    open was unpicked). "Remember" keeps only the fields the person
+    changed, and never a mode that acts without asking — one predicate in
+    the store, refused on write and ignored on read. OpenCode: read from
+    the pinned rootfs binary's own agent table (v1.18.32, not run), every
+    agent starts from `{"*": "allow"}` (asking only for paths outside the
+    project and for `.env` files); `build` adds nothing that asks; `plan`
+    denies edits but its plan files and still runs every command and
+    fetches every page unasked; and the tile's own `opencode.json`,
+    `.opencode/` config, agents and plugins load into the session, so a
+    writer to the tile can loosen any agent. Pinning its permissions from
+    xbin would not hold against the tile's own plugins, and was never run
+    against a live session — so the fallback was built: no mode xbin
+    vouches asks; OpenCode is only the person's own pick, never
+    remembered, never unasked, every agent message to it an approval. A
+    continue is judged on the live session's model and taint, and one
+    carrying the person's saved sign-in needs their unticked, warned tick
+    each time (the rule chosen: a follow-up uses the sign-in as a start
+    with it would; without the tick, a new session). The approve carries
+    what the sheet showed (`seen`); a different resolution is 409 with
+    `reload`, nothing spent. Failures are classified by cause, `failed`
+    only for a backend that says `knows: ["retry"]`; Try again is the
+    sheet again with the sign-in unticked. An agent's held message is
+    judged when it goes in (`returned`).

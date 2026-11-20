@@ -6085,7 +6085,14 @@ notes and `recall`.
   drive).
 - A refused ticket's answer names what differed (xbind's `reason`), and a
   start that failed for a reason not the agent's says the person can try
-  it again from xbin's list — the agent files nothing new.
+  it again from xbin's list — the agent files nothing new. The backend
+  files every start with `knows: ["retry"]`, which is what lets xbind keep
+  such a start for the person's Try again; a start the agent got wrong is
+  refused before its ticket is spent, never "failed".
+- A message held behind a session's running turn is judged again when it
+  goes in: if the person switched the session to a mode that acts without
+  asking meanwhile, it is not delivered: the session's log says so (its
+  `queue` event's `returned`, a notice).
 
 **Plans** (`_backend/ws_tools_plan.go`; xbind's
 /docs/protocol/delegation.md §Plans): `plan_propose {title, changes:

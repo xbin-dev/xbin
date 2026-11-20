@@ -537,15 +537,17 @@ What a person's agent sessions start with, kept by xbind per person
  "agentSessions": {                   // sessions your workspace agent starts on tiles
    "start": "ask",                    //   "ask" (default): it asks you first | "allow"
    "harness": "codex",                //   the coding agent they start on where the tile allows it;
-                                      //   absent: the workspace's default (D250)
+                                      //   absent: the workspace's default (D250). Only one with a
+                                      //   mode that asks (never OpenCode: its modes ask or act by
+                                      //   its own configuration, which xbin doesn't set)
    "modes": {"claude": "plan"},       //   per harness; absent: the harness's asking mode. Only modes
                                       //   xbind knows keep asking (never an explicit one)
    "net": "none",                     //   the network picker's value; absent: the default network
    "api": true,                       //   tile-API access; absent: yes
-   "tiles": {"apps/eui":              //   per tile, what the person approved there with "Remember
-     {"harness": "opencode",          //   for this tile" (D250): the coding agent, its model and
-      "model": "", "mode": "build",   //   its mode (never an explicit one); at most 200, the
-      "at": 1795000000}}}}            //   oldest go first
+   "tiles": {"apps/eui":              //   per tile, what the person CHANGED on the approval with
+     {"harness": "codex",             //   "Remember for this tile" (D250): the coding agent, its
+      "model": "", "mode": "",        //   model, its mode — only a mode that asks, only a coding
+      "at": 1795000000}}}}            //   agent with one; at most 200, the oldest go first
 ```
 
 **What a start opens with** (D250, [delegation.md](/docs/protocol/delegation.md)
@@ -553,9 +555,11 @@ What a person's agent sessions start with, kept by xbind per person
 (`agentSessions.tiles`), then the person's preference (`agentSessions.
 harness`; the model of `harnesses.<id>.model`; `agentSessions.modes`), then
 the agent's suggestion, then the workspace's default — preselected on the
-approval, which says where each came from. A remembered or preferred mode
-that doesn't ask is preselected only on the approval, with its warning;
-a start without asking always takes an asking mode. The agent reads the
+approval, which says where each came from. Neither store keeps a mode that
+acts without asking, nor a coding agent without a mode that asks: a write
+of one is 400, and a read ignores one found there (an older xbind may have
+written it); a start without asking always takes an asking mode, and a
+coding agent without one never starts without asking. The agent reads the
 result, never these routes: `GET /delegate/start-defaults` → `chosen`.
 
 `PUT` merges: `{"harnesses": {"claude": {"options": {"effort": null}}}}`
@@ -695,7 +699,7 @@ them apart by `hasOlder`.
 | `turn.end` | `{turn, stopReason, usage?:{used, size, cost?}, error?}` — stopReason: end_turn \| max_tokens \| max_turn_requests \| refusal \| cancelled \| error. `{stopReason, detached: true}` (no `turn`) is xbind's, not the agent's: the end of a turn the agent ran on its own — codex-acp answers a steer that lands just after its turn ended by starting one (`sdk/acp` `SteerStartedNewTurn`), and no prompt's answer reports its end. xbind follows it as a running turn (a `status` `running` after the steer; a status the agent's client restates as idle meanwhile is served as `running`, or `waiting_permission` while a request waits) and ends it once the agent has sent nothing for 5 s with no request waiting (`end_turn`), or at a cancel (`cancelled`); an idle `status` follows and the held messages go in |
 | `status` | `{status, detail?, modes?, currentMode?, options?, commands?, agent?, login?, usage?, title?}` — status: starting \| idle \| running \| waiting_permission \| cancelling \| error \| exited; `title` is the agent's own name for the session (ACP `session_info_update` — most adapters generate one after the first turn); it names a session that has no name yet (SessionInfo `name`, announced by a `term` `rename` event) — a name the user gave is kept; `modes` (the agent's available modes), `options` (its settings: `[{id, name, category, type, currentValue, options:[{value, name}]}]` — model, effort, …, in the agent's priority order) and `agent` (`{name, version}`) ride every `idle`; `options` also rides a status whenever a setting changes; `commands` (the agent's slash commands, `[{name, description?, hint?}]` — `hint` says what to type after the name; a command is sent as ordinary prompt text, `/name args`) rides a status when the agent advertises them and every `idle` after; `login` (`{needed:true, provider, command}`) rides every status while the agent reports it is signed out (an `_auth/status_update{kind:none}`) or a turn hit auth-required — the frontend shows a sign-in: the provider's guided one when `GET /agent/providers` gives it a `signin` (D178: a link to open and a code to paste, the CLI running in a terminal session no tab shows), else — and on request — `command` run in a shell terminal sharing the agent's home; an `error` names what to do (no login → the command to sign the CLI in from a terminal) |
 | `gap` | `{before}` — only on a `?follow=1` stream: the cursor predated the log's ring; earlier events were dropped |
-| `queue` | `{items:[{id, text, files?, at}], sent?, dropped?, reason?}` — xbin's, not the agent's (D197): the messages held for the running turn's end after a change (`POST`/`DELETE …/queue`) — the whole list, replacing the last; `text` is a preview (200 characters), `files` the attachments' names. `sent` lists the ids that just went in as a prompt (its user `message.delta` follows); `dropped` counts held messages that went without being sent, with `reason` (the session ended; a prompt refused for good — a `notice` says so too). A client that doesn't know the type skips it |
+| `queue` | `{items:[{id, text, files?, at}], sent?, dropped?, returned?, reason?}` — xbin's, not the agent's (D197): the messages held for the running turn's end after a change (`POST`/`DELETE …/queue`) — the whole list, replacing the last; `text` is a preview (200 characters), `files` the attachments' names. `sent` lists the ids that just went in as a prompt (its user `message.delta` follows); `dropped` counts held messages that went without being sent, with `reason` (the session ended; a prompt refused for good — a `notice` says so too); `returned` lists held messages of the person's workspace agent that were not delivered because the session was switched meanwhile to a mode that acts without asking (D250; `reason` says so, and a `notice`) — the person's own held messages go in as ever. A client that doesn't know the type skips it |
 | `notice` | `{text, llm?, offered?, signin?}` — a line xbin itself says in the session, not the agent; a client shows it muted, as its own row (the Agent tab does; a client that doesn't know the type skips it). Today: the session's start moved the tile's terminal layer to a new base image, resetting everything outside the workspace files and `$HOME` (base auto-update, D175; the event is the session's first); held messages that were not sent (D197); who serves the session's model calls, when that needs saying (D226): the workspace's LLM connector serves it (`llm: "connector"`, among the session's first events — a client may show it in its header; `offered: true` when the connector is only the CLI's default, which its own or the project's configuration can leave out, as SessionInfo `llmOffered`), it can't have the connector it otherwise would (a session without network or on a non-primary deployment, no model), or the connector refused one of its model calls — the status, the error's code and its message, once per kind while the CLI retries (a CLI often shows nothing of a `429`); what the session signs in with, when the person has a saved sign-in (D230: `signin: {source, id?, name?, why?}`, among the session's first events — "Using your saved sign-in ‹name›", or why it isn't used here), and why a session on a saved sign-in was ended (the sign-in removed or replaced, someone else gaining terminal access to the tile, the account signed out) |
 
 The live log is in memory; an `exited` or `error` status is final and the
