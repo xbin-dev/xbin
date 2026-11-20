@@ -298,19 +298,30 @@ update stays offered for it ("pending" on the PR).
 
 **The brief's commands trust nothing of the tile's git config.** The
 template's merge fetches xbind's URL into `FETCH_HEAD` (`git fetch
-'http://xbin/api/xbin/templates/<name>.git' main`, `git merge --no-edit
-FETCH_HEAD`) — never the remote named `template`, which the tile's writers
-can point anywhere — and a row exists only for a remote that is exactly
-xbind's URL (`templateRemoteOf`). Every git command runs as `git -c
-core.fsmonitor= -c core.hooksPath=/dev/null -c protocol.ext.allow=never`;
-every path is single-quoted, and a tile path a quote can't make inert (a
-control character) gets no brief. **What is still the tile writer's** in a
-session in that tile: its `.gitattributes`, filters and merge drivers (the
-manifest's `bx template merge-manifest` driver among them), and anything
-else of the tile's code a merge runs. That is bounded by where it runs —
-the tile's own sandbox, as the person, under v0.3.82's untrusted-tile
-confinement — the same bound as any of the tile's code the person's
-coding agent runs there.
+'http://xbin/api/xbin/templates/<name>.git' main`) — never the remote
+named `template`, which the tile's writers can point anywhere — then
+checks that `FETCH_HEAD` is exactly the template's head commit as xbind
+serves it (`test "$(git rev-parse FETCH_HEAD)" = <hash> && echo verified
+|| echo STOP`: a commit's hash is its content) and merges that hash, never
+`FETCH_HEAD`. A row exists only for a remote that is exactly xbind's URL
+(`templateRemoteOf`). Every git command runs as `git -c core.fsmonitor=
+-c core.hooksPath=/dev/null -c protocol.ext.allow=never`, the fetch also
+with `-c credential.helper= -c core.sshCommand=false -c protocol.allow=never
+-c protocol.http.allow=always -c protocol.https.allow=always`; every path
+is single-quoted, and a tile path a quote can't make inert (a control
+character) gets no brief.
+
+**Residuals — what is still the tile writer's** in a session in that
+tile: `url.*.insteadOf` in the tile's own config can still send the fetch
+elsewhere (no `-c` removes an entry; the hash check is what binds the
+content, and the protocol allow-list keeps it to http(s) with no
+credential helper — `TestTemplateUpdateInATileSession` points it at
+another template and sees STOP); its `.gitattributes`, filters and merge
+drivers (the manifest's `bx template merge-manifest` driver among them),
+and anything else of the tile's code a merge runs. That is bounded by
+where it runs — the tile's own sandbox, as the person, under v0.3.82's
+untrusted-tile confinement — the same bound as any of the tile's code the
+person's coding agent runs there.
 
 **xbin's brief is named, not written by the agent.** A start of xbind's
 brief carries `{"brief": {"template": "update"}}` (a plan's `agent.start`
@@ -374,6 +385,21 @@ shown red without its rule (the table below):
 Also found in master and fixed with 1: workspace-template instantiation
 read the template through `os.DirFS` (links followed); now
 `fsutil.NoSymlinksFS`.
+
+**The re-review of 2026-11-20** confirmed the four holes closed and found
+a regression and gaps, all fixed (`security/builtins-files` 3913c2b0,
+91a461e1; on this branch f3b05478): a merge that left a file alone
+recorded nothing, so repeated merges stacked conflict markers — now every
+mode records per file (`recordPartly`); a root-token terminal closes a
+proposal merged again; a workspace template's links, FIFOs and files over
+32 MiB are skipped and named, not fatal (migration note
+`docs/changes/2026-11-20-links-in-tiles.md`); a noted file is never in a
+series and a nested tile's files are never read; the openat2 fallback
+walks from the root's fd with O_NOFOLLOW; writes keep file modes; notes
+show in the Tile Manager and `bx`; a listing hashes as a stream, one at a
+time. On D248: one update of a unit at a time in every mode (the unit
+lock, 503), the safe pin holds the recorded base, and the template brief
+verifies and merges xbind's exact commit.
 
 **The open question** — can a builtin update whose manifest merges with
 a local manifest edit put more in force than was approved? No

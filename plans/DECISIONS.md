@@ -6288,3 +6288,12 @@ here: cut from the old end, never reword.
     tile's coding agent applies it, its changes showing in the tile's
     Agent tab and history. A merged manifest raises nothing in force (the
     agent level and cross-scope grants stay pending).
+  - **Re-review of 2026-11-20:** the security branch gains per-file
+    recording in every mode (repeated merges stacked markers), a root-token
+    terminal's merged close, skipped-and-named links in workspace templates
+    (migration note links-in-tiles), the fd-walking openat2 fallback, kept
+    file modes, notes in the Tile Manager and `bx`, a streamed one-at-a-time
+    listing. D248: one update of a unit at a time in every mode, the pin
+    holds the recorded base, and the template brief verifies and merges
+    xbind's exact head commit (the tile's url.*.insteadOf, attributes,
+    filters and merge drivers remain its own — bounded by its sandbox).

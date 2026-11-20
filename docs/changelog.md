@@ -76,8 +76,11 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   labelled **written by your agent**, whatever it says. A template
   instance is listed only when its `template` remote is exactly xbind's
   URL (in `GET /templates/updates` too), and its brief fetches that URL
-  into `FETCH_HEAD` with git's hooks, fsmonitor and `ext::` transport off,
-  every path single-quoted. A proposal's line says what happens — the
+  into `FETCH_HEAD` with git's hooks, fsmonitor, credential helper and
+  every transport but http(s) off, checks it is exactly the template's
+  head commit as xbind serves it and merges that commit, every path
+  single-quoted. One update of a builtin at a time, in every mode (503
+  past 30 s). A proposal's line says what happens — the
   tile's coding agent applies it there, its changes show in the tile's
   Agent tab and history — and promises no review.
   [workspace-agent.md](/docs/workspace-agent.md),

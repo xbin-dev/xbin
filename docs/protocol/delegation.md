@@ -448,10 +448,15 @@ brief: {goal, doneWhen, leaveAlone, checkBy, known, commands: [string]}
   anything else the tile wrote. Its commands never rely on what the tile's
   own git config names: a template's merge fetches xbind's URL into
   `FETCH_HEAD` (`git fetch 'http://xbin/api/xbin/templates/<name>.git'
-  main`, then `git merge --no-edit FETCH_HEAD`), and every git command runs
-  as `git -c core.fsmonitor= -c core.hooksPath=/dev/null -c
+  main`, with no credential helper or ssh command and only the http(s)
+  transports), checks that `FETCH_HEAD` is exactly the template's head
+  commit as xbind serves it — "verified", or STOP: merge nothing — and
+  merges that commit (`git merge --no-edit <hash>`); every git command
+  runs as `git -c core.fsmonitor= -c core.hooksPath=/dev/null -c
   protocol.ext.allow=never …` — no hook, fsmonitor command or `ext::`
-  transport of the tile's runs. Every path is single-quoted, so nothing in
+  transport of the tile's runs. (The tile's own `url.*.insteadOf` can
+  still send the fetch elsewhere — no `-c` removes it — which the check
+  catches.) Every path is single-quoted, so nothing in
   a directory name expands. What stays the tile writer's in a session
   there — its `.gitattributes`, filters and merge drivers — runs as any of
   the tile's code does, inside the session's confinement.
