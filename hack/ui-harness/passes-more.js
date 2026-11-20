@@ -45,6 +45,7 @@ function register(P) {
   P.mcpTemplate = require('./passes/mcptemplate').mcpTemplate; // the MCP server example's page (HARNESS_ISOLATE=1) and a tile whose required slot is bound folding the rest into one line (docs/mcp.md, overview/11-interfaces.md)
   P.agentSavedSignin = require('./passes/agentsavedsignin').agentSavedSignin; // D230: the sign-ins xbind keeps, through <bx-agent-signin> in the Agent tab
   P.agentSigninTrust = require('./passes/agentsignintrust').agentSigninTrust; // D230 (2026-11-17): "I trust this tile's source" — the card on a tile that isn't only yours, both choices, the list, the switch
+  P.approvalsUx = require('./passes/approvalsux').approvalsUx; // D250: one approval, one place — the owner's eui session replayed: one card and one control a start, the coding agent, model and mode picked on xbin's sheet as the approval, remembered for a tile, a follow-up continuing the session that is there, the batch, the buttons' roles; light and dark, 1280 and 430 (its own xbind, HARNESS_ISOLATE=1, make sealed)
 }
 
 module.exports = { register };

@@ -6388,3 +6388,50 @@ here: cut from the old end, never reword.
     echo of request text is no evidence). The agent's memory is per
     conversation *and* model (its Via). `bx … --reasoning <model>=maker`
     stores the record *Use these* stores, aliases included.
+
+- **D250 — One approval, one place: a start is the person's pick on
+  xbin's sheet, a follow-up continues the session that is there, and a
+  refusal says what differed (2026-11-20; the owner's test session of
+  2026-11-21 and the agent's retro; spec `plans/wsagent/approvals-ux.md`).**
+  "turn eui into a tic tac toe game" took five approval rounds and
+  started nothing. The causes, in the code: the conversation drew a
+  brief's start twice (`ws/place.js` placed a request card beside the
+  brief's, each with a Review…); a coding agent with no default mode
+  (OpenCode) was refused on its own ticket AFTER the ticket was spent
+  (`ticketStart` wanted a mode; the plan path had the exception), in the
+  words "the approval no longer covered the call (it expired after 15
+  minutes, or the tile changed)"; the coding agent was picked on the
+  agent's page, which re-filed the start and marked the brief "edited by
+  your person"; a mode that doesn't ask turned Deny into the primary
+  button and Approve red.
+  - **The ticket binds what the agent chose, the approval what the person
+    chose.** Tile, brief text (the body's hash) and kind stay bound; the
+    coding agent, model and mode are the approve call's (`harness`,
+    `model`, `mode`), validated as a by-hand start's, and are what opens.
+    The agent suggests (`suggest` in a start's body; `agent.start` takes
+    `model` too); the person's tile choice and preference outrank the
+    suggestion; a suggested mode that doesn't ask is never preselected; a
+    sign-in is never suggested (D230 unchanged). Rejected: binding the
+    harness and asking again on a change (the five rounds); letting the
+    agent's page carry the pick (it renders a model's text); re-binding
+    the ticket to the person's edited brief inside xbind (the edit is made
+    on the agent's page, which can't act as the person at xbind — the
+    backend files the superseding request and the sheet shows it).
+  - **Preferences reuse the store that exists:** `agentSessions.harness`
+    and `agentSessions.tiles` are new keys of the agent preferences; the
+    model is `harnesses.<id>.model`, the Agent tab's. No admin default:
+    the workspace agent's host/admin layering doesn't cover start choices.
+  - **One item a pending act; one batch** ("Waiting for you" with a
+    count, Review all). **Continue by default** a live idle session this
+    conversation started on the tile; a message to a session that doesn't
+    ask is a `message` request instead of a refusal.
+  - **Refusals name the field** (`reason` beside `refusal: "ticket"`) and
+    spend nothing; a start that fails for a reason not the agent's is
+    `failed`, with Try again for the person (`…/retry`).
+  - **Buttons:** Approve primary on the right, Deny quiet on the left,
+    always; danger colours only the Approve. No "·" in what a person reads
+    on the surfaces this touched (the owner's rule): facts are elements.
+  - **Not built:** pickers on a plan's start line (the line resolves by
+    the same chain and shows where each came from); page-driving
+    verification (a proposal in the spec, §7c); an admin default for start
+    choices.
