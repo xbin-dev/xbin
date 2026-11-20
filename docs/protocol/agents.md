@@ -536,18 +536,35 @@ What a person's agent sessions start with, kept by xbind per person
               "credentials": "own"}}, //   "own" | "connector"; absent: the workspace's default
  "agentSessions": {                   // sessions your workspace agent starts on tiles
    "start": "ask",                    //   "ask" (default): it asks you first | "allow"
+   "harness": "codex",                //   the coding agent they start on where the tile allows it;
+                                      //   absent: the workspace's default (D250)
    "modes": {"claude": "plan"},       //   per harness; absent: the harness's asking mode. Only modes
                                       //   xbind knows keep asking (never an explicit one)
    "net": "none",                     //   the network picker's value; absent: the default network
-   "api": true}}                      //   tile-API access; absent: yes
+   "api": true,                       //   tile-API access; absent: yes
+   "tiles": {"apps/eui":              //   per tile, what the person approved there with "Remember
+     {"harness": "opencode",          //   for this tile" (D250): the coding agent, its model and
+      "model": "", "mode": "build",   //   its mode (never an explicit one); at most 200, the
+      "at": 1795000000}}}}            //   oldest go first
 ```
+
+**What a start opens with** (D250, [delegation.md](/docs/protocol/delegation.md)
+→ "The person's pick"): per field, this tile's remembered choice
+(`agentSessions.tiles`), then the person's preference (`agentSessions.
+harness`; the model of `harnesses.<id>.model`; `agentSessions.modes`), then
+the agent's suggestion, then the workspace's default — preselected on the
+approval, which says where each came from. A remembered or preferred mode
+that doesn't ask is preselected only on the approval, with its warning;
+a start without asking always takes an asking mode. The agent reads the
+result, never these routes: `GET /delegate/start-defaults` → `chosen`.
 
 `PUT` merges: `{"harnesses": {"claude": {"options": {"effort": null}}}}`
 removes one option and leaves the rest. A client applies `harnesses` itself
 when it opens a session (`POST /term/sessions {mode, model, options}`);
 xbind never starts a person's own session in a saved mode by itself.
 `agentSessions` is read by xbind when the person's workspace agent starts a
-session — the agent can't read or write these routes — and checked again
+session — the agent can't read or write these routes (what they come to
+for a tile it reads as start-defaults' `chosen`) — and checked again
 on every read: a stored mode this xbind doesn't know to keep asking is
 replaced by the harness's asking mode. `credentials` follows the
 precedence rule: the session's own choice, then this saved choice, then

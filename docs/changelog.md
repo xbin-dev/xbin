@@ -12,6 +12,45 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-20
 
+- workspace agent: **one approval, one place; a start is the person's
+  pick; a follow-up goes to the session that is there** (D250). A tile
+  agent's start binds its tile, brief and kind: the person picks the
+  coding agent, model and mode on xbin's sheet (`POST
+  /delegate/requests/<id>/approve {harness?, model?, mode?, remember?,
+  continue?, knows?}`, validated as a by-hand start), preselected by this
+  tile's remembered choice, the person's preference, the agent's
+  suggestion, the default — `preview.session.choices`, `from`,
+  `suggested`, `modeNotTaken`; a suggested mode that doesn't ask is never
+  preselected. New preference keys `agentSessions.harness` and
+  `agentSessions.tiles` ("Remember for this tile"); the agent reads the
+  result as start-defaults' `chosen`. A start may name `continue: <its
+  idle session there>` (`preview.session.continue`), and a message to a
+  session whose mode doesn't ask is a request of kind `message` instead of
+  a refusal. A refused ticket carries `reason` and says what differed;
+  nothing is spent by a refusal. A start that fails for a reason that
+  isn't the agent's is state `failed` (`failure {why, retry}`, `GET
+  /delegate/requests?failed=1`, `POST /delegate/requests/<id>/retry`,
+  refusal `start-failed`). `GET /delegate/tile`'s sessions carry `model`,
+  `asks`, `started`, `since`; a plan's `agent.start` takes `model`.
+  [delegation.md §The person's pick](/docs/protocol/delegation.md),
+  [workspace-agent.md](/docs/workspace-agent.md#how-approvals-work).
+- chrome: **the dock's one "Waiting for you" list** — a title with a
+  count, each pending act once, oldest first, one action each, Review all
+  past one review, Try again on a failed start; the conversation's card
+  for a pending act is a marker that opens it, never a second approve. On
+  every approval Deny is the quiet button on the left and Allow the
+  primary on the right; a warning colours Allow and never promotes Deny.
+  A permission card places the coding agent's own options so: its
+  rejections left, its first allow right. What a person reads on these
+  surfaces carries no "·": each fact is its own element.
+- agent template: `tile_agent_start {harness?, model?, mode?, new?,
+  reason?}` (suggestions only where the person named one; `new` against
+  continuing), `tile_agent_message` to a session that doesn't ask files
+  one approval, `tile_agents` and `tile_status` list this conversation's
+  sessions and the person's own; the brief's card has no coding-agent
+  picker and start-defaults carries `model`, `from` and `chips`. The iOS
+  app approves xbin's preselected pick and says where to pick others.
+
 - tiles: **BREAKING — a link, a FIFO or a file over 32 MiB in a tile is
   never followed or read.** Instantiating a workspace template no longer
   copies a link's target: such a file is skipped and named (`skipped`,
