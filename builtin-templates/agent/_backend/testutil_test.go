@@ -20,8 +20,49 @@ func newTestAgent(t *testing.T, db *DB) *Agent {
 	f := &fakeLLM{t: t, gates: map[string]chan struct{}{}}
 	e := newEngine(db, ag, f, "")
 	e.takeOver()
-	t.Cleanup(func() { e.Shutdown(2 * time.Second) })
+	t.Cleanup(func() {
+		drainEngine(t, e)
+		e.Shutdown(2 * time.Second)
+		// its takeover made it the project worker's agent and engine: not the next test's
+		projAgent.CompareAndSwap(ag, nil)
+		projEngine.CompareAndSwap(e, nil)
+	})
 	return ag
+}
+
+// engineDrain bounds how long a test's end waits for its engine's actors
+// and project work to stop.
+const engineDrain = 20 * time.Second
+
+// drainEngine stops e and waits — within engineDrain, or the test FAILS,
+// never silently — until its actors and its project work have ended: a
+// turn left running past its test acts through the package's globals on
+// the next test's run (run ids restart at 1 in each test's database; the
+// flake "no plan waits", D250 re-review item 7).
+func drainEngine(t *testing.T, e *Engine) {
+	t.Helper()
+	e.BeginShutdown()
+	deadline := time.Now().Add(engineDrain)
+	for {
+		e.mu.Lock()
+		n := len(e.actors)
+		e.mu.Unlock()
+		if n == 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Errorf("%d actor(s) of this test's engine still run %v after its end: one would act on the next test's run", n, engineDrain)
+			return
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	done := make(chan struct{})
+	go func() { e.projWG.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(time.Until(deadline)):
+		t.Errorf("this test's engine's project work still runs %v after its end", engineDrain)
+	}
 }
 
 func fakeOf(ag *Agent) *fakeLLM { return ag.eng.llm.(*fakeLLM) }

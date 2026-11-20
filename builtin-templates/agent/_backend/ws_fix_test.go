@@ -143,16 +143,7 @@ func newWsFix(t *testing.T) *wsFix {
 		// useGlobalAgent's cleanup — run after this one, before the engine's
 		// own shutdown — puts back: its actors end first, seen under the lock
 		// their exit takes.
-		ag.eng.BeginShutdown()
-		for i := 0; i < 1000; i++ {
-			ag.eng.mu.Lock()
-			n := len(ag.eng.actors)
-			ag.eng.mu.Unlock()
-			if n == 0 {
-				break
-			}
-			time.Sleep(2 * time.Millisecond)
-		}
+		drainEngine(t, ag.eng) // (never given up silently: D250 re-review item 7)
 		wsX = oldX
 		wsPollEvery.Store(oldPoll)
 		coordWakeEvery.Store(oldWake)
