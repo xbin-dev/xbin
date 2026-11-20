@@ -19,13 +19,16 @@ func newTestAgent(t *testing.T, db *DB) *Agent {
 		blobs: newMemBlobs(), blobCache: newBlobCache(8 << 20), noGateway: true}
 	f := &fakeLLM{t: t, gates: map[string]chan struct{}{}}
 	e := newEngine(db, ag, f, "")
-	e.takeOver()
+	prevAg, prevEng := projAgent.Load(), projEngine.Load()
+	e.takeOver() // (it makes ag and e the project worker's agent and engine)
 	t.Cleanup(func() {
 		drainEngine(t, e)
 		e.Shutdown(2 * time.Second)
-		// its takeover made it the project worker's agent and engine: not the next test's
-		projAgent.CompareAndSwap(ag, nil)
-		projEngine.CompareAndSwap(e, nil)
+		// put back what its takeover replaced — never nil: a timer of this test's that fires later reads these,
+		// and with none it would read the package's agent, which the next test swaps (a race, and that test's run)
+		if prevAg != nil && projAgent.CompareAndSwap(ag, prevAg) {
+			projEngine.CompareAndSwap(e, prevEng)
+		}
 	})
 	return ag
 }
