@@ -222,8 +222,9 @@ func Providers() []Provider { return append([]Provider(nil), catalog...) }
 // connector alone may serve; its `llm-call` script calls the endpoint) — or, with --llm-additive in argv, the way opencode does:
 // always declared, the model only when the connector serves. With
 // --no-default-mode in argv its entry names no default, approve or plan
-// mode, as OpenCode's does (a start that names no mode opens as the agent
-// opens itself, and nothing says that asks).
+// mode (a start that names no mode opens as the agent opens itself), its
+// one asking mode in AskModes; with --no-asking-mode, none that asks
+// either — as OpenCode's entry is.
 func Fake(argv []string) Provider {
 	p := Provider{ID: "fake", Name: "Fake agent (tests)", Driver: "acp", Argv: append([]string(nil), argv...),
 		Modes:       []Mode{{ID: "ask", Name: "Ask before acting"}, {ID: "auto", Name: "Auto"}, {ID: "yolo", Name: "Yolo", Explicit: true}},
@@ -245,10 +246,13 @@ func Fake(argv []string) Provider {
 		p.LoginCmd, p.Bins = p.Login, []string{argv[0]}
 	}
 	if slices.Contains(argv, "--no-default-mode") {
-		// …or as OpenCode's entry is: no default mode — it opens as it opens itself — and no mode a
-		// consumer may pick for it as "the one that asks" by its approve or plan name: its one asking
-		// mode is in AskModes (OpenCode itself has none, as xbin knows it)
+		// no default mode — it opens as it opens itself — and no mode a consumer may pick for it as "the
+		// one that asks" by its approve or plan name: its one asking mode is in AskModes
 		p.DefaultMode, p.ApproveMode, p.PlanMode, p.AskModes = "", "", "", []string{"ask"}
+	}
+	if slices.Contains(argv, "--no-asking-mode") {
+		// …or as OpenCode's entry is: no default mode, and none xbin can vouch asks (D250 review M2)
+		p.DefaultMode, p.ApproveMode, p.PlanMode, p.AskModes = "", "", "", nil
 	}
 	return p
 }

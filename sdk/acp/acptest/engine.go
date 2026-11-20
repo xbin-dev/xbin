@@ -56,6 +56,9 @@ func newFake(o Options) *fake {
 	if f.getenv == nil {
 		f.getenv = os.Getenv
 	}
+	if o.StartMode != "" {
+		f.mode = o.StartMode
+	}
 	if o.RequireLogin {
 		f.signedIn = f.credentials()
 		if o.CodexAuth {
@@ -134,6 +137,9 @@ func (f *fake) onRequest(m *acp.Message) (any, *acp.Error) {
 	case acp.MSessionSetMode:
 		var p acp.SetModeParams
 		_ = json.Unmarshal(m.Params, &p)
+		if f.o.RefuseMode { // --refuse-mode: it won't be put in another mode
+			return nil, &acp.Error{Code: acp.CodeInvalidParams, Message: "this agent keeps its own mode"}
+		}
 		f.mu.Lock()
 		f.mode = p.ModeID
 		f.mu.Unlock()
@@ -168,7 +174,11 @@ func (f *fake) modes() *acp.SessionModes {
 	if f.o.AutoMode {
 		modes = []acp.ModeEntry{modes[0], {ID: "auto", Name: "Auto", Description: "Edits without asking; asks for the rest"}, modes[1]}
 	}
-	return &acp.SessionModes{CurrentModeID: "ask", AvailableModes: modes}
+	cur := "ask"
+	if f.o.StartMode != "" { // --start-mode: the mode it opens in
+		cur = f.o.StartMode
+	}
+	return &acp.SessionModes{CurrentModeID: cur, AvailableModes: modes}
 }
 
 // configOptions is the one advertised setting, with its current value.

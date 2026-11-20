@@ -36,6 +36,12 @@ type Options struct {
 	// DeviceDelay is how long after the client accepts the device-code URL
 	// the sign-in completes (--device-ms): 0 = 1 s, negative = at once.
 	DeviceDelay time.Duration
+	// StartMode (--start-mode=<id>) is the mode a session opens in ("" ask):
+	// one other than the one a client asks for makes it set the mode.
+	StartMode string
+	// RefuseMode (--refuse-mode): session/set_mode is refused — an agent
+	// that won't be put in the mode asked for.
+	RefuseMode bool
 	// Getenv is the environment the scripts read: HOME (where .fakeacp/
 	// lives, and what env reports) and FAKE_API_KEY. nil = os.Getenv.
 	Getenv func(string) string
@@ -133,6 +139,12 @@ func ParseArgs(args []string) Options {
 			}
 		case "codex-auth":
 			o.CodexAuth = on
+		case "start-mode":
+			if hasVal {
+				o.StartMode = val
+			}
+		case "refuse-mode":
+			o.RefuseMode = on
 		case "device-ms":
 			if !hasVal && i+1 < len(args) {
 				if _, err := strconv.Atoi(args[i+1]); err == nil {
