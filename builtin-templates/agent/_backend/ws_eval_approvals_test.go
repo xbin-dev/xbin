@@ -1,7 +1,7 @@
 package main
 
-// The owner's test session of 2026-11-21, replayed (D250; plans/wsagent/
-// approvals-ux.md): "turn eui into a tic tac toe game" took five approval
+// The owner's test session of 2026-11-21, replayed (D250; xbind's
+// docs/workspace-agent.md §How approvals work): "turn eui into a tic tac toe game" took five approval
 // rounds and started nothing. Each scenario here is one of its frictions,
 // now one round: the person's pick on the sheet is what runs, and the
 // agent is told so; a follow-up continues the session that is there; a

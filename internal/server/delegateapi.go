@@ -36,7 +36,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"net/url"
 	"slices"
@@ -47,7 +46,6 @@ import (
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/delegation"
 	"github.com/xbin-dev/xbin/internal/events"
-	"github.com/xbin-dev/xbin/internal/term"
 	"github.com/xbin-dev/xbin/internal/util"
 )
 
@@ -662,110 +660,6 @@ func (s *Server) sessionPreview(p auth.Principal, body []byte) (map[string]any, 
 	return s.sessionPreviewFor(p, body, nil)
 }
 
-// sessionPreviewFor is sessionPreview with the person's pick on the
-// approval (nil: none yet): the coding agent, model and mode the start
-// opens with. A body's provider, model and mode are the agent's
-// SUGGESTION, preselected below the person's own choices for the tile and
-// their preference (startPick) — and a suggested mode that doesn't ask is
-// never preselected.
-func (s *Server) sessionPreviewFor(p auth.Principal, body []byte, person *delegation.StartChoice) (map[string]any, string) {
-	var b struct {
-		Cwd, Kind, Provider, Mode, Net, GPU, Name, Model, Resume, Continue string
-		API                                                                *bool
-		VM                                                                 bool
-		Options                                                            map[string]string
-		Prompt                                                             string
-	}
-	if json.Unmarshal(body, &b) != nil || b.Cwd == "" {
-		return nil, "a session start names its tile: {cwd, kind:\"agent\", provider?, …}"
-	}
-	if len(b.Prompt) > maxStartPrompt {
-		return nil, fmt.Sprintf("a start's first prompt is at most %d KiB", maxStartPrompt>>10)
-	}
-	if _, why := s.startRefusal(p, sessionAskOf(body)); why != "" {
-		return nil, why // no approval makes it startable: don't put it in front of the person
-	}
-	options := map[string]string{}
-	for k, v := range b.Options {
-		options[k] = v
-	}
-	if b.Model != "" { // the body's shorthand for options.model
-		options["model"] = b.Model
-	}
-	tile := strings.Trim(b.Cwd, "/")
-	// what the request leaves out, xbind fills from the person's choices
-	// for the tile, their preferences for sessions their agent starts and
-	// the tile's orgs' rules — and shows: the card says the EFFECTIVE values
-	var pick startPick
-	sug := startSuggestion{Harness: b.Provider, Model: options["model"], Mode: b.Mode}
-	if b.Resume == "" {
-		var why string
-		if pick, why = s.startPick(p, tile, sug, person); why != "" {
-			return nil, why
-		}
-		b.Provider, b.Mode = pick.Harness, pick.Mode
-		if pick.Model != "" {
-			options["model"] = pick.Model
-		} else {
-			delete(options, "model")
-		}
-		if b.Net == "" {
-			b.Net = s.startDefaults(p, tile).netFor(b.Provider)
-		}
-	}
-	if s.Term == nil {
-		return nil, "terminals are not enabled"
-	}
-	eff, _, err := s.Term.DelegateEffective(p, term.AgentOpen{Cwd: b.Cwd, Provider: b.Provider, Mode: b.Mode, Resume: b.Resume})
-	if err != nil {
-		return nil, err.Error()
-	}
-	if err := s.agentPolicy().SessionAllows(delegation.Subject{Holder: p.Agent, User: p.UserID, Tile: eff.Tile, Model: p.AgentModel}, eff.Provider.ID); err != nil {
-		return nil, err.Error()
-	}
-	// signIn: what it runs on as things are; signInId OFFERS the person's saved sign-in (the sheet's own line,
-	// unticked; the label is drawn from their list); signInTrust: the trust line that goes with it (signinstrust.go)
-	signIn, signInID, trust := s.approvalSignIn(p, eff.Tile, eff.Provider)
-	out := map[string]any{
-		"signIn": signIn, "signInId": signInID, "signInTrust": trustLine(trust),
-		"tile": eff.Tile, "provider": eff.Provider.ID, "providerName": eff.Provider.Name, "mode": eff.Mode,
-		// false: this mode lets the tile agent act without asking. The mode
-		// alone decides it: a delegate's start is strict (acp.Config.Strict)
-		// — the mode is in force or the session ends, and no option but a
-		// model or a thinking level is set
-		"asks":    eff.Provider.Asks(eff.Mode),
-		"options": options, // every setting the start carries; none of them can change the mode
-		// what the session will be told first: sent by xbind itself once the
-		// session is up, and bound by the ticket with the rest of the body.
-		// Nothing the agent sends the session later is approved one by one.
-		"prompt": b.Prompt,
-		"net":    b.Net, "api": b.API == nil || *b.API, "vm": b.VM, "gpu": b.GPU, "model": options["model"], "name": b.Name, "resume": eff.Resumes,
-	}
-	if b.Resume == "" {
-		// D250: what may be picked, where each part came from, and what the agent suggested
-		out["choices"] = map[string]any{"harnesses": pick.Harnesses}
-		out["from"] = pick.From
-		if sug.any() {
-			sg := map[string]string{}
-			for k, v := range map[string]string{"harness": sug.Harness, "model": sug.Model, "mode": sug.Mode} {
-				if v != "" {
-					sg[k] = v
-				}
-			}
-			out["suggested"] = sg
-		}
-		if pick.ModeNotTaken != "" {
-			out["modeNotTaken"] = pick.ModeNotTaken
-		}
-		if b.Continue != "" { // the agent's own idle session there: continued unless the person starts a new one
-			if c, why := s.continuable(p, b.Continue, eff.Tile); why == "" {
-				out["continue"] = c
-			}
-		}
-	}
-	return out, ""
-}
-
 // apiDelegateRequests — GET /delegate/requests[?all=1]: the person or
 // their agent's page → their pending requests (all: the decided ones of the
 // last day too), oldest first.
@@ -958,39 +852,6 @@ func (s *Server) apiDelegateRequestDecide(w http.ResponseWriter, r *http.Request
 		Class: "decision:" + req.State, Effect: true, Status: http.StatusOK, Ticket: req.ID, Under: under, Via: body.Via})
 	s.delegateEvent(a.user, "request", req.ID)
 	WriteJSON(w, http.StatusOK, out)
-}
-
-// apiDelegateRequestRetry — POST /delegate/requests/{id}/retry: the
-// person, in their own session — never the agent or its page. A start that
-// was approved and failed to open for a reason that isn't the agent's
-// (state failed, failure.retry) is a ticket again, for 15 minutes: the
-// agent's backend, told by a notice, makes the same start — no new request
-// from the agent (D250). 409 for anything else, and while the agent is
-// stopped (as Allow).
-func (s *Server) apiDelegateRequestRetry(w http.ResponseWriter, r *http.Request) {
-	a, ok := s.delegateCaller(w, r, true, false, false)
-	if !ok {
-		return
-	}
-	cur, found := s.Delegation.Request(a.user, r.PathValue("id"))
-	if !found {
-		WriteError(w, http.StatusNotFound, delegation.ErrNoRequest.Error(), delegationDocs)
-		return
-	}
-	if refusal, msg := s.decideRefusal(a.user, cur.Agent); refusal != "" {
-		refuseDecision(w, refusal, msg)
-		return
-	}
-	req, err := s.Delegation.Retry(a.user, cur.ID)
-	if err != nil {
-		WriteError(w, http.StatusConflict, err.Error(), delegationDocs)
-		return
-	}
-	s.delegateAudit(delegation.Call{User: a.user, Agent: req.Agent, Method: req.Method, Path: req.Path(), Tile: req.Tile,
-		Class: "decision:retry", Effect: true, Status: http.StatusOK, Ticket: req.ID, Under: "once"})
-	s.delegateEvent(a.user, "request", req.ID)
-	s.notifyAt(req.Expires, a.user, req.ID, req.Agent)
-	WriteJSON(w, http.StatusOK, map[string]any{"request": req})
 }
 
 // apiDelegateRequestWithdraw — DELETE /delegate/requests/{id}: the agent
