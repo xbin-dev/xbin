@@ -90,7 +90,8 @@ func (e *Engine) maybeCompact(ctx context.Context, ts *turnState, force bool) {
 		return
 	}
 	jobs := e.db.jobsByCall(run.ID, live)
-	total, sent := promptSize(cfg, run, live, jobs)
+	carry := e.carryFor(ctx, run, cfg)
+	total, sent := promptSize(cfg, run, live, jobs, carry)
 	budget, why := e.tokenBudget(ctx, cfg)
 	if !force && total <= budget {
 		return
@@ -140,7 +141,7 @@ func (e *Engine) maybeCompact(ctx context.Context, ts *turnState, force bool) {
 	}
 
 	// Stage 2: summarise the oldest turns.
-	cut := foldCut(live, jobs, force, budget*keepAfterSummary/100-overhead-summaryAllowance)
+	cut := foldCut(live, jobs, force, budget*keepAfterSummary/100-overhead-summaryAllowance, carry)
 	if cut <= 0 {
 		if len(mask) > 0 {
 			write(nil)
@@ -200,13 +201,13 @@ func maskCandidates(live []*Message, keep int) []*Message {
 // foldCut is where stage 2 cuts: the newest messages that fit in keep tokens
 // stay (at least keepTailMsgs; a forced compaction keeps just those), and a
 // tool result never leaves without its call.
-func foldCut(live []*Message, jobs map[string]int, force bool, keep int) int {
+func foldCut(live []*Message, jobs map[string]int, force bool, keep int, carry replayCarry) int {
 	n := len(live)
 	cut := n - keepTailMsgs
 	if !force {
 		i, acc := n, 0
-		for i > 0 && acc+sentTokens(live[i-1], jobs) <= keep {
-			acc += sentTokens(live[i-1], jobs)
+		for i > 0 && acc+sentTokens(live[i-1], jobs)+replayTokens(live[i-1], carry) <= keep {
+			acc += sentTokens(live[i-1], jobs) + replayTokens(live[i-1], carry)
 			i--
 		}
 		cut = min(i, cut)
@@ -230,9 +231,9 @@ func foldCut(live []*Message, jobs map[string]int, force bool, keep int) int {
 // count of the latest call's, else (none yet, or out of date after a
 // compaction) the estimate — the system prompt, the summary and every live
 // message with the reasoning it goes back with; sent is the messages' part.
-func promptSize(cfg Config, run *Run, live []*Message, jobs map[string]int) (total, sent int) {
+func promptSize(cfg Config, run *Run, live []*Message, jobs map[string]int, carry replayCarry) (total, sent int) {
 	for _, m := range live {
-		sent += sentTokens(m, jobs)
+		sent += sentTokens(m, jobs) + replayTokens(m, carry)
 	}
 	total = estimateTokens(cfg.System) + estimateTokens(run.Summary) + sent
 	if run.LastPromptTokens > promptStale {
@@ -246,24 +247,52 @@ func promptSize(cfg Config, run *Run, live []*Message, jobs map[string]int) (tot
 // call reports the size.
 const promptStale = 1
 
-// sentTokens is what a message costs in the prompt: its stub when masked;
-// with the reasoning it goes back with (D249), by the same estimator.
+// sentTokens is what a message costs in the prompt: its stub when masked.
 func sentTokens(m *Message, jobs map[string]int) int {
 	if m.Masked && m.Role == "tool" {
 		return estimateTokens(maskStub(m, jobs[m.ToolCallID]))
 	}
-	return m.Tokens + replayTokens(m)
+	return m.Tokens
+}
+
+// replayCarry reports whether a stored answer's reasoning goes back on the
+// next call (D249): nil, none does.
+type replayCarry func(meta *msgMeta) bool
+
+// carryFor is what the run's next call sends back: the reasoning of its
+// model's own answers — unless the model's record says never — less the
+// plain field the run remembers that model's provider refusing.
+func (e *Engine) carryFor(ctx context.Context, run *Run, cfg Config) replayCarry {
+	model := modelFor(ctx, cfg, "general")
+	if rec := e.effortOf(ctx, model); rec != nil && rec.Replay == "never" {
+		return nil
+	}
+	_, id := splitModelRef(model)
+	req := LLMRequest{Run: run.ID}
+	e.replayOf(&req)
+	memo := req.ReplayMemo
+	return func(meta *msgMeta) bool {
+		if meta.Model != id {
+			return false
+		}
+		if len(meta.ReasoningRaw) > 0 {
+			return true
+		}
+		off := memo[meta.Via].Off
+		return off != "*" && off != meta.ReplayField
+	}
 }
 
 // replayTokens is what an assistant message's stored reasoning adds to the
-// prompt when it is sent back: opaque blocks (reasoning_details, encrypted
-// items) as stored, else the plain text a chat answer gave.
-func replayTokens(m *Message) int {
-	if m.Role != "assistant" || len(m.Meta) == 0 {
+// prompt of the next call (carry): opaque blocks (reasoning_details,
+// encrypted items) as stored, else the plain text a chat answer gave — by
+// the same estimator as its text.
+func replayTokens(m *Message, carry replayCarry) int {
+	if carry == nil || m.Role != "assistant" || len(m.Meta) == 0 {
 		return 0
 	}
 	var meta msgMeta
-	if json.Unmarshal(m.Meta, &meta) != nil {
+	if json.Unmarshal(m.Meta, &meta) != nil || !carry(&meta) {
 		return 0
 	}
 	switch {

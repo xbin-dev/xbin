@@ -315,27 +315,48 @@ func (d *DB) lastAssistantModel(runID int64) string {
 
 // --- replay that an upstream refused --------------------------------------------
 
-// runReplay is what a run remembers of its provider refusing plain
-// reasoning sent back: the field it named (off), and whether it was brought
-// back once already.
+// runReplay is what a run remembers of a provider's model refusing plain
+// reasoning sent back — per Via (the provider and the model that served
+// it): the field it named (off), and whether it was brought back once
+// already. Another model of the conversation is unaffected.
 type runReplay struct {
 	off  string
 	back bool
 }
 
-// maxRunReplay bounds the runs remembered (an evicted one sends its
-// reasoning again, and learns again).
-const maxRunReplay = 4096
+// maxRunReplay bounds the runs remembered, maxRunVias the models one run
+// remembers (an evicted one sends its reasoning again, and learns again).
+const (
+	maxRunReplay = 4096
+	maxRunVias   = 32
+)
 
-// replayOf fills req's PlainOff and Reenable from its run's memory.
+// replayOf hands req its run's memory, by Via: the LLM applies the entry of
+// the Via the call goes to (llm_gateway.go Chat).
 func (e *Engine) replayOf(req *LLMRequest) {
 	if req.Run == 0 {
 		return
 	}
 	e.replayMu.Lock()
 	defer e.replayMu.Unlock()
-	if r := e.replayRuns[req.Run]; r != nil {
-		req.PlainOff, req.Reenable = r.off, r.off != "" && !r.back
+	for via, r := range e.replayRuns[req.Run] {
+		if req.ReplayMemo == nil {
+			req.ReplayMemo = map[string]replayState{}
+		}
+		req.ReplayMemo[via] = replayState{Off: r.off, Spent: r.back}
+	}
+}
+
+// replayState is one Via's entry as a request carries it.
+type replayState struct {
+	Off   string // the plain field not sent back ("" sent)
+	Spent bool   // brought back once already: not again
+}
+
+// applyReplayMemo sets req's PlainOff and Reenable for its Via (set).
+func applyReplayMemo(req *LLMRequest) {
+	if st, ok := req.ReplayMemo[req.Via]; ok && req.PlainOff == "" {
+		req.PlainOff, req.Reenable = st.Off, st.Off != "" && !st.Spent
 	}
 }
 
@@ -347,18 +368,29 @@ func (e *Engine) replayLearn(req LLMRequest, reply LLMReply) {
 	e.replayMu.Lock()
 	defer e.replayMu.Unlock()
 	if e.replayRuns == nil {
-		e.replayRuns = map[int64]*runReplay{}
+		e.replayRuns = map[int64]map[string]*runReplay{}
 	}
-	r := e.replayRuns[req.Run]
-	if r == nil {
+	vias := e.replayRuns[req.Run]
+	if vias == nil {
 		if len(e.replayRuns) >= maxRunReplay {
 			for k := range e.replayRuns {
 				delete(e.replayRuns, k)
 				break
 			}
 		}
+		vias = map[string]*runReplay{}
+		e.replayRuns[req.Run] = vias
+	}
+	r := vias[reply.Via]
+	if r == nil {
+		if len(vias) >= maxRunVias {
+			for k := range vias {
+				delete(vias, k)
+				break
+			}
+		}
 		r = &runReplay{}
-		e.replayRuns[req.Run] = r
+		vias[reply.Via] = r
 	}
 	if reply.ReplayBack {
 		r.off, r.back = "", true

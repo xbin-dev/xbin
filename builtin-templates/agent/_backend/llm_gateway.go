@@ -129,6 +129,7 @@ func (g *gatewayLLM) Chat(ctx context.Context, req LLMRequest, onEvent func(LLME
 		_, req.Model = splitModelRef(req.Model)
 		req.Via = "|" + req.Model
 	}
+	applyReplayMemo(&req) // what the run remembers of this Via refusing reasoning sent back
 	if pickWire(req.Wire, req.Model) == "responses" {
 		rep, err := g.send(ctx, base, req, onEvent, responsesCodec{})
 		if !errors.Is(err, errWireUnsupported) {

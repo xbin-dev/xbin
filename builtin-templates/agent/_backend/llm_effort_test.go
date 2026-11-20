@@ -39,13 +39,15 @@ func newWireAgent(t *testing.T, db *DB, srv *httptest.Server) *Agent {
 // answer carries reasoning_content; the first answer to a request calls the
 // note tool, the answer after a tool's result says so. Its rules, as a
 // switch: requireReplay — DeepSeek's documented 400 when tools are sent and
-// an earlier assistant message lacks its reasoning_content; refuseReplay —
+// an assistant message of the turn at hand (after the last user message:
+// its tool-call chain) lacks its reasoning_content; refuseReplay —
 // a strict server's 400 on the unknown member; overflow — a context error.
 type thinkingProvider struct {
 	mu            sync.Mutex
 	requireReplay bool
 	refuseReplay  bool
-	refuseQuiet   bool // refuses the field in words that don't name it
+	refuseQuiet   bool              // refuses the field in words that don't name it
+	perModel      map[string]string // model → "refuse" | "require": its own rule, over the switches
 	overflow      bool
 	always400     bool
 	bodies        []map[string]any
@@ -63,6 +65,9 @@ func (p *thinkingProvider) handler(t *testing.T) http.Handler {
 		p.bodies = append(p.bodies, body)
 		p.raws = append(p.raws, string(raw))
 		require, refuse, quiet, overflow, always := p.requireReplay, p.refuseReplay, p.refuseQuiet, p.overflow, p.always400
+		if m, _ := body["model"].(string); p.perModel[m] != "" {
+			require, refuse = p.perModel[m] == "require", p.perModel[m] == "refuse"
+		}
 		p.mu.Unlock()
 		msgs, _ := body["messages"].([]any)
 		refusal := func(msg string) {
@@ -78,13 +83,19 @@ func (p *thinkingProvider) handler(t *testing.T) http.Handler {
 			refusal("tools[0]: invalid schema")
 			return
 		}
+		turnStart := 0 // the turn at hand: after the last user message
+		for i, m := range msgs {
+			if m.(map[string]any)["role"] == "user" {
+				turnStart = i
+			}
+		}
 		for i, m := range msgs {
 			mm := m.(map[string]any)
 			if mm["role"] != "assistant" {
 				continue
 			}
 			_, has := mm["reasoning_content"]
-			if require && body["tools"] != nil && !has {
+			if require && body["tools"] != nil && !has && i > turnStart {
 				refusal(fmt.Sprintf("Missing `reasoning_content` field in the assistant message at message index %d. The reasoning_content in the thinking mode must be passed back to the API.", i))
 				return
 			}
@@ -272,7 +283,20 @@ func TestReasoningReplayRefusedOnce(t *testing.T) {
 func plainOffOf(ag *Agent, id int64) string {
 	req := LLMRequest{Run: id}
 	ag.eng.replayOf(&req)
-	return req.PlainOff
+	for _, st := range req.ReplayMemo {
+		if st.Off != "" {
+			return st.Off
+		}
+	}
+	return ""
+}
+
+// plainOffAt is what run id remembers of the model at via.
+func plainOffAt(ag *Agent, id int64, via string) (off string, reenable bool) {
+	req := LLMRequest{Run: id, Via: via}
+	ag.eng.replayOf(&req)
+	applyReplayMemo(&req)
+	return req.PlainOff, req.Reenable
 }
 
 // covers D249 (H2) — a refusal that names no field it was sent, the call
@@ -332,10 +356,52 @@ func TestReplayMemoryIsTheRunsAndNamed(t *testing.T) {
 	p2.set(func(p *thinkingProvider) { p.refuseReplay, p.requireReplay = false, true })
 	n = p2.calls()
 	send(t, ag2, id2, "and once more")
-	waitFor(t, "the failed turn", func() bool { return p2.calls() > n && statusOf(db2, id2) != statusRunning })
+	waitFor(t, "the failed turn", func() bool { return p2.calls() >= n+2 && statusOf(db2, id2) != statusRunning })
 	time.Sleep(50 * time.Millisecond)
-	if p2.calls()-n != 1 || plainOffOf(ag2, id2) != "reasoning_content" {
-		t.Errorf("brought back twice: %d calls, off %q", p2.calls()-n, plainOffOf(ag2, id2))
+	// the turn's first call answers; its tool follow-up is refused, and not made again with the reasoning
+	if p2.calls()-n != 2 || plainOffOf(ag2, id2) != "reasoning_content" {
+		t.Errorf("brought back twice: %d calls (want 2), off %q", p2.calls()-n, plainOffOf(ag2, id2))
+	}
+}
+
+// covers D249 (M2) — a refusal is the refusing model's: a conversation that
+// moves between a model that refuses reasoning_content and DeepSeek (which
+// requires it with tools) keeps sending DeepSeek its reasoning, however
+// often it moves; the bring-back-once is per model too.
+func TestReplayMemoryIsPerModel(t *testing.T) {
+	db := newTestDB(t)
+	p := &thinkingProvider{perModel: map[string]string{"strict-a": "refuse", "deepseek-b": "require"}}
+	srv := httptest.NewServer(p.handler(t))
+	defer srv.Close()
+	ag := newWireAgent(t, db, srv)
+	id := newRun(t, ag, Config{Pick: "strict-a", Wire: "chat"}, "use a tool")
+	waitStatus(t, db, id, statusIdle)
+	if off, _ := plainOffAt(ag, id, "|strict-a"); off != "reasoning_content" {
+		t.Fatalf("strict-a's refusal: %q", off)
+	}
+	turn := func(model, text string, n int) {
+		t.Helper()
+		cfg, _ := db.runConfig(id)
+		cfg.Pick = model
+		raw, _ := json.Marshal(cfg)
+		if _, err := db.q.Exec(`UPDATE runs SET config=? WHERE id=?`, string(raw), id); err != nil {
+			t.Fatal(err)
+		}
+		send(t, ag, id, text)
+		waitFor(t, text, func() bool { return strings.Count(transcript(db, id), "Noted it.") == n })
+		waitStatus(t, db, id, statusIdle)
+	}
+	for i, model := range []string{"deepseek-b", "strict-a", "deepseek-b", "strict-a", "deepseek-b"} {
+		turn(model, fmt.Sprintf("turn %d", i), i+2)
+	}
+	if off, _ := plainOffAt(ag, id, "|deepseek-b"); off != "" {
+		t.Errorf("DeepSeek's replay off after strict-a's refusal: %q", off)
+	}
+	if off, _ := plainOffAt(ag, id, "|strict-a"); off != "reasoning_content" {
+		t.Errorf("strict-a's: %q", off)
+	}
+	if strings.Contains(runNotes(db, id), "sent its earlier reasoning again") {
+		t.Errorf("a bring-back was spent on another model: %q", runNotes(db, id))
 	}
 }
 
@@ -602,29 +668,71 @@ func TestCompactedReasoningGoesWithItsAnswer(t *testing.T) {
 	}
 }
 
-// covers D249 (l4) — compaction weighs the reasoning that goes back with
-// the answers: by the same estimator as their text, when the provider's
-// count is unknown or out of date (just after a compaction).
+// covers D249 (l4, L3) — compaction weighs the reasoning the next call
+// carries back: by the same estimator as the answers' text, when the
+// provider's count is unknown or out of date (just after a compaction) —
+// and only what goes back: the next call's model's own, not a field the run
+// stopped sending.
 func TestCompactionCountsReplayedReasoning(t *testing.T) {
 	plain := &Message{Role: "assistant", Content: "answer", Tokens: estimateTokens("answer")}
 	meta, _ := json.Marshal(msgMeta{Reasoning: strings.Repeat("r", 4000), ReplayField: "reasoning_content", Via: "p|m", Wire: "chat", Model: "m"})
 	thought := &Message{Role: "assistant", Content: "answer", Tokens: plain.Tokens, Meta: meta}
 	raw, _ := json.Marshal(msgMeta{ReasoningRaw: json.RawMessage(`[{"type":"reasoning.encrypted","data":"` + strings.Repeat("e", 2000) + `"}]`), Wire: "chat", Model: "m"})
 	blocks := &Message{Role: "assistant", Content: "answer", Tokens: plain.Tokens, Meta: raw}
-	shown, _ := json.Marshal(msgMeta{Reasoning: strings.Repeat("s", 4000)}) // a summary shown, never sent back
+	shown, _ := json.Marshal(msgMeta{Reasoning: strings.Repeat("s", 4000), Model: "m"}) // a summary shown, never sent back
 	summary := &Message{Role: "assistant", Content: "answer", Tokens: plain.Tokens, Meta: shown}
-	if sentTokens(thought, nil) != plain.Tokens+1000 || sentTokens(blocks, nil) <= plain.Tokens+500 || sentTokens(summary, nil) != plain.Tokens {
-		t.Errorf("sentTokens: %d %d %d (plain %d)", sentTokens(thought, nil), sentTokens(blocks, nil), sentTokens(summary, nil), plain.Tokens)
+	other, _ := json.Marshal(msgMeta{Reasoning: strings.Repeat("o", 4000), ReplayField: "reasoning_content", Via: "p|m2", Wire: "chat", Model: "m2"})
+	another := &Message{Role: "assistant", Content: "answer", Tokens: plain.Tokens, Meta: other}
+	all := func(*msgMeta) bool { return true }
+	if replayTokens(thought, all) != 1000 || replayTokens(blocks, all) <= 500 || replayTokens(summary, all) != 0 || replayTokens(thought, nil) != 0 {
+		t.Errorf("replayTokens: %d %d %d", replayTokens(thought, all), replayTokens(blocks, all), replayTokens(summary, all))
 	}
 	cfg := Config{System: "sys"}
+	carry := func(m *msgMeta) bool { return m.Model == "m" }
 	for _, c := range []struct {
 		last int
 		want int
-	}{{0, estimateTokens("sys") + 2*plain.Tokens + 1000}, {promptStale, estimateTokens("sys") + 2*plain.Tokens + 1000}, {7000, 7000}} {
-		total, sent := promptSize(cfg, &Run{LastPromptTokens: c.last}, []*Message{plain, thought}, nil)
-		if total != c.want || sent != 2*plain.Tokens+1000 {
+	}{{0, estimateTokens("sys") + 3*plain.Tokens + 1000}, {promptStale, estimateTokens("sys") + 3*plain.Tokens + 1000}, {7000, 7000}} {
+		total, sent := promptSize(cfg, &Run{LastPromptTokens: c.last}, []*Message{plain, thought, another}, nil, carry)
+		if total != c.want || sent != 3*plain.Tokens+1000 {
 			t.Errorf("last %d: total %d sent %d, want %d", c.last, total, sent, c.want)
 		}
+	}
+	// the engine's carry: the next call's model, less a field the run stopped sending to it
+	db := newTestDB(t)
+	p := &thinkingProvider{refuseReplay: true}
+	srv := httptest.NewServer(p.handler(t))
+	defer srv.Close()
+	ag := newWireAgent(t, db, srv)
+	id := newRun(t, ag, Config{Pick: "strict-thinker", Wire: "chat"}, "use a tool")
+	waitStatus(t, db, id, statusIdle)
+	run, _ := db.getRun(id)
+	rcfg, _ := db.runConfig(id)
+	live, _ := db.messages(id, true)
+	c := ag.eng.carryFor(context.Background(), run, rcfg)
+	for _, m := range live {
+		if m.Role == "assistant" && replayTokens(m, c) != 0 {
+			t.Errorf("counted reasoning the run no longer sends (%s)", m.Meta)
+		}
+	}
+	ag.eng.replayMu.Lock()
+	ag.eng.replayRuns = nil // replay on again: only the model decides now
+	ag.eng.replayMu.Unlock()
+	rcfg.Pick = "other-model"
+	c = ag.eng.carryFor(context.Background(), run, rcfg)
+	for _, m := range live {
+		if m.Role == "assistant" && replayTokens(m, c) != 0 {
+			t.Errorf("counted another model's reasoning (%s)", m.Meta)
+		}
+	}
+	rcfg.Pick = "strict-thinker"
+	c = ag.eng.carryFor(context.Background(), run, rcfg)
+	n := 0
+	for _, m := range live {
+		n += replayTokens(m, c)
+	}
+	if n == 0 {
+		t.Error("the model's own reasoning, replay on: not counted")
 	}
 }
 

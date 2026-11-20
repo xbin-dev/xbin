@@ -589,6 +589,10 @@ type LLMRequest struct {
 	// PlainOff may be lifted once, when a call without it is refused too.
 	PlainOff string
 	Reenable bool
+	// ReplayMemo is the run's memory of refusals, by Via (Engine.replayOf):
+	// the LLM sets PlainOff and Reenable from the entry of the Via the call
+	// goes to — only the model that refused is affected.
+	ReplayMemo map[string]replayState `json:"-"`
 	// Expect: the model (the LLM connector's name) whose reasoning the call
 	// sends back — set by the LLM; the connector refuses the call when the
 	// model's name now leads to another (llm_gateway.go send).

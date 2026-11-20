@@ -1231,9 +1231,11 @@ that refuses the plain field (a 400 not about the context's size) gets the
 call once more without the plain reasoning (opaque blocks — OpenRouter's
 `reasoning_details`, encrypted items — still go); only when its refusal named
 the field (`reasoning_content`, `reasoning`) and that call worked does the
-conversation stop sending that field, saying so in a line — that
-conversation only, until the agent restarts; a later refusal while it is off
-brings it back, once. A model whose record says `"replay": "never"` is sent
+conversation stop sending that field to that model (its provider and served
+model), saying so in a line — that conversation and model only, until the
+agent restarts; a later refusal while it is off brings it back, once per
+model. Compaction's estimate counts only the reasoning the next call
+carries back. A model whose record says `"replay": "never"` is sent
 none. A stream that goes 90 s without a byte
 before the model starts answering is abandoned, and once it has, one that goes
 5 minutes without a byte: some upstreams send a tool call whole when it is

@@ -57,7 +57,7 @@ type Engine struct {
 	// replayRuns: runs whose provider refused the plain reasoning sent back
 	// (llm_effort.go); under replayMu
 	replayMu   sync.Mutex
-	replayRuns map[int64]*runReplay
+	replayRuns map[int64]map[string]*runReplay // run → Via → its state
 
 	// treeSeen: what each root's summary last said of the runs below it
 	// (events.go withTreeWaitLive, D198)
