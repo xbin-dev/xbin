@@ -54,6 +54,11 @@ type Engine struct {
 	titleMu sync.Mutex
 	titling map[int64]bool
 
+	// replayRuns: runs whose provider refused the plain reasoning sent back
+	// (llm_effort.go); under replayMu
+	replayMu   sync.Mutex
+	replayRuns map[int64]*runReplay
+
 	// treeSeen: what each root's summary last said of the runs below it
 	// (events.go withTreeWaitLive, D198)
 	treeMu   sync.Mutex
@@ -134,7 +139,12 @@ func (e *Engine) chat(ctx context.Context, req LLMRequest, onEvent func(LLMEvent
 			return LLMReply{}, err
 		}
 	}
-	return e.llm.Chat(ctx, req, onEvent)
+	e.replayOf(&req) // what the run remembers of its provider refusing reasoning sent back (llm_effort.go)
+	reply, err := e.llm.Chat(ctx, req, onEvent)
+	if err == nil {
+		e.replayLearn(req, reply)
+	}
+	return reply, err
 }
 
 func newEngine(db *DB, ag *Agent, llm LLM, lockPath string) *Engine {

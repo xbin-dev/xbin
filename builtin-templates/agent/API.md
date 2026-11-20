@@ -1123,8 +1123,9 @@ defaults: `PUT /config` drops them, as it drops `sandbox` and `attached`.
   use the tile). `ref` is what a tier, `pick` or `{model}` stores. `effort`
   is what the provider's list says of the model's reasoning (the LLM
   connector's record, D249: `{supported_levels, default_level?,
-  can_disable?, thinks_by_default?, replay?, source?, partial?}`; absent:
-  nothing says); `defaultModel` and `defaultEffort` are what a new
+  can_disable?, thinks_by_default?, aliases?, replay?, source?, partial?}`;
+  `supported_levels: []` — no reasoning — only when the connector's admin,
+  host or maker's table says so; absent: nothing says); `defaultModel` and `defaultEffort` are what a new
   conversation runs on and asks for (the general tier's model, the
   `reasoningEffort` default) — what the composer's effort chip reads.
 - `GET /tools` → `{default, classes: [{id, name, tools: [{name, source,
@@ -1183,8 +1184,11 @@ carried into new chats. The level is sent only to a model that reasons: what
 the model's `effort` on `GET /models` says — a model whose record says it
 has no reasoning gets none; a model nothing describes gets it as before
 (`reasoning_effort` when set on Chat Completions; on Responses with OpenAI's
-`gpt-5*`/`o*` names or a set level). The LLM connector maps it onto the
-model's own levels and says what it sent (`X-XBin-LLM-Effort`); when a
+`gpt-5*`/`o*` names or a set level; a model whose record says it reasons
+gets no Responses `reasoning` block it didn't get before when no level is
+set). The LLM connector maps it onto the model's own levels — the chip
+shows what it will send by the same rule — and says what it sent
+(`X-XBin-LLM-Effort`); when a
 conversation's model changes and its level becomes another there, the
 transcript gets one line — `model → kimi-k3 · effort Max → High (its
 highest at or below)`. Compaction, titles and the judge send none. The
@@ -1192,7 +1196,9 @@ workspace agent's conversations send none (no control of their own yet).
 The chip offers only the model's levels — Off first where it can be turned
 off, Off | On for a model that is only on or off, "Default · High" naming
 the model's own — and is hidden for a model with no record or no
-reasoning; the app shows the same as an Effort picker beside Model.
+reasoning; the app shows the same as an Effort picker beside Model. The ⚙
+Config tab keeps a `reasoningEffort` that is no ladder word as "Custom (…)"
+and saves it as it was.
 
 **Wires and thinking.** Two model APIs, both through the bound provider: Chat Completions
 (`/v1/chat/completions`) and the Responses API (`/v1/responses`), which OpenAI's
@@ -1212,13 +1218,23 @@ turn, with tools or without, in the field it came in: `reasoning_content`,
 content, OpenRouter's `reasoning_details`, Responses' reasoning items —
 DeepSeek's API refuses (400) a tool call's follow-up without it, and Kimi,
 GLM and MiniMax ask for it too. Only ever to the same wire, provider and
-model (an alias's target): never across a model switch, never to the same
-model id on another provider; a message compacted away takes its reasoning
-with it. It is input: the provider counts it in the prompt tokens that
-trigger compaction. A provider that refuses the field (a 400 not about the
-context's size) gets the call once more without it; that one is then not
-sent reasoning again until the agent restarts, and the conversation says so
-in a line. A model whose record says `"replay": "never"` is sent none. A stream that goes 90 s without a byte
+model — the model that answered, as the LLM connector names it
+(`X-XBin-LLM-Model`; an alias's target): never across a model switch, never
+to the same model id on another provider. A call that sends it back names
+that model (`X-XBin-LLM-Expect-Model`): when the alias now leads elsewhere
+the connector refuses it (409 `xbin_llm_model_moved`) and the call goes once
+more without any reasoning, the model list read anew. A message compacted
+away takes its reasoning with it. It is input: the provider counts it in the
+prompt tokens that trigger compaction, and compaction's own estimate (before
+the provider's count, or just after a compaction) counts it too. A provider
+that refuses the plain field (a 400 not about the context's size) gets the
+call once more without the plain reasoning (opaque blocks — OpenRouter's
+`reasoning_details`, encrypted items — still go); only when its refusal named
+the field (`reasoning_content`, `reasoning`) and that call worked does the
+conversation stop sending that field, saying so in a line — that
+conversation only, until the agent restarts; a later refusal while it is off
+brings it back, once. A model whose record says `"replay": "never"` is sent
+none. A stream that goes 90 s without a byte
 before the model starts answering is abandoned, and once it has, one that goes
 5 minutes without a byte: some upstreams send a tool call whole when it is
 done, so a large one (a file written in one call) is minutes of silence

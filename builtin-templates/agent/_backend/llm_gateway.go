@@ -123,17 +123,14 @@ func (g *gatewayLLM) Chat(ctx context.Context, req LLMRequest, onEvent func(LLME
 		var p llmProvider
 		p, req.Model = resolveModel(ctx, req.Model)
 		base = p.URL
-		req.Via = p.Path + "|" + servedAs(ctx, p.Path, req.Model)
+		served := servedFor(ctx, p.Path, req)
+		req.Via, req.Expect = p.Path+"|"+served, served
 	} else {
 		_, req.Model = splitModelRef(req.Model)
 		req.Via = "|" + req.Model
 	}
-	if _, refused := noReplay.Load(req.Via); refused {
-		req.NoReplay = true // its provider refused reasoning sent back: not again in this process
-	}
 	if pickWire(req.Wire, req.Model) == "responses" {
-		rep, err := g.call(ctx, base, req, onEvent, responsesCodec{})
-		rep.Via = req.Via
+		rep, err := g.send(ctx, base, req, onEvent, responsesCodec{})
 		if !errors.Is(err, errWireUnsupported) {
 			return rep, err
 		}
@@ -145,35 +142,112 @@ func (g *gatewayLLM) Chat(ctx context.Context, req LLMRequest, onEvent func(LLME
 		responsesFallback[req.Model] = true
 		responsesFallbackMu.Unlock()
 	}
-	rep, err := g.call(ctx, base, req, onEvent, chatCodec{})
-	if err != nil && !req.NoReplay && plainReplay(req) && replayRefused(err) {
-		// a provider that takes no reasoning back (D249): the call once more without it — only a 400 that
-		// isn't about the context's size, only once; it is remembered only when that call worked
-		again := req
-		again.NoReplay = true
-		rep2, err2 := g.call(ctx, base, again, onEvent, chatCodec{})
-		if err2 == nil {
-			noReplay.Store(req.Via, true)
-			logf("llm: %s refused the reasoning sent back with earlier answers (400); it is not sent to it again until this agent restarts", bareModel(req.Model))
-			rep2.Via, rep2.ReplayRefused = req.Via, true
-			return rep2, nil
+	rep, err := g.send(ctx, base, req, onEvent, chatCodec{})
+	if err != nil && replayRefused(err) {
+		// a provider that takes no plain reasoning back (D249): the call once more without it — only a 400
+		// that isn't about the context's size, only once. The run remembers it (Engine.chat) only when the
+		// refusal named the field and that call worked; opaque blocks (reasoning_details) go either way.
+		if sent := plainFields(req); req.PlainOff == "" && len(sent) > 0 {
+			again := req
+			again.PlainOff = "*"
+			if rep2, err2 := g.send(ctx, base, again, onEvent, chatCodec{}); err2 == nil {
+				rep2.ReplayRefused = namedField(err, sent)
+				return rep2, nil
+			}
+		} else if req.PlainOff != "" && req.Reenable {
+			// refused with the run's plain reasoning off: perhaps it was never the trouble — once per run, the
+			// call with it
+			again := req
+			again.PlainOff = ""
+			if len(plainFields(again)) > 0 {
+				if rep2, err2 := g.send(ctx, base, again, onEvent, chatCodec{}); err2 == nil {
+					rep2.ReplayBack = true
+					return rep2, nil
+				}
+			}
 		}
 	}
-	rep.Via = req.Via
 	return rep, err
 }
 
-// servedAs is the model a provider serves for id: an alias's target (the
-// LLM connector's xbin/default, an admin's alias) when its list says, else
-// id — so reasoning goes back only to the model that produced it, even
-// when an alias's target changes under a conversation.
-func servedAs(ctx context.Context, provider, id string) string {
-	for _, m := range modelCatalog(ctx).Models {
-		if m.ID == id && (m.Provider == provider || m.Provider == "") && m.AliasOf != "" {
-			return m.AliasOf
+// send is call, its reply's Via the model that answered: the LLM
+// connector's word for it (X-XBin-LLM-Model) when it said, else the one
+// expected. A request that sends reasoning back says whose it is
+// (X-XBin-LLM-Expect-Model); the connector refuses it when the model's name
+// now leads to another (an alias's target changed, or this agent's list of
+// models is out of date: 409 xbin_llm_model_moved) — then it goes once more
+// without any reasoning sent back, the list read anew.
+func (g *gatewayLLM) send(ctx context.Context, base string, req LLMRequest, onEvent func(LLMEvent), w wireCodec) (LLMReply, error) {
+	if !carriesReplay(req, w.name()) {
+		req.Expect = ""
+	}
+	rep, err := g.call(ctx, base, req, onEvent, w)
+	if err != nil && req.Expect != "" && modelMoved(err) {
+		dropCatalog()
+		req.NoReplay, req.Expect = true, ""
+		rep, err = g.call(ctx, base, req, onEvent, w)
+	}
+	rep.Via = req.Via
+	if prov, _, ok := strings.Cut(req.Via, "|"); ok && rep.Served != "" && prov != "" {
+		rep.Via = prov + "|" + rep.Served
+	}
+	return rep, err
+}
+
+// servedFor is the model a provider serves for the request's model: an
+// alias's target (the LLM connector's xbin/default, an admin's alias) when
+// its list says, the model itself when its list names it; else — a name
+// its list doesn't know (one a catch-all alias routes) — the model that
+// answered the conversation's latest call to it, as the connector named
+// it; else the name. Reasoning goes back only to the model that produced it
+// (and the connector checks it: send).
+func servedFor(ctx context.Context, provider string, req LLMRequest) string {
+	if s, known := servedAs(ctx, provider, req.Model); known {
+		return s
+	}
+	for i := len(req.Msgs) - 1; i >= 0; i-- {
+		if r := req.Msgs[i].Replay; req.Msgs[i].Role == "assistant" && r != nil && r.Model == req.Model {
+			if p, s, ok := strings.Cut(r.Via, "|"); ok && p == provider && s != "" {
+				return s
+			}
 		}
 	}
-	return id
+	return req.Model
+}
+
+// servedAs is what provider's model list says id is served by: an alias's
+// target, or id itself; known is false when the list doesn't name it.
+func servedAs(ctx context.Context, provider, id string) (string, bool) {
+	for _, m := range modelCatalog(ctx).Models {
+		if m.ID == id && (m.Provider == provider || m.Provider == "") {
+			if m.AliasOf != "" {
+				return m.AliasOf, true
+			}
+			return id, true
+		}
+	}
+	return id, false
+}
+
+// modelMoved: the connector refused a request that sent reasoning back
+// because the model's name now leads to another model.
+func modelMoved(err error) bool {
+	var f *llmFailed
+	return errors.As(err, &f) && f.Status == http.StatusConflict && strings.Contains(err.Error(), "xbin_llm_model_moved")
+}
+
+// carriesReplay reports whether req, encoded for wire, sends reasoning back.
+func carriesReplay(req LLMRequest, wire string) bool {
+	for _, m := range req.Msgs {
+		r := m.Replay
+		if m.Role != "assistant" || !sameSource(r, wire, req) {
+			continue
+		}
+		if len(r.ReasoningRaw) > 0 || (wire == "chat" && r.Via != "" && r.Reasoning != "" && r.ReplayField != "" && !plainOff(req, r.ReplayField)) {
+			return true
+		}
+	}
+	return false
 }
 
 // call runs one request with retries. Retrying is allowed only while nothing
@@ -268,6 +342,9 @@ func (g *gatewayLLM) attempt(ctx context.Context, base string, req LLMRequest, w
 	for _, f := range llmHeaderHooks { // what a kind of conversation adds to its model calls (a workspace agent: its handle)
 		f(req, hreq.Header)
 	}
+	if req.Expect != "" {
+		hreq.Header.Set("X-XBin-LLM-Expect-Model", req.Expect) // whose reasoning it sends back (send)
+	}
 	resp, err := g.client.Do(hreq)
 	if err != nil {
 		if ctx.Err() != nil {
@@ -292,6 +369,10 @@ func (g *gatewayLLM) attempt(ctx context.Context, base string, req LLMRequest, w
 		f(req, resp.StatusCode, nil)
 	}
 	said := resp.Header.Get("X-XBin-LLM-Effort") // what the LLM connector sent the model (D249)
+	served := resp.Header.Get("X-XBin-LLM-Model")
+	if len(served) > 200 {
+		served = ""
+	}
 	if !req.Stream {
 		raw, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
 		if err != nil {
@@ -301,12 +382,12 @@ func (g *gatewayLLM) attempt(ctx context.Context, base string, req LLMRequest, w
 			return LLMReply{}, true, fmt.Errorf("llm-gw read: %w", causeOf(cctx, err))
 		}
 		rep, err := w.parseBody(raw)
-		rep.Effort = said
+		rep.Effort, rep.Served = said, served
 		return rep, false, err
 	}
 	idle.Reset(llmIdleTimeout)
 	rep, err = w.parseStream(&watchedReader{r: resp.Body, idle: idle}, emit)
-	rep.Effort = said
+	rep.Effort, rep.Served = said, served
 	if err != nil {
 		if ctx.Err() != nil {
 			return rep, false, ctx.Err()

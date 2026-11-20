@@ -258,7 +258,7 @@ var goldenReplayRequests = map[string]LLMRequest{
 	"chat-replay-no-tools":      {Model: "deepseek-v4.1-flash", Via: "apps/llm|deepseek-v4.1-flash"},
 	"chat-replay-model-switch":  {Model: "kimi-k3", Via: "apps/llm|kimi-k3"},
 	"chat-replay-other-target":  {Model: "deepseek-v4.1-flash", Via: "apps/llm|deepseek-v4-pro"},
-	"chat-replay-refused":       {Model: "deepseek-v4.1-flash", Via: "apps/llm|deepseek-v4.1-flash", NoReplay: true},
+	"chat-replay-refused":       {Model: "deepseek-v4.1-flash", Via: "apps/llm|deepseek-v4.1-flash", PlainOff: "*"},
 	"chat-no-reasoning":         {Model: "plain", ReasoningEffort: "high", Reasons: reasonsNo},
 	"responses-reasons-yes":     {Model: "deepseek-v4.1-flash", ReasoningEffort: "high", Reasons: reasonsYes},
 	"responses-reasons-default": {Model: "deepseek-v4.1-flash", Reasons: reasonsYes},

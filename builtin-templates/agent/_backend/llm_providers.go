@@ -264,6 +264,13 @@ func fullCatalog(ctx context.Context) *catalog {
 	return c
 }
 
+// dropCatalog forgets the cached catalog: the next read asks again.
+func dropCatalog() {
+	catalogMu.Lock()
+	catalogCache = nil
+	catalogMu.Unlock()
+}
+
 // listModels is one provider's GET /v1/models.
 func listModels(ctx context.Context, p llmProvider) ([]catalogModel, error) {
 	ctx, cancel := context.WithTimeout(ctx, modelLookupTimeout)

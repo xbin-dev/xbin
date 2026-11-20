@@ -44,13 +44,15 @@ export function kindOf(rec) {
 /**
  * mapLevel(rec, level) → what the connector sends a model of rec for level:
  * a level it takes; else its own alias; else the highest it has at or below;
- * else its lowest. none: off where it can be, else its lowest. A word that is
- * no ladder word, or a model it can't describe, keeps the word.
+ * else its lowest. none: as it is where it can be turned off or that isn't
+ * known, else its lowest. A word that is no ladder word, or a model it can't
+ * describe, keeps the word. The rule's vectors are shared with the
+ * connector: internal/llm/testdata/effort_mapping.json.
  */
 export function mapLevel(rec, level) {
   const ls = levelsOf(rec);
   if (!ls || !ls.length || rank(level) < 0) return level;
-  if (level === 'none') return rec.can_disable === true ? 'none' : ls[0];
+  if (level === 'none') return rec.can_disable === false ? ls[0] : 'none';
   if (ls.includes(level)) return level;
   const alias = rec.aliases && rec.aliases[level];
   if (alias && ls.includes(alias)) return alias;
@@ -58,6 +60,13 @@ export function mapLevel(rec, level) {
   for (const l of ls) if (rank(l) <= rank(level)) out = l;
   return out;
 }
+
+/**
+ * configOptions(cur) → the ⚙ Config tab's choices for the tile's default:
+ * '' (the model's own), the ladder, and — kept, so a save doesn't lose it —
+ * a word of the tile's config that is none of them (shown "Custom (…)").
+ */
+export const configOptions = (cur) => ['', ...LADDER, ...(cur && typeof cur === 'string' && !LADDER.includes(cur) ? [cur] : [])];
 
 /**
  * notches(rec) → the track's stops, cheapest first: [{value, label}] — Off

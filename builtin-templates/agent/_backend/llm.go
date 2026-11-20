@@ -578,9 +578,21 @@ type LLMRequest struct {
 	ReasoningEffort string // "" = provider default; a word of the ladder (llm_effort.go)
 	// Reasons is what the model's record says (reasonsYes/No; 0: nothing
 	// does — the effort goes as before). NoReplay: no reasoning goes back on
-	// this call (the record says never, the provider refused it, a retry).
+	// this call (the record says never).
 	Reasons  int8
 	NoReplay bool
+	// PlainOff: the plain reasoning (reasoning_content, reasoning, a <think>
+	// block) not sent back on this call — "*" none of it (the call made
+	// again after a refusal), or the one field the provider's refusal named,
+	// remembered for the run (llm_effort.go). Opaque blocks
+	// (reasoning_details, encrypted items) still go. Reenable: the run's
+	// PlainOff may be lifted once, when a call without it is refused too.
+	PlainOff string
+	Reenable bool
+	// Expect: the model (the LLM connector's name) whose reasoning the call
+	// sends back — set by the LLM; the connector refuses the call when the
+	// model's name now leads to another (llm_gateway.go send).
+	Expect string
 	// Via names where the call goes: the provider and the model as served
 	// (an alias's target) — set by the LLM; reasoning goes back only to the
 	// Via that produced it.
@@ -617,11 +629,15 @@ type LLMReply struct {
 	ReplayField string    `json:",omitempty"`
 	ThinkEdge   thinkEdge `json:",omitzero"`
 	// Via: as LLMRequest.Via. Effort: what the connector said it sent
-	// (X-XBin-LLM-Effort). ReplayRefused: the provider refused the
-	// reasoning sent back, and the call was made without it.
+	// (X-XBin-LLM-Effort). ReplayRefused: the field of plain reasoning the
+	// provider refused, by name, the call made without it then working —
+	// what the run remembers. ReplayBack: the run's PlainOff was lifted (a
+	// call without it was refused, and the call with it worked).
 	Via           string `json:",omitempty"`
+	Served        string `json:",omitempty"` // the model that answered, as the connector named it (X-XBin-LLM-Model)
 	Effort        string `json:",omitempty"`
-	ReplayRefused bool   `json:",omitempty"`
+	ReplayRefused string `json:",omitempty"`
+	ReplayBack    bool   `json:",omitempty"`
 }
 
 // thinkEdge is the whitespace a leading <think> block came with: before it,

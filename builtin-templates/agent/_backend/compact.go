@@ -90,14 +90,7 @@ func (e *Engine) maybeCompact(ctx context.Context, ts *turnState, force bool) {
 		return
 	}
 	jobs := e.db.jobsByCall(run.ID, live)
-	sent := 0
-	for _, m := range live {
-		sent += sentTokens(m, jobs)
-	}
-	total := estimateTokens(cfg.System) + estimateTokens(run.Summary) + sent
-	if run.LastPromptTokens > 0 {
-		total = run.LastPromptTokens // provider-reported truth beats the estimate
-	}
+	total, sent := promptSize(cfg, run, live, jobs)
 	budget, why := e.tokenBudget(ctx, cfg)
 	if !force && total <= budget {
 		return
@@ -133,7 +126,7 @@ func (e *Engine) maybeCompact(ctx context.Context, ts *turnState, force bool) {
 				}
 			}
 			_, _ = t.q.Exec(`UPDATE runs SET compact_note=1 WHERE id=?`, run.ID)
-			t.setPromptTokens(run.ID, 1) // stale: the next call reports the new size
+			t.setPromptTokens(run.ID, promptStale) // stale: the next call reports the new size; until then the estimate holds
 			e.emitStep(t, rootOf(run), t.journal(run.ID, "compaction", detail))
 			e.emitRun(t, run.ID)
 			return nil
@@ -233,12 +226,53 @@ func foldCut(live []*Message, jobs map[string]int, force bool, keep int) int {
 	return cut
 }
 
-// sentTokens is what a message costs in the prompt: its stub when masked.
+// promptSize is the run's prompt as compaction weighs it: the provider's
+// count of the latest call's, else (none yet, or out of date after a
+// compaction) the estimate — the system prompt, the summary and every live
+// message with the reasoning it goes back with; sent is the messages' part.
+func promptSize(cfg Config, run *Run, live []*Message, jobs map[string]int) (total, sent int) {
+	for _, m := range live {
+		sent += sentTokens(m, jobs)
+	}
+	total = estimateTokens(cfg.System) + estimateTokens(run.Summary) + sent
+	if run.LastPromptTokens > promptStale {
+		total = run.LastPromptTokens // provider-reported truth beats the estimate
+	}
+	return total, sent
+}
+
+// promptStale, as a run's last prompt size, marks it out of date (a
+// compaction just shrank the context): the estimate is used until the next
+// call reports the size.
+const promptStale = 1
+
+// sentTokens is what a message costs in the prompt: its stub when masked;
+// with the reasoning it goes back with (D249), by the same estimator.
 func sentTokens(m *Message, jobs map[string]int) int {
 	if m.Masked && m.Role == "tool" {
 		return estimateTokens(maskStub(m, jobs[m.ToolCallID]))
 	}
-	return m.Tokens
+	return m.Tokens + replayTokens(m)
+}
+
+// replayTokens is what an assistant message's stored reasoning adds to the
+// prompt when it is sent back: opaque blocks (reasoning_details, encrypted
+// items) as stored, else the plain text a chat answer gave.
+func replayTokens(m *Message) int {
+	if m.Role != "assistant" || len(m.Meta) == 0 {
+		return 0
+	}
+	var meta msgMeta
+	if json.Unmarshal(m.Meta, &meta) != nil {
+		return 0
+	}
+	switch {
+	case len(meta.ReasoningRaw) > 0:
+		return estimateTokens(string(meta.ReasoningRaw))
+	case meta.ReplayField != "":
+		return estimateTokens(meta.Reasoning)
+	}
+	return 0
 }
 
 // maskStub is how a masked tool result reads to the model: what it was, how

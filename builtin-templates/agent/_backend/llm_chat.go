@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 
 	"github.com/xbin-dev/xbin/sdk/llm"
@@ -44,16 +45,22 @@ func sameSource(r *msgMeta, wire string, req LLMRequest) bool {
 	return r != nil && !req.NoReplay && r.Wire == wire && r.Model == req.Model && (r.Via == "" || r.Via == req.Via)
 }
 
-// plainReplay reports whether a chat request on req would send plain
-// reasoning back (what an upstream that refuses it 400s on).
-func plainReplay(req LLMRequest) bool {
+// plainFields is the fields of plain reasoning a chat request on req sends
+// back (what an upstream that refuses them 400s on): reasoning_content,
+// reasoning, think — each once, in the order met.
+func plainFields(req LLMRequest) []string {
+	var out []string
 	for _, m := range req.Msgs {
-		if r := m.Replay; m.Role == "assistant" && sameSource(r, "chat", req) && len(r.ReasoningRaw) == 0 && r.ReplayField != "" && r.Via != "" && r.Reasoning != "" {
-			return true
+		if r := m.Replay; m.Role == "assistant" && sameSource(r, "chat", req) && len(r.ReasoningRaw) == 0 && r.ReplayField != "" && r.Via != "" && r.Reasoning != "" &&
+			!plainOff(req, r.ReplayField) && !slices.Contains(out, r.ReplayField) {
+			out = append(out, r.ReplayField)
 		}
 	}
-	return false
+	return out
 }
+
+// plainOff reports whether req sends no plain reasoning in field.
+func plainOff(req LLMRequest, field string) bool { return req.PlainOff == "*" || req.PlainOff == field }
 
 // chatBody is llm.ChatRequest over the engine's messages and tools: they
 // omit and keep members by the engine's rules (a nil content is left out, a
@@ -83,6 +90,7 @@ func (chatCodec) encode(req LLMRequest) ([]byte, error) {
 			case len(r.ReasoningRaw) > 0: // OpenRouter's blocks win: they are what it asks back
 				cm.ReasoningDetails = r.ReasoningRaw
 			case r.Via == "" || r.Reasoning == "": // plain reasoning goes back only to a source it names
+			case plainOff(req, r.ReplayField): // its provider refused it (llm_gateway.go)
 			case r.ReplayField == "reasoning_content":
 				cm.ReasoningContent = r.Reasoning
 			case r.ReplayField == "reasoning":
