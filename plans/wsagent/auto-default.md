@@ -218,9 +218,9 @@ What the work-mode default changed elsewhere, fixed in this batch:
   session read says `asks` per session, and the agent goes by it.
 - Claude Code's adapter has no `auto` for a model that doesn't support
   it: it takes `acceptEdits` instead (claude-agent-acp 0.81.1
-  `AUTO_MODE_FALLBACK`) and says so as the session's mode; the start
-  isn't refused (set_mode succeeds), and the session reads as acting
-  without asking either way.
+  `AUTO_MODE_FALLBACK`) and says so as the session's mode; by its code
+  (not run live here) set_mode succeeds, so the start isn't refused, and
+  the session reads as acting without asking either way.
 
 ## Nothing breaks for an existing workspace
 
