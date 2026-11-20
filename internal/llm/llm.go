@@ -203,6 +203,11 @@ func (s *Service) rebuild() {
 	}
 	s.snap.Store(snap)
 	s.models.drop()
+	// a refusal is remembered of an upstream as it was: one removed, or now at another address, forgets it
+	s.noReplay.retain(func(e *replayEntry) bool {
+		u, ok := snap.upstreams[e.upstream]
+		return ok && mintTag(Target{Name: u.Name, BaseURL: u.BaseURL}, e.model) == e.tag
+	})
 }
 
 // current is the configuration in force, the host's file looked at again

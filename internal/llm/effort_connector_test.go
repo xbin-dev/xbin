@@ -11,6 +11,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	sdkllm "github.com/xbin-dev/xbin/sdk/llm"
 )
@@ -407,9 +408,19 @@ func TestTranslationReplayRefusedOnce(t *testing.T) {
 			t.Errorf("the request sent again differs by more than the reasoning:\n%v\n%v", firstReq, again)
 		}
 		// remembered, for house/m only: the next request carries none, in one call, and says so
-		if off := replayOff(); off == nil || off["m"].(map[string]any)["field"] != "reasoning_content" || off["m"].(map[string]any)["since"] == "" {
+		if off := replayOff(); off == nil || off["m"].(map[string]any)["field"] != "reasoning_content" || off["m"].(map[string]any)["since"] == "" ||
+			off["m"].(map[string]any)["callers"] != 1.0 {
 			t.Fatalf("not remembered (stream %v): %v", stream, off)
 		}
+		// M1: the caller's own — a tile's calls to the same model still send its reasoning
+		r.bound["apps/agent"] = true
+		mode = "ok"
+		n = up.calls()
+		r.must(200, pInstance("apps/agent"), "POST", "/llm/v1/responses", map[string]any{"model": "house/m", "input": input, "stream": stream})
+		if !strings.Contains(fmt.Sprint(up.lastBody()["messages"]), "reasoning_content") {
+			t.Errorf("another caller's replay went off with the owner's refusal (stream %v)", stream)
+		}
+		mode = "strict"
 		n = up.calls()
 		a = r.must(200, pOwner, "POST", "/llm/v1/responses", map[string]any{"model": "house/m", "input": input, "stream": stream})
 		if strings.Contains(fmt.Sprint(up.lastBody()["messages"]), "reasoning_content") || up.calls()-n != 1 || a.h.Get(DroppedHeader) != "input.reasoning" {
@@ -450,6 +461,26 @@ func TestTranslationReplayRefusedOnce(t *testing.T) {
 	if strings.Contains(r.logs.String(), `"hm"`) || strings.Contains(r.logs.String(), "=hm") {
 		t.Errorf("reasoning in the log: %s", r.logs)
 	}
+	// L2: a refusal is the upstream's as it was — its address changed, or it was removed and added again, it is forgotten
+	mode = "strict"
+	r.must(200, pOwner, "POST", "/llm/v1/responses", map[string]any{"model": "house/m", "input": input})
+	if replayOff() == nil {
+		t.Fatal("not remembered before the change")
+	}
+	r.must(200, pOwner, "PUT", "/llm/upstreams/house", map[string]any{"baseURL": up.URL + "/v2"})
+	if off := replayOff(); off != nil {
+		t.Errorf("an address change kept it: %v", off)
+	}
+	r.must(200, pOwner, "PUT", "/llm/upstreams/house", map[string]any{"baseURL": up.URL + "/v1", "key": upstreamKey})
+	r.must(200, pOwner, "POST", "/llm/v1/responses", map[string]any{"model": "house/m", "input": input})
+	if replayOff() == nil {
+		t.Fatal("not remembered again")
+	}
+	r.must(200, pOwner, "DELETE", "/llm/upstreams/house", nil)
+	r.must(200, pOwner, "PUT", "/llm/upstreams/house", map[string]any{"baseURL": up.URL + "/v1", "key": upstreamKey, "responsesVia": "chat"})
+	if off := replayOff(); off != nil {
+		t.Errorf("a new upstream of the same name inherited it: %v", off)
+	}
 }
 
 // covers D249 (compat) — an older agent template on this xbind: its own
@@ -485,6 +516,56 @@ func TestAnOlderTemplatesRequest(t *testing.T) {
 		if got := up.lastRaw(); !bytes.Equal(got, wantBody) || a.h.Get(EffortHeader) != want {
 			t.Errorf("%s: header %q (want %q)\n got %s\nwant %s", model, a.h.Get(EffortHeader), want, got, wantBody)
 		}
+	}
+}
+
+// covers D249 (M1) — what counts as an upstream refusing the field: only
+// the parsed error's param, code, or message naming it as a word of its
+// own outside quoted request text — never the raw body, never a quote of
+// what the caller sent.
+func TestNamesField(t *testing.T) {
+	for body, want := range map[string]bool{
+		`{"error":{"message":"messages.1: unknown field reasoning_content","type":"invalid_request_error"}}`:                       true,
+		`{"error":{"message":"messages.1: property 'reasoning_content' is unsupported","type":"invalid_request_error"}}`:           true,
+		`{"error":{"message":"Unrecognized request argument supplied: reasoning_content","type":"invalid_request_error"}}`:         true,
+		`{"error":{"message":"Extra inputs are not permitted","param":"messages[1].reasoning_content","type":"x"}}`:                true,
+		`{"error":{"message":"bad","code":"reasoning_content","type":"x"}}`:                                                        true,
+		`{"error":{"message":"[{'loc': ('body', 'messages', 1, 'reasoning_content'), 'msg': 'Extra inputs are not permitted'}]"}}`: true,
+		// a caller's text, echoed: no evidence
+		`{"error":{"message":"invalid content: 'please say reasoning_content is unsupported'","type":"x"}}`: false,
+		`{"error":{"message":"content \"I think reasoning_content\" is too long","type":"x"}}`:              false,
+		`{"error":{"message":"bad tools","type":"x"},"echo":"reasoning_content"}`:                           false,
+		`not json, but reasoning_content`:                                                  false,
+		`{"error":{"message":"the model's reasoning_contents field","type":"x"}}`:          false,
+		`{"error":{"message":"invalid request","param":"messages[1].content","type":"x"}}`: false,
+		`{"error":{"message":"unclosed 'quote with reasoning_content in it","type":"x"}}`:  false,
+	} {
+		if got := namesField([]byte(body), replayField); got != want {
+			t.Errorf("%s: %v, want %v", body, got, want)
+		}
+	}
+}
+
+// covers D249 (M1) — the memory is bounded: past maxReplayOff entries the
+// least recently used is forgotten, and an entry in use stays.
+func TestReplayMemoIsBounded(t *testing.T) {
+	var m replayMemo
+	now := time.Now()
+	m.remember("u", "m", "tag", "keep", replayField, now)
+	for i := 0; i < maxReplayOff+50; i++ {
+		m.remember("u", "m", "tag", fmt.Sprint("caller", i), replayField, now)
+		if i%100 == 0 && !m.refused("tag", "keep") { // in use: moved to the front
+			t.Fatalf("an entry in use was evicted at %d", i)
+		}
+	}
+	if n := m.order.Len(); n != maxReplayOff || len(m.at) != maxReplayOff {
+		t.Errorf("%d entries (%d keys), want %d", n, len(m.at), maxReplayOff)
+	}
+	if m.refused("tag", "caller0") || !m.refused("tag", fmt.Sprint("caller", maxReplayOff+49)) || !m.refused("tag", "keep") {
+		t.Error("not the least recently used evicted (the first entry, used since, stays)")
+	}
+	if off := m.of("u")["m"]; off.Callers != maxReplayOff || off.Field != replayField {
+		t.Errorf("the view: %+v", off)
 	}
 }
 

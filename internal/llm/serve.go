@@ -162,10 +162,14 @@ func (s *Service) apiCall(path string) http.HandlerFunc {
 				}
 				probed = true // nothing was generated and nothing answered: the call is made again, and metered once
 			}
-			xo := XlateOptions{Effort: eff, NoReplay: s.noReplay.refused(u.Name, model), Refused: func(field string) {
-				// only a refusal that named the field, with the call then working without it (replay.go)
-				s.noReplay.remember(u.Name, model, field, s.now())
-				s.log.Info("llm: upstream refused the reasoning sent back to this model; its translated calls send none until reset", "upstream", u.Name, "model", model, "field", field)
+			// what this caller found this upstream's model refusing (replay.go): one caller's requests never
+			// change what another sends
+			tag, who := mintTag(t, model), replayCaller(c)
+			xo := XlateOptions{Effort: eff, NoReplay: s.noReplay.refused(tag, who), Refused: func(field string) {
+				// only a refusal that named the field, with the call then working without it
+				s.noReplay.remember(u.Name, model, tag, who, field, s.now())
+				s.log.Info("llm: upstream refused the reasoning sent back to this model; this caller's translated calls send none until reset",
+					"upstream", u.Name, "model", model, "field", field, "user", c.User, "component", c.Component)
 			}}
 			res, sent, ok := ResponsesViaChatWith(r.Context(), s.plane, w, t, body, req.Model, model, h, answer, xo)
 			if d := w.Header().Get(DroppedHeader); d != "" {
