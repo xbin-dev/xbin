@@ -493,7 +493,7 @@ func TestOneUpdateOfAUnitAtATime(t *testing.T) {
 		b, _ := os.ReadFile(filepath.Join(u.snapDir("scaffold:app"), rel))
 		files[rel] = b
 	}
-	files["a.txt"] = []byte("a recorded elsewhere\n")
+	files["b.txt"] = []byte("b recorded elsewhere\n") // a file the decision doesn't turn on: the plan stays a merge
 	if err := u.recordAs(def, state.InstallPath, files, state.Version); err != nil {
 		t.Fatal(err)
 	}
