@@ -131,3 +131,20 @@ test('Remember keeps no mode that acts without asking, and nothing of a coding a
   assert.deepEqual([o.remember.shown, o.asks, o.pickers[0].warn], [false, false, '']);
   assert.match(o.remember.note, /^OpenCode has no mode that asks before it acts: nothing of it is remembered/);
 });
+
+test('a follow-up into a session that carries the person\'s saved sign-in: the sheet says so, and only a tick lets it go in (D250 review L1)', () => {
+  const req = start({ continue: { session: 'ts-1', provider: 'codex', providerName: 'Codex', mode: 'read-only', asks: true, model: '', signIn: 'saved', signInId: 'si_9', signInName: 'work' } });
+  const pick = S.pickOf(req);
+  const v = S.startView(req, pick);
+  assert.deepEqual([v.continuing, v.needsTick, v.cont.signIn.id], [true, true, 'si_9']);
+  assert.deepEqual(v.cont.chips, ['Codex', 'asks before acting', 'your saved sign-in']);
+  assert.match(v.cont.signIn.warn, /a follow-up into it uses it/);
+  assert.equal(S.picked(req, pick).preview.session.signInId, 'si_9', 'the tick is for the session\'s own sign-in');
+  const anew = S.contChoice(pick, req, false);
+  assert.deepEqual([S.startView(req, anew).needsTick, S.picked(req, anew).preview.session.signInId], [false, '']);
+  // a continued session that doesn't ask: the danger is said, whatever a new session would be
+  const nb = start({ continue: { session: 'ts-2', provider: 'codex', providerName: 'Codex', mode: 'agent', asks: false } });
+  const w = S.startView(nb, S.pickOf(nb));
+  assert.deepEqual([w.continuing, w.asks], [true, false]);
+  assert.match(w.danger, /^Codex in this mode acts without asking/);
+});

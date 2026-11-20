@@ -89,6 +89,9 @@ func (s *Server) startStill(p auth.Principal, r delegation.Request, st *term.Del
 			return "ticket", delegation.ReasonSession, "the session your person chose to continue can't take it now (" + why + "): file the start again"
 		case was == nil || c["provider"] != was["provider"] || c["mode"] != was["mode"]:
 			return "ticket", delegation.ReasonSession, fmt.Sprintf("the session your person chose to continue is now %v in mode %q, not %v in mode %q as approved: file the start again", c["provider"], c["mode"], was["provider"], was["mode"])
+		case continueSigninStill(c, approved, r.UseSignin) != "":
+			// it carries the person's saved sign-in: only a follow-up they ticked that sign-in for goes in (D250 review L1)
+			return "ticket", delegation.ReasonSession, continueSigninStill(c, approved, r.UseSignin)
 		}
 	}
 	return "", "", ""

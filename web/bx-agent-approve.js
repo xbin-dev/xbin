@@ -228,6 +228,7 @@ export class BxAgentApprove extends LitElement {
     if (!this._may(e) || this.stopped) return;
     const req = this.request;
     if (req.kind === 'call' && this._choice === 'tile' && this._step === 'main') { this._step = 'wider'; this._arm(); return; }
+    if (this._pick && startView(req, this._pick).needsTick && !this._ticks.signin) return; // a follow-up with a sign-in: only once ticked
     this._busy = true; this._err = '';
     const body = { ...approveBody(picked(req, this._pick || {}), this._choice, this._duration || CHOICES.duration[this._choice], this._ticks), ...(this._pick ? pickBody(req, this._pick) : {}) };
     const r = await this.store.approve(req.id, body);
@@ -340,11 +341,16 @@ export class BxAgentApprove extends LitElement {
       if (was && !startView(req, this._pick).asks) this._arm(); // what is allowed now acts without asking: Allow waits again
     };
     return html`${v && v.cont ? html`<div class="cont" role="radiogroup" aria-label="Where it goes" data-continue>
-        <label class=${v.continuing ? 'on' : ''}><input type="radio" name="cont" data-cont="continue" .checked=${v.continuing} @change=${() => { this._pick = contChoice(this._pick, req, true); }}>
+        ${/* every switch arms Allow again, and drops a tick that was the other choice's (D250 review L1) */ ''}<label class=${v.continuing ? 'on' : ''}><input type="radio" name="cont" data-cont="continue" .checked=${v.continuing} @change=${() => { this._pick = contChoice(this._pick, req, true); this._ticks = {}; this._arm(); }}>
           <span><b>${v.cont.label}</b><span class="chips">${v.cont.chips.map((c) => html`<span class="chip">${c}</span>`)}</span></span></label>
-        <label class=${v.continuing ? '' : 'on'}><input type="radio" name="cont" data-cont="new" .checked=${!v.continuing} @change=${() => { const was = startView(req, this._pick).asks; this._pick = contChoice(this._pick, req, false); if (was && !startView(req, this._pick).asks) this._arm(); }}>
-          <span>${v.cont.sub}</span></label></div>` : nothing}
-      ${r.danger && v && !v.asks ? html`<div class="banner bad" role="alert" data-danger><bx-icon name="error"></bx-icon><span>${v.danger}</span></div>` : nothing}
+        <label class=${v.continuing ? '' : 'on'}><input type="radio" name="cont" data-cont="new" .checked=${!v.continuing} @change=${() => { this._pick = contChoice(this._pick, req, false); this._ticks = {}; this._arm(); }}>
+          <span>${v.cont.sub}</span></label>
+        ${v.continuing && v.cont.signIn ? html`<div class="trustline" data-cont-signin-line>
+          <div class="small"><span class="tag bad"><bx-icon name="warning"></bx-icon>YOUR SIGN-IN</span> <span data-warn>${v.cont.signIn.warn}</span></div>
+          <label class="row"><input type="checkbox" data-cont-signin data-widen="on" .checked=${!!this._ticks.signin} @click=${this._widen.click} @keydown=${this._widen.key}
+            @change=${(e) => { this._ticks = { signin: e.target.checked }; }}><span><b>${v.cont.signIn.line}</b> <bx-agent-signin view="name" sid=${v.cont.signIn.id}></bx-agent-signin></span></label>
+          ${this._ticks.signin ? nothing : html`<div class="small muted" data-unticked>${v.cont.signIn.untickedNote}</div>`}</div>` : nothing}</div>` : nothing}
+      ${(v ? !v.asks : r.danger) ? html`<div class="banner bad" role="alert" data-danger><bx-icon name="error"></bx-icon><span>${v ? v.danger : r.danger}</span></div>` : nothing}
       <dl class="rows">
         ${v && v.pickers.length ? v.pickers.map((pk) => html`<dt><label for=${`pick-${pk.id}`}>${pk.label}</label></dt><dd class="pick" data-pick=${pk.id}>
             ${/* a new select for new options: one whose options are swapped under it keeps the old (dirty) selection, and
@@ -446,7 +452,7 @@ export class BxAgentApprove extends LitElement {
   // never by promoting Deny (D250). The when: each fact an element of its own.
   _foot(req, v) {
     const danger = req.kind === 'session' && !(v ? v.asks : req.preview && req.preview.session && req.preview.session.asks === true);
-    const on = this._armed && !this._busy;
+    const on = this._armed && !this._busy && !(v && v.needsTick && !this._ticks.signin); // (a follow-up with a sign-in: only once ticked)
     const when = req.kind === 'call' || req.kind === 'mcp' ? askedParts(req) : ['asked every time', ...(req.kind === 'session' ? ['change in Preferences'] : [])];
     const label = v ? v.label : req.kind === 'message' ? messageView(req).label : allowLabel(req, this._choice);
     return html`<div class="foot">

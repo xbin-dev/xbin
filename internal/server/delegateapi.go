@@ -786,7 +786,7 @@ func (s *Server) apiDelegateRequestDecide(w http.ResponseWriter, r *http.Request
 		var status int
 		var why string
 		chosen, redrawn, status, why = s.startPickOf(a, r.PathValue("id"), pickBody{Harness: body.Harness, Model: body.Model, Mode: body.Mode, Remember: body.Remember,
-			Continue: body.Continue, Knows: body.Knows})
+			Continue: body.Continue, Knows: body.Knows, Signin: body.Signin})
 		if why != "" {
 			WriteError(w, status, why, delegationDocs)
 			return

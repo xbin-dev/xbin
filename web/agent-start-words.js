@@ -63,6 +63,11 @@ const harnessesOf = (s) => (s.choices && Array.isArray(s.choices.harnesses) ? s.
  */
 export function picked(req, pick) {
   const s = sess(req);
+  const c = s.continue && s.continue.session ? s.continue : null;
+  if (c && pick.cont && pick.harness === c.provider) {
+    // continuing the session there: its own sign-in is what a tick on this approval is for (D250 review L1)
+    return { ...req, preview: { ...req.preview, session: { ...s, signInId: c.signInId || '', signInTrust: null } } };
+  }
   const h = harnessesOf(s).find((x) => x.id === pick.harness);
   if (!h) return req;
   const mode = (h.modes || []).find((m) => m.id === pick.mode);
@@ -132,8 +137,13 @@ export function startView(req, pick) {
   return {
     pickers,
     cont: c ? { session: c.session, label: `Continue the ${c.providerName || c.provider} session${c.started ? ` from ${clock(toMs(c.started))}` : ''} with this follow-up`,
-      sub: 'Start a new session instead', chips: [c.providerName || c.provider, c.model ? `model ${c.model}` : '', c.asks ? 'asks before acting' : 'acts without asking'].filter(Boolean) } : null,
+      sub: 'Start a new session instead', chips: [c.providerName || c.provider, c.model ? `model ${c.model}` : '', c.asks ? 'asks before acting' : 'acts without asking',
+        c.signInId ? 'your saved sign-in' : ''].filter(Boolean),
+      // it carries the person's saved sign-in: a follow-up into it uses it — their tick, each time (D230, D250 review L1)
+      signIn: c.signInId ? { id: c.signInId, name: c.signInName || '', warn: 'This session carries your saved sign-in: a follow-up into it uses it, and the coding agent can read it.',
+        line: 'Use my sign-in for this follow-up', untickedNote: 'Tick it to continue this session, or start a new session instead: a new session has no sign-in of yours.' } : null } : null,
     continuing,
+    needsTick: !!(continuing && c.signInId),
     remember: rememberWords(continuing, hs, h, pick),
     danger: asks ? '' : `${who} in this mode acts without asking: it edits files and runs commands in ${tileName} without asking you. You will not get a chance to stop a single edit or command.`,
     asks,

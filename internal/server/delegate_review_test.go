@@ -222,3 +222,28 @@ func TestContinueIsJudgedOnTheLiveSession(t *testing.T) {
 		t.Fatalf("the refusal spent the ticket: %s", got.State)
 	}
 }
+
+// A follow-up into a session that carries the person's saved sign-in is a
+// use of that sign-in: it needs their own tick on the approval, each time
+// (D230), or the sheet's other choice — a new session, which has none — and
+// at the redeem the session must still carry the one they ticked (D250
+// review L1).
+func TestContinueIntoASessionWithASignInNeedsTheTick(t *testing.T) {
+	live := map[string]any{"session": "s-1", "provider": "claude", "signIn": "saved", "signInId": "si_1", "signInName": "work"}
+	plain := map[string]any{"session": "s-2", "provider": "claude", "signIn": ""}
+	if why := continueTickRefusal(live, false); !strings.Contains(why, "tick") || !strings.Contains(why, "start a new session instead") {
+		t.Fatalf("a follow-up into a session with a sign-in, unticked: %q", why)
+	}
+	if continueTickRefusal(live, true) != "" || continueTickRefusal(plain, false) != "" {
+		t.Fatal("a ticked follow-up, or one into a session with no sign-in, refused")
+	}
+	if continueSigninStill(live, map[string]any{"signInId": "si_1"}, false) == "" {
+		t.Fatal("redeemed without the tick")
+	}
+	if continueSigninStill(live, map[string]any{"signInId": "si_2"}, true) == "" {
+		t.Fatal("redeemed into a session carrying another sign-in than the one ticked")
+	}
+	if continueSigninStill(live, map[string]any{"signInId": "si_1"}, true) != "" || continueSigninStill(plain, nil, false) != "" {
+		t.Fatal("a ticked follow-up, or one into a session with no sign-in, refused at the redeem")
+	}
+}

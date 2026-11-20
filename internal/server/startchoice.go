@@ -394,8 +394,36 @@ func (s *Server) continuable(p auth.Principal, sid, tile string) (map[string]any
 		return nil, why
 	}
 	prov, _ := agent.Lookup(info.Provider)
-	return map[string]any{"session": sid, "provider": info.Provider, "providerName": cmp.Or(prov.Name, info.Provider), "mode": info.Mode, "asks": prov.Asks(info.Mode),
-		"model": info.Model, "name": info.Name, "started": info.Created, "since": info.LastActive}, ""
+	out := map[string]any{"session": sid, "provider": info.Provider, "providerName": cmp.Or(prov.Name, info.Provider), "mode": info.Mode, "asks": prov.Asks(info.Mode),
+		"model": info.Model, "name": info.Name, "started": info.Created, "since": info.LastActive, "signIn": ""}
+	if si := info.Signin; si != nil && si.Source == "saved" && si.ID != "" {
+		// it carries the person's saved sign-in: a follow-up into it uses it — their tick, each time (D230, D250 review L1)
+		out["signIn"], out["signInId"], out["signInName"] = "saved", si.ID, si.Name
+	}
+	return out, ""
+}
+
+// continueTickRefusal is why a follow-up into live session can't be
+// approved as asked ("" it can): the session carries the person's saved
+// sign-in, so a follow-up into it is a use of that sign-in — the person's
+// own tick, each time, as a start with it (D230; D250 review L1); without
+// it, a new session, which has none.
+func continueTickRefusal(live map[string]any, ticked bool) string {
+	if id, _ := live["signInId"].(string); id != "" && !ticked {
+		return "this session carries your saved sign-in, and a follow-up into it uses it: tick \"Use my sign-in for this follow-up\", or start a new session instead"
+	}
+	return ""
+}
+
+// continueSigninStill is why an approved follow-up can't go into live
+// session as approved ("" it can): it carries the person's saved sign-in,
+// and they didn't tick that sign-in for it — or it carries another than
+// the one they ticked (approved: the approval's session preview).
+func continueSigninStill(live, approved map[string]any, used bool) string {
+	if id, _ := live["signInId"].(string); id != "" && (!used || approved["signInId"] != id) {
+		return "the session your person chose to continue carries their saved sign-in, which they didn't tick for this follow-up: file the start again"
+	}
+	return ""
 }
 
 // pickBody is what an approval's body says of a start's choices (D250).
@@ -404,6 +432,7 @@ type pickBody struct {
 	Remember             bool
 	Continue             *bool
 	Knows                []string
+	Signin               bool // the sign-in line ticked: for a continue, the session's own sign-in (D250 review L1)
 }
 
 func (b pickBody) picks() bool {
@@ -464,12 +493,19 @@ func (s *Server) startPickOf(a delegateActor, id string, b pickBody) (*delegatio
 		if !slices.ContainsFunc(now.Harnesses, func(h harnessChoice) bool { return h.ID == prov }) {
 			return nil, nil, http.StatusConflict, "the session this would continue runs " + prov + ", which may no longer run on " + tile + ": start a new session instead"
 		}
+		live, _ := s.continuable(pp, sid, tile)
+		if why := continueTickRefusal(live, b.Signin); why != "" {
+			return nil, nil, http.StatusConflict, why
+		}
 		mode, _ := offered["mode"].(string)
 		model, _ := offered["model"].(string)
 		c := delegation.StartChoice{Provider: prov, Mode: mode, Model: model, Continue: sid}
 		out := maps.Clone(req.Preview)
 		cont := maps.Clone(shown)
 		cont["continuing"] = true
+		// the sign-in the tick is held to is the session's own (no trust line: it was asked when the session began)
+		cont["signInId"], cont["signIn"] = live["signInId"], live["signIn"]
+		delete(cont, "signInTrust")
 		out["session"] = cont
 		return &c, out, 0, ""
 	}
