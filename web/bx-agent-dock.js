@@ -4,7 +4,8 @@
  * canvas (360–720 px, its width remembered per person; the whole page when
  * the window is narrow, and on /xbin/agent), with
  *
- *   - a header xbin draws: the title, Needs you with its count, Pause /
+ *   - a header xbin draws: the title, Waiting for you with its count (the one
+ *     batch of what waits, D250), Pause /
  *     Resume, a menu (Approvals, What my agent did, Preferences), close;
  *   - below it, the agent's own page in a sandboxed frame — or, in its
  *     place, the state that explains why there is none (bx-agent-setup);
@@ -44,7 +45,8 @@ import '/vendor/bx-icons.js';
 import { chromeCss } from '/vendor/agent-chrome-css.js';
 import { agentStore, call } from '/vendor/agent-chrome-store.js';
 import { infoFor, refreshFrameInfo, frameSource, SANDBOX } from '/vendor/frame-info.js';
-import { CHOICES, DRAFT_FROM, SIGNINS_MESSAGE, clampDock, contextMessage, dockState, handoffLink, needs, pageMessage } from '/vendor/agent-chrome-words.js';
+import { CHOICES, DRAFT_FROM, SIGNINS_MESSAGE, clampDock, contextMessage, dockState, handoffLink, pageMessage } from '/vendor/agent-chrome-words.js';
+import { batch } from '/vendor/agent-start-words.js';
 import '/vendor/agent-signin.js';
 import '/vendor/bx-agent-approve.js';
 import '/vendor/bx-agent-changes.js';
@@ -90,6 +92,7 @@ export class BxAgentDock extends LitElement {
     this.open = false; this.full = false; this.context = null; this.page = '';
     this._w = CHOICES.dockWidth; this._view = 'chat'; this._tray = false; this._menu = false; this._sheet = null; this._frame = null; this._narrow = false; this._err = ''; this._handoff = null; this._signinFor = '';
     this._framed = ''; this._dialog = null; this._said = '';
+    this._queue = null; // Review all: [{kind, id}] still to show, and how many it began with (D250)
     this.store = agentStore();
     this._onMsg = (e) => this._message(e);
     this._onResize = () => { this._narrow = window.innerWidth < CHOICES.narrow; };
@@ -160,8 +163,9 @@ export class BxAgentDock extends LitElement {
    * change set — read from xbind here, by id; one that is not the person's,
    * or is gone, shows nothing.
    */
-  async review(kind, id) {
+  async review(kind, id, position = '') {
     this.open = true; this._tray = false; this._menu = false;
+    if (!position) this._queue = null; // one item opened on its own ends a Review all
     if (kind === 'changeset') {
       const set = await this.store.changeset(id);
       if (set) this._openDialog(set);
@@ -171,7 +175,24 @@ export class BxAgentDock extends LitElement {
     if (!req) return;
     const pending = this.store.requests.filter((r) => r.state === 'pending');
     const i = pending.findIndex((r) => r.id === req.id);
-    this._sheet = { req, position: pending.length > 1 && i >= 0 ? `${i + 1} of ${pending.length}` : '' };
+    this._sheet = { req, position: position || (pending.length > 1 && i >= 0 ? `${i + 1} of ${pending.length}` : '') };
+  }
+
+  /** reviewAll(items): the batch's Review all — each request's sheet and each plan's review in turn, oldest first; a plan stays one review. */
+  reviewAll(items) {
+    const list = (items || []).filter((x) => x && (x.kind === 'request' || x.kind === 'changeset') && x.id);
+    if (!list.length) return;
+    this._queue = { items: list.slice(1), total: list.length };
+    this.review(list[0].kind, list[0].id, `1 of ${list.length}`);
+  }
+
+  // the next of a Review all, if one runs: true when it opened one
+  _nextQueued() {
+    const q = this._queue;
+    if (!q || !q.items.length) { this._queue = null; return false; }
+    const next = q.items.shift();
+    this.review(next.kind, next.id, `${q.total - q.items.length} of ${q.total}`);
+    return true;
   }
 
   _person() { const me = this.store.me || {}; return me.name || me.display || me.user || ''; }
@@ -180,7 +201,7 @@ export class BxAgentDock extends LitElement {
     // the shell's: over the whole workspace, not inside the dock
     if (!this._dialog) {
       this._dialog = document.createElement('bx-agent-changes');
-      this._dialog.addEventListener('bx-agent-done', () => { this._dialog?.remove(); this._dialog = null; this.renderRoot.querySelector('[data-needs]')?.focus(); });
+      this._dialog.addEventListener('bx-agent-done', () => { this._dialog?.remove(); this._dialog = null; if (!this._nextQueued()) this.renderRoot.querySelector('[data-needs]')?.focus(); });
       this._dialog.addEventListener('bx-agent-review', (e) => { e.stopPropagation(); this.review(e.detail.kind, e.detail.id); });
       document.body.append(this._dialog);
     }
@@ -191,6 +212,10 @@ export class BxAgentDock extends LitElement {
   _sheetDone(e) {
     const v = e.detail.verdict;
     this._sheet = null;
+    if (this._queue) { // Review all: the next in the batch, whatever was decided ("later" too: it stays in the batch)
+      if (!this._nextQueued()) this.updateComplete.then(() => this.renderRoot.querySelector('[data-needs]')?.focus());
+      return;
+    }
     // one at a time: after a decision the next one that waits is shown
     const next = v === 'later' ? null : this.store.requests.find((r) => r.state === 'pending' && r.id !== e.detail.id);
     if (next) this.review('request', next.id); else this.updateComplete.then(() => this.renderRoot.querySelector('[data-needs]')?.focus());
@@ -306,8 +331,8 @@ export class BxAgentDock extends LitElement {
 
   render() {
     const s = this.store, st = dockState(s);
-    const waiting = needs(s).length;
-    const said = waiting ? `${waiting} need${waiting === 1 ? 's' : ''} you` : '';
+    const waiting = batch(s).length; // the one batch's count (D250): every pending act once, a start to try again among them
+    const said = waiting ? `${waiting} waiting for you` : '';
     const live = said !== this._said ? (this._said = said) : this._said;
     const paused = !!(s.state && s.state.paused);
     const usable = st !== 'hidden' && st !== 'setup' && st !== 'offline';
@@ -316,15 +341,16 @@ export class BxAgentDock extends LitElement {
         @pointerdown=${this._grip} @keydown=${this._gripKey}></div>
       <header @keydown=${this._key}>
         <bx-icon name="agent"></bx-icon><h2>Workspace agent</h2>
-        ${usable ? html`<button data-needs aria-expanded=${this._tray ? 'true' : 'false'} aria-label=${`Needs you${waiting ? `, ${waiting}` : ''}`} @click=${() => { this._tray = !this._tray; this._menu = false; }}>
-            Needs you${waiting ? html`<span class="count" data-count>${waiting}</span>` : nothing}</button>
+        ${usable ? html`<button data-needs aria-expanded=${this._tray ? 'true' : 'false'} aria-label=${`Waiting for you${waiting ? `, ${waiting}` : ''}`} @click=${() => { this._tray = !this._tray; this._menu = false; }}>
+            <span class="lbl-long">Waiting for you</span>${waiting ? html`<span class="count" data-count>${waiting}</span>` : nothing}</button>
           <button data-pause aria-pressed=${paused ? 'true' : 'false'} @click=${(e) => this._pause(e, !paused)}><bx-icon name=${paused ? 'play' : 'pause'}></bx-icon><span class="lbl">${paused ? 'Resume' : 'Pause'}</span></button>
           <button class="quiet" data-menu aria-label="More" aria-haspopup="menu" aria-expanded=${this._menu ? 'true' : 'false'} @click=${() => { this._menu = !this._menu; this._tray = false; }}><bx-icon name="ellipsis"></bx-icon></button>` : nothing}
         ${this.full ? nothing : html`<button class="quiet" data-close aria-label="Close the workspace agent" @click=${() => { this.open = false; }}><bx-icon name="xmark"></bx-icon></button>`}
       </header>
       ${this._menu ? html`<div class="menu" role="menu" @keydown=${this._key}>
         ${[['approvals', 'Approvals'], ['activity', 'What my agent did'], ['prefs', 'Preferences']].map(([v, label]) => html`<button role="menuitem" data-view=${v} @click=${() => this.show(v)}>${label}</button>`)}</div>` : nothing}
-      <div class="body" @bx-agent-review=${(e) => { e.stopPropagation(); this.review(e.detail.kind, e.detail.id); }} @bx-agent-back=${() => { this._view = 'chat'; }}>
+      <div class="body" @bx-agent-review=${(e) => { e.stopPropagation(); this.review(e.detail.kind, e.detail.id); }} @bx-agent-review-all=${(e) => { e.stopPropagation(); this.reviewAll(e.detail.items); }}
+        @bx-agent-back=${() => { this._view = 'chat'; }}>
         ${this._tray ? html`<div class="tray" @keydown=${this._key}><bx-agent-needs></bx-agent-needs></div>` : nothing}
         ${this._err ? html`<div class="banner bad" role="alert"><bx-icon name="error"></bx-icon><span>${this._err}</span></div>` : nothing}
         ${this._handoffView()}

@@ -385,8 +385,8 @@ await page.goto(`${ORIGIN}/#c=4`);
 await page.waitForSelector('.ask.approve.grant');
 const g = await page.textContent('.ask.approve.grant');
 ok('the grant card says what the backend asks', g.includes('The agent asks to create a coding sandbox “scratch” for this conversation'), g);
-ok('…with Allow once · for an hour · Deny', (await page.$$eval('.ask.approve.grant button', (els) => els.map((e) => e.textContent.trim()))).join('|')
-  === 'Allow once|Allow here for 1 hour|Deny');
+ok('…with Deny, Allow here for an hour, Allow once', (await page.$$eval('.ask.approve.grant button', (els) => els.map((e) => e.textContent.trim()))).join('|')
+  === 'Deny|Allow here for 1 hour|Allow once', 'the same places on every approval (D250): Deny left, the primary allow right');
 
 // --- review fixes: a viewer makes none; a private one into a team conversation; a class edit ------------
 

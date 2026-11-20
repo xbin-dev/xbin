@@ -65,7 +65,10 @@ const grants = (page) => page.evaluate(() => [...document.querySelectorAll('butt
   const brief = await text(page, '.wsc-brief');
   ok('the brief: the four fields in its card', ['GOAL', 'DONE WHEN', 'LEAVE ALONE', 'CHECK BY'].every((w) => brief.toUpperCase().includes(w)) && brief.includes('Export open orders'), brief);
   const req = await page.$eval('.wsc-req[data-req="12"]', (e) => ({ t: e.innerText, btns: [...e.querySelectorAll('button')].map((b) => b.innerText.trim()) })).catch(() => null);
-  ok('a request that waits: what, for which tile, how long it has, one Review…', req && req.t.includes('Waiting for your approval') && req.t.includes('Invoices') && /expires in/.test(req.t) && req.btns.join() === 'Review…', JSON.stringify(req));
+  // ONE item a pending act (D250): the conversation's card is a marker that opens it in xbin's chrome — never a second approve
+  ok('a request that waits: what, for which tile, how long it has, one marker that opens it', req && req.t.includes('Waiting for your approval') && req.t.includes('Invoices') && /expires in/.test(req.t)
+    && req.btns.length === 1 && /Waiting for your approval[\s\S]*open it/.test(req.btns[0]) && !/Allow|Approve|Review…/.test(req.t), JSON.stringify(req));
+  ok('…its facts are elements of their own: no "·"', !req.t.includes('·'), req && req.t);
   ok('…in place of the call that filed it (its callId)', (await page.$$eval('.bxc-row', (rows) => rows.filter((r) => r.querySelector('.wsc-req[data-req="12"]')).map((r) => r.dataset.k))).join() === 'cc1');
   ok('the brief in place of the tile_agent_brief call that wrote it (its callId)', (await page.$$eval('.bxc-row', (rows) => rows.filter((r) => r.querySelector('.wsc-brief')).map((r) => r.dataset.k))).join() === 'cb1');
   const ref = await text(page, '[data-refusal="policy"]');
@@ -76,10 +79,11 @@ const grants = (page) => page.evaluate(() => [...document.querySelectorAll('butt
   ok('…the one that waits says so, and only the person can answer: Answer', agents[1] && /waiting for you/.test(agents[1].t) && /Only you can answer/.test(agents[1].t) && agents[1].btn === 'Answer', JSON.stringify(agents[1]));
   ok('…the other: Open', agents[0] && agents[0].btn === 'Open');
   const started = await page.$$eval('.bxc-row', (rows) => rows.filter((r) => r.querySelector('.wsc-agent[data-agent="7"]')).map((r) => {
-    const req = r.querySelector('.wsc-req[data-req="11"]'), ag = r.querySelector('.wsc-agent[data-agent="7"]');
-    return { k: r.dataset.k, after: !!req && !!(req.compareDocumentPosition(ag) & Node.DOCUMENT_POSITION_FOLLOWING) };
+    const br = r.querySelector('.wsc-brief'), ag = r.querySelector('.wsc-agent[data-agent="7"]');
+    return { k: r.dataset.k, after: !!br && !!(br.compareDocumentPosition(ag) & Node.DOCUMENT_POSITION_FOLLOWING) };
   }));
-  ok('a tile agent sits after the request that started it (its request id)', started.length === 1 && started[0].after, JSON.stringify(started));
+  ok('a tile agent sits after the request that started it (its request id): its brief\'s card, which carries that start', started.length === 1 && started[0].after, JSON.stringify(started));
+  ok('…and the start is never a second card beside the brief (D250)', (await page.$$('.wsc-req[data-req="11"]')).length === 0);
   const ask = await page.$eval('.bxc-ask', (e) => ({ opts: [...e.querySelectorAll('.bxc-opt')].map((o) => o.innerText.trim()), other: !!e.querySelector('.bxc-other'), btns: [...e.querySelectorAll('button')].map((b) => b.innerText.trim()) })).catch(() => null);
   ok('the agent\'s question: its choices as rows, "something else", Answer and Skip', ask && ask.opts.length === 2 && ask.other && ask.btns.join('|') === 'Answer|Skip — let the agent look around first', JSON.stringify(ask));
   ok('…the journal\'s "asked: …" line is not drawn beside it', !(await page.$$eval('.bxc-notice', (n) => n.some((x) => /^asked:/.test(x.innerText.trim())))));
@@ -112,7 +116,7 @@ const grants = (page) => page.evaluate(() => [...document.querySelectorAll('butt
   });
   await until(async () => (await text(page, '.wsc-req[data-req="12"]')).includes('Allowed once by you'));
   const settled = await text(page, '.wsc-req[data-req="12"]');
-  ok('settled (its fields): who allowed it, how wide, what ran, the status, the result — and no button', settled.includes('Allowed once by you') && settled.includes('POST /links/rebuild · 200') && settled.includes('38 links rebuilt') && !settled.includes('never drawn')
+  ok('settled (its fields): who allowed it, how wide, what ran, the status, the result — and no button', settled.includes('Allowed once by you') && settled.includes('POST /links/rebuild') && settled.includes('200') && settled.includes('38 links rebuilt') && !settled.includes('never drawn')
     && (await page.$$('.wsc-req[data-req="12"] button')).length === 0, settled);
   ok('…said once to a screen reader', /Rebuild the order links.*Allowed once by you/.test(await page.evaluate(() => window.wsAgentPage.testApi().said)), await page.evaluate(() => window.wsAgentPage.testApi().said));
   await page.evaluate(() => { Object.assign(window.__seed.cards[1].requests.find((x) => x.id === 12), { grant: 'tile', grantUntilMs: 0 }); window.__push({ type: 'run', run: 1, data: { id: 1 } }); });
@@ -133,23 +137,21 @@ const grants = (page) => page.evaluate(() => [...document.querySelectorAll('butt
   cards.briefs[0].state = 'draft';
   cards.requests = cards.requests.filter((q) => q.id !== 11);
   cards.agents = [];
-  const sd = { harness: 'claude', harnessName: 'Claude Code', asks: true, ticket: true, line: 'Claude Code · asks before acting',
+  const sd = { harness: 'claude', harnessName: 'Claude Code', asks: true, ticket: true, line: 'Claude Code, asks before acting', chips: [{ text: 'Claude Code', tone: '' }, { text: 'asks before acting', tone: 'ok' }],
     defaults: { harness: 'claude', harnesses: [{ id: 'claude', name: 'Claude Code', asks: true, needsTicket: true }, { id: 'codex', name: 'Codex', asks: true, needsTicket: true }] } };
   const { ctx, page, errors } = await openWs(browser, { sessions: fresh(SESSIONS), full: FULL, views: { 1: fresh(CONVERSATION) }, cards: { 1: cards }, startDefaults: sd });
-  await until(async () => (await text(page, '.wsc-brief')).includes('Claude Code · asks before acting'));
+  await until(async () => (await text(page, '.wsc-brief')).includes('asks before acting'));
   const b = await text(page, '.wsc-brief');
-  ok('the brief says what it will run on, from xbind', b.includes('Claude Code · asks before acting'), b);
+  ok('the brief says what it will run on, from xbind: each fact a chip of its own (D250)', (await page.$$eval('.wsc-brief .wsc-chip', (c) => c.map((x) => x.textContent.trim()))).join('|') === 'Claude Code|asks before acting', b);
   ok('…that it is what the tile agent is told first, and later messages aren\'t approved one by one', b.includes('told first') && b.includes('isn’t approved message by message'), b);
   ok('…one button: Review and start…', (await page.$eval('.wsc-start', (x) => x.innerText.trim())) === 'Review and start…');
-  ok('…the allowed coding agents to pick from', (await page.$$eval('.wsc-brief select option', (o) => o.map((x) => x.textContent))).join() === 'Claude Code,Codex');
-  await page.selectOption('.wsc-brief select', 'codex');
-  await until(async () => (await calls(page, 'PUT', /\/briefs\/4$/)).length === 1);
-  ok('picking one is the brief\'s harness', JSON.parse((await calls(page, 'PUT', /\/briefs\/4$/))[0].body).harness === 'codex');
+  // the person's pick is on the approval, not a brief edit (D250): the card has no picker, and says where it is
+  ok('…no coding-agent picker on the brief: the pick is the approval\'s', (await page.$$('.wsc-brief select')).length === 0 && b.includes('You pick the coding agent, its model and its mode on the approval'), b);
   await page.click('.wsc-edit');
   await page.fill('.wsc-field[data-field="goal"] textarea', 'Add a CSV export of open orders.');
   await page.click('.wsc-brief button.primary');
-  await until(async () => (await calls(page, 'PUT', /\/briefs\/4$/)).length === 2);
-  const put = JSON.parse((await calls(page, 'PUT', /\/briefs\/4$/))[1].body);
+  await until(async () => (await calls(page, 'PUT', /\/briefs\/4$/)).length === 1);
+  const put = JSON.parse((await calls(page, 'PUT', /\/briefs\/4$/))[0].body);
   ok('Edit turns the fields into text in place; Save sends them', put.goal === 'Add a CSV export of open orders.' && put.doneWhen.startsWith('A CSV'), JSON.stringify(put));
   await until(async () => (await text(page, '.wsc-brief')).includes('Add a CSV export of open orders.'));
   await page.click('.wsc-start');
@@ -165,7 +167,7 @@ const grants = (page) => page.evaluate(() => [...document.querySelectorAll('butt
   cards.briefs[0].state = 'draft';
   cards.requests = [];
   cards.agents = [];
-  const sd = { harness: 'claude', harnessName: 'Claude Code', asks: true, ticket: false, line: 'Claude Code · asks before acting', defaults: { harness: 'claude', harnesses: [{ id: 'claude', name: 'Claude Code', asks: true, needsTicket: false }] } };
+  const sd = { harness: 'claude', harnessName: 'Claude Code', asks: true, ticket: false, line: 'Claude Code, asks before acting', defaults: { harness: 'claude', harnesses: [{ id: 'claude', name: 'Claude Code', asks: true, needsTicket: false }] } };
   const { ctx, page } = await openWs(browser, { sessions: fresh(SESSIONS), full: FULL, views: { 1: fresh(CONVERSATION) }, cards: { 1: cards }, startDefaults: sd, startAnswer: { started: true, id: 5, outcome: '' } });
   await until(async () => (await page.$eval('.wsc-start', (x) => x.innerText.trim()).catch(() => '')) === 'Start');
   ok('start without asking: the button reads Start', (await page.$eval('.wsc-start', (x) => x.innerText.trim())) === 'Start');

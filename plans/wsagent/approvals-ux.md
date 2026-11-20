@@ -392,14 +392,21 @@ agent that can be prompt-injected would be an act nobody approved.
 ask set `never`, which drew Deny `primary` and Allow `danger`; the wider
 step (`:297-298`) drew its Allow `danger` FIRST and Go back `primary`
 after it. The app did the same (`AgentApproval.swift:296, 338, 363`
-`primaryDeny: r.neverAsks`; `DelegationWords.swift:378`). The plan review
-(`bx-agent-changes.js:302-303`) and the permission cards (`chat/asks.js`)
-were already right.
+`primaryDeny: r.neverAsks`; `DelegationWords.swift:378`). The permission
+cards (`chat/asks.js` `permView`, drawn by the dock, the Agent tab and the
+agent template's own approvals) drew the coding agent's options in its
+order — its rejection usually LAST, on the right, where every other
+surface has its approve. The plan review (`bx-agent-changes.js:302-303`)
+was already right.
 
 **Rule** for every approval surface (the sheet, the plan review, the
 permission cards, the app's sheets): Approve/Apply is the primary action,
 on the right; Deny / Not now / Go back the quiet secondary, on the left;
-always the same positions. A warned approval keeps Approve where it is —
+always the same positions. A permission card keeps the coding agent's
+options and their words, placed: its rejections first, its first allow
+(the primary) last, the others between in its order — superseding "in its
+order" (the checks `harness-ask`, `harness-child`, `grant` say so now).
+A warned approval keeps Approve where it is —
 coloured as danger where the act is (a mode that acts without asking, the
 wider standing grant), never by promoting Deny — and says the warning in
 the body, armed after 600 ms (`/vendor/agent-armed.js`, unchanged).

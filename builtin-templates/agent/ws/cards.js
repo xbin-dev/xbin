@@ -4,12 +4,16 @@
 // that waits for the person's approval and what came of it, an admin
 // change set, the editable brief, a refusal of xbin's, quick replies.
 //
-// None of them grants anything. A request's one button is Review…, which
-// asks xbin's chrome to open it by id (ws/dock.js); the chrome draws the
-// grant from xbind's own reading of the request. The brief's button is the
-// backend's: "Review and start…" opens xbind's approval of the start, and
+// None of them grants anything. ONE item a pending act (D250): a request
+// that waits is a compact marker — "Waiting for your approval ↑ open it" —
+// which asks xbin's chrome to open it by id (ws/dock.js); the chrome draws
+// the grant from xbind's own reading of the request, and the call itself is
+// the sheet's (its Details). A start that has a brief is the brief's card
+// alone, carrying its request (ws/place.js): the brief's button is the
+// backend's — "Review and start…" opens xbind's approval of the start, and
 // only where the person's own preference lets tile agents start without
-// asking (the backend decides) is it "Start".
+// asking (the backend decides) is it "Start". No fact is joined to another
+// with "·": each is an element.
 import { html, nothing } from '/vendor/lit-all.min.js';
 import { agentCard, requestCard, briefCard, refusalCard, possessive, W } from './words.js';
 
@@ -44,7 +48,7 @@ function sessionCard(a, act) {
   const w = agentCard(a, act.now(), act.tileName);
   return html`<div class="wsc wsc-agent ${w.waits ? 'wsc-waits' : ''}" data-agent=${a.id} data-status=${a.status || ''} data-tile=${a.tile || ''}>
     <div class="wsc-row">
-      <span class="wsc-name">${icon('grid')}<b>${w.tile}</b><span class="wsc-muted"> · ${w.harness}</span></span>
+      <span class="wsc-name">${icon('grid')}<b>${w.tile}</b>${w.harness ? html`<span class="wsc-chip" data-harness>${w.harness}</span>` : nothing}</span>
       <span class="wsc-st ${w.tone ? 'wsc-' + w.tone : ''}">${icon(w.glyph)}${w.word}</span>
       <button class="wsc-open ${w.waits ? 'primary' : ''}" ?disabled=${!a.session} title=${a.session ? `show this session in ${w.tile}` : 'its session isn’t open yet'}
         @click=${() => act.openSession(a)}>${w.button}${icon('external')}</button>
@@ -55,26 +59,35 @@ function sessionCard(a, act) {
 
 // ---- a request for the person's approval -------------------------------------------------------
 
+// marker: the compact control that opens the one item in xbin's chrome — a link, never a filled button, never an Allow
+const marker = (act, label, open, off, data = 'approval') => html`<button class="link wsc-marker" ?disabled=${off}
+  data-marker=${data} title=${off ? W.needsConnection : 'xbin shows it to you, in its own panel'} @click=${open}>${icon('shield')}<span>${label}</span><span aria-hidden="true">↑</span><span class="wsc-muted">${W.markerOpen}</span></button>`;
+const parts = (list) => (list && list.length ? html`<span class="wsc-parts">${list.map((p) => html`<span>${p}</span>`)}</span>` : nothing);
+
 function requestView(q, act) {
   const w = requestCard(q, act.now(), act.tileName);
   const local = w.local && w.waits; // a start the brief's own button confirms (the person's preference)
   const head = local ? 'Ready to start' : w.head;
   const btn = local ? '' : w.button;
-  const opens = btn === W.review || btn === W.open; // xbin's own review (or, of a decided plan, its results)
   const off = act.offline && btn === W.review;
+  if (btn === W.review) { // waiting: the compact marker, the what, when — the call is the sheet's (D250)
+    return html`<div class="wsc wsc-req wsc-waits" data-req=${q.id} data-ref=${q.ref || ''} data-state=${q.state || ''} data-kind=${w.kind}>
+      <div class="wsc-row">${marker(act, W.marker, () => act.review(q), off)}${parts(w.parts)}</div>
+      <div class="wsc-what"><span class="wsc-quote" title="the agent’s words">${w.what}</span>${w.tile && !w.what.includes(w.tile) ? html` — <b>${w.tile}</b>` : nothing}</div></div>`;
+  }
+  const opens = btn === W.open; // of a decided plan, xbin's results
   return html`<div class="wsc wsc-req ${w.waits ? 'wsc-waits' : ''} ${w.todo ? 'wsc-open-fail' : ''}" data-req=${q.id} data-ref=${q.ref || ''} data-state=${q.state || ''} data-kind=${w.kind}>
-    <div class="wsc-row"><span class="wsc-name">${icon(w.waits ? 'shield' : w.glyph)}<b>${head}</b></span>${w.line ? html`<span class="wsc-muted">${w.line}</span>` : nothing}</div>
+    <div class="wsc-row"><span class="wsc-name">${icon(w.waits ? 'shield' : w.glyph)}<b>${head}</b></span>${parts(w.parts)}</div>
     <div class="wsc-what"><span class="wsc-quote" title="the agent’s words">${w.what}</span>${w.tile && !w.what.includes(w.tile) ? html` — <b>${w.tile}</b>` : nothing}</div>
-    ${w.call && w.waits ? html`<div class="wsc-call wsc-mono">${w.call}</div>` : nothing}
     ${w.result ? html`<div class="wsc-line">${w.result}</div>` : nothing}
     ${w.lines && w.lines.length ? html`<ol class="wsc-lines" data-lines>${w.lines.map((l) => html`<li data-n=${l.n} data-result=${l.result}>
       <span class="wsc-ltext">${l.text}</span> <span class="wsc-st ${l.tone ? 'wsc-' + l.tone : ''}">${icon(l.glyph)}${l.word}</span>
       ${l.note ? html`<div class="wsc-err">${l.note}</div>` : nothing}</li>`)}</ol>` : nothing}
     ${w.todo ? html`<div class="wsc-line wsc-wrap" data-todo>${w.todo}</div>` : nothing}
     ${local ? html`<div class="wsc-line">Start it from the brief.</div>` : nothing}
-    ${btn ? html`<div class="wsc-btns"><button class=${btn === W.review ? 'primary' : ''} ?disabled=${off} title=${off ? W.needsConnection : btn === W.review ? 'xbin shows what exactly would happen, and asks you' : btn === W.open ? 'xbin shows each line’s result' : ''}
-      @click=${() => (opens ? act.review(q) : act.send(`Please ask again: ${q.title || w.what}`))}>${btn}</button>
-      ${off ? html`<span class="wsc-muted">${W.needsConnection}</span>` : nothing}</div>` : nothing}
+    ${btn === W.retryMarker ? html`<div class="wsc-btns">${marker(act, btn, () => act.openNeeds(), act.offline, 'retry')}</div>`
+      : btn ? html`<div class="wsc-btns"><button ?disabled=${off} title=${btn === W.open ? 'xbin shows each line’s result' : ''}
+      @click=${() => (opens ? act.review(q) : act.send(`Please ask again: ${q.title || w.what}`))}>${btn}</button></div>` : nothing}
   </div>`;
 }
 
@@ -114,11 +127,14 @@ function briefView(blk, act) {
         <button ?disabled=${bag.busy} @click=${() => { bag.editing = false; bag.vals = null; act.repaint(); }}>Cancel</button>`
         : w.button ? html`<button class="primary wsc-start" ?disabled=${bag.busy || w.none || (act.offline && w.button !== W.start)} @click=${start}
           title=${w.button === W.start ? 'your preference lets tile agents start without asking: this click starts it' : 'xbin shows the start exactly as it will be sent, and asks you'}>${icon(w.button === W.start ? 'play' : 'shield')}${w.button}</button>` : nothing}
-      ${w.harnesses.length > 1 && w.editable && !editing ? html`<label class="wsc-muted wsc-pick">Coding agent
-          <select aria-label="the coding agent it starts on" ?disabled=${bag.busy} @change=${async (e) => { bag.busy = true; act.repaint(); bag.err = (await act.briefSave(b, { harness: e.target.value })) || ''; bag.busy = false; act.repaint(); }}>
-            ${w.harnesses.map((h) => html`<option value=${h.id} ?selected=${h.id === w.picked}>${h.name}</option>`)}</select></label>` : nothing}
-      ${w.runsOn ? html`<span class="wsc-muted wsc-runs">${w.runsOn}</span>` : nothing}
+      ${w.waiting && !editing ? marker(act, W.marker, () => act.review(w.request), act.offline) : nothing}
+      ${w.retry && !editing ? marker(act, W.retryMarker, () => act.openNeeds(), act.offline, 'retry') : nothing}
+      ${w.waiting && !editing ? parts(w.parts) : nothing}
     </div>
+    ${w.chips.length && w.editable ? html`<div class="wsc-row wsc-runs" data-runs-on><span class="wsc-muted">Runs on</span>
+      <span class="wsc-chips">${w.chips.map((c) => html`<span class="wsc-chip ${c.tone ? 'wsc-' + c.tone : ''}">${c.text}</span>`)}</span>
+      ${w.pickNote ? html`<span class="wsc-muted">${w.pickNote}</span>` : nothing}</div>` : nothing}
+    ${w.outcome ? html`<div class="wsc-line wsc-wrap" data-outcome>${w.outcome}</div>` : nothing}
     ${w.signin ? html`<div class="wsc-line wsc-wrap wsc-signin" data-signin=${w.signin.harness}>${icon('warning')}<span>Needs your ${w.signin.name} sign-in: without it the tile agent starts signed out. xbin shows the sign-in; nothing of it passes through your agent.</span>
       <button class="wsc-signin-go" ?disabled=${act.offline} @click=${() => act.signIn(w.signin.harness)}>${w.signin.button}</button></div>` : nothing}
     ${w.editable ? html`<div class="wsc-line wsc-wrap">${w.note}</div>` : nothing}

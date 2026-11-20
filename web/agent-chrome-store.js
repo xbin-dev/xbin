@@ -45,6 +45,7 @@ class AgentStore {
     this.llm = null;        // GET /llm: is a language model connected
     this.me = null;         // GET /whoami
     this.requests = [];     // pending requests, oldest first
+    this.failed = [];       // starts that were approved and didn't open, which the person may try again (D250)
     this.changesets = [];   // every change set of the person's (proposed first matter)
     this.approvals = [];    // standing approvals
     this.sessions = [];     // the person's tile agent sessions (for the ones that wait)
@@ -101,8 +102,13 @@ class AgentStore {
   }
 
   async readRequests(emit = true) {
-    const r = await call('/delegate/requests');
-    if (r.ok) this.requests = (r.data && r.data.requests) || [];
+    // ?failed=1: the starts that failed to open and may be tried again, beside the pending ones (an xbind before D250 ignores it)
+    const r = await call('/delegate/requests?failed=1');
+    if (r.ok) {
+      const all = (r.data && r.data.requests) || [];
+      this.requests = all.filter((x) => x.state !== 'failed');
+      this.failed = all.filter((x) => x.state === 'failed');
+    }
     if (emit) this.emit();
   }
 
@@ -152,6 +158,14 @@ class AgentStore {
     // 409 {refusal}: the agent is stopped (off, paused, held, no agent) — nothing can be allowed now; the sheet says why
     const stopped = stopOf(r);
     return { ok: false, stopped, gone: !stopped && (r.status === 409 || r.status === 404), error: say(r, "It couldn't be approved") };
+  }
+
+  /** retry(id): the person's Try again on a start that failed to open — a ticket again, the agent files nothing new (D250). */
+  async retry(id) {
+    const r = await call(`/delegate/requests/${encodeURIComponent(id)}/retry`, { method: 'POST', body: {} });
+    this.readState(); this.readRequests();
+    if (r.ok) return { ok: true };
+    return { ok: false, stopped: stopOf(r), error: say(r, "It couldn't be tried again") };
   }
 
   async deny(id) {

@@ -316,7 +316,7 @@ out.small = {
   bytes: [0, 1, 48, 1023, 1024, 1536, 10239, 10240, 14336, 1048575, 1048576, 3355443].map((n) => [n, W.bytes(n)]),
   admins: [[], ['A'], ['A', 'B'], ['A', 'B', 'C', 'D']].map((n) => [n, W.admins(n)]),
   stepUp: [W.stepUp('password'), W.stepUp('signin')],
-  needs: W.needs({ requests, changesets }, NOW).map((n) => ({ kind: n.kind, id: n.id, title: n.title, note: n.note })),
+  needs: W.needs({ requests, changesets }, NOW).map((n) => ({ kind: n.kind, id: n.id, title: n.title, note: n.note, parts: n.parts })),
   pageViews: [...W.PAGE_VIEWS], pageMessages: [['needs'], ['approvals'], ['activity'], ['prefs'], ['setup'], ['']].map(([view]) => [view, W.pageMessage({ type: 'xbin:agent-open', view })]),
   draftFrom: { ...W.DRAFT_FROM },
   // what a sheet says in place of Allow / Apply while the agent is stopped, for each refusal xbind answers (and one it doesn't know)

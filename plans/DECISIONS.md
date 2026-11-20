@@ -6429,8 +6429,16 @@ here: cut from the old end, never reword.
     spend nothing; a start that fails for a reason not the agent's is
     `failed`, with Try again for the person (`…/retry`).
   - **Buttons:** Approve primary on the right, Deny quiet on the left,
-    always; danger colours only the Approve. No "·" in what a person reads
-    on the surfaces this touched (the owner's rule): facts are elements.
+    always; danger colours only the Approve. A permission card places the
+    coding agent's own options so: its rejections left, its first allow
+    right, the rest between in its order (superseding "in its order"). No
+    "·" in what a person reads on the surfaces this touched (the owner's
+    rule): facts are elements — the words modules return parts, and
+    their joined accessors join with commas.
+  - **The app** approves xbind's preselected pick (an older client to the
+    approve call) and says where to pick others: the web's sheet. A
+    `message` request is a kind it doesn't know, so it shows "update to
+    review" and never decides it.
   - **Not built:** pickers on a plan's start line (the line resolves by
     the same chain and shows where each came from); page-driving
     verification (a proposal in the spec, §7c); an admin default for start

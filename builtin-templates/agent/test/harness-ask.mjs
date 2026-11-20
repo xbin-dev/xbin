@@ -43,7 +43,8 @@ await page.goto(`${ORIGIN}/#c=22`);
 await page.waitForSelector('.hask');
 
 // --- a permission request -----------------------------------------------------------------
-ok('the harness\'s own options, in its order', JSON.stringify(await opts()) === '["allow","allow_always","reject"]', JSON.stringify(await opts()));
+// the same places on every approval (D250): the rejection left, the primary allow right, the others between, in its order
+ok('the harness\'s own options, the rejection left and its first allow right', JSON.stringify(await opts()) === '["reject","allow_always","allow"]', JSON.stringify(await opts()));
 const card22 = await page.textContent('.hask');
 ok('the call: who asks, its title and label', card22.includes('Claude Code asks to run a command') && card22.includes('go test ./...') && card22.includes('Run the tests'), card22);
 ok('"always" says what it remembers', (await page.textContent('.hask .bxc-rulenote')).includes('later execute calls titled ‘go test ./...’'));

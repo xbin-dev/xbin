@@ -77,6 +77,7 @@ const act = {
   repaint: () => { S.rev++; paint(); },
   openSession: (a) => dock.showSession(a.session, a.tile),
   review: (q) => store.review(q),
+  openNeeds: () => store.openNeeds(),
   send: (text) => send(text),
   fill: (text) => fill(text),
   // a redirect's way forward: a new session of the tile's own agent, the person's own words as its draft

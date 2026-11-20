@@ -9,18 +9,19 @@
  *   /xbin/agent?changes=<id>   the review of one change set (where signing
  *                              in again for it comes back to)
  *
- * The title carries what waits ("(2) Workspace agent — xbin").
+ * The title carries what waits ("(2) Workspace agent — xbin"): the one
+ * batch's count (D250).
  */
 import '/vendor/bx-agent-dock.js';
 import { agentStore } from '/vendor/agent-chrome-store.js';
-import { needs } from '/vendor/agent-chrome-words.js';
+import { batch } from '/vendor/agent-start-words.js';
 
 const dock = document.querySelector('bx-agent-dock');
 const q = new URLSearchParams(location.search);
 const ID = /^[0-9a-f]{24}$/; // a request's or change set's id, as xbind mints them (agent-chrome-words.js pageMessage)
 const store = agentStore();
 store.subscribe(() => {
-  const n = needs(store).length;
+  const n = batch(store).length; // the one batch's count (D250)
   document.title = `${n ? `(${n}) ` : ''}Workspace agent — xbin`;
 });
 // a waiting tile agent: this page has no canvas, so it is the link to the

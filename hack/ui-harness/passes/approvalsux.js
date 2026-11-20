@@ -122,7 +122,7 @@ async function approvalsUx(browser) {
       await shot(V.page, `approvals-batch${tag(scheme, width)}`, { fullPage: false });
       await V.page.click(`${DOCK} [data-needs]`);
       // the sheet: the start's review, opened from the conversation
-      const opener = BEFORE ? '.wsc-brief .wsc-start' : '.wsc-brief [data-opens-approval]';
+      const opener = BEFORE ? '.wsc-brief .wsc-start' : '.wsc-brief [data-marker="approval"]';
       await vf.click(opener);
       await V.page.waitForSelector(`${SHEET} [role="dialog"]`);
       await sleep(700); // armed

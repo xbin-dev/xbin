@@ -26,6 +26,9 @@ export const chromeCss = css`
   button.primary:hover:not(:disabled) { background: var(--bx-accent-hover, #A9B4FF); }
   button.danger { border-color: var(--bx-danger, #FF7A7A); color: var(--bx-danger, #FF7A7A); }
   button.danger:hover:not(:disabled) { background: var(--bx-danger-bg, #3A2B32); }
+  /* an approval of an act that is dangerous: still the primary action, in its place — coloured as what it is (D250: Deny is never promoted) */
+  button.primary.danger { background: var(--bx-danger, #FF7A7A); border-color: var(--bx-danger, #FF7A7A); color: var(--bx-accent-ink, #0B0C12); }
+  button.primary.danger:hover:not(:disabled) { background: var(--bx-danger, #FF7A7A); filter: brightness(1.08); }
   button.quiet { border-color: transparent; background: none; }
   button.link { border: 0; background: none; padding: 0; min-height: 0; color: var(--bx-link, #8C9BFF); font-weight: 400; }
   button.link:hover:not(:disabled) { background: none; text-decoration: underline; }
@@ -81,6 +84,13 @@ export const chromeCss = css`
   .panel > .ph h2 { flex: 1; }
   .panel > .pb { flex: 1; min-height: 0; overflow: auto; }
   .panel > .pf { padding: 8px 12px; border-top: 1px solid var(--bx-border, #33353F); }
+  /* facts, each an element of its own (D250: never one line joined with "·") */
+  .chips, .parts { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; min-width: 0; }
+  .parts { gap: 2px 12px; }
+  .chip { display: inline-flex; align-items: center; gap: 4px; padding: 0 6px; min-height: 18px; border: 1px solid var(--bx-border, #33353F); border-radius: var(--bx-radius, 2px);
+    font: var(--bx-font-meta, 400 12px/16px "Instrument Sans", system-ui, sans-serif); white-space: nowrap; }
+  .chip.ok { color: var(--bx-ok, #A3CF5E); border-color: currentColor; } .chip.bad { color: var(--bx-danger, #FF7A7A); border-color: currentColor; }
+  .chip.warn { color: var(--bx-warn, #F2994A); border-color: currentColor; }
   .seg { display: inline-flex; }
   .seg button { border-radius: 0; margin-left: -1px; }
   .seg button[aria-pressed="true"] { background: var(--bx-selection, #262C5C); color: var(--bx-selection-text, #E9EAF0); border-color: var(--bx-accent, #8C9BFF); z-index: 1; }
