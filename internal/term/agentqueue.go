@@ -81,6 +81,54 @@ type queueItem struct {
 	by queuedBy
 }
 
+// AgentSetOption changes one of the agent's session settings (a config
+// option it advertised: model, effort, …). Allowed any time; the agent
+// applies it to the next turn.
+func (m *Manager) AgentSetOption(ctx context.Context, id, optionID, value string) error {
+	_, st, err := m.agentOf(id)
+	if err != nil {
+		return err
+	}
+	select {
+	case <-st.ready:
+	case <-st.done:
+		return agent.ErrEnded
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	if err := st.llm.option(st.provider, optionID, value); err != nil { // only the connector may serve it (llmhook.go)
+		return err
+	}
+	if optionID == "mode" {
+		// asked for, not yet reported: what a held message of the person's agent is judged on too, from now
+		// until the agent says (D250 re-review 4b) — a switch in flight when the turn ends lets nothing through
+		st.mu.Lock()
+		st.pendingMode = value
+		st.mu.Unlock()
+	}
+	err = st.drv.SetOption(ctx, optionID, value)
+	if err != nil && optionID == "mode" {
+		st.mu.Lock()
+		if st.pendingMode == value {
+			st.pendingMode = ""
+		}
+		st.mu.Unlock()
+	}
+	return err
+}
+
+// AgentPendingMode is the mode a client asked session id to switch to that
+// its agent hasn't reported yet ("" none).
+func (m *Manager) AgentPendingMode(id string) string {
+	_, st, err := m.agentOf(id)
+	if err != nil {
+		return ""
+	}
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	return st.pendingMode
+}
+
 // Returned is a held message of a person's workspace agent that was not
 // delivered: its id, its text (a preview), why, and when (unix ms).
 type Returned struct {
