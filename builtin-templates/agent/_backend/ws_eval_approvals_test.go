@@ -33,7 +33,7 @@ func euiFix(t *testing.T) (*wsFix, *wsSession) {
 // requestsFiled is how many approval requests the agent filed.
 func (f *fakeXbin) requestsFiled() int { return f.count("Ask ") }
 
-// The owner's session as it goes under D251 (plans/wsagent/auto-default.md):
+// The owner's session as it goes under D251 (xbind's docs/workspace-agent.md):
 // OpenCode remembered for eui, in its build mode — "turn eui into a tic
 // tac toe game" is ONE approval, said plainly (no warning, no "every start
 // is approved on the sheet"); "add a computer player" continues the session

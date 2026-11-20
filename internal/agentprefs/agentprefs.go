@@ -27,7 +27,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"strings"
 	"sync"
 
@@ -585,23 +584,14 @@ func (s *Store) StartPrefs(userID, harness string) (mode, net string, api, ok bo
 }
 
 // AgentStartFor is Get(userID).AgentStart for the harness, and whether
-// this xbind runs that harness.
+// this xbind runs that harness (a nil store: asked, unknown).
 func (s *Store) AgentStartFor(userID, harness string) (AgentStart, bool) {
+	if s == nil {
+		return AgentStart{Ask: true}, false
+	}
 	prov, ok := s.lookup(harness)
 	if !ok {
 		return AgentStart{Ask: true}, false
 	}
 	return s.Get(userID).AgentStart(prov), true
-}
-
-// askModes are the modes of prov in which it asks before every edit and
-// command.
-func askModes(prov agent.Provider) []string {
-	var out []string
-	for _, m := range []string{prov.ApproveMode, prov.PlanMode} {
-		if m != "" && !slices.Contains(out, m) {
-			out = append(out, m)
-		}
-	}
-	return out
 }

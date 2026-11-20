@@ -261,9 +261,9 @@ async function agentChrome(browser) {
     await page.waitForFunction(() => document.querySelector('bx-agent-dock').shadowRoot.querySelector('bx-agent-approve')?.request?.id === 's1');
     check(JSON.stringify(sentTo(/r2\/approve$/).map((c) => c.body)) === '[{"grant":"hour","scope":"tile"}]', `[${width}] "Allow every change" sends {grant: hour, scope: tile} (${JSON.stringify(sentTo(/r2\/approve$/).map((c) => c.body))})`);
 
-    // ---- a session start that asks: denied; one that never asks: the danger, Allow in its place (D250) ----
+    // ---- a session start that asks: denied; one that never asks: the mode a fact, the ordinary Start (D251) ----
     const st = await text(`${SHEET} [role="dialog"]`);
-    check(/Start a tile agent in Crawler\?/.test(st) && /asks before it edits or runs anything/i.test(st) && /Claude Code · model sonnet/.test(st) && /Fix the export test\./.test(st) && /sent exactly like this/.test(st) && !(await page.$(`${SHEET} [data-choice]`)),
+    check(/Start a tile agent in Crawler\?/.test(st) && /asks before acting/i.test(st) && /Claude Code · model sonnet/.test(st) && /Fix the export test\./.test(st) && /sent exactly like this/.test(st) && !(await page.$(`${SHEET} [data-choice]`)),
       `[${width}] a tile agent start: the mode, the coding agent, the brief; no standing choice`);
     await page.click(`${SHEET} button[data-deny]`);
     await page.waitForFunction(() => !document.querySelector('bx-agent-dock').shadowRoot.querySelector('bx-agent-approve'));
@@ -272,10 +272,10 @@ async function agentChrome(browser) {
     await refresh();
     await page.evaluate(() => document.querySelector('bx-agent-dock').review('request', 's2'));
     await page.waitForSelector(`${SHEET} [role="dialog"][data-kind="session"]`);
-    check(/acts without asking/i.test(await text(`${SHEET} [data-row="mode"]`)) && /in this mode acts without asking/.test(await text(`${SHEET} .banner.bad`))
-      && await page.$eval(`${SHEET} button[data-deny]`, (b) => !b.classList.contains('primary')) && (await text(`${SHEET} button[data-allow]`)) === 'Start without asking'
-      && await page.$eval(`${SHEET} button[data-allow]`, (b) => b.classList.contains('primary') && b.classList.contains('danger')), `[${width}] a mode that never asks: the danger wording; Allow keeps its place, primary in the danger colour, and Deny stays quiet (D250)`);
-    await shot(page, `agent-chrome-session-danger${tag}`, { fullPage: false });
+    check(/acts without asking/i.test(await text(`${SHEET} [data-row="mode"] [data-mode-chip]`)) && /in this tile's sandbox without asking you\. You approve what your agent tells it\./.test(await text(`${SHEET} [data-row="mode"] [data-mode-fact]`))
+      && !(await page.$(`${SHEET} .banner.bad`)) && await page.$eval(`${SHEET} button[data-deny]`, (b) => !b.classList.contains('primary')) && (await text(`${SHEET} button[data-allow]`)) === 'Start'
+      && await page.$eval(`${SHEET} button[data-allow]`, (b) => b.classList.contains('primary') && !b.classList.contains('danger')), `[${width}] a mode that never asks: a fact — its chip and the plain line, no danger; the ordinary Start, Deny quiet (D251)`);
+    await shot(page, `agent-chrome-session-acts${tag}`, { fullPage: false });
     await armed(['bx-agent-dock', 'bx-agent-approve', 'button[data-allow]']);
     await page.click(`${SHEET} button[data-allow]`);
     await page.waitForFunction(() => document.querySelector('bx-agent-dock').shadowRoot.querySelector('bx-agent-approve')?.request?.id === 't1');
@@ -388,13 +388,13 @@ async function agentChrome(browser) {
     await page.click(`${DOCK} bx-agent-prefs [data-start="allow"]`);
     for (let i = 0; i < 50 && !(S.state.adminChanges === true && sentTo(/PUT \/agent\/prefs/).length); i++) await page.waitForTimeout(40);
     check(S.state.adminChanges === true && sentTo(/PUT \/agent\/prefs/).some((c) => c.body.agentSessions.start === 'allow'), `[${width}] Preferences: the admin opt-in and the start preference are sent`);
-    // the mode a started tile agent gets: a picker of the modes that ask before acting (GET /agent/providers, real);
-    // the ones that don't are named with why, and xbind refuses them anyway
+    // the mode a started tile agent gets: a picker of its modes, asking or not (GET /agent/providers, real; D251); the
+    // bypass ones are named with why, and xbind refuses them anyway
     await page.waitForSelector(`${DOCK} bx-agent-prefs select[data-mode="claude"]`);
     const modeOpts = await page.$$eval(`${DOCK} bx-agent-prefs select[data-mode="claude"] option`, (os) => os.map((o) => o.value));
     const never = await text(`${DOCK} bx-agent-prefs [data-never="claude"]`);
-    check(modeOpts[0] === '' && modeOpts.includes('plan') && !modeOpts.includes('bypassPermissions') && /Bypass permissions/.test(never) && /without asking you first/.test(never),
-      `[${width}] Preferences: the modes for agent-started sessions are a picker of the ones that ask, the others named with why (${modeOpts.join(' ')} · ${never})`);
+    check(modeOpts[0] === '' && modeOpts.includes('plan') && modeOpts.includes('auto') && !modeOpts.includes('bypassPermissions') && /Bypass permissions/.test(never) && /skips every check/.test(never),
+      `[${width}] Preferences: the modes for agent-started sessions are a picker of any but a bypass one, which is named with why (${modeOpts.join(' ')} / ${never})`);
     await page.selectOption(`${DOCK} bx-agent-prefs select[data-mode="claude"]`, 'plan');
     for (let i = 0; i < 50 && !sentTo(/PUT \/agent\/prefs/).some((c) => c.body.agentSessions.modes); i++) await page.waitForTimeout(40);
     check(JSON.stringify(sentTo(/PUT \/agent\/prefs/).filter((c) => c.body.agentSessions.modes).map((c) => c.body.agentSessions.modes)) === '[{"claude":"plan"}]'

@@ -897,20 +897,12 @@ func (s *Server) delegateApproval(w http.ResponseWriter, r *http.Request, p auth
 			return nil, http.StatusForbidden, "needs-approval", differs + ask
 		}
 		prefs, ok := s.agentPolicy().StartPrefs(p.UserID, asked.Cwd, provider)
-		// a start with no sheet opens only in a mode that asks (D251): the mode it would open in — the
-		// preference's, else the coding agent's asking one, as the open takes it (term/delegate.go)
+		// no sheet, only a mode that asks (D251): the one it would open in — the preference's, else the asking one
 		prov, known := agent.Lookup(cmp.Or(provider, s.startDefaults(p, asked.Cwd).Harness))
-		if ok && known && !prov.Asks(cmp.Or(prefs.Mode, prov.AskingMode())) || ok && !known {
-			ok = false
-		}
-		if !ok {
-			why := "starting a tile agent needs its person's approval"
-			if s.AgentPrefs != nil {
-				if a, _ := s.AgentPrefs.AgentStartFor(p.UserID, prov.ID); !a.Ask {
-					// "start without asking" with no mode that asks named (or a coding agent with none): the default
-					// of their agent's sessions acts without asking, which no path without the sheet starts
-					why = "the sessions your person's agent starts act without asking, so every start is approved on the sheet: one approval, the same start — it starts without asking only in a mode that asks they named"
-				}
+		ok = ok && known && prov.Asks(cmp.Or(prefs.Mode, prov.AskingMode()))
+		if why := "starting a tile agent needs its person's approval"; !ok {
+			if a, _ := s.AgentPrefs.AgentStartFor(p.UserID, prov.ID); !a.Ask { // "start without asking", no asking mode named (nil store: asks)
+				why = "the sessions your person's agent starts act without asking, so every start is approved on the sheet: one approval, the same start — it starts without asking only in a mode that asks they named"
 			}
 			return nil, http.StatusForbidden, "needs-approval", why + ask
 		}
