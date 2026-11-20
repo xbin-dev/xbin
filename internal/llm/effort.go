@@ -11,16 +11,21 @@ package llm
 //
 //  1. the host's file or the admin's entry, upstreams.<name>.reasoning — a
 //     table keyed like prices (exact id → the id after its last "/" → the
-//     longest "prefix*"); an entry replaces the rest whole;
+//     longest "prefix*"); an entry with levels replaces the rest whole (one
+//     that says only "replay": "never" changes nothing else);
 //  2. the upstream's own model list (GET /models: DeepSeek's effort,
-//     OpenRouter's reasoning; a router's supported_features or
-//     supported_parameters naming reasoning says only that the model
-//     reasons) — untrusted: only ladder words, booleans and a bounded alias
-//     map are read from it, and a list's silence says nothing (a router
-//     that leaves reasoning_effort out of a model's parameters may well
-//     take it);
+//     OpenRouter's reasoning) — its explicit levels, on any upstream: they
+//     are that upstream's words. Untrusted: only ladder words, booleans and
+//     a bounded alias map are read from it; a list says "reasons" (a
+//     router's supported_features naming reasoning) but never "no
+//     reasoning" — an empty or none-only list, or a list's silence, is
+//     unknown;
 //  3. a table vendored into xbind (effort_table.json), written from the
-//     providers' docs: 2 is laid over it member by member.
+//     providers' docs — each family names the hosts of its maker's own API,
+//     and applies only to an upstream at one of them (compared exactly). On
+//     any other upstream (a router, a local server, a company's gateway)
+//     the same model id may take other levels: there a table match is a
+//     suggestion an admin can adopt, and the model stays undescribed.
 //
 // A model nothing describes is passed through exactly as today: nothing is
 // added, nothing rewritten. For a described model the caller's level is
@@ -41,6 +46,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"net/url"
 	"slices"
 	"sort"
 	"strings"
@@ -87,7 +93,8 @@ type EffortRecord struct {
 	Default string
 	// CanDisable: "none" turns its reasoning off. ThinksByDefault: it
 	// reasons when nothing is sent. Reasons: it reasons (an upstream's list
-	// that says so without its levels). nil: not said.
+	// that says so without its levels). nil: not said — and with
+	// CanDisable unsaid, "none" passes as it came.
 	CanDisable, ThinksByDefault, Reasons *bool
 	// Aliases are the provider's own mapping of the ladder words the model
 	// lacks (DeepSeek: medium → high).
@@ -286,7 +293,11 @@ func boolp(b bool) *bool { return &b }
 // says its levels, valid; from the admin's API (admin), no send patch yet.
 func validEntry(what string, rec EffortRecord, admin bool) error {
 	if rec.Levels == nil {
-		return fmt.Errorf("%s: a record says its supported_levels ([] for a model without reasoning)", what)
+		// {"replay": "never"} alone: the replay switch, and nothing about levels
+		if rec.Replay == "" || rec.Default != "" || rec.CanDisable != nil || rec.ThinksByDefault != nil || rec.Reasons != nil || len(rec.Aliases) > 0 ||
+			len(rec.Scale) > 0 || len(rec.Budget) > 0 || len(rec.Send) > 0 {
+			return fmt.Errorf("%s: a record says its supported_levels ([] for a model without reasoning), or only \"replay\": \"never\"", what)
+		}
 	}
 	if admin && len(rec.Send) > 0 {
 		return fmt.Errorf("%s: send patches are not taken from the admin API yet — pick a preset", what)
@@ -397,16 +408,15 @@ func effortFromUpstreamMember(raw json.RawMessage) (EffortRecord, bool) {
 	}
 	r := EffortRecord{Source: EffortFromUpstream}
 	if lv, ok := m["supported_levels"]; ok {
-		levels, none, ok := ladderWords(lv)
-		var empty []json.RawMessage
-		switch {
-		case ok:
-			r.Levels = levels
+		// a list never says "no reasoning": [] or ["none"] alone is unknown (only an admin, the host or the
+		// maker's own description says a model has none — a caller's effort is never stripped on a list's word)
+		if levels, none, ok := ladderWords(lv); ok {
+			if len(levels) > 0 {
+				r.Levels = levels
+			}
 			if none && rawBool(m["can_disable"]) == nil {
 				r.CanDisable = boolp(true)
 			}
-		case json.Unmarshal(lv, &empty) == nil && empty != nil && len(empty) == 0:
-			r.Levels = []string{} // an explicit [] : no reasoning
 		}
 	}
 	r.Default = rawLadder(m["default_level"])
@@ -455,14 +465,14 @@ func effortFromOpenRouter(raw json.RawMessage) (EffortRecord, bool) {
 	if !ok {
 		return EffortRecord{}, false
 	}
+	if len(levels) == 0 { // ["none"] alone: unknown (a list never says "no reasoning")
+		return EffortRecord{}, false
+	}
 	r := EffortRecord{Levels: levels, Default: rawLadder(m["default_effort"]), ThinksByDefault: rawBool(m["default_enabled"]), Source: EffortFromUpstream}
 	if mandatory := rawBool(m["mandatory"]); mandatory != nil {
 		r.CanDisable = boolp(!*mandatory)
 	} else if none {
 		r.CanDisable = boolp(true)
-	}
-	if len(levels) == 0 && !none {
-		return EffortRecord{}, false
 	}
 	return r, true
 }
@@ -522,17 +532,26 @@ func overlay(hi, lo EffortRecord) EffortRecord {
 var effortTableFS embed.FS
 
 // effortFamily is one entry of effort_table.json: the model ids it covers
-// (keyed like prices) and the record, with where it was read.
+// (keyed like prices), the hosts of its maker's own API (where it applies),
+// and the record, with where it was read.
 type effortFamily struct {
 	Family string          `json:"family"`
 	Models []string        `json:"models"`
+	Hosts  []string        `json:"hosts"`
 	Effort EffortRecord    `json:"effort"`
 	Read   string          `json:"read"` // the provider's page(s) it was written from, and when
 	Notes  json.RawMessage `json:"notes,omitempty"`
 }
 
+// vendored is one model pattern of the table: its record and the hosts it
+// applies at.
+type vendored struct {
+	rec   EffortRecord
+	hosts []string
+}
+
 // vendoredEffort is the table, by model pattern; loaded once.
-var vendoredEffort = func() map[string]EffortRecord {
+var vendoredEffort = func() map[string]vendored {
 	b, err := effortTableFS.ReadFile("effort_table.json")
 	if err != nil {
 		panic(err)
@@ -544,7 +563,7 @@ var vendoredEffort = func() map[string]EffortRecord {
 	return t
 }()
 
-func parseEffortTable(b []byte) (map[string]EffortRecord, error) {
+func parseEffortTable(b []byte) (map[string]vendored, error) {
 	var file struct {
 		About    string         `json:"about"`
 		Families []effortFamily `json:"families"`
@@ -554,10 +573,18 @@ func parseEffortTable(b []byte) (map[string]EffortRecord, error) {
 	if err := dec.Decode(&file); err != nil {
 		return nil, err
 	}
-	out := map[string]EffortRecord{}
+	out := map[string]vendored{}
 	for _, f := range file.Families {
 		if f.Read == "" || len(f.Models) == 0 {
 			return nil, fmt.Errorf("%s: every family says what it was read from, and its models", f.Family)
+		}
+		if len(f.Hosts) == 0 {
+			return nil, fmt.Errorf("%s: every family names its maker's API hosts (where it applies)", f.Family)
+		}
+		for _, h := range f.Hosts {
+			if h == "" || h != strings.ToLower(h) || strings.ContainsAny(h, ":/*@ ") {
+				return nil, fmt.Errorf("%s: host %q — a plain lowercase host name, no scheme, port or wildcard", f.Family, h)
+			}
 		}
 		if f.Effort.Levels == nil {
 			return nil, fmt.Errorf("%s: supported_levels missing", f.Family)
@@ -574,7 +601,7 @@ func parseEffortTable(b []byte) (map[string]EffortRecord, error) {
 			if _, dup := out[m]; dup {
 				return nil, fmt.Errorf("%s: model %s is in two families", f.Family, m)
 			}
-			out[m] = rec
+			out[m] = vendored{rec: rec, hosts: slices.Clone(f.Hosts)}
 		}
 	}
 	return out, nil
@@ -611,31 +638,68 @@ func lookupModel[V any](t map[string]V, model string) (V, bool) {
 	return zero, false
 }
 
-// effortOf is what the connector knows of model on u: the host's or the
-// admin's entry whole, else the upstream's own list over the vendored table
-// (extra: the model's object in that list; nil when unknown). nil: nothing.
+// effortOf is what the connector knows of model on u (extra: the model's
+// object in the upstream's own list; nil when unknown). nil: nothing.
 func effortOf(u effUpstream, model string, extra map[string]json.RawMessage) *EffortRecord {
-	if rec, ok := lookupModel(u.Reasoning, model); ok {
-		rec = rec.clone()
-		rec.Source = EffortFromAdmin
-		if u.Host {
-			rec.Source = EffortFromHost
-		}
-		return &rec
+	rec, _ := effortInfo(u, model, extra)
+	return rec
+}
+
+// effortInfo is what the connector knows of model on u, and — for a model
+// it can't describe on this upstream — what xbind's table says of the
+// model on its maker's own API (suggest: an admin may adopt it).
+//
+//   - the host's or the admin's entry with levels: the whole truth;
+//   - else the upstream's own list (its explicit levels apply on any
+//     upstream), laid over the vendored table's record when the upstream is
+//     the maker's own endpoint; the table alone only there;
+//   - an entry that says only "replay": "never" lays that over the rest.
+func effortInfo(u effUpstream, model string, extra map[string]json.RawMessage) (rec, suggest *EffortRecord) {
+	src := EffortFromAdmin
+	if u.Host {
+		src = EffortFromHost
 	}
-	table, inTable := lookupModel(vendoredEffort, model)
+	entry, hasEntry := lookupModel(u.Reasoning, model)
+	if hasEntry && entry.Levels != nil {
+		r := entry.clone()
+		r.Source = src
+		return &r, nil
+	}
 	own, inList := effortFromListing(extra)
+	table, inTable := lookupModel(vendoredEffort, model)
+	onMaker := inTable && makerHost(u.BaseURL, table.hosts)
 	switch {
-	case inTable && inList:
-		rec := overlay(own, table)
-		return &rec
+	case inList && onMaker:
+		r := overlay(own, table.rec)
+		rec = &r
 	case inList:
-		return &own
-	case inTable:
-		rec := table.clone()
-		return &rec
+		r := own
+		rec = &r
+	case onMaker:
+		r := table.rec.clone()
+		rec = &r
 	}
-	return nil
+	if inTable && !onMaker && rec.kind() == "" {
+		sg := table.rec.clone()
+		suggest = &sg
+	}
+	if hasEntry { // "replay": "never" alone
+		if rec == nil {
+			rec = &EffortRecord{Source: src}
+		}
+		rec.Replay = entry.Replay
+	}
+	return rec, suggest
+}
+
+// makerHost reports whether baseURL's host is one of hosts, exactly (no
+// suffix: "api.deepseek.com.example" is not DeepSeek's).
+func makerHost(baseURL string, hosts []string) bool {
+	u, err := url.Parse(baseURL)
+	if err != nil {
+		return false
+	}
+	return slices.Contains(hosts, strings.ToLower(u.Hostname()))
 }
 
 // ---- the mapping -----------------------------------------------------------------
@@ -665,6 +729,8 @@ func mapEffort(rec *EffortRecord, asked string) effortMap {
 	levels := rec.Levels
 	sent := ""
 	switch {
+	case asked == "none" && rec.CanDisable == nil: // whether it can be turned off isn't known: as it came
+		sent = "none"
 	case asked == "none" && rec.canDisable():
 		sent = "none"
 	case asked == "none":

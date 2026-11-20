@@ -743,4 +743,7 @@ var sealedRules = map[string]SealedRule{
 	"POST /agent/signins/trust":                {Class: SealedHandled, What: "no session of a person's opens there: it is no tile whose source could be trusted (404)"},
 	"DELETE /agent/signins/trust/{id}":         {Class: SealedNoTile},
 	"DELETE /agent/signins/homes/{id}":         {Class: SealedNoTile},
+
+	// D249: the remembered refusal of reasoning sent back
+	"POST /llm/upstreams/{name}/replay-reset": {Class: SealedNoTile},
 }

@@ -39,9 +39,13 @@ type xlate struct {
 }
 
 // XlateOptions is what a translation knows of the model beyond its name:
-// its reasoning record (nil: undescribed).
+// its reasoning record (nil: undescribed); NoReplay, that its upstream was
+// found to refuse the reasoning sent back (replay.go); Refused, told the
+// field when an upstream refused it and the request without it worked.
 type XlateOptions struct {
-	Effort *EffortRecord
+	Effort   *EffortRecord
+	NoReplay bool
+	Refused  func(field string)
 }
 
 // drop notes that what — a field, or tools.<type> — was not sent. The
@@ -186,7 +190,7 @@ func responsesToChat(body []byte, asked, upstreamModel, mint string, opt XlateOp
 			msgs = append(msgs, chatMsg{Role: "system", Content: s})
 		}
 	}
-	more, ref := xlateInput(in["input"], x, opt.Effort.replays())
+	more, ref := xlateInput(in["input"], x, opt.Effort.replays() && !opt.NoReplay)
 	if ref != nil {
 		return nil, nil, ref
 	}

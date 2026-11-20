@@ -320,12 +320,15 @@ func (s *Service) meterName(ctx context.Context, u effUpstream, model string) st
 
 // effortFor is what is known of model's reasoning on u for a call (D249,
 // effort.go): the configuration's entry, else the upstream's own list as
-// cached, over xbind's table. nil: nothing. It never asks the upstream: a
-// pass-through upstream's list is fetched for the call anyway (meterName),
-// and one with a configured list is read when models are listed — a call
-// makes no request it didn't make before.
+// cached, over xbind's table where u is the model's maker's API. nil:
+// nothing. It never asks the upstream (l1): a pass-through upstream's list
+// was fetched for this call already (meterName, bounded) — its record is
+// always the list's; an upstream with a configured model list is read when
+// models are listed (GET /v1/models: the admin page, a tile's model
+// picker), and until then its calls are mapped by configuration and the
+// maker's table alone. A call makes no request it didn't make before.
 func (s *Service) effortFor(u effUpstream, model string) *EffortRecord {
-	if _, ok := lookupModel(u.Reasoning, model); ok {
+	if e, ok := lookupModel(u.Reasoning, model); ok && e.Levels != nil {
 		return effortOf(u, model, nil)
 	}
 	var extra map[string]json.RawMessage
@@ -340,6 +343,11 @@ func (s *Service) effortFor(u effUpstream, model string) *EffortRecord {
 	}
 	return effortOf(u, model, extra)
 }
+
+// effortSuggestion is the member of a model in GET /v1/models naming what
+// xbind's table says of it on its maker's own API, where this upstream is
+// not that API (the model is undescribed here: an admin may adopt it).
+const effortSuggestion = "xbin_effort_suggestion"
 
 // listModels is GET /v1/models for snap: every upstream's models as
 // "<upstream>/<model>" (the upstream's own model object kept, so context
@@ -377,13 +385,23 @@ func (s *Service) listModels(ctx context.Context, snap *snapshot, c Caller) (sdk
 				continue
 			}
 			// what the connector knows of its reasoning (D249): the upstream's own effort member is replaced by
-			// the record made of it, the configuration's and xbind's table; with none, its list's members pass as they came
-			if rec := effortOf(u, m.ID, m.Extra); rec != nil {
-				extra := make(map[string]json.RawMessage, len(m.Extra)+1)
+			// the record made of it, the configuration's and xbind's table — or removed when nothing of it is
+			// a record (callers read only the connector's); a table match on another than the maker's API is a
+			// suggestion, apart
+			rec, suggest := effortInfo(u, m.ID, m.Extra)
+			if _, raw := m.Extra["effort"]; rec != nil || suggest != nil || raw || m.Extra[effortSuggestion] != nil {
+				extra := make(map[string]json.RawMessage, len(m.Extra)+2)
 				maps.Copy(extra, m.Extra)
-				extra["effort"] = rec.listing()
+				delete(extra, "effort")
+				delete(extra, effortSuggestion)
+				if rec != nil {
+					extra["effort"] = rec.listing()
+					efforts[publicName(u, m.ID)] = extra["effort"]
+				}
+				if suggest != nil {
+					extra[effortSuggestion] = suggest.listing()
+				}
 				m.Extra = extra
-				efforts[publicName(u, m.ID)] = extra["effort"]
 			}
 			m.ID = publicName(u, m.ID)
 			if m.Object == "" {

@@ -504,4 +504,11 @@ func TestRequestSetMember(t *testing.T) {
 	if b, _ := r.Body("", false); string(b) != `{"model":"a","z":[1,2]}` {
 		t.Fatalf("removed: %s", b)
 	}
+	// a zero Request (l7): no panic, and it holds what was set
+	var zero Request
+	zero.SetMember("gone", nil)
+	zero.SetMember("reasoning_effort", []byte(`"low"`))
+	if b, _ := zero.Body("m", false); string(b) != `{"model":"m","reasoning_effort":"low"}` {
+		t.Fatalf("a zero Request: %s", b)
+	}
 }

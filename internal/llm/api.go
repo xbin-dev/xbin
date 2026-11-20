@@ -51,6 +51,7 @@ func (s *Service) mount(srv registrar) {
 	srv.RegisterAPI("PUT /llm/upstreams/{name}", s.apiPutUpstream)
 	srv.RegisterAPI("DELETE /llm/upstreams/{name}", s.apiDeleteUpstream)
 	srv.RegisterAPI("POST /llm/upstreams/{name}/test", s.apiTestUpstream)
+	srv.RegisterAPI("POST /llm/upstreams/{name}/replay-reset", s.apiReplayReset) // replay.go
 	srv.RegisterAPI("GET /llm/usage", s.apiUsage)
 	srv.RegisterAPI("GET /llm/quotas", s.apiQuotas)
 	srv.RegisterAPI("PUT /llm/quotas", s.apiPutQuotas)

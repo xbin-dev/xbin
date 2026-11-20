@@ -3,12 +3,20 @@ package llm
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"slices"
 	"strings"
 	"testing"
 )
 
 // effort_test.go — D249: the reasoning-effort record and its mapping, pure.
+
+// eu is an upstream named name at base.
+func eu(name, base string) effUpstream {
+	u := effUpstream{Name: name}
+	u.BaseURL = base
+	return u
+}
 
 func rec(levels []string, def string, canDisable bool, aliases map[string]string) *EffortRecord {
 	return &EffortRecord{Levels: levels, Default: def, CanDisable: boolp(canDisable), Aliases: aliases, Source: EffortFromXbin}
@@ -36,6 +44,8 @@ func TestEffortMapping(t *testing.T) {
 	}{
 		{"undescribed", nil, map[string]want{"none": pass("none"), "low": pass("low"), "medium": pass("medium"), "max": pass("max"), "ultra": pass("ultra")}},
 		{"levels unsaid", &EffortRecord{Default: "high"}, map[string]want{"medium": pass("medium")}},
+		// m3: whether it can be turned off isn't known: none goes as it came (the rest maps)
+		{"can_disable unknown", &EffortRecord{Levels: []string{"low", "high"}}, map[string]want{"none": {"none", "none"}, "medium": {"low", "low; asked=medium"}}},
 		{"a budget-only model (not yet)", &EffortRecord{Levels: []string{}, Budget: json.RawMessage(`{"min":1024}`)}, map[string]want{"high": pass("high")}},
 		{"a send patch (not yet)", &EffortRecord{Levels: []string{"low"}, Send: json.RawMessage(`{"chat":{}}`)}, map[string]want{"high": pass("high")}},
 		{"DeepSeek", deepseek, map[string]want{
@@ -65,6 +75,40 @@ func TestEffortMapping(t *testing.T) {
 	}
 	if m := mapEffort(off, "ultra"); m.drop || m.sent != "ultra" {
 		t.Errorf("a word off the ladder passes even to a model without reasoning: %+v", m)
+	}
+}
+
+// covers D249 (m1) — the mapping rule's shared vectors: the connector's
+// mapEffort sends what the agent template's chip shows (model/effort.js
+// mapLevel reads the same file: hack/agent-template-effort.test.mjs).
+func TestEffortMappingVectors(t *testing.T) {
+	b, err := os.ReadFile("testdata/effort_mapping.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var file struct {
+		Records []struct {
+			Name   string            `json:"name"`
+			Record json.RawMessage   `json:"record"`
+			Map    map[string]string `json:"map"`
+		} `json:"records"`
+	}
+	if err := json.Unmarshal(b, &file); err != nil || len(file.Records) < 5 {
+		t.Fatalf("%v (%d records)", err, len(file.Records))
+	}
+	for _, c := range file.Records {
+		var rec *EffortRecord
+		if string(c.Record) != "null" {
+			rec = &EffortRecord{}
+			if err := json.Unmarshal(c.Record, rec); err != nil {
+				t.Fatalf("%s: %v", c.Name, err)
+			}
+		}
+		for asked, want := range c.Map {
+			if m := mapEffort(rec, asked); m.drop || m.sent != want {
+				t.Errorf("%s, %q: sent %q (drop %v), want %q", c.Name, asked, m.sent, m.drop, want)
+			}
+		}
 	}
 }
 
@@ -151,15 +195,15 @@ func TestEffortVendoredTable(t *testing.T) {
 	for model, want := range map[string]string{
 		"deepseek/deepseek-v4.1-flash": "low,high,max", "deepseek-flash": "low,high,max", "deepseek-v4-pro": "low,high,max",
 		"kimi-k3": "low,high,max", "GLM-5.3": "low,high,max", "MiniMax-M3.1-Flash": "low,medium,high,xhigh,max",
-		"x-ai/grok-4.5": "low,medium,high", "mistral-small-2603": "high", "qwen4-max": "low,high,xhigh",
+		"x-ai/grok-4.5": "low,medium,high", "mistral-small-2603": "high", "qwen4-max": "",
 		"gpt-5": "", "grok-4.7-fast-non-reasoning": "", "deepseek-r1": "", "llama-4": "",
 	} {
 		r, ok := lookupModel(vendoredEffort, model)
 		got := ""
 		if ok {
-			got = strings.Join(r.Levels, ",")
-			if r.Source != EffortFromXbin {
-				t.Errorf("%s: source %q", model, r.Source)
+			got = strings.Join(r.rec.Levels, ",")
+			if r.rec.Source != EffortFromXbin || len(r.hosts) == 0 {
+				t.Errorf("%s: source %q, hosts %v", model, r.rec.Source, r.hosts)
 			}
 		}
 		if got != want {
@@ -175,11 +219,15 @@ func TestEffortVendoredTable(t *testing.T) {
 	}
 	// a broken table is refused (it is xbind's own: a release that ships one fails its tests)
 	for _, bad := range []string{
-		`{"families":[{"family":"x","models":["m"],"effort":{"supported_levels":["low"]}}]}`,                               // not cited
-		`{"families":[{"family":"x","models":["m"],"read":"u","effort":{"supported_levels":["turbo"]}}]}`,                  // off the ladder
-		`{"families":[{"family":"x","models":["m"],"read":"u","effort":{"default_level":"high"}}]}`,                        // no levels
-		`{"families":[{"family":"x","models":["m"],"read":"u","effort":{"supported_levels":["low"],"send":{"chat":{}}}}]}`, // a patch
-		`{"families":[{"family":"x","models":["m"],"read":"u","effort":{"supported_levels":["low"]}},{"family":"y","models":["m"],"read":"u","effort":{"supported_levels":["low"]}}]}`,
+		`{"families":[{"family":"x","models":["m"],"hosts":["h"],"effort":{"supported_levels":["low"]}}]}`,                               // not cited
+		`{"families":[{"family":"x","models":["m"],"hosts":["h"],"read":"u","effort":{"supported_levels":["turbo"]}}]}`,                  // off the ladder
+		`{"families":[{"family":"x","models":["m"],"hosts":["h"],"read":"u","effort":{"default_level":"high"}}]}`,                        // no levels
+		`{"families":[{"family":"x","models":["m"],"hosts":["h"],"read":"u","effort":{"supported_levels":["low"],"send":{"chat":{}}}}]}`, // a patch
+		`{"families":[{"family":"x","models":["m"],"hosts":["h"],"read":"u","effort":{"supported_levels":["low"]}},{"family":"y","models":["m"],"hosts":["h"],"read":"u","effort":{"supported_levels":["low"]}}]}`,
+		`{"families":[{"family":"x","models":["m"],"read":"u","effort":{"supported_levels":["low"]}}]}`,                              // no hosts: it would apply everywhere
+		`{"families":[{"family":"x","models":["m"],"hosts":["https://api.x.ai"],"read":"u","effort":{"supported_levels":["low"]}}]}`, // a URL, not a host
+		`{"families":[{"family":"x","models":["m"],"hosts":["*.x.ai"],"read":"u","effort":{"supported_levels":["low"]}}]}`,           // a wildcard
+		`{"families":[{"family":"x","models":["m"],"hosts":["API.X.AI"],"read":"u","effort":{"supported_levels":["low"]}}]}`,         // not lowercase
 	} {
 		if _, err := parseEffortTable([]byte(bad)); err == nil {
 			t.Errorf("accepted %s", bad)
@@ -244,15 +292,83 @@ func TestEffortFromAnUntrustedListing(t *testing.T) {
 	}
 	var extra map[string]json.RawMessage
 	_ = json.Unmarshal([]byte(gw), &extra)
-	if got := effortOf(effUpstream{Name: "gw"}, "deepseek/deepseek-v4.1-flash", extra); got == nil || strings.Join(got.Levels, ",") != "low,high,max" || got.Source != EffortFromXbin || got.Reasons == nil {
-		t.Errorf("the table's levels under a router's reasoning feature: %+v", got)
+	// on a router the table's levels are a suggestion only (H1): it reasons, its levels unknown — no mapping
+	gwu := eu("gw", "https://gateway.example/v1")
+	if got, sg := effortInfo(gwu, "deepseek/deepseek-v4.1-flash", extra); got == nil || got.kind() != "" || got.Reasons == nil || sg == nil || strings.Join(sg.Levels, ",") != "low,high,max" {
+		t.Errorf("a router's reasoning feature over the table: %+v, suggestion %+v", got, sg)
 	}
-	if got := effortOf(effUpstream{Name: "gw"}, "some/other-model", extra); got == nil || got.kind() != "" {
+	// on DeepSeek's own API, the table's levels under its list's word
+	if got := effortOf(eu("ds", "https://api.deepseek.com"), "deepseek-v4.1-flash", extra); got == nil || strings.Join(got.Levels, ",") != "low,high,max" ||
+		got.Source != EffortFromXbin || got.Reasons == nil {
+		t.Errorf("the table's levels on the maker's API: %+v", got)
+	}
+	if got := effortOf(gwu, "some/other-model", extra); got == nil || got.kind() != "" {
 		t.Errorf("a reasoning model nothing else describes: %+v", got)
 	}
-	// an explicit [] in the effort member: no reasoning
-	if r, ok := read(`{"effort":{"supported_levels":[]}}`); !ok || r.kind() != "off" {
-		t.Errorf("supported_levels []: %+v", r)
+	// m2: a list never says "no reasoning" — an explicit [] or a none-only list is unknown
+	for _, obj := range []string{`{"effort":{"supported_levels":[]}}`, `{"effort":{"supported_levels":["none"]}}`, `{"reasoning":{"supported_efforts":["none"]}}`,
+		`{"reasoning":{"supported_efforts":[]}}`, `{"effort":{"supported_levels":[],"reasons":false}}`} {
+		if r, ok := read(obj); ok && (r.kind() != "" || (r.Reasons != nil && !*r.Reasons && r.kind() == "off")) {
+			t.Errorf("%s: read as %+v (kind %q)", obj, r, r.kind())
+		}
+		var ex map[string]json.RawMessage
+		_ = json.Unmarshal([]byte(obj), &ex)
+		if m := mapEffort(effortOf(gwu, "m", ex), "high"); m.drop || m.sent != "high" || m.header != "" {
+			t.Errorf("%s: a caller's effort was touched on a list's word: %+v", obj, m)
+		}
+	}
+}
+
+// covers D249 (H1) — xbind's table applies only on its maker's own API, the
+// host compared exactly: on a router, a local server or a company's gateway
+// the same model id may take other levels — there it is a suggestion, the
+// model undescribed, its requests relayed as they came. A list's explicit
+// levels apply on any upstream.
+func TestEffortTableOnlyOnTheMakersHost(t *testing.T) {
+	makers := map[string]string{"kimi-k3": "https://api.moonshot.ai/v1", "glm-5.2": "https://api.z.ai/api/paas/v4",
+		"my-org/deepseek-v4-finetune": "https://api.deepseek.com", "deepseek-v4.1-flash": "https://API.DeepSeek.com:443/v1"}
+	others := []string{"https://gateway.example/v1", "http://localhost:8000/v1", "https://api.deepseek.com.evil.example/v1",
+		"https://evil-api.deepseek.com/v1", "https://openrouter.ai/api/v1", "", "::bad"}
+	for model, maker := range makers {
+		for _, base := range others {
+			u := eu("o", base)
+			rec, sg := effortInfo(u, model, nil)
+			if rec != nil || sg == nil {
+				t.Errorf("%s on %q: described %+v (suggestion %v)", model, base, rec, sg != nil)
+			}
+			for _, chat := range []bool{true, false} {
+				m := map[string]json.RawMessage{"reasoning_effort": json.RawMessage(`"medium"`), "reasoning": json.RawMessage(`{"effort":"none"}`)}
+				d, h := effortRewrite(rec, chat, func(k string) json.RawMessage { return m[k] }, func(k string, v json.RawMessage) { m[k] = v })
+				if d != nil || h != "" || string(m["reasoning_effort"]) != `"medium"` || string(m["reasoning"]) != `{"effort":"none"}` {
+					t.Errorf("%s on %q: rewritten (%v %q) %v", model, base, d, h, m)
+				}
+			}
+		}
+		rec, sg := effortInfo(eu("m", maker), model, nil)
+		if rec == nil || rec.kind() != "levels" || rec.Source != EffortFromXbin || sg != nil {
+			t.Errorf("%s on its maker's %s: %+v", model, maker, rec)
+		}
+		if m := mapEffort(rec, "medium"); m.header == "" {
+			t.Errorf("%s on its maker's: medium not mapped: %+v", model, m)
+		}
+	}
+	// a list's explicit levels apply anywhere: OpenRouter's reasoning object, DeepSeek's effort member
+	gw := eu("gw", "https://gateway.example/v1")
+	for _, obj := range []string{`{"reasoning":{"supported_efforts":["low","high"]}}`, `{"effort":{"supported_levels":["low","high"]}}`} {
+		var ex map[string]json.RawMessage
+		_ = json.Unmarshal([]byte(obj), &ex)
+		rec, sg := effortInfo(gw, "kimi-k3", ex)
+		if rec == nil || strings.Join(rec.Levels, ",") != "low,high" || rec.Source != EffortFromUpstream || sg != nil {
+			t.Errorf("%s on a router: %+v (suggestion %v)", obj, rec, sg != nil)
+		}
+		if rec != nil && rec.Aliases != nil {
+			t.Errorf("%s: the table's aliases came along off the maker's API: %v", obj, rec.Aliases)
+		}
+	}
+	// an admin's entry applies anywhere, and is the whole truth
+	gw.Reasoning = map[string]EffortRecord{"glm-5.2": {Levels: []string{"medium", "high", "xhigh"}, CanDisable: boolp(true)}}
+	if rec, sg := effortInfo(gw, "glm-5.2", nil); rec == nil || rec.Source != EffortFromAdmin || sg != nil || mapEffort(rec, "low").sent != "medium" {
+		t.Errorf("an admin's glm-5.2 on a router: %+v", rec)
 	}
 }
 
@@ -260,7 +376,7 @@ func TestEffortFromAnUntrustedListing(t *testing.T) {
 // truth; else the upstream's own words over xbind's table, member by member.
 func TestEffortPrecedence(t *testing.T) {
 	listed := map[string]json.RawMessage{"effort": json.RawMessage(`{"supported_levels":["low","high","max"],"default_level":"max"}`)}
-	u := effUpstream{Name: "house"}
+	u := eu("house", "https://api.deepseek.com/v1")
 	got := effortOf(u, "deepseek/deepseek-v4.1-flash", listed)
 	if got == nil || got.Source != EffortFromUpstream || got.Default != "max" || !got.canDisable() || got.Aliases["medium"] != "high" {
 		t.Errorf("the upstream's over the table: %+v", got)
@@ -275,6 +391,14 @@ func TestEffortPrecedence(t *testing.T) {
 	}
 	if got := effortOf(u, "some-local-model", nil); got != nil {
 		t.Errorf("an unknown model has a record: %+v", got)
+	}
+	// m4: an entry that says only "replay": "never" turns replay off and changes nothing else
+	u.Reasoning = map[string]EffortRecord{"deepseek-v4-pro": {Replay: ReplayNever}, "local-thinker": {Replay: ReplayNever}}
+	if got := effortOf(u, "deepseek-v4-pro", nil); got == nil || got.Source != EffortFromXbin || got.replays() || strings.Join(got.Levels, ",") != "low,high,max" {
+		t.Errorf("replay never over the table: %+v", got)
+	}
+	if got := effortOf(u, "local-thinker", nil); got == nil || got.replays() || got.kind() != "" || mapEffort(got, "medium").header != "" {
+		t.Errorf("replay never on an undescribed model switched effort mapping on: %+v", got)
 	}
 	u.Reasoning = map[string]EffortRecord{"deepseek*": {Levels: []string{}}}
 	if got := effortOf(u, "deepseek/deepseek-v4.1-flash", listed); got == nil || got.kind() != "off" || got.Source != EffortFromAdmin {
@@ -314,6 +438,8 @@ func TestEffortAdminRecords(t *testing.T) {
 		"an alias onto nothing":     `{"supported_levels":["low"],"aliases":{"high":"max"}}`,
 		"an alias from none":        `{"supported_levels":["low"],"aliases":{"none":"low"}}`,
 		"no levels said":            `{"default_level":"high"}`,
+		"replay never and more":     `{"replay":"never","default_level":"high"}`,
+		"replay without never":      `{"replay":"always"}`,
 		"an unknown key":            `{"supported_levels":["low"],"turbo":true}`,
 		"replay sometimes":          `{"supported_levels":["low"],"replay":"tools"}`,
 		"a send patch":              `{"supported_levels":["low"],"send":{"chat":{"thinking":{"type":"enabled"}}}}`,
@@ -338,6 +464,10 @@ func TestEffortAdminRecords(t *testing.T) {
 	_ = json.Unmarshal([]byte(`{"supported_levels":["low"],"send":{"chat":{"messages":[]}}}`), &host)
 	if validEntry("host", host, false) == nil {
 		t.Error("a send patch that writes messages was accepted")
+	}
+	var only EffortRecord
+	if err := json.Unmarshal([]byte(`{"replay":"never"}`), &only); err != nil || validEntry("replay only", only, true) != nil || only.kind() != "" {
+		t.Errorf("a replay-only entry: %v %v, kind %q", err, validEntry("replay only", only, true), only.kind())
 	}
 	if !slices.Equal(EffortPresetNames, []string{"openai", "toggle", "deepseek", "none"}) {
 		t.Errorf("presets: %v", EffortPresetNames)

@@ -2,9 +2,12 @@ package llm
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
@@ -30,6 +33,29 @@ func (f *fakeUpstream) lastRaw() []byte {
 	return f.raws[len(f.raws)-1]
 }
 
+// atHost makes the rig's connector reach up for an address at host (any
+// port): an upstream whose base URL names that host — a maker's API (H1) —
+// is up. It returns that base URL.
+func (r *rig) atHost(up *fakeUpstream, host string) string {
+	p := r.s.plane.(*Proxy)
+	base, _ := p.Client.Transport.(*http.Transport)
+	if base == nil {
+		r.t.Fatal("no transport to redirect")
+	}
+	prev := base.DialContext
+	tr := base.Clone()
+	tr.Proxy = nil
+	target := strings.TrimPrefix(up.URL, "http://")
+	tr.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		if h, _, _ := net.SplitHostPort(addr); h == host {
+			addr = target
+		}
+		return prev(ctx, network, addr)
+	}
+	p.Client = &http.Client{Transport: tr, CheckRedirect: p.Client.CheckRedirect}
+	return "http://" + host + "/v1"
+}
+
 func modelByID(t *testing.T, a answer, id string) map[string]any {
 	t.Helper()
 	for _, m := range a.json(t)["data"].([]any) {
@@ -41,10 +67,11 @@ func modelByID(t *testing.T, a answer, id string) map[string]any {
 }
 
 // covers D249 — GET /v1/models carries effort: the upstream's own member
-// made into the record (its values kept, xbind's table filling the rest),
-// an admin's entry over both, nothing for a model nobody describes (and an
-// upstream's member that is no record passes as it came), aliases carry
-// their target's.
+// made into the record (its values kept; xbind's table fills the rest only
+// on the maker's own API), an admin's entry over both, nothing for a model
+// nobody describes (an upstream's member that is no record is removed:
+// l2), a suggestion where the table knows the maker's levels and this is
+// not the maker's API (H1), aliases carry their target's.
 func TestEffortInTheModelList(t *testing.T) {
 	r := newRig(t, "")
 	up := newUpstream(t)
@@ -60,17 +87,25 @@ func TestEffortInTheModelList(t *testing.T) {
 	ds := modelByID(t, list, "house/deepseek-v4.1-flash")
 	e, _ := ds["effort"].(map[string]any)
 	if e == nil || fmt.Sprint(e["supported_levels"]) != "[low high max]" || e["default_level"] != "high" || e["source"] != "upstream" ||
-		e["can_disable"] != true || e["aliases"].(map[string]any)["medium"] != "high" || e["send"] != nil || ds["context_window"] != 1000000.0 {
-		t.Errorf("DeepSeek's own effort, merged: %v", ds)
+		e["can_disable"] != nil || e["aliases"] != nil || e["send"] != nil || ds["context_window"] != 1000000.0 || ds[effortSuggestion] != nil {
+		t.Errorf("DeepSeek's own effort, on another than DeepSeek's API (no table): %v", ds)
 	}
-	if g := modelByID(t, list, "house/gpt-5"); g["effort"] != "whatever" {
-		t.Errorf("an upstream member that is no record passes as it came: %v", g)
+	if g := modelByID(t, list, "house/gpt-5"); g["effort"] != nil {
+		t.Errorf("an upstream member that is no record passes: %v", g)
 	}
-	if l := modelByID(t, list, "house/local-llama"); l["effort"] != nil {
+	if l := modelByID(t, list, "house/local-llama"); l["effort"] != nil || l[effortSuggestion] != nil {
 		t.Errorf("an undescribed model got an effort: %v", l)
 	}
-	if k := modelByID(t, list, "house/kimi-k3"); fmt.Sprint(k["effort"].(map[string]any)["source"]) != "xbin" {
-		t.Errorf("the table: %v", k)
+	if k := modelByID(t, list, "house/kimi-k3"); k["effort"] != nil || fmt.Sprint(k[effortSuggestion].(map[string]any)["supported_levels"]) != "[low high max]" {
+		t.Errorf("the table off the maker's API: %v", k)
+	}
+	// on the maker's own API, the table applies
+	moon := newUpstream(t)
+	moon.setModels(map[string]any{"id": "kimi-k3"})
+	r.must(200, pOwner, "PUT", "/llm/upstreams/moon", map[string]any{"baseURL": r.atHost(moon, "api.moonshot.ai"), "key": upstreamKey})
+	ml := r.must(200, pOwner, "GET", "/llm/v1/models", nil)
+	if k := modelByID(t, ml, "moon/kimi-k3"); k[effortSuggestion] != nil || fmt.Sprint(k["effort"].(map[string]any)["source"]) != "xbin" {
+		t.Errorf("the table on the maker's API: %v", k)
 	}
 	if d := modelByID(t, list, "xbin/default"); d["alias_of"] != "house/deepseek-v4.1-flash" || fmt.Sprint(d["effort"]) != fmt.Sprint(e) {
 		t.Errorf("an alias carries its target's effort: %v", d)
@@ -96,12 +131,18 @@ func TestEffortInTheModelList(t *testing.T) {
 	if e := modelByID(t, list, "house/deepseek-v4.1-flash")["effort"].(map[string]any); e["source"] != "upstream" {
 		t.Errorf("after the entry's removal: %v", e)
 	}
+	// a replay-only entry: replay off, nothing else (m4)
+	r.must(200, pOwner, "PUT", "/llm/upstreams/house", map[string]any{"reasoning": map[string]any{"local-llama": map[string]any{"replay": "never"}}})
+	if l := modelByID(t, r.must(200, pOwner, "GET", "/llm/v1/models", nil), "house/local-llama"); fmt.Sprint(l["effort"]) != "map[replay:never source:admin]" {
+		t.Errorf("a replay-only entry: %v", l["effort"])
+	}
 	// what an admin may not write
 	for name, body := range map[string]any{
-		"an unknown preset":         map[string]any{"m": map[string]any{"preset": "fast"}},
-		"a send patch":              map[string]any{"m": map[string]any{"supported_levels": []string{"low"}, "send": map[string]any{"chat": map[string]any{}}}},
-		"a word off the ladder":     map[string]any{"m": map[string]any{"supported_levels": []string{"turbo"}}},
-		"a model name with a space": map[string]any{"a b": map[string]any{"preset": "openai"}},
+		"an unknown preset":          map[string]any{"m": map[string]any{"preset": "fast"}},
+		"a send patch":               map[string]any{"m": map[string]any{"supported_levels": []string{"low"}, "send": map[string]any{"chat": map[string]any{}}}},
+		"a word off the ladder":      map[string]any{"m": map[string]any{"supported_levels": []string{"turbo"}}},
+		"a model name with a space":  map[string]any{"a b": map[string]any{"preset": "openai"}},
+		"replay never and a default": map[string]any{"m": map[string]any{"replay": "never", "default_level": "high"}},
 	} {
 		if a := r.do(pOwner, "PUT", "/llm/upstreams/house", map[string]any{"reasoning": body}); a.code != 400 {
 			t.Errorf("%s: %d %s", name, a.code, a.body)
@@ -126,7 +167,9 @@ func TestEffortOnTheWire(t *testing.T) {
 	r := newRig(t, "")
 	up := newUpstream(t)
 	up.setModels(map[string]any{"id": "deepseek-v4.1-flash"}, map[string]any{"id": "plain"})
-	r.addUpstream("house", up, map[string]any{"reasoning": map[string]any{"plain": map[string]any{"preset": "none"}}})
+	// DeepSeek's own API: its table applies (H1)
+	r.must(200, pOwner, "PUT", "/llm/upstreams/house", map[string]any{"baseURL": r.atHost(up, "api.deepseek.com"), "key": upstreamKey,
+		"reasoning": map[string]any{"plain": map[string]any{"preset": "none"}}})
 	for _, stream := range []bool{false, true} {
 		body := chatBody("house/deepseek-v4.1-flash", stream)
 		body["reasoning_effort"] = "medium"
@@ -160,7 +203,8 @@ func TestEffortOnTheWire(t *testing.T) {
 	r2 := newRig(t, "")
 	up2 := newUpstream(t)
 	plainChat(up2, map[string]any{"role": "assistant", "content": "ok"}, "stop")
-	r2.addUpstream("house", up2, map[string]any{"responsesVia": "chat", "reasoning": map[string]any{"plain": map[string]any{"preset": "none"}}})
+	r2.must(200, pOwner, "PUT", "/llm/upstreams/house", map[string]any{"baseURL": r2.atHost(up2, "api.deepseek.com"), "key": upstreamKey, "responsesVia": "chat",
+		"reasoning": map[string]any{"plain": map[string]any{"preset": "none"}}})
 	for _, stream := range []bool{false, true} {
 		a := r2.must(200, pOwner, "POST", "/llm/v1/responses", map[string]any{"model": "house/deepseek-v4.1-flash", "input": "x", "stream": stream, "reasoning": map[string]any{"effort": "medium"}})
 		if up2.lastBody()["reasoning_effort"] != "high" || a.h.Get(EffortHeader) != "high; asked=medium" {
@@ -178,48 +222,22 @@ func TestEffortOnTheWire(t *testing.T) {
 	}
 }
 
-// covers D249 (compat) — a model nothing describes: what reaches the
-// upstream is byte for byte what the relay sent before effort existed
-// (sdkllm.RewriteRequest, the D226 relay), on both wires, with every kind
-// of reasoning member a caller sends.
-func TestEffortUndescribedIsByteIdentical(t *testing.T) {
+// covers D249 (l1) — a call maps by the same record before and after the
+// model list is read: a pass-through upstream's list is fetched for its
+// first call (as metering did before), so its explicit levels apply from
+// that call on; the call path makes no request of its own for it.
+func TestEffortRecordIsTheSameBeforeAListing(t *testing.T) {
 	r := newRig(t, "")
 	up := newUpstream(t)
-	up.setModels(map[string]any{"id": "local-llama"}, map[string]any{"id": "odd", "effort": map[string]any{"supported_levels": []any{"turbo"}}})
-	r.addUpstream("house", up, nil)
-	bodies := []string{
-		`{"model":"house/local-llama","messages":[{"role":"user","content":"hi"}],"reasoning_effort":"medium"}`,
-		`{"model":"house/local-llama","stream":true,"messages":[{"role":"user","content":"hi"}],"reasoning_effort":"none","stream_options":{"x":1}}`,
-		`{"model":"house/odd","messages":[{"role":"user","content":"hi"}],"reasoning":{"effort":"max","exclude":true},"thinking":{"type":"enabled"},"chat_template_kwargs":{"reasoning_effort":62}}`,
-		`{"z":1,"model":"house/local-llama","messages":[],"reasoning_effort":"ultra","a":[1,  2]}`,
-	}
-	for _, b := range bodies {
-		a := r.do(pOwner, "POST", "/llm/v1/chat/completions", json.RawMessage(b))
-		if a.code != 200 {
-			t.Fatalf("%s: %d %s", b, a.code, a.body)
-		}
-		want, _, err := sdkllm.RewriteRequest([]byte(b), strings.TrimPrefix(modelOf(b), "house/"), true)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if got := up.lastRaw(); !bytes.Equal(got, want) {
-			t.Errorf("chat %s:\n got %s\nwant %s", b, got, want)
-		}
-		if a.h.Get(EffortHeader) != "" || a.h.Get(DroppedHeader) != "" {
-			t.Errorf("chat %s: headers %v", b, a.h)
-		}
-	}
-	for _, b := range []string{
-		`{"model":"house/local-llama","input":"x","reasoning":{"effort":"medium","summary":"auto"},"include":["reasoning.encrypted_content"]}`,
-		`{"model":"house/odd","input":"x","stream":true,"reasoning":{"effort":"none"}}`,
-	} {
-		if a := r.do(pOwner, "POST", "/llm/v1/responses", json.RawMessage(b)); a.code != 200 {
-			t.Fatalf("%s: %d %s", b, a.code, a.body)
-		}
-		want, _, _ := sdkllm.RewriteRequest([]byte(b), strings.TrimPrefix(modelOf(b), "house/"), false)
-		if got := up.lastRaw(); !bytes.Equal(got, want) {
-			t.Errorf("responses %s:\n got %s\nwant %s", b, got, want)
-		}
+	up.setModels(map[string]any{"id": "router-model", "reasoning": map[string]any{"supported_efforts": []any{"low", "high"}}})
+	r.addUpstream("gw", up, nil)
+	body := chatBody("gw/router-model", false)
+	body["reasoning_effort"] = "medium"
+	first := r.must(200, pOwner, "POST", "/llm/v1/chat/completions", body)
+	r.must(200, pOwner, "GET", "/llm/v1/models", nil)
+	again := r.must(200, pOwner, "POST", "/llm/v1/chat/completions", body)
+	if first.h.Get(EffortHeader) != "low; asked=medium" || again.h.Get(EffortHeader) != first.h.Get(EffortHeader) {
+		t.Errorf("before the listing %q, after %q", first.h.Get(EffortHeader), again.h.Get(EffortHeader))
 	}
 }
 
@@ -325,11 +343,13 @@ func TestTranslationReplaysItsOwnReasoning(t *testing.T) {
 	}
 }
 
-// covers D249 (compat, robustness) — an upstream that refuses the field
+// covers D249 (compat, robustness, m4) — an upstream that refuses the field
 // (400) gets the request once more without it: the answer is the second
-// call's, and says what was left out. A context overflow and any other
-// error pass as they are; nothing loops; nothing is remembered (a caller
-// can provoke a refusal).
+// call's, and says what was left out. Only a refusal that names the field,
+// the call then working, is remembered — per upstream and model, in memory:
+// later calls send none, the admin's view says since when, and a reset
+// forgets it. A context overflow and any other error pass as they are;
+// nothing loops.
 func TestTranslationReplayRefusedOnce(t *testing.T) {
 	r := newRig(t, "")
 	up := newUpstream(t)
@@ -339,10 +359,12 @@ func TestTranslationReplayRefusedOnce(t *testing.T) {
 		switch {
 		case mode == "strict" && replayed:
 			writeJSON(w, 400, map[string]any{"error": map[string]any{"message": "messages.1: unknown field reasoning_content", "type": "invalid_request_error"}})
+		case mode == "quiet" && replayed:
+			writeJSON(w, 400, map[string]any{"error": map[string]any{"message": "invalid request", "type": "invalid_request_error"}})
 		case mode == "overflow":
 			writeJSON(w, 400, map[string]any{"error": map[string]any{"message": "maximum context length exceeded", "code": "context_length_exceeded"}})
 		case mode == "always400":
-			writeJSON(w, 400, map[string]any{"error": map[string]any{"message": "bad tools", "type": "invalid_request_error"}})
+			writeJSON(w, 400, map[string]any{"error": map[string]any{"message": "bad tools: reasoning_content", "type": "invalid_request_error"}})
 		case mode == "500":
 			writeJSON(w, 500, map[string]any{"error": map[string]any{"message": "boom"}})
 		default:
@@ -355,10 +377,22 @@ func TestTranslationReplayRefusedOnce(t *testing.T) {
 	item := r.must(200, pOwner, "POST", "/llm/v1/responses", map[string]any{"model": "house/m", "input": "x"}).json(t)["output"].([]any)[0]
 	input := []any{map[string]any{"role": "user", "content": "x"}, item, map[string]any{"type": "function_call", "call_id": "c9", "name": "roll", "arguments": "{}"},
 		map[string]any{"type": "function_call_output", "call_id": "c9", "output": "4"}, map[string]any{"role": "user", "content": "again"}}
+	replayOff := func() map[string]any {
+		v := r.must(200, pOwner, "GET", "/llm/config", nil).json(t)
+		off, _ := v["upstreams"].([]any)[0].(map[string]any)["replayOff"].(map[string]any)
+		return off
+	}
 	for _, stream := range []bool{false, true} {
-		mode = "strict"
+		// a refusal that names no field: sent again without it, nothing remembered
+		mode = "quiet"
 		n := up.calls()
 		a := r.must(200, pOwner, "POST", "/llm/v1/responses", map[string]any{"model": "house/m", "input": input, "stream": stream})
+		if up.calls()-n != 2 || a.h.Get(DroppedHeader) != "input.reasoning" || replayOff() != nil {
+			t.Errorf("an unnamed refusal (stream %v): %d calls, dropped %q, remembered %v", stream, up.calls()-n, a.h.Get(DroppedHeader), replayOff())
+		}
+		mode = "strict"
+		n = up.calls()
+		a = r.must(200, pOwner, "POST", "/llm/v1/responses", map[string]any{"model": "house/m", "input": input, "stream": stream})
 		if up.calls()-n != 2 || a.h.Get(DroppedHeader) != "input.reasoning" || strings.Contains(fmt.Sprint(up.lastBody()["messages"]), "reasoning_content") || !strings.Contains(string(a.body), "fine") {
 			t.Errorf("refused, sent again (stream %v): %d calls, dropped %q, last %v", stream, up.calls()-n, a.h.Get(DroppedHeader), up.lastBody())
 		}
@@ -372,12 +406,25 @@ func TestTranslationReplayRefusedOnce(t *testing.T) {
 		if fmt.Sprint(firstReq) != fmt.Sprint(again) {
 			t.Errorf("the request sent again differs by more than the reasoning:\n%v\n%v", firstReq, again)
 		}
-		// nothing remembered: the next request carries it again (and is refused, and sent again)
+		// remembered, for house/m only: the next request carries none, in one call, and says so
+		if off := replayOff(); off == nil || off["m"].(map[string]any)["field"] != "reasoning_content" || off["m"].(map[string]any)["since"] == "" {
+			t.Fatalf("not remembered (stream %v): %v", stream, off)
+		}
 		n = up.calls()
+		a = r.must(200, pOwner, "POST", "/llm/v1/responses", map[string]any{"model": "house/m", "input": input, "stream": stream})
+		if strings.Contains(fmt.Sprint(up.lastBody()["messages"]), "reasoning_content") || up.calls()-n != 1 || a.h.Get(DroppedHeader) != "input.reasoning" {
+			t.Errorf("after the refusal (stream %v): %d calls, dropped %q", stream, up.calls()-n, a.h.Get(DroppedHeader))
+		}
+		// reset: sent again
+		if a := r.do(pUser("bob"), "POST", "/llm/upstreams/house/replay-reset", map[string]any{"model": "m"}); a.code != 403 {
+			t.Errorf("a non-admin reset: %d", a.code)
+		}
+		r.must(200, pOwner, "POST", "/llm/upstreams/house/replay-reset", map[string]any{"model": "m"})
+		r.must(404, pOwner, "POST", "/llm/upstreams/house/replay-reset", map[string]any{"model": "m"})
 		mode = "ok"
 		r.must(200, pOwner, "POST", "/llm/v1/responses", map[string]any{"model": "house/m", "input": input, "stream": stream})
-		if !strings.Contains(fmt.Sprint(up.lastBody()["messages"]), "reasoning_content") || up.calls()-n != 1 {
-			t.Errorf("a refusal was remembered (stream %v)", stream)
+		if !strings.Contains(fmt.Sprint(up.lastBody()["messages"]), "reasoning_content") || replayOff() != nil {
+			t.Errorf("after the reset (stream %v): %v", stream, up.lastBody()["messages"])
 		}
 	}
 	for m, want := range map[string]int{"overflow": 400, "500": 500, "always400": 400} {
@@ -388,8 +435,8 @@ func TestTranslationReplayRefusedOnce(t *testing.T) {
 		if m == "always400" {
 			wantCalls = 2 // sent again once, refused again: that refusal is the caller's — no third
 		}
-		if a.code != want || up.calls()-n != wantCalls {
-			t.Errorf("%s: %d after %d calls — want %d after %d", m, a.code, up.calls()-n, want, wantCalls)
+		if a.code != want || up.calls()-n != wantCalls || replayOff() != nil {
+			t.Errorf("%s: %d after %d calls — want %d after %d (remembered %v)", m, a.code, up.calls()-n, want, wantCalls, replayOff())
 		}
 	}
 	// a request without reasoning sent back is never sent twice
@@ -398,6 +445,10 @@ func TestTranslationReplayRefusedOnce(t *testing.T) {
 	r.do(pOwner, "POST", "/llm/v1/responses", map[string]any{"model": "house/m", "input": "x"})
 	if up.calls()-n != 1 {
 		t.Errorf("a refusal of a request without replay was retried: %d calls", up.calls()-n)
+	}
+	// nothing of a reasoning block in the log
+	if strings.Contains(r.logs.String(), `"hm"`) || strings.Contains(r.logs.String(), "=hm") {
+		t.Errorf("reasoning in the log: %s", r.logs)
 	}
 }
 
@@ -418,15 +469,59 @@ func TestAnOlderTemplatesRequest(t *testing.T) {
 		t.Fatalf("request/chat: %v %s", err, body)
 	}
 	r := newRig(t, "")
-	up := newUpstream(t)
+	up, moon := newUpstream(t), newUpstream(t)
 	up.setModels(map[string]any{"id": "kimi-k3"}, map[string]any{"id": "llama"})
+	moon.setModels(map[string]any{"id": "kimi-k3"})
 	r.addUpstream("house", up, nil)
-	for model, want := range map[string]string{"house/llama": "", "house/kimi-k3": "high"} {
+	r.must(200, pOwner, "PUT", "/llm/upstreams/moon", map[string]any{"baseURL": r.atHost(moon, "api.moonshot.ai"), "key": upstreamKey})
+	for model, want := range map[string]string{"house/llama": "", "house/kimi-k3": "", "moon/kimi-k3": "high"} {
+		up := up
+		if strings.HasPrefix(model, "moon/") {
+			up = moon
+		}
 		b := strings.Replace(body, `"model":"kimi-k3"`, `"model":"`+model+`"`, 1)
 		a := r.must(200, pOwner, "POST", "/llm/v1/chat/completions", json.RawMessage(b))
-		wantBody, _, _ := sdkllm.RewriteRequest([]byte(b), strings.TrimPrefix(model, "house/"), true)
+		wantBody, _, _ := sdkllm.RewriteRequest([]byte(b), model[strings.IndexByte(model, '/')+1:], true)
 		if got := up.lastRaw(); !bytes.Equal(got, wantBody) || a.h.Get(EffortHeader) != want {
 			t.Errorf("%s: header %q (want %q)\n got %s\nwant %s", model, a.h.Get(EffortHeader), want, got, wantBody)
 		}
+	}
+}
+
+// covers D249 (l5) — every answer names the model the connector called
+// (X-XBin-LLM-Model); a request that names the one it expects (it sends
+// that model's reasoning back: X-XBin-LLM-Expect-Model) is refused before
+// any upstream call when the name now leads to another (the check comes
+// after the policy's: a model the caller may not use is refused as before).
+func TestTheModelMovedUnderAReplay(t *testing.T) {
+	r := newRig(t, "")
+	up := newUpstream(t)
+	r.addUpstream("house", up, nil)
+	r.must(200, pOwner, "PUT", "/llm/config", map[string]any{"defaults": map[string]any{"model": "house/a"}, "aliases": map[string]any{"fast": "house/a"}})
+	call := func(model, expect string) answer {
+		req := r.req(pOwner, "POST", "/llm/v1/chat/completions", chatBody(model, false))
+		if expect != "" {
+			req.Header.Set(ExpectModelHeader, expect)
+		}
+		rec := httptest.NewRecorder()
+		r.mux.ServeHTTP(rec, req)
+		return answer{rec.Code, rec.Header(), rec.Body.Bytes()}
+	}
+	if a := call("fast", ""); a.code != 200 || a.h.Get(ModelHeader) != "house/a" {
+		t.Fatalf("an alias's answer: %d %q", a.code, a.h.Get(ModelHeader))
+	}
+	if a := call("fast", "house/a"); a.code != 200 {
+		t.Fatalf("expected as it is: %d %s", a.code, a.body)
+	}
+	r.must(200, pOwner, "PUT", "/llm/config", map[string]any{"aliases": map[string]any{"fast": "house/b"}})
+	n := up.calls()
+	if a := call("fast", "house/a"); a.code != 409 || a.errCode(t) != "xbin_llm_model_moved" || up.calls() != n || !strings.Contains(string(a.body), "house/b") {
+		t.Errorf("the alias moved: %d %s, upstream called %d", a.code, a.body, up.calls()-n)
+	}
+	if a := call("fast", "house/b"); a.code != 200 || a.h.Get(ModelHeader) != "house/b" {
+		t.Errorf("expected the new one: %d", a.code)
+	}
+	if a := call("house/b", "house/b"); a.code != 200 {
+		t.Errorf("a plain name: %d", a.code)
 	}
 }

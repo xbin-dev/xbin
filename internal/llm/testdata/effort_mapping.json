@@ -1,0 +1,23 @@
+{
+  "about": "D249: the one rule that maps a caller's reasoning effort onto a model's levels — internal/llm/effort.go mapEffort (what the connector sends) and the agent template's model/effort.js mapLevel (what its chip shows) both read these vectors in their tests (effort_test.go TestEffortMappingVectors, hack/agent-template-effort.test.mjs). A level the model has passes; else the record's alias for it; else the highest level at or below it; else its lowest. none: as it came where the model can be turned off or that isn't known; else its lowest. A word off the ladder, and a model nothing describes (record null), keep the word. map: asked → sent.",
+  "records": [
+    {"name": "undescribed", "record": null,
+      "map": {"none": "none", "minimal": "minimal", "low": "low", "medium": "medium", "high": "high", "xhigh": "xhigh", "max": "max", "ultra": "ultra"}},
+    {"name": "levels unsaid", "record": {"default_level": "high"},
+      "map": {"none": "none", "medium": "medium", "max": "max"}},
+    {"name": "DeepSeek", "record": {"supported_levels": ["low", "high", "max"], "default_level": "high", "can_disable": true, "aliases": {"minimal": "low", "medium": "high", "xhigh": "high"}},
+      "map": {"none": "none", "minimal": "low", "low": "low", "medium": "high", "high": "high", "xhigh": "high", "max": "max", "ultra": "ultra"}},
+    {"name": "can't be turned off", "record": {"supported_levels": ["low", "high", "max"], "default_level": "max", "can_disable": false},
+      "map": {"none": "low", "minimal": "low", "low": "low", "medium": "low", "high": "high", "xhigh": "high", "max": "max"}},
+    {"name": "OpenAI's three", "record": {"supported_levels": ["low", "medium", "high"], "default_level": "medium", "can_disable": false},
+      "map": {"none": "low", "minimal": "low", "low": "low", "medium": "medium", "high": "high", "xhigh": "high", "max": "high"}},
+    {"name": "on or off", "record": {"supported_levels": ["high"], "can_disable": true},
+      "map": {"none": "none", "minimal": "high", "low": "high", "medium": "high", "high": "high", "xhigh": "high", "max": "high"}},
+    {"name": "a router's glm-5.2 (an admin's)", "record": {"supported_levels": ["medium", "high", "xhigh"], "can_disable": true},
+      "map": {"none": "none", "minimal": "medium", "low": "medium", "medium": "medium", "high": "high", "xhigh": "xhigh", "max": "xhigh"}},
+    {"name": "can_disable unknown", "record": {"supported_levels": ["low", "high"]},
+      "map": {"none": "none", "minimal": "low", "medium": "low", "high": "high", "max": "high"}},
+    {"name": "an alias onto the higher", "record": {"supported_levels": ["low", "high", "max"], "can_disable": false, "aliases": {"medium": "high", "xhigh": "max"}},
+      "map": {"medium": "high", "xhigh": "max", "minimal": "low", "none": "low"}}
+  ]
+}

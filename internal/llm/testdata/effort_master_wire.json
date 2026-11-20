@@ -1,0 +1,898 @@
+{
+ "chat/duplicate-keys/deepseek/deepseek-v4.1-flash": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/chat/completions {\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"model\":\"deepseek/deepseek-v4.1-flash\",\"reasoning_effort\":\"max\"}"
+  ]
+ },
+ "chat/duplicate-keys/glm-5.2": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/chat/completions {\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"model\":\"glm-5.2\",\"reasoning_effort\":\"max\"}"
+  ]
+ },
+ "chat/duplicate-keys/local-llama": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/chat/completions {\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"model\":\"local-llama\",\"reasoning_effort\":\"max\"}"
+  ]
+ },
+ "chat/duplicate-keys/moonshotai/kimi-k3": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/chat/completions {\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"model\":\"moonshotai/kimi-k3\",\"reasoning_effort\":\"max\"}"
+  ]
+ },
+ "chat/duplicate-keys/my-org/deepseek-v4-finetune": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/chat/completions {\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"model\":\"my-org/deepseek-v4-finetune\",\"reasoning_effort\":\"max\"}"
+  ]
+ },
+ "chat/duplicate-keys/x-ai/grok-4.7": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/chat/completions {\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"model\":\"x-ai/grok-4.7\",\"reasoning_effort\":\"max\"}"
+  ]
+ },
+ "chat/duplicate-keys/z-ai/glm-5.3": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/chat/completions {\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"model\":\"z-ai/glm-5.3\",\"reasoning_effort\":\"max\"}"
+  ]
+ },
+ "chat/effort/deepseek/deepseek-v4.1-flash": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/chat/completions {\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"model\":\"deepseek/deepseek-v4.1-flash\",\"reasoning_effort\":\"medium\"}"
+  ]
+ },
+ "chat/effort/glm-5.2": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/chat/completions {\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"model\":\"glm-5.2\",\"reasoning_effort\":\"medium\"}"
+  ]
+ },
+ "chat/effort/local-llama": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/chat/completions {\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"model\":\"local-llama\",\"reasoning_effort\":\"medium\"}"
+  ]
+ },
+ "chat/effort/moonshotai/kimi-k3": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/chat/completions {\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"model\":\"moonshotai/kimi-k3\",\"reasoning_effort\":\"medium\"}"
+  ]
+ },
+ "chat/effort/my-org/deepseek-v4-finetune": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/chat/completions {\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"model\":\"my-org/deepseek-v4-finetune\",\"reasoning_effort\":\"medium\"}"
+  ]
+ },
+ "chat/effort/x-ai/grok-4.7": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/chat/completions {\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"model\":\"x-ai/grok-4.7\",\"reasoning_effort\":\"medium\"}"
+  ]
+ },
+ "chat/effort/z-ai/glm-5.3": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/chat/completions {\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"model\":\"z-ai/glm-5.3\",\"reasoning_effort\":\"medium\"}"
+  ]
+ },
+ "chat/no-effort/deepseek/deepseek-v4.1-flash": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/chat/completions {\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"model\":\"deepseek/deepseek-v4.1-flash\",\"temperature\":0.2}"
+  ]
+ },
+ "chat/no-effort/glm-5.2": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/chat/completions {\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"model\":\"glm-5.2\",\"temperature\":0.2}"
+  ]
+ },
+ "chat/no-effort/local-llama": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/chat/completions {\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"model\":\"local-llama\",\"temperature\":0.2}"
+  ]
+ },
+ "chat/no-effort/moonshotai/kimi-k3": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/chat/completions {\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"model\":\"moonshotai/kimi-k3\",\"temperature\":0.2}"
+  ]
+ },
+ "chat/no-effort/my-org/deepseek-v4-finetune": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/chat/completions {\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"model\":\"my-org/deepseek-v4-finetune\",\"temperature\":0.2}"
+  ]
+ },
+ "chat/no-effort/x-ai/grok-4.7": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/chat/completions {\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"model\":\"x-ai/grok-4.7\",\"temperature\":0.2}"
+  ]
+ },
+ "chat/no-effort/z-ai/glm-5.3": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/chat/completions {\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"model\":\"z-ai/glm-5.3\",\"temperature\":0.2}"
+  ]
+ },
+ "chat/numbers-unicode/deepseek/deepseek-v4.1-flash": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/chat/completions {\"chat_template_kwargs\":{\"thinking\":true,\"reasoning_effort\":62},\"max_tokens\":12345678901234567890,\"messages\":[{\"role\":\"user\",\"content\":\"caf\\u00e9 \\ud83d\\ude00 \\u003cb\\u003e \\\"q\\\"\"}],\"model\":\"deepseek/deepseek-v4.1-flash\",\"reasoning\":{\"effort\":\"xhigh\",\"exclude\":true},\"seed\":1e400,\"temperature\":0.30000000000000004}"
+  ]
+ },
+ "chat/numbers-unicode/glm-5.2": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/chat/completions {\"chat_template_kwargs\":{\"thinking\":true,\"reasoning_effort\":62},\"max_tokens\":12345678901234567890,\"messages\":[{\"role\":\"user\",\"content\":\"caf\\u00e9 \\ud83d\\ude00 \\u003cb\\u003e \\\"q\\\"\"}],\"model\":\"glm-5.2\",\"reasoning\":{\"effort\":\"xhigh\",\"exclude\":true},\"seed\":1e400,\"temperature\":0.30000000000000004}"
+  ]
+ },
+ "chat/numbers-unicode/local-llama": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/chat/completions {\"chat_template_kwargs\":{\"thinking\":true,\"reasoning_effort\":62},\"max_tokens\":12345678901234567890,\"messages\":[{\"role\":\"user\",\"content\":\"caf\\u00e9 \\ud83d\\ude00 \\u003cb\\u003e \\\"q\\\"\"}],\"model\":\"local-llama\",\"reasoning\":{\"effort\":\"xhigh\",\"exclude\":true},\"seed\":1e400,\"temperature\":0.30000000000000004}"
+  ]
+ },
+ "chat/numbers-unicode/moonshotai/kimi-k3": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/chat/completions {\"chat_template_kwargs\":{\"thinking\":true,\"reasoning_effort\":62},\"max_tokens\":12345678901234567890,\"messages\":[{\"role\":\"user\",\"content\":\"caf\\u00e9 \\ud83d\\ude00 \\u003cb\\u003e \\\"q\\\"\"}],\"model\":\"moonshotai/kimi-k3\",\"reasoning\":{\"effort\":\"xhigh\",\"exclude\":true},\"seed\":1e400,\"temperature\":0.30000000000000004}"
+  ]
+ },
+ "chat/numbers-unicode/my-org/deepseek-v4-finetune": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/chat/completions {\"chat_template_kwargs\":{\"thinking\":true,\"reasoning_effort\":62},\"max_tokens\":12345678901234567890,\"messages\":[{\"role\":\"user\",\"content\":\"caf\\u00e9 \\ud83d\\ude00 \\u003cb\\u003e \\\"q\\\"\"}],\"model\":\"my-org/deepseek-v4-finetune\",\"reasoning\":{\"effort\":\"xhigh\",\"exclude\":true},\"seed\":1e400,\"temperature\":0.30000000000000004}"
+  ]
+ },
+ "chat/numbers-unicode/x-ai/grok-4.7": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/chat/completions {\"chat_template_kwargs\":{\"thinking\":true,\"reasoning_effort\":62},\"max_tokens\":12345678901234567890,\"messages\":[{\"role\":\"user\",\"content\":\"caf\\u00e9 \\ud83d\\ude00 \\u003cb\\u003e \\\"q\\\"\"}],\"model\":\"x-ai/grok-4.7\",\"reasoning\":{\"effort\":\"xhigh\",\"exclude\":true},\"seed\":1e400,\"temperature\":0.30000000000000004}"
+  ]
+ },
+ "chat/numbers-unicode/z-ai/glm-5.3": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/chat/completions {\"chat_template_kwargs\":{\"thinking\":true,\"reasoning_effort\":62},\"max_tokens\":12345678901234567890,\"messages\":[{\"role\":\"user\",\"content\":\"caf\\u00e9 \\ud83d\\ude00 \\u003cb\\u003e \\\"q\\\"\"}],\"model\":\"z-ai/glm-5.3\",\"reasoning\":{\"effort\":\"xhigh\",\"exclude\":true},\"seed\":1e400,\"temperature\":0.30000000000000004}"
+  ]
+ },
+ "chat/stream-none/deepseek/deepseek-v4.1-flash": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/chat/completions {\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"model\":\"deepseek/deepseek-v4.1-flash\",\"reasoning_effort\":\"none\",\"stream\":true,\"stream_options\":{\"include_usage\":true}}"
+  ]
+ },
+ "chat/stream-none/glm-5.2": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/chat/completions {\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"model\":\"glm-5.2\",\"reasoning_effort\":\"none\",\"stream\":true,\"stream_options\":{\"include_usage\":true}}"
+  ]
+ },
+ "chat/stream-none/local-llama": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/chat/completions {\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"model\":\"local-llama\",\"reasoning_effort\":\"none\",\"stream\":true,\"stream_options\":{\"include_usage\":true}}"
+  ]
+ },
+ "chat/stream-none/moonshotai/kimi-k3": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/chat/completions {\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"model\":\"moonshotai/kimi-k3\",\"reasoning_effort\":\"none\",\"stream\":true,\"stream_options\":{\"include_usage\":true}}"
+  ]
+ },
+ "chat/stream-none/my-org/deepseek-v4-finetune": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/chat/completions {\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"model\":\"my-org/deepseek-v4-finetune\",\"reasoning_effort\":\"none\",\"stream\":true,\"stream_options\":{\"include_usage\":true}}"
+  ]
+ },
+ "chat/stream-none/x-ai/grok-4.7": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/chat/completions {\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"model\":\"x-ai/grok-4.7\",\"reasoning_effort\":\"none\",\"stream\":true,\"stream_options\":{\"include_usage\":true}}"
+  ]
+ },
+ "chat/stream-none/z-ai/glm-5.3": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/chat/completions {\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"model\":\"z-ai/glm-5.3\",\"reasoning_effort\":\"none\",\"stream\":true,\"stream_options\":{\"include_usage\":true}}"
+  ]
+ },
+ "chat/stream-xhigh/deepseek/deepseek-v4.1-flash": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/chat/completions {\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"model\":\"deepseek/deepseek-v4.1-flash\",\"reasoning_effort\":\"xhigh\",\"stream\":true,\"stream_options\":{\"include_usage\":true}}"
+  ]
+ },
+ "chat/stream-xhigh/glm-5.2": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/chat/completions {\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"model\":\"glm-5.2\",\"reasoning_effort\":\"xhigh\",\"stream\":true,\"stream_options\":{\"include_usage\":true}}"
+  ]
+ },
+ "chat/stream-xhigh/local-llama": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/chat/completions {\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"model\":\"local-llama\",\"reasoning_effort\":\"xhigh\",\"stream\":true,\"stream_options\":{\"include_usage\":true}}"
+  ]
+ },
+ "chat/stream-xhigh/moonshotai/kimi-k3": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/chat/completions {\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"model\":\"moonshotai/kimi-k3\",\"reasoning_effort\":\"xhigh\",\"stream\":true,\"stream_options\":{\"include_usage\":true}}"
+  ]
+ },
+ "chat/stream-xhigh/my-org/deepseek-v4-finetune": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/chat/completions {\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"model\":\"my-org/deepseek-v4-finetune\",\"reasoning_effort\":\"xhigh\",\"stream\":true,\"stream_options\":{\"include_usage\":true}}"
+  ]
+ },
+ "chat/stream-xhigh/x-ai/grok-4.7": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/chat/completions {\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"model\":\"x-ai/grok-4.7\",\"reasoning_effort\":\"xhigh\",\"stream\":true,\"stream_options\":{\"include_usage\":true}}"
+  ]
+ },
+ "chat/stream-xhigh/z-ai/glm-5.3": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/chat/completions {\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"model\":\"z-ai/glm-5.3\",\"reasoning_effort\":\"xhigh\",\"stream\":true,\"stream_options\":{\"include_usage\":true}}"
+  ]
+ },
+ "responses/duplicate-keys/deepseek/deepseek-v4.1-flash": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/responses {\"input\":\"x\",\"model\":\"deepseek/deepseek-v4.1-flash\",\"reasoning\":{\"effort\":\"low\",\"effort\":\"max\"}}"
+  ]
+ },
+ "responses/duplicate-keys/glm-5.2": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/responses {\"input\":\"x\",\"model\":\"glm-5.2\",\"reasoning\":{\"effort\":\"low\",\"effort\":\"max\"}}"
+  ]
+ },
+ "responses/duplicate-keys/local-llama": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/responses {\"input\":\"x\",\"model\":\"local-llama\",\"reasoning\":{\"effort\":\"low\",\"effort\":\"max\"}}"
+  ]
+ },
+ "responses/duplicate-keys/moonshotai/kimi-k3": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/responses {\"input\":\"x\",\"model\":\"moonshotai/kimi-k3\",\"reasoning\":{\"effort\":\"low\",\"effort\":\"max\"}}"
+  ]
+ },
+ "responses/duplicate-keys/my-org/deepseek-v4-finetune": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/responses {\"input\":\"x\",\"model\":\"my-org/deepseek-v4-finetune\",\"reasoning\":{\"effort\":\"low\",\"effort\":\"max\"}}"
+  ]
+ },
+ "responses/duplicate-keys/x-ai/grok-4.7": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/responses {\"input\":\"x\",\"model\":\"x-ai/grok-4.7\",\"reasoning\":{\"effort\":\"low\",\"effort\":\"max\"}}"
+  ]
+ },
+ "responses/duplicate-keys/z-ai/glm-5.3": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/responses {\"input\":\"x\",\"model\":\"z-ai/glm-5.3\",\"reasoning\":{\"effort\":\"low\",\"effort\":\"max\"}}"
+  ]
+ },
+ "responses/effort/deepseek/deepseek-v4.1-flash": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/responses {\"include\":[\"reasoning.encrypted_content\"],\"input\":\"x\",\"model\":\"deepseek/deepseek-v4.1-flash\",\"reasoning\":{\"effort\":\"medium\",\"summary\":\"auto\"}}"
+  ]
+ },
+ "responses/effort/glm-5.2": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/responses {\"include\":[\"reasoning.encrypted_content\"],\"input\":\"x\",\"model\":\"glm-5.2\",\"reasoning\":{\"effort\":\"medium\",\"summary\":\"auto\"}}"
+  ]
+ },
+ "responses/effort/local-llama": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/responses {\"include\":[\"reasoning.encrypted_content\"],\"input\":\"x\",\"model\":\"local-llama\",\"reasoning\":{\"effort\":\"medium\",\"summary\":\"auto\"}}"
+  ]
+ },
+ "responses/effort/moonshotai/kimi-k3": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/responses {\"include\":[\"reasoning.encrypted_content\"],\"input\":\"x\",\"model\":\"moonshotai/kimi-k3\",\"reasoning\":{\"effort\":\"medium\",\"summary\":\"auto\"}}"
+  ]
+ },
+ "responses/effort/my-org/deepseek-v4-finetune": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/responses {\"include\":[\"reasoning.encrypted_content\"],\"input\":\"x\",\"model\":\"my-org/deepseek-v4-finetune\",\"reasoning\":{\"effort\":\"medium\",\"summary\":\"auto\"}}"
+  ]
+ },
+ "responses/effort/x-ai/grok-4.7": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/responses {\"include\":[\"reasoning.encrypted_content\"],\"input\":\"x\",\"model\":\"x-ai/grok-4.7\",\"reasoning\":{\"effort\":\"medium\",\"summary\":\"auto\"}}"
+  ]
+ },
+ "responses/effort/z-ai/glm-5.3": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/responses {\"include\":[\"reasoning.encrypted_content\"],\"input\":\"x\",\"model\":\"z-ai/glm-5.3\",\"reasoning\":{\"effort\":\"medium\",\"summary\":\"auto\"}}"
+  ]
+ },
+ "responses/no-effort/deepseek/deepseek-v4.1-flash": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/responses {\"input\":[{\"role\":\"user\",\"content\":\"hi\"}],\"model\":\"deepseek/deepseek-v4.1-flash\",\"temperature\":0.2}"
+  ]
+ },
+ "responses/no-effort/glm-5.2": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/responses {\"input\":[{\"role\":\"user\",\"content\":\"hi\"}],\"model\":\"glm-5.2\",\"temperature\":0.2}"
+  ]
+ },
+ "responses/no-effort/local-llama": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/responses {\"input\":[{\"role\":\"user\",\"content\":\"hi\"}],\"model\":\"local-llama\",\"temperature\":0.2}"
+  ]
+ },
+ "responses/no-effort/moonshotai/kimi-k3": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/responses {\"input\":[{\"role\":\"user\",\"content\":\"hi\"}],\"model\":\"moonshotai/kimi-k3\",\"temperature\":0.2}"
+  ]
+ },
+ "responses/no-effort/my-org/deepseek-v4-finetune": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/responses {\"input\":[{\"role\":\"user\",\"content\":\"hi\"}],\"model\":\"my-org/deepseek-v4-finetune\",\"temperature\":0.2}"
+  ]
+ },
+ "responses/no-effort/x-ai/grok-4.7": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/responses {\"input\":[{\"role\":\"user\",\"content\":\"hi\"}],\"model\":\"x-ai/grok-4.7\",\"temperature\":0.2}"
+  ]
+ },
+ "responses/no-effort/z-ai/glm-5.3": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/responses {\"input\":[{\"role\":\"user\",\"content\":\"hi\"}],\"model\":\"z-ai/glm-5.3\",\"temperature\":0.2}"
+  ]
+ },
+ "responses/numbers-unicode/deepseek/deepseek-v4.1-flash": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/responses {\"input\":\"caf\\u00e9 \\ud83d\\ude00 \\u003cb\\u003e\",\"max_output_tokens\":99999999999999999999,\"model\":\"deepseek/deepseek-v4.1-flash\",\"reasoning\":{\"effort\":\"xhigh\"},\"top_p\":1e-7}"
+  ]
+ },
+ "responses/numbers-unicode/glm-5.2": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/responses {\"input\":\"caf\\u00e9 \\ud83d\\ude00 \\u003cb\\u003e\",\"max_output_tokens\":99999999999999999999,\"model\":\"glm-5.2\",\"reasoning\":{\"effort\":\"xhigh\"},\"top_p\":1e-7}"
+  ]
+ },
+ "responses/numbers-unicode/local-llama": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/responses {\"input\":\"caf\\u00e9 \\ud83d\\ude00 \\u003cb\\u003e\",\"max_output_tokens\":99999999999999999999,\"model\":\"local-llama\",\"reasoning\":{\"effort\":\"xhigh\"},\"top_p\":1e-7}"
+  ]
+ },
+ "responses/numbers-unicode/moonshotai/kimi-k3": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/responses {\"input\":\"caf\\u00e9 \\ud83d\\ude00 \\u003cb\\u003e\",\"max_output_tokens\":99999999999999999999,\"model\":\"moonshotai/kimi-k3\",\"reasoning\":{\"effort\":\"xhigh\"},\"top_p\":1e-7}"
+  ]
+ },
+ "responses/numbers-unicode/my-org/deepseek-v4-finetune": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/responses {\"input\":\"caf\\u00e9 \\ud83d\\ude00 \\u003cb\\u003e\",\"max_output_tokens\":99999999999999999999,\"model\":\"my-org/deepseek-v4-finetune\",\"reasoning\":{\"effort\":\"xhigh\"},\"top_p\":1e-7}"
+  ]
+ },
+ "responses/numbers-unicode/x-ai/grok-4.7": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/responses {\"input\":\"caf\\u00e9 \\ud83d\\ude00 \\u003cb\\u003e\",\"max_output_tokens\":99999999999999999999,\"model\":\"x-ai/grok-4.7\",\"reasoning\":{\"effort\":\"xhigh\"},\"top_p\":1e-7}"
+  ]
+ },
+ "responses/numbers-unicode/z-ai/glm-5.3": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/responses {\"input\":\"caf\\u00e9 \\ud83d\\ude00 \\u003cb\\u003e\",\"max_output_tokens\":99999999999999999999,\"model\":\"z-ai/glm-5.3\",\"reasoning\":{\"effort\":\"xhigh\"},\"top_p\":1e-7}"
+  ]
+ },
+ "responses/stream-none/deepseek/deepseek-v4.1-flash": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/responses {\"input\":\"x\",\"model\":\"deepseek/deepseek-v4.1-flash\",\"reasoning\":{\"effort\":\"none\"},\"stream\":true}"
+  ]
+ },
+ "responses/stream-none/glm-5.2": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/responses {\"input\":\"x\",\"model\":\"glm-5.2\",\"reasoning\":{\"effort\":\"none\"},\"stream\":true}"
+  ]
+ },
+ "responses/stream-none/local-llama": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/responses {\"input\":\"x\",\"model\":\"local-llama\",\"reasoning\":{\"effort\":\"none\"},\"stream\":true}"
+  ]
+ },
+ "responses/stream-none/moonshotai/kimi-k3": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/responses {\"input\":\"x\",\"model\":\"moonshotai/kimi-k3\",\"reasoning\":{\"effort\":\"none\"},\"stream\":true}"
+  ]
+ },
+ "responses/stream-none/my-org/deepseek-v4-finetune": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/responses {\"input\":\"x\",\"model\":\"my-org/deepseek-v4-finetune\",\"reasoning\":{\"effort\":\"none\"},\"stream\":true}"
+  ]
+ },
+ "responses/stream-none/x-ai/grok-4.7": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/responses {\"input\":\"x\",\"model\":\"x-ai/grok-4.7\",\"reasoning\":{\"effort\":\"none\"},\"stream\":true}"
+  ]
+ },
+ "responses/stream-none/z-ai/glm-5.3": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/responses {\"input\":\"x\",\"model\":\"z-ai/glm-5.3\",\"reasoning\":{\"effort\":\"none\"},\"stream\":true}"
+  ]
+ },
+ "translated/duplicate-keys/deepseek/deepseek-v4.1-flash": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/chat/completions {\"messages\":[{\"role\":\"user\",\"content\":\"x\"}],\"model\":\"deepseek/deepseek-v4.1-flash\",\"reasoning_effort\":\"max\"}"
+  ]
+ },
+ "translated/duplicate-keys/glm-5.2": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/chat/completions {\"messages\":[{\"role\":\"user\",\"content\":\"x\"}],\"model\":\"glm-5.2\",\"reasoning_effort\":\"max\"}"
+  ]
+ },
+ "translated/duplicate-keys/local-llama": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/chat/completions {\"messages\":[{\"role\":\"user\",\"content\":\"x\"}],\"model\":\"local-llama\",\"reasoning_effort\":\"max\"}"
+  ]
+ },
+ "translated/duplicate-keys/moonshotai/kimi-k3": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/chat/completions {\"messages\":[{\"role\":\"user\",\"content\":\"x\"}],\"model\":\"moonshotai/kimi-k3\",\"reasoning_effort\":\"max\"}"
+  ]
+ },
+ "translated/duplicate-keys/my-org/deepseek-v4-finetune": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/chat/completions {\"messages\":[{\"role\":\"user\",\"content\":\"x\"}],\"model\":\"my-org/deepseek-v4-finetune\",\"reasoning_effort\":\"max\"}"
+  ]
+ },
+ "translated/duplicate-keys/x-ai/grok-4.7": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/chat/completions {\"messages\":[{\"role\":\"user\",\"content\":\"x\"}],\"model\":\"x-ai/grok-4.7\",\"reasoning_effort\":\"max\"}"
+  ]
+ },
+ "translated/duplicate-keys/z-ai/glm-5.3": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/chat/completions {\"messages\":[{\"role\":\"user\",\"content\":\"x\"}],\"model\":\"z-ai/glm-5.3\",\"reasoning_effort\":\"max\"}"
+  ]
+ },
+ "translated/effort/deepseek/deepseek-v4.1-flash": {
+  "code": 200,
+  "dropped": "include,reasoning.summary",
+  "effort": "",
+  "upstream": [
+   "/v1/chat/completions {\"messages\":[{\"role\":\"user\",\"content\":\"x\"}],\"model\":\"deepseek/deepseek-v4.1-flash\",\"reasoning_effort\":\"medium\"}"
+  ]
+ },
+ "translated/effort/glm-5.2": {
+  "code": 200,
+  "dropped": "include,reasoning.summary",
+  "effort": "",
+  "upstream": [
+   "/v1/chat/completions {\"messages\":[{\"role\":\"user\",\"content\":\"x\"}],\"model\":\"glm-5.2\",\"reasoning_effort\":\"medium\"}"
+  ]
+ },
+ "translated/effort/local-llama": {
+  "code": 200,
+  "dropped": "include,reasoning.summary",
+  "effort": "",
+  "upstream": [
+   "/v1/chat/completions {\"messages\":[{\"role\":\"user\",\"content\":\"x\"}],\"model\":\"local-llama\",\"reasoning_effort\":\"medium\"}"
+  ]
+ },
+ "translated/effort/moonshotai/kimi-k3": {
+  "code": 200,
+  "dropped": "include,reasoning.summary",
+  "effort": "",
+  "upstream": [
+   "/v1/chat/completions {\"messages\":[{\"role\":\"user\",\"content\":\"x\"}],\"model\":\"moonshotai/kimi-k3\",\"reasoning_effort\":\"medium\"}"
+  ]
+ },
+ "translated/effort/my-org/deepseek-v4-finetune": {
+  "code": 200,
+  "dropped": "include,reasoning.summary",
+  "effort": "",
+  "upstream": [
+   "/v1/chat/completions {\"messages\":[{\"role\":\"user\",\"content\":\"x\"}],\"model\":\"my-org/deepseek-v4-finetune\",\"reasoning_effort\":\"medium\"}"
+  ]
+ },
+ "translated/effort/x-ai/grok-4.7": {
+  "code": 200,
+  "dropped": "include,reasoning.summary",
+  "effort": "",
+  "upstream": [
+   "/v1/chat/completions {\"messages\":[{\"role\":\"user\",\"content\":\"x\"}],\"model\":\"x-ai/grok-4.7\",\"reasoning_effort\":\"medium\"}"
+  ]
+ },
+ "translated/effort/z-ai/glm-5.3": {
+  "code": 200,
+  "dropped": "include,reasoning.summary",
+  "effort": "",
+  "upstream": [
+   "/v1/chat/completions {\"messages\":[{\"role\":\"user\",\"content\":\"x\"}],\"model\":\"z-ai/glm-5.3\",\"reasoning_effort\":\"medium\"}"
+  ]
+ },
+ "translated/no-effort/deepseek/deepseek-v4.1-flash": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/chat/completions {\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"model\":\"deepseek/deepseek-v4.1-flash\",\"temperature\":0.2}"
+  ]
+ },
+ "translated/no-effort/glm-5.2": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/chat/completions {\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"model\":\"glm-5.2\",\"temperature\":0.2}"
+  ]
+ },
+ "translated/no-effort/local-llama": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/chat/completions {\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"model\":\"local-llama\",\"temperature\":0.2}"
+  ]
+ },
+ "translated/no-effort/moonshotai/kimi-k3": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/chat/completions {\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"model\":\"moonshotai/kimi-k3\",\"temperature\":0.2}"
+  ]
+ },
+ "translated/no-effort/my-org/deepseek-v4-finetune": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/chat/completions {\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"model\":\"my-org/deepseek-v4-finetune\",\"temperature\":0.2}"
+  ]
+ },
+ "translated/no-effort/x-ai/grok-4.7": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/chat/completions {\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"model\":\"x-ai/grok-4.7\",\"temperature\":0.2}"
+  ]
+ },
+ "translated/no-effort/z-ai/glm-5.3": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/chat/completions {\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"model\":\"z-ai/glm-5.3\",\"temperature\":0.2}"
+  ]
+ },
+ "translated/numbers-unicode/deepseek/deepseek-v4.1-flash": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/chat/completions {\"max_tokens\":99999999999999999999,\"messages\":[{\"role\":\"user\",\"content\":\"café 😀 \\u003cb\\u003e\"}],\"model\":\"deepseek/deepseek-v4.1-flash\",\"reasoning_effort\":\"xhigh\",\"top_p\":1e-7}"
+  ]
+ },
+ "translated/numbers-unicode/glm-5.2": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/chat/completions {\"max_tokens\":99999999999999999999,\"messages\":[{\"role\":\"user\",\"content\":\"café 😀 \\u003cb\\u003e\"}],\"model\":\"glm-5.2\",\"reasoning_effort\":\"xhigh\",\"top_p\":1e-7}"
+  ]
+ },
+ "translated/numbers-unicode/local-llama": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/chat/completions {\"max_tokens\":99999999999999999999,\"messages\":[{\"role\":\"user\",\"content\":\"café 😀 \\u003cb\\u003e\"}],\"model\":\"local-llama\",\"reasoning_effort\":\"xhigh\",\"top_p\":1e-7}"
+  ]
+ },
+ "translated/numbers-unicode/moonshotai/kimi-k3": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/chat/completions {\"max_tokens\":99999999999999999999,\"messages\":[{\"role\":\"user\",\"content\":\"café 😀 \\u003cb\\u003e\"}],\"model\":\"moonshotai/kimi-k3\",\"reasoning_effort\":\"xhigh\",\"top_p\":1e-7}"
+  ]
+ },
+ "translated/numbers-unicode/my-org/deepseek-v4-finetune": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/chat/completions {\"max_tokens\":99999999999999999999,\"messages\":[{\"role\":\"user\",\"content\":\"café 😀 \\u003cb\\u003e\"}],\"model\":\"my-org/deepseek-v4-finetune\",\"reasoning_effort\":\"xhigh\",\"top_p\":1e-7}"
+  ]
+ },
+ "translated/numbers-unicode/x-ai/grok-4.7": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/chat/completions {\"max_tokens\":99999999999999999999,\"messages\":[{\"role\":\"user\",\"content\":\"café 😀 \\u003cb\\u003e\"}],\"model\":\"x-ai/grok-4.7\",\"reasoning_effort\":\"xhigh\",\"top_p\":1e-7}"
+  ]
+ },
+ "translated/numbers-unicode/z-ai/glm-5.3": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/chat/completions {\"max_tokens\":99999999999999999999,\"messages\":[{\"role\":\"user\",\"content\":\"café 😀 \\u003cb\\u003e\"}],\"model\":\"z-ai/glm-5.3\",\"reasoning_effort\":\"xhigh\",\"top_p\":1e-7}"
+  ]
+ },
+ "translated/stream-none/deepseek/deepseek-v4.1-flash": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/chat/completions {\"messages\":[{\"role\":\"user\",\"content\":\"x\"}],\"model\":\"deepseek/deepseek-v4.1-flash\",\"reasoning_effort\":\"none\",\"stream\":true,\"stream_options\":{\"include_usage\":true}}"
+  ]
+ },
+ "translated/stream-none/glm-5.2": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/chat/completions {\"messages\":[{\"role\":\"user\",\"content\":\"x\"}],\"model\":\"glm-5.2\",\"reasoning_effort\":\"none\",\"stream\":true,\"stream_options\":{\"include_usage\":true}}"
+  ]
+ },
+ "translated/stream-none/local-llama": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/chat/completions {\"messages\":[{\"role\":\"user\",\"content\":\"x\"}],\"model\":\"local-llama\",\"reasoning_effort\":\"none\",\"stream\":true,\"stream_options\":{\"include_usage\":true}}"
+  ]
+ },
+ "translated/stream-none/moonshotai/kimi-k3": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/chat/completions {\"messages\":[{\"role\":\"user\",\"content\":\"x\"}],\"model\":\"moonshotai/kimi-k3\",\"reasoning_effort\":\"none\",\"stream\":true,\"stream_options\":{\"include_usage\":true}}"
+  ]
+ },
+ "translated/stream-none/my-org/deepseek-v4-finetune": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/chat/completions {\"messages\":[{\"role\":\"user\",\"content\":\"x\"}],\"model\":\"my-org/deepseek-v4-finetune\",\"reasoning_effort\":\"none\",\"stream\":true,\"stream_options\":{\"include_usage\":true}}"
+  ]
+ },
+ "translated/stream-none/x-ai/grok-4.7": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/chat/completions {\"messages\":[{\"role\":\"user\",\"content\":\"x\"}],\"model\":\"x-ai/grok-4.7\",\"reasoning_effort\":\"none\",\"stream\":true,\"stream_options\":{\"include_usage\":true}}"
+  ]
+ },
+ "translated/stream-none/z-ai/glm-5.3": {
+  "code": 200,
+  "dropped": "",
+  "effort": "",
+  "upstream": [
+   "/v1/chat/completions {\"messages\":[{\"role\":\"user\",\"content\":\"x\"}],\"model\":\"z-ai/glm-5.3\",\"reasoning_effort\":\"none\",\"stream\":true,\"stream_options\":{\"include_usage\":true}}"
+  ]
+ }
+}

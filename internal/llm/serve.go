@@ -31,6 +31,16 @@ const QuotaHeader = "X-XBin-LLM-Quota"
 // fields and hosted tools merely offered, comma-separated and sorted.
 const DroppedHeader = "X-XBin-LLM-Dropped"
 
+// ModelHeader, on an answer, names the model the connector called for the
+// request: "<upstream>/<model>" (an alias's target). ExpectModelHeader, on
+// a request, names the one its caller expects — one whose reasoning the
+// request sends back: when the request's model now resolves to another,
+// the call is refused (409 xbin_llm_model_moved) before any upstream call.
+const (
+	ModelHeader       = "X-XBin-LLM-Model"
+	ExpectModelHeader = "X-XBin-LLM-Expect-Model"
+)
+
 // usageSink picks the usage reader of an OpenAI-wire answer.
 func usageSink(stream bool) sdkllm.UsageSink {
 	if stream {
@@ -100,6 +110,15 @@ func (s *Service) apiCall(path string) http.HandlerFunc {
 				return
 			}
 		}
+		// the model the request names now resolves to this one (an alias's target may have changed): a caller
+		// whose request carries reasoning of the one it expected says so, and is refused before any upstream
+		// call when it is another — reasoning goes back only to the model that produced it (D249)
+		answer.Set(ModelHeader, publicName(u, model))
+		if exp := r.Header.Get(ExpectModelHeader); exp != "" && exp != publicName(u, model) {
+			refuse(http.StatusConflict, "xbin_llm_model_moved", clip(req.Model)+" is served by "+publicName(u, model)+" now, not "+clip(exp)+
+				": send the request without the reasoning of that model").write(w)
+			return
+		}
 		t, err := s.target(u)
 		if err != nil {
 			s.keyRefusal(u, err).write(w)
@@ -143,7 +162,12 @@ func (s *Service) apiCall(path string) http.HandlerFunc {
 				}
 				probed = true // nothing was generated and nothing answered: the call is made again, and metered once
 			}
-			res, sent, ok := ResponsesViaChatWith(r.Context(), s.plane, w, t, body, req.Model, model, h, answer, XlateOptions{Effort: eff})
+			xo := XlateOptions{Effort: eff, NoReplay: s.noReplay.refused(u.Name, model), Refused: func(field string) {
+				// only a refusal that named the field, with the call then working without it (replay.go)
+				s.noReplay.remember(u.Name, model, field, s.now())
+				s.log.Info("llm: upstream refused the reasoning sent back to this model; its translated calls send none until reset", "upstream", u.Name, "model", model, "field", field)
+			}}
+			res, sent, ok := ResponsesViaChatWith(r.Context(), s.plane, w, t, body, req.Model, model, h, answer, xo)
 			if d := w.Header().Get(DroppedHeader); d != "" {
 				// what a client's Responses calls lose on this upstream, in the log once per kind of loss
 				if _, said := s.droppedSaid.LoadOrStore(u.Name+"\x00"+d, true); !said && s.droppedKinds.Add(1) <= 64 {

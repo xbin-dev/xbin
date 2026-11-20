@@ -695,6 +695,7 @@ var delegateClasses = map[string]delegateRow{
 	"PUT /llm/upstreams/{name}":                dNever(neverAdmin),
 	"DELETE /llm/upstreams/{name}":             dNever(neverAdmin),
 	"POST /llm/upstreams/{name}/test":          dNever(neverAdmin),
+	"POST /llm/upstreams/{name}/replay-reset":  dNever(neverAdmin),
 	"POST /llm/setup/dismiss":                  dNo(noLLM),
 	"GET /llm/v1/models":                       dNo(noLLM),
 	"POST /llm/v1/chat/completions":            dNo(noLLM),

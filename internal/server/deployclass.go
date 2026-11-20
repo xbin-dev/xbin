@@ -367,6 +367,7 @@ var routeClasses = map[string]RouteClass{
 	"PUT /llm/upstreams/{name}":                PrimaryOnly,
 	"DELETE /llm/upstreams/{name}":             PrimaryOnly,
 	"POST /llm/upstreams/{name}/test":          PrimaryOnly,
+	"POST /llm/upstreams/{name}/replay-reset":  PrimaryOnly,
 	"GET /llm/usage":                           PrimaryOnly,
 	"GET /llm/quotas":                          PrimaryOnly,
 	"PUT /llm/quotas":                          PrimaryOnly,

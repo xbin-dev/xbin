@@ -151,8 +151,10 @@ func ResponsesViaChat(ctx context.Context, plane Connector, w http.ResponseWrite
 // upstream refuses (400, and not for the context's size) a request that
 // carries reasoning sent back, the request is made once more without it,
 // and the answer names that (input.reasoning in X-XBin-LLM-Dropped): an
-// upstream that takes no such field keeps working. Nothing is remembered of
-// it — a refusal is something a caller can provoke.
+// upstream that takes no such field keeps working. Only when the refusal
+// named the field and the request without it worked is opt.Refused told (a
+// refusal is something a caller can provoke: one that names no such field
+// is never remembered).
 func ResponsesViaChatWith(ctx context.Context, plane Connector, w http.ResponseWriter, t Target, body []byte, asked, upstreamModel string, h, answer http.Header, opt XlateOptions) (res Outcome, sent int, ok bool) {
 	chat, x, ref := responsesToChat(body, asked, upstreamModel, mintTag(t, upstreamModel), opt)
 	if ref != nil {
@@ -177,7 +179,7 @@ func ResponsesViaChatWith(ctx context.Context, plane Connector, w http.ResponseW
 	said()
 	call := Call{Target: t, Path: sdkllm.PathChat, Body: chat, Header: h, Sink: usageSink, Answer: answer}
 	var over string
-	refused := false // the upstream refused the reasoning sent back
+	refused, named := false, false // the upstream refused the reasoning sent back; its refusal named the field
 	withhold := func(replay bool) func(int, []byte) bool {
 		if !x.truncate && !replay {
 			return nil
@@ -188,7 +190,7 @@ func ResponsesViaChatWith(ctx context.Context, plane Connector, w http.ResponseW
 			case over != "":
 				return x.truncate // the caller asked for truncation, which chat completions has none of: an overflow is said as that
 			case replay && status == http.StatusBadRequest:
-				refused = true
+				refused, named = true, namesField(body, replayField)
 				return true
 			}
 			return false
@@ -205,6 +207,9 @@ func ResponsesViaChatWith(ctx context.Context, plane Connector, w http.ResponseW
 		tw = newRespWriter(w, x)
 		res = plane.Relay(ctx, tw, call)
 		sent = len(call.Body)
+		if named && opt.Refused != nil && !res.Withheld && res.Status >= 200 && res.Status < 300 {
+			opt.Refused(replayField)
+		}
 	}
 	if res.Withheld {
 		copyHeader(w.Header(), answer)

@@ -47,9 +47,12 @@ type UpstreamView struct {
 	// model's record is — this, the upstream's own list, xbind's table — is
 	// on each model of GET /v1/models (effort).
 	Reasoning map[string]EffortRecord `json:"reasoning,omitempty"`
-	Source    string                  `json:"source"` // admin | host
-	Locked    bool                    `json:"locked"`
-	Reason    string                  `json:"reason,omitempty"`
+	// ReplayOff: its models found to refuse the reasoning a translated call
+	// sends back (in memory until reset — POST …/replay-reset — or a restart).
+	ReplayOff map[string]ReplayOff `json:"replayOff,omitempty"`
+	Source    string               `json:"source"` // admin | host
+	Locked    bool                 `json:"locked"`
+	Reason    string               `json:"reason,omitempty"`
 }
 
 // HostView says whether a deployment file is in force.
@@ -137,6 +140,7 @@ func (s *Service) upstreamView(snap *snapshot, u effUpstream) UpstreamView {
 		}
 		v.Reasoning[m] = rec
 	}
+	v.ReplayOff = s.noReplay.of(u.Name)
 	if v.Models == nil {
 		v.Models = []string{}
 	}
