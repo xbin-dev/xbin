@@ -6500,3 +6500,46 @@ here: cut from the old end, never reword.
     asks (OpenCode's shape) is shown with no mode, warned, unticked. Not
     detected: an agent that acknowledges set_mode and stays in its own —
     xbind takes the agent's answer, as for any coding agent's mode.
+- **D251 — Tile agents act without asking by default, and continuing is
+  one plain approval (2026-11-21; the owner's answers to two questions on
+  D250; spec `plans/wsagent/auto-default.md`).** "No, keep all agents
+  generally in auto/always-accept"; "No, continuing sessions should be
+  smoother UX". The tile's sandbox contains a coding agent; the person's
+  approval of every text the workspace agent sends one contains the
+  workspace agent. So:
+  - **The default mode** of a session the workspace agent starts is the
+    coding agent's work mode (`acp.Provider.WorkMode`: its own `auto`,
+    else its auto-edit mode, else its own default) — Claude Code `auto`,
+    Codex `agent`, Gemini CLI `autoEdit`, OpenCode its own `build`; never
+    an Explicit (bypass) mode. Rejected: the bypass modes as the default
+    (the catalog never defaults to them; a person picks one by name).
+  - **A mode is a normal choice**: remembered like the coding agent and
+    the model (only what the person changed), preselected from the
+    agent's suggestion, shown as a fact — a chip and one plain line — with
+    no red banner, danger colour or armed delay; a plan's start line is
+    an ordinary line, ticked like the others. Supersedes D250's "a
+    suggested mode that doesn't ask is never preselected"
+    (`modeNotTaken`, `harnessNotTaken`), "Remember never keeps a mode
+    that doesn't ask" (and its read-time ignore), and the danger
+    treatment of such a mode on the sheet, the card, the batch, the plan
+    review and the app.
+  - **What doesn't loosen**: no path without a sheet starts a session in
+    a mode that doesn't ask, or sends text to one (the preference starts
+    unasked only in a mode that asks the person named; otherwise the
+    start goes to the sheet); every message to a session that acts
+    without asking is an approval of that text, once — now whatever mode
+    the session was approved in (D250's exemption for "the mode the
+    person approved it in" is gone: with the default not asking, it
+    would have let every agent message through unseen); the ticket binds
+    tile, brief and kind; `seen` stays required with picks. A saved
+    sign-in on a NEW session keeps its unticked, warned tick (D230); the
+    trust line and homes (D245), the wider standing grant, reading the
+    web keep their warnings.
+  - **Continuing** is one plain approval — the session's facts, the
+    text, "Send" — with no tick for a sign-in it carries (supersedes
+    D250 review L1's tick) and no armed delay; the session must still be
+    the one shown (`seen`: its coding agent, mode, sign-in), or it is
+    409 and the sheet looks again. The batch row sends a continue or a
+    message in place; the conversation's marker opens xbin's sheet (the
+    agent's page can't decide). Not built: a per-session standing grant
+    (the spec says what it would give up).
