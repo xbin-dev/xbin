@@ -457,10 +457,14 @@ func TestContinueOnlyOwnSessionSameTile(t *testing.T) {
 			t.Errorf("%s session offered to continue: %v", name, s["continue"])
 		}
 	}
-	// its own session on the tile: offered; approved by a client that knows it, continued
-	next := startBody("apps/x", "Goal: add a computer player.", "provider", "fake", "continue", a.ID)
+	// its own session on the tile: offered — even where the person's choice for the tile is another coding agent,
+	// which a NEW session would run — and approved by a client that knows it, continued on its own coding agent
+	if err := w.s.AgentPrefs.RememberTile("alice", "apps/x", agentprefs.TileStart{Harness: "codex"}, 1); err != nil {
+		t.Fatal(err)
+	}
+	next := startBody("apps/x", "Goal: add a computer player.", "continue", a.ID)
 	r2 := w.ask(alice, "POST", "/api/xbin/term/sessions", next)
-	if c, _ := sessOf(r2)["continue"].(map[string]any); c == nil || c["session"] != a.ID || c["provider"] != "fake" {
+	if c, _ := sessOf(r2)["continue"].(map[string]any); c == nil || c["session"] != a.ID || c["provider"] != "fake" || sessOf(r2)["provider"] != "codex" {
 		t.Fatalf("the agent's own idle session isn't offered: %v", sessOf(r2))
 	}
 	if rec := w.do(w.full, "POST", "/api/xbin/delegate/requests/"+r2.ID+"/approve", `{"knows":["continue"]}`, person); rec.Code != 200 {

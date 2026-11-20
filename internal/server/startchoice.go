@@ -386,6 +386,26 @@ func (s *Server) startPickOf(a delegateActor, id string, b pickBody) (*delegatio
 	if why != "" {
 		return nil, nil, http.StatusConflict, "this start can't open as things stand: " + why + " — deny it, and your agent asks again"
 	}
+	// continuing the agent's own idle session there — the first choice of a client that shows it — unless the
+	// person starts a new one, or picks another coding agent: the session keeps its own coding agent, model, mode
+	if offered != nil && knows && (b.Continue == nil || *b.Continue) && (b.Harness == nil || *b.Harness == offered["provider"]) {
+		sid, _ := offered["session"].(string)
+		prov, _ := offered["provider"].(string)
+		if _, why := s.continuable(pp, sid, tile); why != "" {
+			return nil, nil, http.StatusConflict, "the session this would continue can't be continued now (" + why + "): start a new session instead"
+		}
+		if !slices.ContainsFunc(now.Harnesses, func(h harnessChoice) bool { return h.ID == prov }) {
+			return nil, nil, http.StatusConflict, "the session this would continue runs " + prov + ", which may no longer run on " + tile + ": start a new session instead"
+		}
+		mode, _ := offered["mode"].(string)
+		model, _ := offered["model"].(string)
+		c := delegation.StartChoice{Provider: prov, Mode: mode, Model: model, Continue: sid}
+		out := maps.Clone(req.Preview)
+		cont := maps.Clone(shown)
+		cont["continuing"] = true
+		out["session"] = cont
+		return &c, out, 0, ""
+	}
 	c := delegation.StartChoice{Provider: now.Harness, Model: now.Model, Mode: now.Mode, Remember: b.Remember}
 	if b.Harness != nil && *b.Harness != now.Harness {
 		c.Provider, c.Model, c.Mode = *b.Harness, "", ""
@@ -402,22 +422,12 @@ func (s *Server) startPickOf(a delegateActor, id string, b pickBody) (*delegatio
 	if why := pickRefusal(now, c, tile); why != "" {
 		return nil, nil, http.StatusBadRequest, why
 	}
-	if offered != nil && knows && (b.Continue == nil || *b.Continue) && offered["provider"] == c.Provider {
-		sid, _ := offered["session"].(string)
-		if _, why := s.continuable(pp, sid, tile); why != "" {
-			return nil, nil, http.StatusConflict, "the session this would continue can't be continued now (" + why + "): start a new session instead"
-		}
-		c.Continue = sid
-	}
 	redrawn, why := s.sessionPreviewFor(pp, []byte(req.Body), &c)
 	if why != "" {
 		return nil, nil, http.StatusConflict, "this start can't open as you picked it: " + why
 	}
 	if by, ok := shown["briefBy"]; ok {
 		redrawn["briefBy"] = by
-	}
-	if c.Continue != "" {
-		redrawn["continuing"] = true
 	}
 	out := maps.Clone(req.Preview)
 	out["session"] = redrawn
