@@ -646,6 +646,7 @@ type wsSessionWire struct {
 	ID, Cwd, Kind, Provider, Mode, Status, Origin, Name string
 	Model                                               string
 	Continued                                           bool // a start its person chose to continue this session with (D250)
+	Returned                                            []wsReturned
 	Pending, Questions, Turn                            int
 	Last                                                string
 	// for an id no longer live (the compact read with ids): status "ended",
@@ -666,7 +667,7 @@ func (w wsSessionWire) endedBy() string {
 // mode asks are not the row's to say: named reads them from xbind.
 func (w wsSessionWire) agent() wsAgent {
 	a := wsAgent{ID: w.ID, Tile: w.Cwd, Provider: w.Provider, Mode: w.Mode, Status: wsAgentStatus(w.Status), Pending: w.Pending, Questions: w.Questions,
-		Turn: w.Turn, Last: w.Last, Origin: w.Origin, Mine: w.Origin == "agent", EndedBy: w.endedBy(), Model: w.Model, Continued: w.Continued}
+		Turn: w.Turn, Last: w.Last, Origin: w.Origin, Mine: w.Origin == "agent", EndedBy: w.endedBy(), Model: w.Model, Continued: w.Continued, Returned: w.Returned}
 	if w.Status == "waiting_permission" && !a.waits() {
 		a.Pending = 1
 	}

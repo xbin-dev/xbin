@@ -557,6 +557,19 @@ type wsAgent struct {
 	// Continued: a start its person chose to continue this session with
 	// (D250): the brief went to it as a follow-up, nothing new opened.
 	Continued bool `json:"continued,omitempty"`
+	// Returned: messages this agent sent it that it held for its turn's end
+	// and did not deliver — the session was switched meanwhile to a mode
+	// that acts without asking (xbind's reason; D250 re-review 4a)
+	Returned []wsReturned `json:"returned,omitempty"`
+}
+
+// wsReturned is a held message xbind didn't deliver: its id, its text (a
+// preview), why, and when (unix ms).
+type wsReturned struct {
+	ID     string `json:"id"`
+	Text   string `json:"text"`
+	Reason string `json:"reason"`
+	At     int64  `json:"at"`
 }
 
 // waits: the session waits for its person (a permission, a question).

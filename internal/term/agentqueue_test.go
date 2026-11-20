@@ -363,3 +363,48 @@ func TestAgentMessageHeldIsJudgedAtDelivery(t *testing.T) {
 	}
 	r.until(t, agentSays("echo: and mine"))
 }
+
+// A switch the person asked for that the coding agent hasn't answered yet
+// counts too (D250 re-review 4b): their turn ends while the switch to a
+// mode that acts without asking is still in flight, and the agent's held
+// message is not let through into it. In flight is set as AgentSetOption
+// sets it before it asks the agent — the window is the agent's answer.
+func TestAgentMessageHeldIsJudgedWhileASwitchIsInFlight(t *testing.T) {
+	r := newAgentRig(t)
+	m := r.m
+	id := openFake(t, r, "--auto-mode")
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	if _, err := m.AgentPrompt(ctx, id, "stall"); err != nil {
+		t.Fatal(err)
+	}
+	r.until(t, agentSays("stalling"))
+	held, err := m.AgentQueue(QueuedBy(ctx, "xbin/wsagent", false), id, agent.Prompt{Text: "Fix the stray O."}, false)
+	if err != nil || held.Outcome != QueueHeld {
+		t.Fatalf("the agent's message: %+v %v", held, err)
+	}
+	_, st, _ := m.agentOf(id)
+	st.mu.Lock()
+	st.pendingMode = "auto" // the person's switch, asked for, not answered yet
+	st.mu.Unlock()
+	if m.AgentPendingMode(id) != "auto" {
+		t.Fatalf("the switch in flight: %q", m.AgentPendingMode(id))
+	}
+	if err := m.AgentCancel(id); err != nil {
+		t.Fatal(err)
+	}
+	back := queueOf(r.until(t, func(e SessionEvent) bool {
+		return e.Type == EvQueue && (len(queueOf(e).Returned) > 0 || len(queueOf(e).Sent) > 0)
+	}))
+	if len(back.Returned) != 1 || back.Returned[0] != held.ID || !strings.Contains(back.Reason, `"auto"`) {
+		t.Fatalf("the held message with the switch in flight: %+v", back)
+	}
+	// the switch itself, answered and reported: no longer in flight
+	if err := m.AgentSetOption(ctx, id, "mode", "auto"); err != nil {
+		t.Fatal(err)
+	}
+	r.until(t, func(e SessionEvent) bool { return e.Type == agent.EvStatus && edata(e.Event)["currentMode"] == "auto" })
+	if m.AgentPendingMode(id) != "" {
+		t.Fatalf("still in flight once reported: %q", m.AgentPendingMode(id))
+	}
+}

@@ -117,7 +117,7 @@ test('the one batch: every pending act once, oldest first, one action each — a
   assert.deepEqual(S.askedParts({ created: at('10:47:00'), expires: '2026-11-22T10:47:00Z' }, NOW).length, 2);
 });
 
-test('Remember keeps no mode that acts without asking, and nothing of a coding agent with no mode that asks (D250 review M1, M2)', () => {
+test('Remember keeps no mode that acts without asking; of a coding agent with no mode that asks, its coding agent and model (D250 review M1; re-review item 3)', () => {
   const oc = { id: 'opencode', name: 'OpenCode', defaultMode: '', modelsKnown: false, modes: [{ id: '', name: 'its own default', asks: false }, { id: 'build', name: 'build', asks: false }], models: [{ id: '' }] };
   const req = start({ choices: { harnesses: [...harnesses, oc] }, harnessNotTaken: 'opencode' });
   let pick = S.pickOf(req);
@@ -130,8 +130,8 @@ test('Remember keeps no mode that acts without asking, and nothing of a coding a
   assert.match(w.remember.note, /^This mode acts without asking: it isn't remembered/);
   pick = S.choose(pick, req, 'harness', 'opencode');
   const o = S.startView(req, pick);
-  assert.deepEqual([o.remember.shown, o.asks, o.pickers[0].warn], [false, false, '']);
-  assert.match(o.remember.note, /^OpenCode has no mode that asks before it acts: nothing of it is remembered/);
+  assert.deepEqual([o.remember.shown, o.asks, o.pickers[0].warn, o.remember.keepsMode], [true, false, '', false]);
+  assert.match(o.remember.note, /^Keeps OpenCode and its model for your next start here, never its mode: OpenCode has no mode that asks before it acts/);
 });
 
 test('a follow-up into a session that carries the person\'s saved sign-in: the sheet says so, and only a tick lets it go in (D250 review L1)', () => {
@@ -164,4 +164,19 @@ test('Try again: the earlier picks preselected — never the sign-in tick (D250 
   const req = { ...start(), state: 'failed', failure: { why: 'the sandbox didn\'t start', retry: true }, chosen: { provider: 'gemini', model: 'm-agent', mode: 'default' } };
   const pick = S.pickOf(req);
   assert.deepEqual([pick.harness, pick.model, pick.mode, pick.remember, pick.cont], ['gemini', 'm-agent', 'default', false, false]);
+});
+
+test('a coding agent with no mode that asks (OpenCode): the warning, no word that it asks, Remember keeps it but its mode (D250 re-review items 2, 3)', () => {
+  const oc = { id: 'opencode', name: 'OpenCode', defaultMode: '', modelsKnown: true, noSignIn: true,
+    modes: [{ id: '', name: 'its own default', asks: false }, { id: 'build', name: 'build', asks: false }, { id: 'plan', name: 'plan', asks: false }], models: [{ id: '' }] };
+  // the person's own choice for the tile: preselected, warned
+  const req = start({ provider: 'opencode', providerName: 'OpenCode', mode: '', asks: false, choices: { harnesses: [...harnesses, oc] }, from: { harness: 'tile', mode: 'default', model: 'default' } });
+  const v = S.startView(req, S.pickOf(req));
+  assert.equal(v.asks, false);
+  assert.match(v.danger, /^OpenCode in this mode acts without asking/);
+  assert.equal(v.label, 'Start without asking');
+  assert.equal(v.pickers[2].note, 'OpenCode has no mode that asks first: in any mode it edits files and runs commands without asking you.');
+  assert.ok(!/asks you/.test(JSON.stringify(v)), `no word that it asks you anywhere on the sheet: ${JSON.stringify(v).match(/.{60}asks you.{20}/)}`);
+  assert.equal(v.remember.shown, true);
+  assert.match(v.remember.note, /^Keeps OpenCode and its model for your next start here, never its mode/);
 });

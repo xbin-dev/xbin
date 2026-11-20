@@ -45,6 +45,7 @@ package server
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -58,6 +59,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/xbin-dev/xbin/internal/agent"
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/delegation"
 	"github.com/xbin-dev/xbin/internal/term"
@@ -893,6 +895,11 @@ func (s *Server) delegateApproval(w http.ResponseWriter, r *http.Request, p auth
 		provider, model, differs := s.unaskedStart(p, asked)
 		if differs != "" {
 			return nil, http.StatusForbidden, "needs-approval", differs + ask
+		}
+		if prov, known := agent.Lookup(cmp.Or(provider, s.startDefaults(p, asked.Cwd).Harness)); known && prov.AskingMode() == "" {
+			// the person's own choice may be a coding agent with no mode that asks (D250 re-review item 3): it
+			// never starts unasked, whatever their preference says — each start is theirs to approve, warned
+			return nil, http.StatusForbidden, "needs-approval", "your person's coding agent for this tile, " + prov.Name + ", acts without asking, so every start is approved on the sheet" + ask
 		}
 		prefs, ok := s.agentPolicy().StartPrefs(p.UserID, asked.Cwd, provider)
 		if !ok {

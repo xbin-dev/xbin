@@ -77,7 +77,7 @@ func (s *Server) sendsRefusal(p auth.Principal, id, text string) (why, refusal s
 	}
 	why, refusal = harnessCommand(text), "command"
 	if why == "" {
-		why, refusal = modeRefusal(info, s.Term.AgentOriginMode(id), p.UserID), "mode"
+		why, refusal = s.sessionModeRefusal(id, info, p.UserID), "mode"
 	}
 	if why == "" {
 		why, refusal = s.sendRefusal(p, s.liveTarget(id, info)), "taint"
@@ -136,6 +136,22 @@ func harnessCommand(text string) string {
 // review M2: a writer to the tile can redefine what each of its modes
 // does), so what the person approved names no behaviour: each message is
 // theirs to approve.
+// sessionModeRefusal is modeRefusal for live session id: on the mode it
+// reports, and on a mode a switch asked for that it hasn't reported yet —
+// the one it may be in by the time the text reaches it (D250 re-review 4b).
+func (s *Server) sessionModeRefusal(id string, info term.SessionInfo, user string) string {
+	started := s.Term.AgentOriginMode(id)
+	if why := modeRefusal(info, started, user); why != "" {
+		return why
+	}
+	if pending := s.Term.AgentPendingMode(id); pending != "" {
+		in := info
+		in.Mode = pending
+		return modeRefusal(in, started, user)
+	}
+	return ""
+}
+
 func modeRefusal(info term.SessionInfo, started, user string) string {
 	if term.MessageModeOK(info.Provider, info.Mode, started) { // (the one predicate: the held queue's delivery uses it too)
 		return ""

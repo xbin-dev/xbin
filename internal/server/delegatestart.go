@@ -194,7 +194,17 @@ func (s *Server) sessionPreviewFor(p auth.Principal, body []byte, person *delega
 	if len(b.Prompt) > maxStartPrompt {
 		return nil, fmt.Sprintf("a start's first prompt is at most %d KiB", maxStartPrompt>>10)
 	}
-	if _, why := s.startRefusal(p, sessionAskOf(body)); why != "" {
+	ask := sessionAskOf(body)
+	refuse := s.startRefusal
+	if ask.Continue != "" && (person == nil || person.Continue != "") {
+		// a start the request preselects as a follow-up into the agent's session there: judged as the decide judges
+		// it — the brief's scope here, the session's own live source (continuable) — not as a new start that may
+		// never be made (D250 re-review item 6). A new session the person picks instead is judged then, in full.
+		if _, why := s.continuable(p, ask.Continue, strings.Trim(ask.Cwd, "/")); why == "" {
+			refuse = s.startScopeRefusal
+		}
+	}
+	if _, why := refuse(p, ask); why != "" {
 		return nil, why // no approval makes it startable: don't put it in front of the person
 	}
 	options := map[string]string{}

@@ -183,7 +183,7 @@ func TestDelegateStartDefaultsSavedSignIn(t *testing.T) {
 		return w.ask(alice, "POST", "/api/xbin/term/sessions", `{"cwd":"apps/x","kind":"agent","provider":"claude","prompt":"p"}`)
 	}
 	approve := func(id, body string, who cred) (int, string) {
-		rec := w.do(w.full, "POST", "/api/xbin/delegate/requests/"+id+"/approve", body, who)
+		rec := w.do(w.full, "POST", "/api/xbin/delegate/requests/"+id+"/approve", w.seen("alice", id, body), who)
 		return rec.Code, rec.Body.String()
 	}
 	stored := func(id string) delegation.Request { r, _ := w.store.Request("alice", id); return r }

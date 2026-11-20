@@ -196,21 +196,36 @@ func (s *Store) own(userID string, f file) Prefs {
 	return s.sane(p.filled())
 }
 
-// sane is p as the rules read it, whatever the file holds (D250 review M1):
-// no remembered or preferred coding agent without a mode that asks, and no
-// remembered mode that acts without asking — the predicate the approval's
-// warning uses (acp.Provider.Asks). A value that slipped past check (a file
-// written before the rule) is ignored, not trusted.
+// sane is p as the rules read it, whatever the file holds (D250 review M1;
+// re-review item 1): no remembered or preferred mode that acts without
+// asking — the predicate the approval's warning uses (acp.Provider.Asks) —
+// and no choice of a coding agent this xbind doesn't know. A value that
+// slipped past check (a file an earlier xbind wrote under looser rules:
+// v0.3.83 took OpenCode's "plan" as an asking mode) is ignored, never an
+// error — so it never blocks a later write of something else (the Agent
+// tab's launcher writes on every by-hand start). A coding agent with no
+// mode that asks stays the person's choice (re-review item 3): only its
+// mode is never kept.
 func (s *Store) sane(p Prefs) Prefs {
 	a := &p.AgentSessions
-	if prov, ok := s.lookup(a.Harness); a.Harness != "" && (!ok || prov.AskingMode() == "") {
+	if _, ok := s.lookup(a.Harness); a.Harness != "" && !ok {
 		a.Harness = ""
+	}
+	if len(a.Modes) > 0 {
+		modes := make(map[string]string, len(a.Modes))
+		for id, mode := range a.Modes {
+			if prov, known := s.lookup(id); known && (!prov.Safe(mode) || !prov.Asks(mode)) {
+				continue
+			}
+			modes[id] = mode
+		}
+		a.Modes = modes
 	}
 	if len(a.Tiles) > 0 {
 		tiles := make(map[string]TileStart, len(a.Tiles))
 		for tile, ts := range a.Tiles {
 			prov, ok := s.lookup(ts.Harness)
-			if !ok || prov.AskingMode() == "" {
+			if !ok {
 				continue
 			}
 			if ts.Mode != "" && !prov.Asks(ts.Mode) {
@@ -411,13 +426,11 @@ func (s *Store) check(p *Prefs) error {
 		if !idRe.MatchString(a.Harness) {
 			return fmt.Errorf("agentSessions.harness: %q isn't a harness id", a.Harness)
 		}
-		prov, ok := s.lookup(a.Harness)
-		if !ok {
+		if _, ok := s.lookup(a.Harness); !ok {
 			return fmt.Errorf("agentSessions.harness: no harness %q (GET /api/xbin/agent/providers lists them)", a.Harness)
 		}
-		if prov.AskingMode() == "" { // (D250 review M2: never a preselection — picked on each approval)
-			return fmt.Errorf("agentSessions.harness: %s has no mode that asks before it acts: it can't be the one your agent's starts preselect", prov.Name)
-		}
+		// (one with no mode that asks — OpenCode — may be the person's choice: preselected on each approval with
+		// its warning, never started without one: D250 re-review item 3)
 	}
 	if len(a.Tiles) > MaxTiles {
 		return fmt.Errorf("agentSessions.tiles: at most %d", MaxTiles)
@@ -436,8 +449,6 @@ func (s *Store) check(p *Prefs) error {
 			return fmt.Errorf("agentSessions.tiles.%s.harness: no harness %q", tile, ts.Harness)
 		case len(ts.Model) > maxValue:
 			return fmt.Errorf("agentSessions.tiles.%s.model: too long", tile)
-		case prov.AskingMode() == "":
-			return fmt.Errorf("agentSessions.tiles.%s.harness: %s has no mode that asks before it acts: it is picked on each approval, never remembered", tile, prov.Name)
 		case ts.Mode != "" && !prov.Asks(ts.Mode):
 			// only a mode that asks is remembered (D250 review M1): one that acts without asking is the person's
 			// explicit pick on each approval, warned there — never a preselection
@@ -458,8 +469,8 @@ func (s *Store) check(p *Prefs) error {
 // approval route makes, with the fields the person themselves changed): the
 // oldest remembered tile goes past MaxTiles. A mode that acts without
 // asking is dropped — for any coding agent, by the predicate the approval's
-// warning uses (acp.Provider.Asks) — and a coding agent with no mode that
-// asks (OpenCode) is not remembered at all (D250 review M1, M2).
+// warning uses (acp.Provider.Asks); the coding agent and model are kept,
+// OpenCode's too (D250 review M1; re-review item 3). kept says what was.
 func (s *Store) RememberTile(userID, tile string, ts TileStart, now int64) error {
 	if userID == "" || tile == "" {
 		return errors.New("a remembered choice is a person's, for a tile")
@@ -467,9 +478,6 @@ func (s *Store) RememberTile(userID, tile string, ts TileStart, now int64) error
 	prov, ok := s.lookup(ts.Harness)
 	if !ok {
 		return fmt.Errorf("no harness %q", ts.Harness)
-	}
-	if prov.AskingMode() == "" {
-		return nil // nothing of it is a preselection anyone gets: picked on each approval
 	}
 	if ts.Mode != "" && !prov.Asks(ts.Mode) {
 		ts.Mode = ""

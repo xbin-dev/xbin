@@ -255,6 +255,10 @@ func (ag *Agent) wsRunsOn(ctx context.Context, s *wsSession, tile, picked string
 		on += ", model " + model
 	}
 	on += ", " + map[bool]string{true: "asks before acting", false: "acts without asking"}[asks]
+	if !asks && from != "" {
+		// the person's own choice of a coding agent with no mode that asks (D250 re-review item 3)
+		on += " — your person's coding agent for this tile acts without asking, so every start is approved on the sheet"
+	}
 	if h.NoSignIn {
 		on += ", on the workspace's model with no sign-in"
 	}

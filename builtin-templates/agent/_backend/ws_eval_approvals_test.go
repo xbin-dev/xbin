@@ -262,3 +262,39 @@ func TestWsEvalApprovalSaysWhatIsThere(t *testing.T) {
 		t.Fatalf("the start's answer: %q", got)
 	}
 }
+
+// A message the agent sent a working tile agent, held for its turn's end
+// and not delivered — its person switched it meanwhile to a mode that acts
+// without asking — is said to the conversation once, in xbind's words, with
+// what to do; never sent again, never said twice (D250 re-review 4a).
+func TestWsEvalApprovalReturnedMessageIsSaidOnce(t *testing.T) {
+	fx, s := euiFix(t)
+	_, sid := fx.seedAgent(t, s, "apps/eui")
+	fx.x.setAgent(sid, func(a *wsAgent) { a.Status = "idle" })
+	fx.notify(t)
+	fx.rest(t, s)
+	f := fakeOf(fx.ag)
+	f.on(forRun(s.Run, lastUser("were not delivered")), say("Your switch kept my fix out; I'll ask you to approve it.")).once()
+	why := `this session is now in the mode "auto", which acts without asking, and its person didn't approve it in that mode: a message from their workspace agent goes in only with their approval of that message`
+	fx.x.setAgent(sid, func(a *wsAgent) {
+		a.Returned = []wsReturned{{ID: "q1", Text: "Fix the stray O.", Reason: why, At: 1795000000000}}
+	})
+	fx.notify(t)
+	waitFor(t, "the update", func() bool { return strings.HasPrefix(fx.lastAssistant(t, s), "Your switch kept my fix out") })
+	fx.idle(t, s)
+	up := fx.updates(t, s)
+	got := up[len(up)-1]
+	for _, want := range []string{"were not delivered", "«Fix the stray O.»", `the mode "auto", which acts without asking`, "not tried again", "tile_agent_message files it for your person's approval"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("the update lacks %q:\n%s", want, got)
+		}
+	}
+	// read again (and again): nothing more is said
+	n := len(fx.userMsgs(t, s))
+	fx.notify(t)
+	fx.notify(t)
+	fx.idle(t, s)
+	if m := len(fx.userMsgs(t, s)); m != n || len(fx.x.said[sid]) != 0 {
+		t.Fatalf("said again (%d → %d), or resent: %q", n, m, fx.x.said[sid])
+	}
+}

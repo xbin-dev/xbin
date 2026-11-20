@@ -558,20 +558,26 @@ func (s *Server) startDefaults(p auth.Principal, tile string) startDefaultsView 
 			break
 		}
 	}
-	if first := out.Harnesses; out.Harness == "" && len(first) > 0 &&
+	// the workspace's default is one with a mode that asks wherever one is allowed (D250 re-review item 3); a
+	// coding agent with none (OpenCode) only where it is all the tile allows — preselected warned, as ever
+	cands := slices.DeleteFunc(slices.Clone(out.Harnesses), func(h startHarness) bool { return !vouched(h.ID) })
+	if len(cands) == 0 {
+		cands = out.Harnesses
+	}
+	if first := cands; out.Harness == "" && len(first) > 0 &&
 		(llm != nil && !runsNow(llm[first[0].ID]) || llm == nil && first[0].SignIn == "needed") {
 		// the first allowed can't run as things are: the first the
 		// workspace's model serves — a session the agent starts has no
 		// sign-in of the person's unless they tick one on its approval
-		for _, h := range out.Harnesses {
+		for _, h := range cands {
 			if h.NoSignIn {
 				out.Harness = h.ID
 				break
 			}
 		}
 	}
-	if out.Harness == "" && len(out.Harnesses) > 0 {
-		out.Harness = out.Harnesses[0].ID
+	if out.Harness == "" && len(cands) > 0 {
+		out.Harness = cands[0].ID
 	}
 	// the person's own: their choice remembered for this tile, then their
 	// preference — an allowed one wins over the workspace's default (D250)

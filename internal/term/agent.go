@@ -93,17 +93,25 @@ func (e SessionEvent) Private() bool { return e.private }
 
 // agentState is the agent half of a KindAgent session.
 type agentState struct {
-	drv       agent.Driver
-	log       *agent.Log
-	perms     *agent.Permissions
-	provider  agent.Provider
-	ready     chan struct{} // closed once the driver's Start returned
-	never     chan struct{} // closed when the session ended before its driver started: the pump ends it
-	done      chan struct{} // closed once the pump ended (the session is over)
-	gone      chan struct{} // closed after the teardown: history saved, layer released, row removed
-	mu        sync.Mutex
-	startErr  error
-	mode      string
+	drv      agent.Driver
+	log      *agent.Log
+	perms    *agent.Permissions
+	provider agent.Provider
+	ready    chan struct{} // closed once the driver's Start returned
+	never    chan struct{} // closed when the session ended before its driver started: the pump ends it
+	done     chan struct{} // closed once the pump ended (the session is over)
+	gone     chan struct{} // closed after the teardown: history saved, layer released, row removed
+	mu       sync.Mutex
+	startErr error
+	mode     string
+	// pendingMode: a mode a client asked for (AgentSetOption) that the agent
+	// hasn't reported yet — what the session may be in by its next turn: a
+	// message of the person's agent is judged on both (D250 re-review 4b)
+	pendingMode string
+	// returned: the last held messages of a person's workspace agent that
+	// were not delivered (agentqueue.go) — what its next status read tells
+	// it, once (D250 re-review 4a)
+	returned  []Returned
 	model     string // the agent's current model option, when it exposes one
 	status    string
 	turn      uint64
@@ -748,6 +756,9 @@ func (s *Session) logOne(m *Manager, e agent.Event) {
 		flush := sdkacp.TurnOver(d.Status) && st.queueStateLocked().Flush() // the turn ended: what is held goes in (D197)
 		if d.CurrentMode != "" {
 			st.mode = d.CurrentMode
+			if st.pendingMode == d.CurrentMode {
+				st.pendingMode = "" // reported: it is the mode now
+			}
 		}
 		for _, o := range d.Options {
 			if o.ID == "model" {
@@ -885,7 +896,34 @@ func (m *Manager) AgentSetOption(ctx context.Context, id, optionID, value string
 	if err := st.llm.option(st.provider, optionID, value); err != nil { // only the connector may serve it (llmhook.go)
 		return err
 	}
-	return st.drv.SetOption(ctx, optionID, value)
+	if optionID == "mode" {
+		// asked for, not yet reported: what a held message of the person's agent is judged on too, from now
+		// until the agent says (D250 re-review 4b) — a switch in flight when the turn ends lets nothing through
+		st.mu.Lock()
+		st.pendingMode = value
+		st.mu.Unlock()
+	}
+	err = st.drv.SetOption(ctx, optionID, value)
+	if err != nil && optionID == "mode" {
+		st.mu.Lock()
+		if st.pendingMode == value {
+			st.pendingMode = ""
+		}
+		st.mu.Unlock()
+	}
+	return err
+}
+
+// AgentPendingMode is the mode a client asked session id to switch to that
+// its agent hasn't reported yet ("" none).
+func (m *Manager) AgentPendingMode(id string) string {
+	_, st, err := m.agentOf(id)
+	if err != nil {
+		return ""
+	}
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	return st.pendingMode
 }
 
 // AgentPermit answers pending permission pid with an option id or a

@@ -112,6 +112,18 @@ async function sheetChecks(check, P, label) {
   check(a2 && d2 && (d2.x < a2.x || d2.y < a2.y), `${label}: warned — the same places`);
   check(!!(await P.$(`${SHEET} [data-danger]`)), `${label}: warned — the danger is said in the body`);
   await shot(P, `approvals-sheet-warned${label.includes('430') ? '-430' : ''}`, { fullPage: false });
+  // a coding agent with no mode that asks (OpenCode, D250 re-review item 2): warned, and no word anywhere that it asks you
+  if (opts.includes('opencode')) {
+    await P.selectOption(`${SHEET} [data-select="harness"]`, 'opencode');
+    await sleep(800);
+    const ot = await textOf(await P.$(SHEET));
+    check(!!(await P.$(`${SHEET} [data-danger]`)), `${label}: OpenCode picked — the danger banner`);
+    check(!/asks you/.test(ot), `${label}: OpenCode picked — no "asks you" anywhere on the sheet (${(ot.match(/.{0,60}asks you.{0,30}/) || [''])[0]})`);
+    check(/OpenCode has no mode that asks first/.test(ot), `${label}: OpenCode picked — the mode says it has none that asks`);
+    await shot(P, `approvals-sheet-opencode${label.includes('430') ? '-430' : ''}`, { fullPage: false });
+    await P.selectOption(`${SHEET} [data-select="harness"]`, FAKE);
+    await sleep(300);
+  }
   await P.selectOption(`${SHEET} [data-select="mode"]`, 'ask');
   await sleep(800);
 }

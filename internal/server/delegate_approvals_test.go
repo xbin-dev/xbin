@@ -118,7 +118,7 @@ func TestApproveChoicesAreByHandChoices(t *testing.T) {
 	w.policy.set(func(d *dPolicy) { d.denyHarness = map[string]bool{"gemini": true} })
 	req := w.ask(alice, "POST", "/api/xbin/term/sessions", startBody("apps/x", "go", "provider", "claude"))
 	approve := func(body string) (int, string) {
-		rec := w.do(w.full, "POST", "/api/xbin/delegate/requests/"+req.ID+"/approve", body, person)
+		rec := w.do(w.full, "POST", "/api/xbin/delegate/requests/"+req.ID+"/approve", w.seen("alice", req.ID, body), person)
 		var e struct{ Error string }
 		if json.Unmarshal(rec.Body.Bytes(), &e) == nil && e.Error != "" {
 			return rec.Code, e.Error
@@ -142,7 +142,7 @@ func TestApproveChoicesAreByHandChoices(t *testing.T) {
 		t.Fatalf("a refused pick decided the request: %s", got.State)
 	}
 	// the agent's own credential can't pick for its person
-	if rec := w.do(w.full, "POST", "/api/xbin/delegate/requests/"+req.ID+"/approve", `{"harness":"codex"}`, alice); rec.Code != 403 && rec.Code != 404 {
+	if rec := w.do(w.full, "POST", "/api/xbin/delegate/requests/"+req.ID+"/approve", w.seen("alice", req.ID, `{"harness":"codex"}`), alice); rec.Code != 403 && rec.Code != 404 {
 		t.Fatalf("the agent approved with a pick: %d", rec.Code)
 	}
 	if c, b := approve(`{"harness":"codex","mode":"read-only","remember":true}`); c != 200 {
@@ -395,7 +395,7 @@ func TestPersonsPickIsTheStart(t *testing.T) {
 	}
 	body := startBody("apps/x", "Goal: a tic tac toe game.", "provider", "claude", "mode", "acceptEdits")
 	req := w.ask(alice, "POST", "/api/xbin/term/sessions", body)
-	if rec := w.do(w.full, "POST", "/api/xbin/delegate/requests/"+req.ID+"/approve", `{"harness":"fake","mode":"auto","model":"fake-fast"}`, person); rec.Code != 200 {
+	if rec := w.do(w.full, "POST", "/api/xbin/delegate/requests/"+req.ID+"/approve", w.seen("alice", req.ID, `{"harness":"fake","mode":"auto","model":"fake-fast"}`), person); rec.Code != 200 {
 		t.Fatalf("the person's pick: %d %s", rec.Code, rec.Body.String())
 	}
 	rec := w.do(w.full, "POST", "/api/xbin/term/sessions", body, alice, header(HeaderTicket, req.ID))
@@ -420,7 +420,7 @@ func TestMessageApproval(t *testing.T) {
 	alice, person := delegateCred("d-alice"), w.cookie("alice")
 	body := startBody("apps/x", "Goal: a game.", "provider", "fake")
 	req := w.ask(alice, "POST", "/api/xbin/term/sessions", body)
-	w.do(w.full, "POST", "/api/xbin/delegate/requests/"+req.ID+"/approve", `{"harness":"fake","mode":"ask"}`, person)
+	w.do(w.full, "POST", "/api/xbin/delegate/requests/"+req.ID+"/approve", w.seen("alice", req.ID, `{"harness":"fake","mode":"ask"}`), person)
 	rec := w.do(w.full, "POST", "/api/xbin/term/sessions", body, alice, header(HeaderTicket, req.ID))
 	var info struct{ ID string }
 	if rec.Code != 200 || json.Unmarshal(rec.Body.Bytes(), &info) != nil {
@@ -484,7 +484,7 @@ func TestContinueOnlyOwnSessionSameTile(t *testing.T) {
 	alice, person := delegateCred("d-alice"), w.cookie("alice")
 	first := startBody("apps/x", "Goal: a game.", "provider", "fake")
 	req := w.ask(alice, "POST", "/api/xbin/term/sessions", first)
-	w.do(w.full, "POST", "/api/xbin/delegate/requests/"+req.ID+"/approve", `{"harness":"fake","mode":"ask"}`, person)
+	w.do(w.full, "POST", "/api/xbin/delegate/requests/"+req.ID+"/approve", w.seen("alice", req.ID, `{"harness":"fake","mode":"ask"}`), person)
 	rec := w.do(w.full, "POST", "/api/xbin/term/sessions", first, alice, header(HeaderTicket, req.ID))
 	var a struct{ ID string }
 	_ = json.Unmarshal(rec.Body.Bytes(), &a)
@@ -499,7 +499,7 @@ func TestContinueOnlyOwnSessionSameTile(t *testing.T) {
 		t.Helper()
 		b := startBody(tile, "Goal: mail.", "provider", "fake")
 		r := w.ask(c, "POST", "/api/xbin/term/sessions", b)
-		w.do(w.full, "POST", "/api/xbin/delegate/requests/"+r.ID+"/approve", `{"harness":"fake","mode":"ask"}`, person)
+		w.do(w.full, "POST", "/api/xbin/delegate/requests/"+r.ID+"/approve", w.seen("alice", r.ID, `{"harness":"fake","mode":"ask"}`), person)
 		rec := w.do(w.full, "POST", "/api/xbin/term/sessions", b, c, header(HeaderTicket, r.ID))
 		var x struct{ ID string }
 		if rec.Code != 200 || json.Unmarshal(rec.Body.Bytes(), &x) != nil || x.ID == "" {
@@ -537,7 +537,7 @@ func TestContinueOnlyOwnSessionSameTile(t *testing.T) {
 	if c, _ := sessOf(r2)["continue"].(map[string]any); c == nil || c["session"] != a.ID || c["provider"] != "fake" || sessOf(r2)["provider"] != "codex" {
 		t.Fatalf("the agent's own idle session isn't offered: %v", sessOf(r2))
 	}
-	if rec := w.do(w.full, "POST", "/api/xbin/delegate/requests/"+r2.ID+"/approve", `{"knows":["continue"]}`, person); rec.Code != 200 {
+	if rec := w.do(w.full, "POST", "/api/xbin/delegate/requests/"+r2.ID+"/approve", w.seen("alice", r2.ID, `{"knows":["continue"]}`), person); rec.Code != 200 {
 		t.Fatalf("approve continue: %d %s", rec.Code, rec.Body.String())
 	}
 	rec = w.do(w.full, "POST", "/api/xbin/term/sessions", next, alice, header(HeaderTicket, r2.ID))
@@ -588,7 +588,7 @@ func TestContinueOnlyOwnSessionSameTile(t *testing.T) {
 		r3 = w.ask(alice, "POST", "/api/xbin/term/sessions", startBody("apps/x", "Goal: polish.", "provider", "fake", "continue", a.ID))
 		rec := httptest.NewRecorder()
 		if sessOf(r3)["continue"] != nil {
-			if rec = w.do(w.full, "POST", "/api/xbin/delegate/requests/"+r3.ID+"/approve", `{"knows":["continue"]}`, person); rec.Code == 200 {
+			if rec = w.do(w.full, "POST", "/api/xbin/delegate/requests/"+r3.ID+"/approve", w.seen("alice", r3.ID, `{"knows":["continue"]}`), person); rec.Code == 200 {
 				break
 			}
 			if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "is busy") {

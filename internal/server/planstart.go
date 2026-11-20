@@ -338,6 +338,10 @@ func (s *Server) previewStart(a planAgent, op delegation.ChangeOp, planned []del
 	} else {
 		// only a harness's ask or plan mode is one xbind vouches for: anything else is the danger wording, and starts unticked
 		pv.Warnings = []string{fmt.Sprintf("ACTS WITHOUT ASKING: %s %s edits files and runs commands in %s without asking you. You will not get a chance to stop a single edit or command.", inTheMode, name, in.Tile)}
+		if pp, _ := agent.Lookup(fmt.Sprint(shown["provider"])); pp.ID != "" && pp.AskingMode() == "" {
+			// (the person's own choice of a coding agent with no mode that asks: D250 re-review item 3)
+			pv.Warnings = []string{fmt.Sprintf("ACTS WITHOUT ASKING: %s has no mode that asks before it acts: it edits files and runs commands in %s without asking you. You will not get a chance to stop a single edit or command.", name, in.Tile)}
+		}
 	}
 	return pv, nil
 }

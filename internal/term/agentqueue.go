@@ -81,6 +81,37 @@ type queueItem struct {
 	by queuedBy
 }
 
+// Returned is a held message of a person's workspace agent that was not
+// delivered: its id, its text (a preview), why, and when (unix ms).
+type Returned struct {
+	ID     string `json:"id"`
+	Text   string `json:"text"`
+	Reason string `json:"reason"`
+	At     int64  `json:"at"`
+	agent  string
+}
+
+// maxReturned bounds what a session keeps of them.
+const maxReturned = 8
+
+// AgentReturned is what session id returned of holder's held messages,
+// oldest first (its compact row for that agent: GET /term/sessions?compact).
+func (m *Manager) AgentReturned(id, holder string) []Returned {
+	_, st, err := m.agentOf(id)
+	if err != nil || holder == "" {
+		return nil
+	}
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	var out []Returned
+	for _, r := range st.returned {
+		if r.agent == holder {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
 // queuedBy is who sent a held message: a person's workspace agent (holder
 // agent, "" the person), and whether the person approved that message (a
 // message ticket; a follow-up they approved).
@@ -372,11 +403,14 @@ func (m *Manager) flushQueue(s *Session) {
 	// may have switched the session to a mode that acts without asking while it waited — then it isn't delivered;
 	// it goes back to the agent with the reason (the queue event's returned), and the rest go on
 	var returned []string
-	if !MessageModeOK(st.provider.ID, st.mode, s.originMode) {
+	var gone []queueItem
+	// the mode it reports, and one a switch asked for that it hasn't reported yet (D250 re-review 4b)
+	if !MessageModeOK(st.provider.ID, st.mode, s.originMode) || st.pendingMode != "" && !MessageModeOK(st.provider.ID, st.pendingMode, s.originMode) {
 		kept := st.queue[:0:0]
 		for _, it := range st.queue {
 			if it.by.agent != "" && !it.by.approved {
 				returned = append(returned, it.q.ID)
+				gone = append(gone, it)
 				continue
 			}
 			kept = append(kept, it)
@@ -384,7 +418,17 @@ func (m *Manager) flushQueue(s *Session) {
 		st.queue = kept
 	}
 	if len(returned) > 0 {
-		why := fmt.Sprintf("this session is now in the mode %q, which acts without asking, and its person didn't approve it in that mode: a message from their workspace agent goes in only with their approval of that message", st.mode)
+		mode := st.mode
+		if !MessageModeOK(st.provider.ID, st.pendingMode, s.originMode) && st.pendingMode != "" {
+			mode = st.pendingMode
+		}
+		why := fmt.Sprintf("this session is now in the mode %q, which acts without asking, and its person didn't approve it in that mode: a message from their workspace agent goes in only with their approval of that message", mode)
+		for _, it := range gone { // what the agent is told by its next read of the session (D250 re-review 4a)
+			st.returned = append(st.returned, Returned{ID: it.q.ID, Text: preview(it.q.Text), Reason: why, At: time.Now().UnixMilli(), agent: it.by.agent})
+		}
+		if len(st.returned) > maxReturned {
+			st.returned = append(st.returned[:0:0], st.returned[len(st.returned)-maxReturned:]...)
+		}
 		items := st.queuedLocked()
 		st.mu.Unlock()
 		s.logEvent(m, agent.New(EvQueue, queueData{Items: items, Returned: returned, Reason: why}))

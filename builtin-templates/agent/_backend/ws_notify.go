@@ -39,6 +39,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -712,6 +713,15 @@ func (ag *Agent) wsSeen(ctx context.Context, s *wsSession, row *wsAgentRow, a ws
 	if next.state() == wsWorking {
 		next.Told, next.Owed, next.Wake = wsWorking, false, false
 	}
+	// a message it held for its turn's end and didn't deliver (the person switched it meanwhile to a mode that acts
+	// without asking): said once, in xbind's words, as a refused held message is — never sent again from here
+	// (D250 re-review 4a)
+	if told := ag.wsReturnedNews(row, a); told != "" {
+		_, _ = ag.db.q.Exec(`UPDATE ws_agents SET refused=?, owed=1, wake=1 WHERE id=?`, clip(told, 900), row.ID)
+		next.Refused, next.Owed, next.Wake = told, true, true
+		row.Refused = told
+		ag.wsChanged(row.Run, "agent")
+	}
 	if next == *row {
 		ag.wsFlushHeld(ctx, s, &next)
 		return false // nothing new: what is still owed was asked for when it was found (wsBoot asks again after a stop)
@@ -721,6 +731,32 @@ func (ag *Agent) wsSeen(ctx context.Context, s *wsSession, row *wsAgentRow, a ws
 	ag.wsFlushHeld(ctx, s, &next)
 	ag.wsChanged(row.Run, "agent")
 	return next.Owed && next.Wake
+}
+
+// wsReturnedNews is what a tile agent returned of this conversation's held
+// messages since it was last said ("" nothing new) — each one once: the
+// newest said is kept per tile agent (a setting), so a reread, or a restart,
+// says nothing twice.
+func (ag *Agent) wsReturnedNews(row *wsAgentRow, a wsAgent) string {
+	if len(a.Returned) == 0 {
+		return ""
+	}
+	key := fmt.Sprintf("ws_returned_said:%d", row.ID)
+	said, _ := strconv.ParseInt(ag.db.getSetting(key), 10, 64)
+	var lines []string
+	newest := said
+	for _, r := range a.Returned {
+		if r.At <= said {
+			continue
+		}
+		lines = append(lines, wsQuote(r.Text)+" ("+clip(r.Reason, 300)+")")
+		newest = max(newest, r.At)
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	_ = ag.db.putSetting(key, strconv.FormatInt(newest, 10))
+	return strings.Join(lines, "; ") + " — not tried again: to send one now, tile_agent_message files it for your person's approval"
 }
 
 // wsStartGrace is how long a session just opened may read idle before its

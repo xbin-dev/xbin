@@ -84,7 +84,7 @@ func (s *Server) messagePreview(p auth.Principal, path string, body []byte) (map
 	if why := harnessCommand(b.Text); why != "" {
 		return nil, "", http.StatusForbidden, why
 	}
-	if modeRefusal(info, s.Term.AgentOriginMode(id), p.UserID) == "" {
+	if s.sessionModeRefusal(id, info, p.UserID) == "" {
 		return nil, "", http.StatusBadRequest, "this session asks its person before it acts (or runs in the mode they approved it in): send the message — it needs no approval"
 	}
 	t := sendTargetOf(info)

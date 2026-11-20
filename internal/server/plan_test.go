@@ -327,12 +327,29 @@ func TestPlanStartUsesOnlyTheSignInItsLineNamed(t *testing.T) {
 		if done.Items[0].Result != delegation.ItemApplied || len(opened) != 1 || opened[0].Provider != "claude" || opened[0].Mode != "default" || !opened[0].Approved {
 			t.Fatalf("applying it: %+v (error %q; opens %+v)", done.Items[0].Result, done.Items[0].Error, opened)
 		}
-		// remembering it for the tile keeps nothing: it has no mode that asks to remember, and is never preselected
+		// the person's own choice of it for the tile is kept — its coding agent, never its mode (D250 re-review
+		// item 3) — and a plan's line there then resolves to it WITH the warning: a warned line starts unticked
+		// on the review (D238), so its tick is the person's warned approval of exactly that
 		if err := w.s.AgentPrefs.RememberTile("alice", "apps/x", agentprefs.TileStart{Harness: "opencode", Mode: "build"}, 3); err != nil {
 			t.Fatal(err)
 		}
-		if r, _ := w.s.AgentPrefs.TileChoice("alice", "apps/x"); r != nil {
+		if r, _ := w.s.AgentPrefs.TileChoice("alice", "apps/x"); r == nil || r.Harness != "opencode" || r.Mode != "" {
 			t.Fatalf("OpenCode remembered for the tile: %+v", r)
+		}
+		rec = w.do(w.full, "POST", "/api/xbin/delegate/plans", `{"title":"t","items":[{"kind":"agent.start","args":{"tile":"apps/x","brief":"go"}}]}`, alice)
+		var cs2 delegation.ChangeSet
+		_ = json.Unmarshal(rec.Body.Bytes(), &cs2)
+		full2, _ := w.store.ChangeSet("alice", cs2.ID)
+		if it := full2.Items; len(it) != 1 || len(it[0].Warnings) != 1 || !strings.HasPrefix(it[0].Warnings[0], "ACTS WITHOUT ASKING: OpenCode has no mode that asks before it acts") {
+			t.Fatalf("a line on the person's OpenCode: %+v", full2.Items)
+		}
+		opened = nil
+		done2 := decode[delegation.ChangeSet](t, w.do(w.full, "POST", "/api/xbin/delegate/changesets/"+cs2.ID+"/approve", `{"items":[1]}`, own))
+		if done2.Items[0].Result != delegation.ItemApplied || len(opened) != 1 || opened[0].Provider != "opencode" || opened[0].Mode != "" || !opened[0].Picked {
+			t.Fatalf("the warned line, ticked: %+v (error %q; opens %+v)", done2.Items[0].Result, done2.Items[0].Error, opened)
+		}
+		if _, err := w.s.AgentPrefs.Update("alice", []byte(`{"agentSessions":{"tiles":null}}`)); err != nil {
+			t.Fatal(err)
 		}
 		// …and a start of a coding agent that HAS a default is never opened with no mode
 		if noDefaultMode("claude") || noDefaultMode("codex") || noDefaultMode("no-such-agent") || !noDefaultMode("opencode") {

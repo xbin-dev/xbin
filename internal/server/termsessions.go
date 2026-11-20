@@ -159,6 +159,12 @@ func (s *Server) apiTermSessions(w http.ResponseWriter, r *http.Request) {
 			row := map[string]any{"id": si.ID, "cwd": si.Cwd, "kind": si.Kind, "provider": si.Provider, "mode": si.Mode, "status": si.Status, "origin": si.Origin}
 			if si.Kind == term.KindAgent {
 				row["pending"], row["questions"] = si.Pending, si.Questions
+				if p.Agent != "" {
+					// its own held messages the session didn't take (D250 re-review 4a): the agent is told once
+					if rs := s.Term.AgentReturned(si.ID, p.Agent); len(rs) > 0 {
+						row["returned"] = rs
+					}
+				}
 				if turn, last, ok := s.Term.AgentGlance(si.ID); ok {
 					row["turn"] = turn
 					if own {

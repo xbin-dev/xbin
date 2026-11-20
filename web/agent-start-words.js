@@ -100,10 +100,12 @@ export function picked(req, pick) {
 function rememberWords(continuing, hs, h, pick) {
   const vouched = !!(h && (h.modes || []).some((m) => m.asks));
   const mode = h && (h.modes || []).find((m) => m.id === pick.mode);
-  const note = !vouched ? `${h ? h.name : 'This coding agent'} has no mode that asks before it acts: nothing of it is remembered, you pick it on each approval.`
+  // what is kept, said before it is: the coding agent and model the person changed — any coding agent's, OpenCode's
+  // too — and the mode only when it asks (D250 re-review item 3)
+  const note = !vouched ? `Keeps ${h ? h.name : 'this coding agent'} and its model for your next start here, never its mode: ${h ? h.name : 'it'} has no mode that asks before it acts, so each start is still yours to approve here, warned.`
     : mode && !mode.asks ? 'This mode acts without asking: it isn\'t remembered. Only the coding agent and model you changed are.'
       : 'Your next start here preselects what you changed. A mode that acts without asking is never remembered.';
-  return { shown: !continuing && hs.length > 0 && vouched, label: 'Remember for this tile', note, keepsMode: !!(mode && mode.asks) };
+  return { shown: !continuing && hs.length > 0 && !!h, label: 'Remember for this tile', note, keepsMode: !!(mode && mode.asks) };
 }
 
 export function startView(req, pick) {
@@ -130,7 +132,11 @@ export function startView(req, pick) {
       const notTaken = s.modeNotTaken && h.id === s.provider && pick.mode !== s.modeNotTaken ? s.modeNotTaken : '';
       pickers.push({ id: 'mode', label: 'Mode', value: pick.mode, from: fromWords('mode'),
         options: (h.modes || []).map((m) => ({ value: m.id, label: `${m.name || m.id || 'its own default'}, ${m.asks ? 'asks before acting' : m.explicit ? 'acts without asking (caution)' : 'acts without asking'}` })),
-        note: h.defaultMode != null && pick.mode === h.defaultMode ? 'The default: in it, it asks you before it edits a file or runs a command, so nothing your agent tells it acts unseen.' : '',
+        // only true words under the picker (D250 re-review item 2): "it asks you" only of a mode that asks; a coding agent with
+        // none says so, whatever is picked
+        note: !(h.modes || []).some((m) => m.asks) ? `${h.name} has no mode that asks first: in any mode it edits files and runs commands without asking you.`
+          : h.defaultMode != null && pick.mode === h.defaultMode && (h.modes || []).some((m) => m.id === pick.mode && m.asks)
+            ? 'The default: in it, it asks you before it edits a file or runs a command, so nothing your agent tells it acts unseen.' : '',
         warn: notTaken ? `Your agent suggested ${notTaken}, which acts without asking. It isn't picked for you: pick it yourself if you want it.` : '' });
     }
   }

@@ -105,8 +105,11 @@ func askingMode(prov agent.Provider) string {
 }
 
 // vouched: a coding agent with a mode xbin can vouch asks before it acts —
-// the only kind a suggestion, a remembered choice or a preference may
-// preselect (D250 review M2: OpenCode has none).
+// the only kind the agent's suggestion or the workspace's default may
+// preselect (D250 review M2: OpenCode has none). The person's own choice
+// (remembered for the tile, or their preference) may be one with none: it
+// is preselected with its warning, and never starts without the sheet
+// (re-review item 3).
 func vouched(id string) bool {
 	prov, ok := agent.Lookup(id)
 	return ok && prov.AskingMode() != ""
@@ -239,11 +242,11 @@ func (s *Server) startPick(p auth.Principal, tile string, sug startSuggestion, p
 	switch {
 	case person != nil && allowed(person.Provider):
 		out.Harness, out.From["harness"] = person.Provider, fromPerson
-	// (only one with a mode that asks is preselected — a remembered choice or a preference of one with none is
-	// ignored here, whatever the store holds; a suggestion of one is said, not taken)
-	case tileChoice != nil && allowed(tileChoice.Harness) && vouched(tileChoice.Harness):
+	// (the person's own choice, whatever its modes — one with none that asks is preselected warned; the agent's
+	// suggestion of one is said, not taken)
+	case tileChoice != nil && allowed(tileChoice.Harness):
 		out.Harness, out.From["harness"] = tileChoice.Harness, fromTile
-	case allowed(prefs.AgentSessions.Harness) && vouched(prefs.AgentSessions.Harness):
+	case allowed(prefs.AgentSessions.Harness):
 		out.Harness, out.From["harness"] = prefs.AgentSessions.Harness, fromPreference
 	case allowed(sug.Harness) && vouched(sug.Harness):
 		out.Harness, out.From["harness"] = sug.Harness, fromAgent
@@ -518,6 +521,11 @@ func (s *Server) startPickFor(a delegateActor, req delegation.Request, b pickBod
 	knows := slices.Contains(b.Knows, "continue")
 	if !b.picks() && !(offered != nil && knows) {
 		return nil, nil, 0, "" // an older client: the start as it was shown
+	}
+	if b.Seen == nil || b.Seen.SignInID == nil || b.Seen.Net == nil {
+		// picks, and continuing, are new with D250: every client that makes them draws a sheet, and says what it
+		// showed of what is resolved again now (D250 re-review item 5) — without it, what is decided isn't held to it
+		return nil, nil, http.StatusBadRequest, `an approval that picks the coding agent, model or mode, or continues a session, says what its sheet showed: seen {signInId, net} — "" for none`
 	}
 	if resume, _ := shown["resume"].(bool); resume {
 		if b.picks() {
