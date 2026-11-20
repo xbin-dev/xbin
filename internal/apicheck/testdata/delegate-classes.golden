@@ -296,6 +296,7 @@ POST /limits/dismiss	never
 POST /llm/keys	never
 POST /llm/keys/{id}/renew	never
 POST /llm/setup/dismiss	refused
+POST /llm/upstreams/{name}/replay-reset	never
 POST /llm/upstreams/{name}/test	never
 POST /llm/v1/chat/completions	refused
 POST /llm/v1/responses	refused

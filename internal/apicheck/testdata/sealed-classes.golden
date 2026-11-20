@@ -295,6 +295,7 @@ POST /limits/dismiss	no-tile
 POST /llm/keys	no-tile
 POST /llm/keys/{id}/renew	no-tile
 POST /llm/setup/dismiss	no-tile
+POST /llm/upstreams/{name}/replay-reset	no-tile
 POST /llm/upstreams/{name}/test	no-tile
 POST /llm/v1/chat/completions	no-tile
 POST /llm/v1/responses	no-tile
