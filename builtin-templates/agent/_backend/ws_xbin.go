@@ -558,8 +558,9 @@ type wsAgent struct {
 	// (D250): the brief went to it as a follow-up, nothing new opened.
 	Continued bool `json:"continued,omitempty"`
 	// Returned: messages this agent sent it that it held for its turn's end
-	// and did not deliver — the session was switched meanwhile to a mode
-	// that acts without asking (xbind's reason; D250 re-review 4a)
+	// and did not deliver — the session was switched meanwhile from a mode
+	// that asks to one that acts without asking (xbind's reason; D250
+	// re-review 4a)
 	Returned []wsReturned `json:"returned,omitempty"`
 }
 
@@ -778,7 +779,7 @@ func wsRefusal(err error) string {
 	case errors.Is(err, xbin.ErrTaintedBrief):
 		return wsTaintedBriefWords(msg)
 	case errors.Is(err, xbin.ErrSessionMode):
-		return "xbin refused it — " + strings.TrimSuffix(msg, ".") + ". Your person switched that tile agent's session to a mode that doesn't ask before it acts, so it takes no more messages from you: only they can drive it now. Don't send it again or look for another way in; tell your person — they can switch it back to a mode that asks"
+		return "xbin refused it — " + strings.TrimSuffix(msg, ".") + ". That tile agent's session acts without asking, so a message to it goes only with your person's approval of that text: send it with tile_agent_message, which files it — it is shown to them and goes when they allow it. Don't send it another way, and don't open a new session to avoid it"
 	case errors.Is(err, xbin.ErrHarnessCommand):
 		return wsHarnessCommandWords
 	case errors.Is(err, xbin.ErrAgentOff) && de != nil && de.Refusal == "no-agent":

@@ -143,7 +143,7 @@ const grants = (page) => page.evaluate(() => [...document.querySelectorAll('butt
   await until(async () => (await text(page, '.wsc-brief')).includes('asks before acting'));
   const b = await text(page, '.wsc-brief');
   ok('the brief says what it will run on, from xbind: each fact a chip of its own (D250)', (await page.$$eval('.wsc-brief .wsc-chip', (c) => c.map((x) => x.textContent.trim()))).join('|') === 'Claude Code|asks before acting', b);
-  ok('…that it is what the tile agent is told first, and later messages aren\'t approved one by one', b.includes('told first') && b.includes('isn’t approved message by message'), b);
+  ok('…that it is what the tile agent is told first, and what goes to it later (D251: as sent where it asks)', b.includes('told first') && b.includes('what your agent sends it later goes straight to it'), b);
   ok('…one button: Review and start…', (await page.$eval('.wsc-start', (x) => x.innerText.trim())) === 'Review and start…');
   // the person's pick is on the approval, not a brief edit (D250): the card has no picker, and says where it is
   ok('…no coding-agent picker on the brief: the pick is the approval\'s', (await page.$$('.wsc-brief select')).length === 0 && b.includes('You pick the coding agent, its model and its mode on the approval'), b);
