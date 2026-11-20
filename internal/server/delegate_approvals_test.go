@@ -20,8 +20,10 @@ import (
 
 	"github.com/xbin-dev/xbin/internal/agent"
 	"github.com/xbin-dev/xbin/internal/agentprefs"
+	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/delegation"
 	"github.com/xbin-dev/xbin/internal/users"
+	"github.com/xbin-dev/xbin/internal/util"
 )
 
 // startBody is a start the agent files for tile with brief, and whatever
@@ -187,15 +189,16 @@ func TestSuggestionNeverPicksANonAskingModeOrSignin(t *testing.T) {
 	if s := sessOf(w.ask(alice, "POST", "/api/xbin/term/sessions", startBody("apps/x", "go", "provider", "claude", "mode", "plan"))); s["provider"] != "codex" || s["mode"] != "read-only" || fmt.Sprint(s["from"]) != "map[harness:tile mode:tile model:default]" {
 		t.Errorf("the person's choice for the tile outranks the suggestion: %v", s)
 	}
-	// a sign-in is never the agent's to name
-	in, _ := json.Marshal(map[string]string{"method": "POST", "path": "/api/xbin/term/sessions", "body": startBody("apps/x", "go", "signin", "si_1")})
-	if rec := w.do(w.full, "POST", "/api/xbin/delegate/requests", string(in), alice); rec.Code == 200 {
-		if r := decode[delegation.Request](t, rec); r.ID != "" {
-			w.approve(w.cookie("alice"), r.ID, "")
-			if rec := w.do(w.full, "POST", "/api/xbin/term/sessions", startBody("apps/x", "go", "signin", "si_1"), alice, header(HeaderTicket, r.ID)); rec.Code != 403 || !strings.Contains(rec.Body.String(), "doesn't pick a saved sign-in") {
-				t.Fatalf("a start naming a sign-in: %d %s", rec.Code, rec.Body.String())
-			}
-		}
+	// a sign-in is never the agent's to name: whatever its person approved, the start is refused before its ticket
+	// is spent (D250 review: this used to be asserted only where the filing happened to succeed)
+	named := startBody("apps/x", "go", "signin", "si_1")
+	r := w.ask(alice, "POST", "/api/xbin/term/sessions", named)
+	w.approve(w.cookie("alice"), r.ID, "")
+	if rec := w.do(w.full, "POST", "/api/xbin/term/sessions", named, alice, header(HeaderTicket, r.ID)); rec.Code != 403 || !strings.Contains(rec.Body.String(), "doesn't pick a saved sign-in") {
+		t.Fatalf("a start naming a sign-in: %d %s", rec.Code, rec.Body.String())
+	}
+	if got, _ := w.store.Request("alice", r.ID); got.State != delegation.Approved {
+		t.Fatalf("a start naming a sign-in spent its ticket: %s", got.State)
 	}
 }
 
@@ -316,11 +319,7 @@ func TestOlderClientApprovals(t *testing.T) {
 	if got.Chosen != nil || sessOf(got)["provider"] != before["provider"] || sessOf(got)["mode"] != before["mode"] {
 		t.Fatalf("an approval with no pick: %+v %v", got.Chosen, sessOf(got))
 	}
-	// a request that offers to continue (its card's continue), approved without knows: a new session
-	got.Preview["session"].(map[string]any)["continue"] = map[string]any{"session": "s-1", "provider": "claude"}
-	if d, _ := ticketStart(got); d.Continue != "" {
-		t.Fatalf("continued for a client that never showed it: %+v", d)
-	}
+	// (one that doesn't know "continue": through the route, in TestContinueOnlyOwnSessionSameTile)
 }
 
 // ---- with real sessions: bx and the scripted coding agent -------------------------------------
@@ -495,11 +494,39 @@ func TestContinueOnlyOwnSessionSameTile(t *testing.T) {
 	var o struct{ ID string }
 	_ = json.Unmarshal(own.Body.Bytes(), &o)
 	waitIdle(t, w, o.ID)
-	for name, sid := range map[string]string{"the person's own": o.ID, "no such": "nope"} {
+	// the agent's own session on another tile, and another agent's (of the same person) on this one: never offered
+	startAs := func(c cred, tile string) string {
+		t.Helper()
+		b := startBody(tile, "Goal: mail.", "provider", "fake")
+		r := w.ask(c, "POST", "/api/xbin/term/sessions", b)
+		w.do(w.full, "POST", "/api/xbin/delegate/requests/"+r.ID+"/approve", `{"harness":"fake","mode":"ask"}`, person)
+		rec := w.do(w.full, "POST", "/api/xbin/term/sessions", b, c, header(HeaderTicket, r.ID))
+		var x struct{ ID string }
+		if rec.Code != 200 || json.Unmarshal(rec.Body.Bytes(), &x) != nil || x.ID == "" {
+			t.Fatalf("a start on %s: %d %s", tile, rec.Code, rec.Body.String())
+		}
+		waitIdle(t, w, x.ID)
+		return x.ID
+	}
+	if err := os.MkdirAll(filepath.Join(w.s.Term.Root, "apps", "mail"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	onMail := startAs(alice, "apps/mail")
+	t.Cleanup(auth.TestSealDelegate("xbin/other"))
+	w.s.Auth.RegisterInstancePartition("d-alice-other", "xbin/other", "", util.UserPartition("alice"), "uid-alice")
+	h, err := w.store.NewAgentSession("alice", "xbin/other", nil, "local/test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	testHandles.Store("d-alice-other", h.ID)
+	t.Cleanup(func() { testHandles.Delete("d-alice-other") })
+	byOther := startAs(delegateCred("d-alice-other"), "apps/x")
+	for name, sid := range map[string]string{"the person's own": o.ID, "no such": "nope", "its own on another tile": onMail, "another agent's": byOther} {
 		if s := sessOf(w.ask(alice, "POST", "/api/xbin/term/sessions", startBody("apps/x", "next", "provider", "fake", "continue", sid))); s["continue"] != nil {
 			t.Errorf("%s session offered to continue: %v", name, s["continue"])
 		}
 	}
+	sessions := len(w.s.Term.ListFor("alice", "", nil))
 	// its own session on the tile: offered — even where the person's choice for the tile is another coding agent,
 	// which a NEW session would run — and approved by a client that knows it, continued on its own coding agent
 	if err := w.s.AgentPrefs.RememberTile("alice", "apps/x", agentprefs.TileStart{Harness: "codex"}, 1); err != nil {
@@ -521,8 +548,36 @@ func TestContinueOnlyOwnSessionSameTile(t *testing.T) {
 	if rec.Code != 200 || json.Unmarshal(rec.Body.Bytes(), &c) != nil || !c.Continued || c.ID != a.ID {
 		t.Fatalf("the continued start: %d %s", rec.Code, rec.Body.String())
 	}
-	if n := len(w.s.Term.ListFor("alice", "", nil)); n != 2 {
-		t.Fatalf("a second session of the agent's opened: %d sessions", n)
+	if n := len(w.s.Term.ListFor("alice", "", nil)); n != sessions {
+		t.Fatalf("a second session of the agent's opened: %d sessions, %d before", n, sessions)
+	}
+	// a client that doesn't know "continue" approves a start offering it (no picks): through the route, a NEW
+	// session opens — never a follow-up into one the person wasn't shown (on the scripted agent: codex has no stand-in)
+	if err := w.s.AgentPrefs.RememberTile("alice", "apps/x", agentprefs.TileStart{Harness: "fake"}, 1); err != nil {
+		t.Fatal(err)
+	}
+	var older delegation.Request
+	for deadline := time.Now().Add(20 * time.Second); ; time.Sleep(100 * time.Millisecond) {
+		waitIdle(t, w, a.ID)
+		older = w.ask(alice, "POST", "/api/xbin/term/sessions", startBody("apps/x", "Goal: older.", "provider", "fake", "continue", a.ID))
+		if sessOf(older)["continue"] != nil {
+			break
+		}
+		w.do(w.full, "DELETE", "/api/xbin/delegate/requests/"+older.ID, "", alice)
+		if time.Now().After(deadline) {
+			t.Fatalf("the idle session never offered to continue: %v", sessOf(older))
+		}
+	}
+	if rec := w.do(w.full, "POST", "/api/xbin/delegate/requests/"+older.ID+"/approve", `{"grant":"once"}`, person); rec.Code != 200 {
+		t.Fatalf("an older client's approval: %d %s", rec.Code, rec.Body.String())
+	}
+	rec = w.do(w.full, "POST", "/api/xbin/term/sessions", startBody("apps/x", "Goal: older.", "provider", "fake", "continue", a.ID), alice, header(HeaderTicket, older.ID))
+	var fresh struct {
+		ID        string
+		Continued bool
+	}
+	if rec.Code != 200 || json.Unmarshal(rec.Body.Bytes(), &fresh) != nil || fresh.Continued || fresh.ID == a.ID || fresh.ID == "" {
+		t.Fatalf("an older client's approval of a start offering to continue: %d %s", rec.Code, rec.Body.String())
 	}
 	// approved, and the session ends before it is used: refused, nothing spent
 	// (idle again after the follow-up's turn: an idle read can come before that turn began, so the offer — or the
@@ -544,6 +599,27 @@ func TestContinueOnlyOwnSessionSameTile(t *testing.T) {
 		if time.Now().After(deadline) {
 			t.Fatalf("the idle session never offered to continue: %v %d %s", sessOf(r3), rec.Code, rec.Body.String())
 		}
+	}
+	// busy (waiting for its person's answer): not offered, and the approved follow-up refused, nothing spent
+	if rec := w.do(w.full, "POST", "/api/xbin/term/sessions/"+a.ID+"/prompt", `{"text":"ask"}`, person); rec.Code != 200 {
+		t.Fatalf("the person's question turn: %d %s", rec.Code, rec.Body.String())
+	}
+	for deadline := time.Now().Add(20 * time.Second); ; time.Sleep(50 * time.Millisecond) {
+		if info, _ := w.s.Term.Info(a.ID); info.Questions > 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the session never asked its person")
+		}
+	}
+	if s := sessOf(w.ask(alice, "POST", "/api/xbin/term/sessions", startBody("apps/x", "next", "provider", "fake", "continue", a.ID))); s["continue"] != nil {
+		t.Errorf("a busy session offered to continue: %v", s["continue"])
+	}
+	if rec := w.do(w.full, "POST", "/api/xbin/term/sessions", startBody("apps/x", "Goal: polish.", "provider", "fake", "continue", a.ID), alice, header(HeaderTicket, r3.ID)); rec.Code != 403 || !strings.Contains(rec.Body.String(), `"reason":"session"`) {
+		t.Fatalf("continuing a busy session: %d %s", rec.Code, rec.Body.String())
+	}
+	if got, _ := w.store.Request("alice", r3.ID); got.State != delegation.Approved {
+		t.Fatalf("the busy refusal spent the ticket: %s", got.State)
 	}
 	w.s.Term.Kill(a.ID)
 	deadline := time.Now().Add(10 * time.Second)
