@@ -438,7 +438,8 @@ the body, armed after 600 ms (`/vendor/agent-armed.js`, unchanged).
 
 Each was run RED without its rule, then GREEN with it — the rule taken
 out for each run, and the verdict, are in the message of the commit that
-adds this sentence (20 runs: the 15 below and the backend's 5):
+adds this sentence, and of the commit after it for the last row (21 runs:
+the 16 below and the backend's 5):
 
 | Rule | Test |
 |---|---|
@@ -454,6 +455,7 @@ adds this sentence (20 runs: the 15 below and the backend's 5):
 | an older client approving a start sends no choices: today's defaults; one without `knows: ["continue"]` approves a new session | `internal/server: TestOlderClientApprovals` |
 | refusals say what differed, and spend nothing | `internal/delegation: TestRedeemSaysWhatDiffered` |
 | retry only for a start that failed for a reason not the agent's, by the person | `internal/server: TestFailedStartRetry` |
+| a coding agent with no default mode is said to start in its asking mode (start-defaults), so a session in it is known to ask | `internal/server: TestNoDefaultModeStartsOnItsTicket` |
 
 The agent's side: the retro's session replayed as scripted evals
 (`builtin-templates/agent/_backend/ws_eval_approvals_test.go`): the tic

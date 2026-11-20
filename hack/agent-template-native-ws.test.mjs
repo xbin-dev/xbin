@@ -271,7 +271,9 @@ test('the brief: editable, and its one button files the start and asks the app t
   const card = find(r.snapshots.brief, { t: 'card', p: { title: 'Brief for Orders’ agent' } });
   assert.deepEqual(all(card, { t: 'button' }).map((b) => [b.p.label, b.p.role]), [['Review and start…', 'primary'], ['Edit', 'plain']]);
   assert.match(card.p.note, /the tile agent asks you before it acts/);
-  assert.ok(find(card, { t: 'text', p: { text: 'Claude Code · asks before acting' } }), 'what it will run on, from xbind');
+  // what it will run on, from xbind: each fact its own element (D250), never one line joined with "·"
+  assert.ok(find(card, { t: 'text', p: { text: 'Claude Code' } }) && find(card, { t: 'text', p: { text: 'asks before acting' } }), 'what it will run on, from xbind');
+  assert.ok(!JSON.stringify(card).includes('·'), 'no "·" on the brief');
   assert.deepEqual(all(find(r.snapshots.editing, { t: 'card' }), { t: 'field' }).map((f) => [f.p.label, f.p.kind]), [['Goal', 'multiline'], ['Done when', 'multiline'], ['Leave alone', 'multiline'], ['Check by', 'multiline']]);
   assert.equal(JSON.parse(sent(r, 'PUT', /\/briefs\/4$/)[0].body).goal, 'Export as CSV and XLSX');
   assert.equal(sent(r, 'POST', /\/briefs\/4\/start$/).length, 1);
