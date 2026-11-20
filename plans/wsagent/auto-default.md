@@ -204,6 +204,24 @@ The continue sheet — desktop:
 
 Phone: the same, one column; the radio labels wrap.
 
+## Found while building it
+
+What the work-mode default changed elsewhere, fixed in this batch:
+
+- A plan's binding that waits for a tile its own tile agent builds went
+  `stale` when the agent — acting without asking now — wrote the
+  manifest before Apply reached the line. It is judged as the waiting
+  line it was approved as, at once: bound if the tile provides exactly
+  what was approved, never stale for being early.
+- The workspace agent knew a session asks only when its mode was
+  start-defaults' — the work mode now, which doesn't. xbind's compact
+  session read says `asks` per session, and the agent goes by it.
+- Claude Code's adapter has no `auto` for a model that doesn't support
+  it: it takes `acceptEdits` instead (claude-agent-acp 0.81.1
+  `AUTO_MODE_FALLBACK`) and says so as the session's mode; the start
+  isn't refused (set_mode succeeds), and the session reads as acting
+  without asking either way.
+
 ## Nothing breaks for an existing workspace
 
 A person who had picked a mode — asking or not — keeps it: it is their
