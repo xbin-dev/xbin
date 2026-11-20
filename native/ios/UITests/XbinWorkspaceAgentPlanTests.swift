@@ -75,7 +75,7 @@ final class XbinWorkspaceAgentPlanTests: XCTestCase {
             }
             // the start line: the mode xbind vouches for, the coding agent, the brief as sent
             let brief = e.element("changeset-brief-5")
-            XCTAssertTrue(e.containing("asks before it edits or runs anything").exists && e.containing("Coding agent: Codex").exists, "the start's mode and coding agent")
+            XCTAssertTrue(e.containing("asks before acting").exists && e.containing("Coding agent: Codex").exists, "the start's mode and coding agent")
             XCTAssertTrue(brief.exists && e.containing("sent exactly like this").exists, "the brief, as it will be sent")
             shot(e, "plan-start-line")
             // the admin's tick and Apply (with xbind's recent sign-in) are the consent; then the results show in

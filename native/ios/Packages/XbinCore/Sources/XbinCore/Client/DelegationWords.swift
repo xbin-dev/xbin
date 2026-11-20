@@ -331,7 +331,7 @@ public enum DelegationWords {
     /// The Allow button's words — they follow the choice.
     public static func allowLabel(_ r: DelegateRequest, choice: GrantChoice.ID = .once) -> String {
         switch r.kind {
-        case .session: return r.neverAsks ? "Start without asking" : "Start"
+        case .session: return "Start" // whatever its mode: the mode is a fact the sheet states (D251)
         case .template: return "Create the tile"
         case .web, .mcp, .unknown: return netAllowLabel(r, choice: choice)
         case .call:
@@ -374,10 +374,14 @@ public enum DelegationWords {
                 "Go back", "Allow every change")
     }
 
-    /// A tile agent's start as the sheet's rows: the mode leads; one that
-    /// never asks is the danger wording in the body, and Allow is coloured
-    /// as the danger it is, in its place — Deny is never made the primary
-    /// button (D250).
+    /// What a mode that acts without asking means, said plainly where it
+    /// is shown (the web's MODE_FACT, D251) — a fact, never a warning.
+    public static let modeFact = "It edits files and runs commands in this tile's sandbox without asking you. You approve what your agent tells it."
+
+    /// A tile agent's start as the sheet's rows: the mode leads, as a
+    /// neutral tag and one plain line — acting without asking is the
+    /// ordinary default of a tile agent the workspace agent starts (D251);
+    /// Allow is the ordinary primary "Start".
     public struct SessionRows: Sendable, Equatable {
         public var agent: String
         public var modeTag: String
@@ -387,7 +391,6 @@ public enum DelegationWords {
         public var network: String
         public var others: String
         public var brief: String
-        public var danger: String
         public var comes: String
         /// Who wrote what it is told first, as xbind says (the web's
         /// `briefBy`): xbind's update brief, or the agent — whatever the
@@ -472,15 +475,12 @@ public enum DelegationWords {
         let net = s["net"]?.stringValue ?? ""
         return SessionRows(
             agent: "\(who)\(model)\(cred)",
-            modeTag: asks ? "asks before it edits or runs anything" : "acts without asking", modeAsks: asks,
-            modeText: asks ? "It asks you before it edits a file or runs a command."
-                           : "It edits files and runs commands in \(t) without asking you.",
+            modeTag: asks ? "asks before acting" : "acts without asking", modeAsks: asks,
+            modeText: asks ? "It asks you before it edits a file or runs a command." : modeFact,
             modeName: s["mode"]?.stringValue ?? "",
             network: net.isEmpty || net == "none" ? "Its model only. No internet." : "Network: \(net)",
             others: s["api"]?.boolValue == false ? "It can call no other tile." : "It can call the tile APIs this tile is granted.",
             brief: brief,
-            // (the agent can't pick a mode that never asks — D250: only the person can)
-            danger: asks ? "" : "\(who) in this mode acts without asking: it edits files and runs commands in \(t) without asking you. You will not get a chance to stop a single edit or command.",
             comes: "Its questions and permission requests come to you, in \(t) and in Needs you. Your workspace agent can't answer them.",
             briefBy: brief.isEmpty ? "" : s["briefBy"]?.stringValue == "xbin" ? briefByXbin : briefByAgent,
             signIn: offer ? runs : saved ? "Uses your saved \(who) sign-in"

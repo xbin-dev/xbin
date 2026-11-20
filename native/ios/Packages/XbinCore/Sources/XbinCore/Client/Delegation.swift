@@ -193,9 +193,10 @@ public struct DelegateRequest: Sendable, Equatable, Identifiable {
     public var isPending: Bool { state == .pending && kind != .unknown }
     /// `preview.session`: the harness and mode a tile agent will run in.
     public var session: JSONValue { preview["session"] ?? .object([:]) }
-    /// A session start whose mode lets the tile agent act without asking.
-    /// Only xbind's word that the mode asks — a harness's ask or plan mode —
-    /// counts: a mode it doesn't vouch for is one that never asks.
+    /// A session start whose mode lets the tile agent act without asking —
+    /// the ordinary default (D251), a fact the sheet states. Only xbind's
+    /// word that the mode asks — a harness's ask or plan mode — counts: a
+    /// mode it doesn't vouch for is one that never asks.
     public var neverAsks: Bool { kind == .session && session["asks"]?.boolValue != true }
     public var isResume: Bool {
         guard kind == .session, let r = session["resume"] else { return false }

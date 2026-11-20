@@ -16,13 +16,13 @@ import XbinRenderer
 //   - Deny left, Allow right, equal width, at the bottom; stacked (Allow
 //     below) at accessibility sizes. Allow is always the primary button and
 //     Deny (Go back) the quiet one, in the same places on every sheet
-//     (D250): a warned approval colours Allow as the danger it is, and
-//     never promotes Deny.
+//     (D250): a warned approval (the wider grant) colours Allow as the
+//     danger it is, and never promotes Deny.
 //   - "Always, every change to <tile>" is a second sheet, armed late, which
 //     asks Face ID.
-//   - A tile agent's start leads with its mode; one that never asks — any
-//     mode xbind doesn't say asks: only a harness's ask or plan mode does —
-//     is said in the danger wording, and its Allow is the danger colour.
+//   - A tile agent's start leads with its mode, a neutral tag and one plain
+//     line: acting without asking is the ordinary default (D251), never a
+//     warning; its Allow is the ordinary primary "Start".
 //   - What WIDENS the grant is armed like Allow (the web chrome's
 //     WidenGuard): a standing choice, "until I take it back" — dimmed and
 //     inert for 600 ms after the sheet shows, while another sheet covers it
@@ -290,9 +290,8 @@ struct AgentDurationPicker: View {
 
 /// Deny and Allow at the bottom of a sheet: Deny left, Allow right, equal
 /// width; stacked with Allow below at accessibility sizes. Allow is the
-/// primary button, Deny the quiet one, always (D250); `warned` (a mode that
-/// never asks; the wider grant) colours Allow as the danger it is — Deny is
-/// never promoted.
+/// primary button, Deny the quiet one, always (D250); `warned` (the wider
+/// grant) colours Allow as the danger it is — Deny is never promoted.
 struct AgentDecisionBar: View {
     let deny: String
     let allow: String
@@ -583,17 +582,10 @@ struct AgentApprovalSheet: View {
     @ViewBuilder private func sessionRows(_ r: DelegateRequest) -> some View {
         let s = DelegationWords.sessionRows(r)
         let t = DelegationWords.tile(r)
-        if !s.danger.isEmpty {
-            Label { Text(verbatim: s.danger).font(.callout.weight(.semibold)) } icon: { Image(systemName: "exclamationmark.octagon.fill") }
-                .foregroundStyle(XbinColor.danger)
-                .padding(10).frame(maxWidth: .infinity, alignment: .leading)
-                .background(XbinColor.dangerBackground, in: .xbinPlate)
-                .accessibilityIdentifier("approval-danger")
-        }
         VStack(alignment: .leading, spacing: 0) {
             // The mode leads: it is what stands between the brief and a change.
             ApprovalRow(label: "Mode") {
-                AgentTag(text: s.modeTag, symbol: s.modeAsks ? "checkmark.shield" : "exclamationmark.octagon", tone: s.modeAsks ? "ok" : "danger")
+                AgentTag(text: s.modeTag).accessibilityIdentifier("approval-mode-chip")
                 Text(verbatim: s.modeText).font(.callout)
                 if !s.modeName.isEmpty { Text(verbatim: s.modeName).font(XbinFont.code).foregroundStyle(XbinColor.muted) }
             }
@@ -642,7 +634,7 @@ struct AgentApprovalSheet: View {
     private func buttons(_ r: DelegateRequest) -> some View {
         AgentDecisionBar(deny: "Deny", allow: DelegationWords.allowLabel(r, choice: choice),
                          allowSpoken: DelegationWords.allowSpoken(r, choice: choice),
-                         warned: r.neverAsks, armed: arming.armed, working: working,
+                         armed: arming.armed, working: working,
                          stopped: DelegationWords.stopLine(stop),
                          onDeny: { deny(r) },
                          onAllow: {

@@ -242,7 +242,7 @@ struct AgentChangeSetSheet: View {
     @ViewBuilder private func startRows(_ item: AdminChangeSet.Item, _ r: DelegationWords.SessionRows) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
-                AgentTag(text: r.modeTag, symbol: r.modeAsks ? "checkmark.shield" : "exclamationmark.octagon", tone: r.modeAsks ? "ok" : "danger")
+                AgentTag(text: r.modeTag) // a fact, never a warning (D251)
                 if !r.modeName.isEmpty { Text(verbatim: r.modeName).font(XbinFont.code).foregroundStyle(XbinColor.muted) }
             }
             Text(verbatim: r.modeText).font(.callout)
