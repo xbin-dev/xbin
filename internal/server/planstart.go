@@ -41,7 +41,7 @@ func (s *Server) planStart(ctx context.Context, a planAgent, pv delegation.Chang
 	if a.gone != "" || a.p.Agent == "" {
 		return http.StatusConflict, cmpOr(a.gone, "a tile agent is started for the conversation that asks for it"), nil
 	}
-	var shown struct{ Provider, Mode, Net string }
+	var shown struct{ Provider, Mode, Model, Net string }
 	if json.Unmarshal(pv.Start, &shown) != nil || shown.Provider == "" || shown.Mode == "" && !noDefaultMode(shown.Provider) {
 		return http.StatusConflict, "the start names no coding agent and mode: ask your agent to propose it again", nil
 	}
@@ -80,7 +80,10 @@ func (s *Server) planStart(ctx context.Context, a planAgent, pv delegation.Chang
 			slog.Info("a plan's trust line could not be kept: the start runs without the sign-in", "tile", tile, "err", err)
 		}
 	}
-	ctx = context.WithValue(auth.WithPrincipal(ctx, a.p), delegateStartKey{}, &term.DelegateStart{Approved: true, Provider: shown.Provider, Mode: shown.Mode, Net: shown.Net,
+	// what the review showed is what opens (D250 review H1): the coding agent, mode and model the line resolved
+	// — Picked, so the open takes them whatever the call body names (the agent's own suggestion, which the
+	// chain may have outranked: the person's choice for the tile, a suggested mode that doesn't ask)
+	ctx = context.WithValue(auth.WithPrincipal(ctx, a.p), delegateStartKey{}, &term.DelegateStart{Approved: true, Picked: true, Provider: shown.Provider, Mode: shown.Mode, Model: shown.Model, Net: shown.Net,
 		Signin: named.SignInID, TrustAsked: trustAsked})
 	if s.PlanStarter != nil { // (tests: the open itself, authorised as above)
 		id, status, refusal := s.PlanStarter(ctx, a.p, pv.Call.Body)
@@ -316,6 +319,8 @@ func (s *Server) previewStart(a planAgent, op delegation.ChangeOp, planned []del
 	}
 	pin, _ := json.Marshal(pinned)
 	pv.Pin = delegation.BodyHash(pin)
+	// the review picks nothing: the line is what runs, and where another is picked (D250 review H1)
+	pv.Effects = append(pv.Effects, "What runs is this line's coding agent, model and mode. To run others, ask your agent for a single start's approval, where you pick them, or change your choice for the tile in your preferences.")
 	if nt, _ := shown["modeNotTaken"].(string); nt != "" {
 		// D250: the agent's suggestion never picks a mode that acts without asking — the review has no picker to pick it
 		pv.Effects = append(pv.Effects, fmt.Sprintf("Your agent suggested the mode %q, which acts without asking: not taken. To start it that way, change the session's mode once it runs, or approve a single start where you can pick it.", nt))
