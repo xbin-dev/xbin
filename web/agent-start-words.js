@@ -72,7 +72,7 @@ export function picked(req, pick) {
   if (!h) return req;
   const mode = (h.modes || []).find((m) => m.id === pick.mode);
   const same = h.id === s.provider;
-  return { ...req, preview: { ...req.preview, session: { ...s, provider: h.id, providerName: h.name, mode: pick.mode, asks: !!(mode && mode.asks), model: pick.model,
+  return { ...req, preview: { ...req.preview, session: { ...s, provider: h.id, providerName: h.name, mode: pick.mode, asks: !!(mode && mode.asks), model: pick.model, net: h.net ?? s.net,
     signIn: h.signIn ?? (same ? s.signIn : ''), signInId: h.signInId || (same ? s.signInId || '' : ''), signInTrust: h.signInTrust || (same ? s.signInTrust || null : null) } } };
 }
 
@@ -174,7 +174,10 @@ export function choose(pick, req, field, value) {
 export function pickBody(req, pick) {
   const s = sess(req);
   if (req.kind !== 'session' || !harnessesOf(s).length) return {};
-  const out = { knows: ['continue'] };
+  // seen: what this sheet shows of what xbind resolves again when it is decided — the sign-in it offers, the
+  // network — held to it there: a change since is refused, nothing decided, and the sheet looks again (D250 review L2)
+  const ps = sess(picked(req, pick));
+  const out = { knows: ['continue'], seen: { signInId: String(ps.signInId || ''), net: String(ps.net || '') } };
   const c = s.continue && s.continue.session ? s.continue : null;
   if (c && pick.cont && pick.harness === c.provider) return out; // continuing: the session keeps its own
   if (c) out.continue = false;

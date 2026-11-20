@@ -73,9 +73,11 @@ type harnessChoice struct {
 	Models      []modelChoice `json:"models"`
 	// ModelsKnown: the list is the connector's, whole. Otherwise its own
 	// list shows once a session runs (said beside the picker).
-	ModelsKnown bool   `json:"modelsKnown"`
-	NoSignIn    bool   `json:"noSignIn,omitempty"`
-	SignIn      string `json:"signIn,omitempty"`
+	ModelsKnown bool `json:"modelsKnown"`
+	NoSignIn    bool `json:"noSignIn,omitempty"`
+	// Net is the network a session of it starts on here (start-defaults): what the sheet shows for it
+	Net    string `json:"net"`
+	SignIn string `json:"signIn,omitempty"`
 	// SignInID, SignInTrust: the saved sign-in the approval OFFERS for a
 	// session of it (unticked, D230) and the trust line that goes with it.
 	SignInID    string `json:"signInId,omitempty"`
@@ -201,7 +203,7 @@ func (s *Server) startPick(p auth.Principal, tile string, sug startSuggestion, p
 		if !ok {
 			continue
 		}
-		c := harnessChoice{ID: h.ID, Name: h.Name, DefaultMode: askingMode(prov), Modes: modesOf(prov), NoSignIn: h.NoSignIn}
+		c := harnessChoice{ID: h.ID, Name: h.Name, DefaultMode: askingMode(prov), Modes: modesOf(prov), NoSignIn: h.NoSignIn, Net: def.netFor(h.ID)}
 		c.Models = []modelChoice{{ID: ""}}
 		if s.Term != nil && h.NoSignIn {
 			if ms, _, ok := s.Term.ConnectorModels(ctx, personOf(p).UserID, tile, prov); ok {
@@ -433,10 +435,41 @@ type pickBody struct {
 	Continue             *bool
 	Knows                []string
 	Signin               bool // the sign-in line ticked: for a continue, the session's own sign-in (D250 review L1)
+	Seen                 *seenBasis
+}
+
+// seenBasis is what the sheet showed of what xbind resolves again when the
+// approval is decided (D250 review L2): the saved sign-in it offered ("" none)
+// and the network. A client that sends it is held to it.
+type seenBasis struct {
+	SignInID *string `json:"signInId"`
+	Net      *string `json:"net"`
+}
+
+// seenChanged is the refusal of an approval whose sheet showed something
+// else than xbind resolves now: "seen\x00<what>\x00<words>" — the handler
+// answers 409 {error, changed: <what>, reload: true}, nothing decided.
+const seenChanged = "seen\x00"
+
+// seenRefusal is why seen isn't what preview (the session preview of what
+// the approval opens) says now ("" it is, or the client sent no basis).
+func seenRefusal(seen *seenBasis, preview map[string]any) string {
+	if seen == nil {
+		return ""
+	}
+	id, _ := preview["signInId"].(string)
+	net, _ := preview["net"].(string)
+	switch {
+	case seen.SignInID != nil && *seen.SignInID != id:
+		return seenChanged + "signin\x00the saved sign-in this start offers changed since your sheet showed it: look again — nothing was decided"
+	case seen.Net != nil && *seen.Net != net:
+		return seenChanged + "net\x00the network this start would have changed since your sheet showed it: look again — nothing was decided"
+	}
+	return ""
 }
 
 func (b pickBody) picks() bool {
-	return b.Harness != nil || b.Model != nil || b.Mode != nil || b.Remember
+	return b.Harness != nil || b.Model != nil || b.Mode != nil || b.Remember || b.Seen != nil
 }
 
 // startPickOf is the person's pick on the approval of their pending start
@@ -506,6 +539,9 @@ func (s *Server) startPickOf(a delegateActor, id string, b pickBody) (*delegatio
 		// the sign-in the tick is held to is the session's own (no trust line: it was asked when the session began)
 		cont["signInId"], cont["signIn"] = live["signInId"], live["signIn"]
 		delete(cont, "signInTrust")
+		if why := seenRefusal(b.Seen, map[string]any{"signInId": live["signInId"], "net": shown["net"]}); why != "" {
+			return nil, nil, http.StatusConflict, why
+		}
 		out["session"] = cont
 		return &c, out, 0, ""
 	}
@@ -532,6 +568,9 @@ func (s *Server) startPickOf(a delegateActor, id string, b pickBody) (*delegatio
 	}
 	if by, ok := shown["briefBy"]; ok {
 		redrawn["briefBy"] = by
+	}
+	if why := seenRefusal(b.Seen, redrawn); why != "" {
+		return nil, nil, http.StatusConflict, why
 	}
 	out := maps.Clone(req.Preview)
 	out["session"] = redrawn

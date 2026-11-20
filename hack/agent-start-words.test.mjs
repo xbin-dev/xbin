@@ -46,7 +46,8 @@ test('a mode the agent suggested that acts without asking is never picked for th
   const w = S.startView(req, pick);
   assert.deepEqual([w.pickers[2].warn, w.pickers[2].from, w.asks, w.label, pick.remember], ['', 'your pick', false, 'Start without asking', true]);
   assert.match(w.danger, /^Codex in this mode acts without asking: it edits files and runs commands in eui without asking you/);
-  assert.deepEqual(S.pickBody(req, pick), { knows: ['continue'], harness: 'codex', model: '', mode: 'agent', remember: true });
+  assert.deepEqual(S.pickBody(req, pick), { knows: ['continue'], seen: { signInId: '', net: '' }, harness: 'codex', model: '', mode: 'agent', remember: true },
+    'what the sheet showed rides with the pick (D250 review L2)');
 });
 
 test('picking another coding agent: its own default mode, its models, ITS sign-in offer; models xbin knows said so', () => {
@@ -70,11 +71,11 @@ test('a start that would continue the agent\'s own idle session: continue first,
   assert.match(v.cont.label, /^Continue the OpenCode session from \d\d:\d\d with this follow-up$/);
   assert.deepEqual(v.cont.chips, ['OpenCode', 'model m1', 'acts without asking']);
   assert.deepEqual([v.pickers.length, v.label, v.asks, v.remember.shown], [0, 'Continue', false, false]);
-  assert.deepEqual(S.pickBody(req, pick), { knows: ['continue'] }, 'continuing: the session keeps its own');
+  assert.deepEqual(S.pickBody(req, pick), { knows: ['continue'], seen: { signInId: '', net: '' } }, 'continuing: the session keeps its own');
   const anew = S.contChoice(pick, req, false);
   const fresh = S.startView(req, anew);
   assert.deepEqual([anew.harness, fresh.continuing, fresh.pickers.length, fresh.label], ['codex', false, 3, 'Start'], 'a new session: on what xbind preselected for one');
-  assert.deepEqual(S.pickBody(req, anew), { knows: ['continue'], continue: false, harness: 'codex', model: '', mode: 'read-only' });
+  assert.deepEqual(S.pickBody(req, anew), { knows: ['continue'], seen: { signInId: '', net: '' }, continue: false, harness: 'codex', model: '', mode: 'read-only' });
   assert.equal(S.contChoice(anew, req, true).harness, 'opencode');
   noDot(v, 'a continue');
 });
@@ -147,4 +148,13 @@ test('a follow-up into a session that carries the person\'s saved sign-in: the s
   const w = S.startView(nb, S.pickOf(nb));
   assert.deepEqual([w.continuing, w.asks], [true, false]);
   assert.match(w.danger, /^Codex in this mode acts without asking/);
+});
+
+test('the sheet\'s basis: the sign-in offered and the network of the coding agent picked (D250 review L2)', () => {
+  const hs = [{ ...harnesses[0], net: 'none' }, { ...harnesses[1], net: 'internet' }];
+  const req = start({ choices: { harnesses: hs }, net: 'none', signInId: '' });
+  let pick = S.pickOf(req);
+  assert.deepEqual(S.pickBody(req, pick).seen, { signInId: '', net: 'none' });
+  pick = S.choose(pick, req, 'harness', 'gemini');
+  assert.deepEqual(S.pickBody(req, pick).seen, { signInId: 'si_1', net: 'internet' }, 'the picked coding agent\'s own');
 });

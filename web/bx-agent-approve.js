@@ -234,7 +234,17 @@ export class BxAgentApprove extends LitElement {
     const r = await this.store.approve(req.id, body);
     this._busy = false;
     // stopped meanwhile: say why where Allow was — never send it again
-    if (r.ok) this._done('allow'); else if (r.stopped) this._stopAt(r.stopped); else if (r.gone) this._done('gone'); else { this._err = r.error; this._arm(); }
+    if (r.ok) this._done('allow'); else if (r.stopped) this._stopAt(r.stopped); else if (r.changed) this._reload(r.error); else if (r.gone) this._done('gone'); else { this._err = r.error; this._arm(); }
+  }
+
+  // what the sheet showed changed since (D250 review L2): nothing was decided — read the request again, show it as it
+  // is now (the picks, the ticks and the delay start over), and say why
+  async _reload(why) {
+    const fresh = await this.store.request(this.request.id);
+    if (!fresh) { this._done('gone'); return; }
+    this.request = fresh;
+    await this.updateComplete;
+    this._err = why;
   }
 
   async _deny(e) {

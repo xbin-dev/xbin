@@ -735,10 +735,12 @@ func (s *Server) apiDelegateRequestDecide(w http.ResponseWriter, r *http.Request
 		Remember bool     `json:"remember"`
 		Continue *bool    `json:"continue"`
 		Knows    []string `json:"knows"`
+		// seen: what the sheet showed of what is resolved again now — the sign-in it offered, the network (D250 review L2)
+		Seen *seenBasis `json:"seen"`
 	}
 	if r.ContentLength != 0 {
 		if err := DecodeJSON(r, &body); err != nil {
-			WriteError(w, http.StatusBadRequest, `need {grant?: "once" | "hour" | "always", scope?: "call" | "tile", unseen?: true, signin?: true, trust?: true, via?: "notification", harness?, model?, mode?, remember?: true, continue?: false, knows?: [..]}`, delegationDocs)
+			WriteError(w, http.StatusBadRequest, `need {grant?: "once" | "hour" | "always", scope?: "call" | "tile", unseen?: true, signin?: true, trust?: true, via?: "notification", harness?, model?, mode?, remember?: true, continue?: false, knows?: [..], seen?: {signInId?, net?}}`, delegationDocs)
 			return
 		}
 	}
@@ -786,7 +788,11 @@ func (s *Server) apiDelegateRequestDecide(w http.ResponseWriter, r *http.Request
 		var status int
 		var why string
 		chosen, redrawn, status, why = s.startPickOf(a, r.PathValue("id"), pickBody{Harness: body.Harness, Model: body.Model, Mode: body.Mode, Remember: body.Remember,
-			Continue: body.Continue, Knows: body.Knows, Signin: body.Signin})
+			Continue: body.Continue, Knows: body.Knows, Signin: body.Signin, Seen: body.Seen})
+		if what, words, ok := strings.Cut(strings.TrimPrefix(why, seenChanged), "\x00"); ok && strings.HasPrefix(why, seenChanged) {
+			WriteJSON(w, status, map[string]any{"error": words, "changed": what, "reload": true, "docs": delegationDocs})
+			return
+		}
 		if why != "" {
 			WriteError(w, status, why, delegationDocs)
 			return

@@ -155,6 +155,8 @@ class AgentStore {
     const r = await call(`/delegate/requests/${encodeURIComponent(id)}/approve`, { method: 'POST', body });
     this.readState(); this.readRequests(); if (body && body.grant !== 'once') this.readApprovals();
     if (r.ok) return { ok: true, request: r.data && r.data.request };
+    // 409 {changed, reload}: what the sheet showed changed since — nothing decided; the sheet looks again (D250 review L2)
+    if (r.status === 409 && r.data && r.data.reload) return { ok: false, changed: r.data.changed || true, error: say(r, 'It changed since your sheet showed it') };
     // 409 {refusal}: the agent is stopped (off, paused, held, no agent) — nothing can be allowed now; the sheet says why
     const stopped = stopOf(r);
     return { ok: false, stopped, gone: !stopped && (r.status === 409 || r.status === 404), error: say(r, "It couldn't be approved") };

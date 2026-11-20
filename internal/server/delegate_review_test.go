@@ -247,3 +247,36 @@ func TestContinueIntoASessionWithASignInNeedsTheTick(t *testing.T) {
 		t.Fatal("a ticked follow-up, or one into a session with no sign-in, refused at the redeem")
 	}
 }
+
+// The approval of a start carries what the sheet showed of what xbind
+// re-resolves when it is decided — the saved sign-in it offered and the
+// network — and a mismatch is refused, specifically, with nothing decided:
+// the sheet reloads and shows it as it is (D250 review L2).
+func TestApprovalHoldsToWhatTheSheetShowed(t *testing.T) {
+	w := delegateWorld(t)
+	alice, person := delegateCred("d-alice"), w.cookie("alice")
+	req := w.ask(alice, "POST", "/api/xbin/term/sessions", startBody("apps/x", "go"))
+	s := sessOf(req)
+	net, _ := s["net"].(string)
+	stale := `{"knows":["continue"],"seen":{"signInId":"","net":"` + net + `-not"}}`
+	rec := w.do(w.full, "POST", "/api/xbin/delegate/requests/"+req.ID+"/approve", stale, person)
+	var refused struct {
+		Error, Changed string
+		Reload         bool
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &refused)
+	if rec.Code != 409 || refused.Changed != "net" || !refused.Reload || !strings.Contains(refused.Error, "network") {
+		t.Fatalf("an approval of a network the sheet no longer shows: %d %s", rec.Code, rec.Body.String())
+	}
+	if got, _ := w.store.Request("alice", req.ID); got.State != delegation.Pending {
+		t.Fatalf("the refusal decided it: %s", got.State)
+	}
+	stale = `{"knows":["continue"],"seen":{"signInId":"si_gone","net":"` + net + `"}}`
+	if rec := w.do(w.full, "POST", "/api/xbin/delegate/requests/"+req.ID+"/approve", stale, person); rec.Code != 409 || !strings.Contains(rec.Body.String(), `"changed":"signin"`) {
+		t.Fatalf("an approval of a sign-in the sheet no longer offers: %d %s", rec.Code, rec.Body.String())
+	}
+	sid, _ := s["signInId"].(string)
+	if rec := w.do(w.full, "POST", "/api/xbin/delegate/requests/"+req.ID+"/approve", `{"knows":["continue"],"seen":{"signInId":"`+sid+`","net":"`+net+`"}}`, person); rec.Code != 200 {
+		t.Fatalf("an approval of what the sheet showed: %d %s", rec.Code, rec.Body.String())
+	}
+}
