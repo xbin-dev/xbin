@@ -53,6 +53,7 @@ func TestPlanStartRunsTheReviewedLine(t *testing.T) {
 	if done.Items[0].Result != delegation.ItemApplied || out.Session == "" {
 		t.Fatalf("applying the reviewed start: %+v", done.Items[0])
 	}
+	waitIdle(t, w, out.Session) // (its model is the agent's own report, which its status carries once it is up)
 	info, _ := w.s.Term.Info(out.Session)
 	if info.Provider != "fake" || info.Mode != "ask" || info.Model != "fake-fast" {
 		t.Fatalf("what opened: %s in mode %q on model %q — the review showed fake in ask on fake-fast", info.Provider, info.Mode, info.Model)
