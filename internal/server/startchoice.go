@@ -68,7 +68,7 @@ type modelChoice struct {
 type harnessChoice struct {
 	ID          string        `json:"id"`
 	Name        string        `json:"name"`
-	DefaultMode string        `json:"defaultMode"` // its asking mode: what it opens in when nothing else says
+	DefaultMode string        `json:"defaultMode"` // its work mode (D251): what it opens in when nothing else says
 	Modes       []modeChoice  `json:"modes"`
 	Models      []modelChoice `json:"models"`
 	// ModelsKnown: the list is the connector's, whole. Otherwise its own

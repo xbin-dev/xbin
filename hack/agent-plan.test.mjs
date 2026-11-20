@@ -112,16 +112,16 @@ test('a kind this page does not know is shown and never ticked', () => {
   assert.deepEqual(W.planTicks(cs), [2]);
 });
 
-test('a start line is drawn as the single start is: only xbind\'s word that the mode asks earns the green tag', () => {
+test('a start line is drawn as the single start is: only xbind\'s word that the mode asks says it asks; either is a fact (D251)', () => {
   const cs = dice();
   let r = W.startRows(cs.items[4]);
-  assert.equal(r.mode.tag, 'asks before it edits or runs anything');
+  assert.equal(r.mode.tag, 'asks before acting');
   assert.equal(r.brief, 'Goal: roll_dice.');
   assert.match(r.agent, /^Codex/);
   cs.items[4].start.asks = 'yes';
   r = W.startRows(cs.items[4]);
   assert.equal(r.mode.tag, 'acts without asking');
-  assert.equal(r.mode.tone, 'bad');
+  assert.equal(r.mode.tone, '', 'a fact, never a warning');
   assert.equal(W.startRows({}).brief, '');
   assert.equal(C.kindTag('agent.start'), 'tile agent');
   assert.equal(C.kindTag('tile.create'), 'new tile');

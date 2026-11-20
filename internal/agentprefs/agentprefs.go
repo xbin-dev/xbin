@@ -13,7 +13,7 @@
 // The file is a convenience for sessions people start themselves and a
 // rule for sessions their workspace agent starts, so the second part is
 // re-checked on every read against the harness catalog (AgentStart): a
-// stored mode this xbind doesn't know to keep asking is never used. A user
+// stored mode this xbind doesn't know, or a bypass one, is never used. A user
 // id can be given to a new person after the old one was deleted; the file
 // records whose it is (the account's creation stamp), and another person's
 // AgentSessions read as the defaults.
@@ -84,8 +84,9 @@ type AgentSessions struct {
 	// its coding agent and model, and its mode only from Modes. At most
 	// MaxTiles.
 	Tiles map[string]TileStart `json:"tiles,omitempty"`
-	// Modes: harness id → the mode such a session starts in. A harness not
-	// named starts in its asking mode. Never a bypass mode.
+	// Modes: harness id → the mode such a session starts in, asking or not
+	// (D251). A harness not named starts in its work mode, which acts
+	// without asking. Never a bypass mode.
 	Modes map[string]string `json:"modes,omitempty"`
 	// Net is the session's network picker value; "" the launcher's default.
 	Net string `json:"net,omitempty"`
@@ -543,9 +544,9 @@ func modeRefusal(prov agent.Provider, mode string) string {
 type AgentStart struct {
 	// Ask: the person is asked before the session starts (the default).
 	Ask bool
-	// Mode is the session's permission mode: the person's choice for the
-	// harness when the catalog knows it keeps asking, else the provider's
-	// asking mode.
+	// Mode is the mode a start without asking opens in: the person's choice
+	// for the harness when the catalog knows it asks; "" otherwise — no
+	// start without the sheet then (D251).
 	Mode string
 	// Model is the person's saved model for the harness ("" the agent's own).
 	Model string

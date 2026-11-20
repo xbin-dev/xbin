@@ -843,7 +843,7 @@ func (s *Server) apiDelegateRequestDecide(w http.ResponseWriter, r *http.Request
 	out := map[string]any{"request": req}
 	if chosen != nil && chosen.Remember && req.State == delegation.Approved && s.AgentPrefs != nil {
 		// "Remember for this tile": the person's own act, made only here — of the fields they changed on the sheet,
-		// and never a mode that doesn't ask (D250 review M1)
+		// any mode but a bypass one (D251; D250 review M1)
 		prev, _ := s.AgentPrefs.TileChoice(a.user, req.Tile)
 		if ts, ok := rememberedOf(prev, *chosen); ok {
 			if err := s.AgentPrefs.RememberTile(a.user, req.Tile, ts, time.Now().Unix()); err != nil {

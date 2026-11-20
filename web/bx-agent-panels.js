@@ -9,7 +9,10 @@
  *                         once, oldest first, one action each — requests,
  *                         plans and admin changes, a start that failed to
  *                         open (Try again), tile agent sessions that wait —
- *                         and Review all when more than one opens a review
+ *                         and Review all when more than one opens a review.
+ *                         A follow-up (a message, a continue) is allowed on
+ *                         its row (D251): its chips, its first lines and
+ *                         Show all, Send and Deny beside Review…
  *   <bx-agent-approvals>  the standing approvals, each with Take back
  *   <bx-agent-activity>   "What my agent did": the audit log in sentences
  *                         (Changes · Refused · Everything)
@@ -30,14 +33,15 @@
  * all), bx-agent-open-session {tile, session} (a waiting session's Open),
  * bx-agent-back (a panel's Back).
  */
-import { LitElement, html, css, nothing } from '/vendor/lit-all.min.js';
+import { LitElement, html, css, nothing, repeat } from '/vendor/lit-all.min.js';
 import '/vendor/bx-icons.js';
 import { chromeCss } from '/vendor/agent-chrome-css.js';
 import { agentStore } from '/vendor/agent-chrome-store.js';
-import { WidenGuard } from '/vendor/bx-agent-approve.js';
+import { WidenGuard, shown, hiddenLine } from '/vendor/bx-agent-approve.js';
+import { uncovered } from '/vendor/agent-armed.js';
 import '/vendor/bx-agent-permits.js';
-import { standingRow, STANDING_NOTE, didByDay, DID_FILTERS, DID_NOTE, clock, stateWords, setupSteps, SETUP_INTRO, dockState, sessionModes, neverAsks, netPrefs } from '/vendor/agent-chrome-words.js';
-import { batch, batchTitle } from '/vendor/agent-start-words.js';
+import { standingRow, STANDING_NOTE, didByDay, DID_FILTERS, DID_NOTE, clock, stateWords, setupSteps, SETUP_INTRO, dockState, sessionModes, notOffered, MODE_DEFAULT, netPrefs, CHOICES } from '/vendor/agent-chrome-words.js';
+import { batch, batchTitle, rowText } from '/vendor/agent-start-words.js';
 
 // an element that draws the store: it subscribes while it is in the page
 class StoreView extends LitElement {
@@ -51,20 +55,54 @@ class StoreView extends LitElement {
 }
 
 export class BxAgentNeeds extends StoreView {
-  static properties = { _err: { state: true }, _busy: { state: true } };
+  static properties = { _err: { state: true }, _busy: { state: true }, _all: { state: true } };
   static styles = [chromeCss, css`:host { display: block; background: var(--bx-panel-2, #262730); border-bottom: 1px solid var(--bx-border-strong, #666A7E);
     box-shadow: var(--bx-shadow-pop, 0 12px 32px rgba(0, 0, 0, 0.6)); max-height: 60vh; overflow: auto; }
     .hd { padding: 8px 12px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; } .hd h3 { color: var(--bx-text, #E9EAF0); } .hd .grow { flex: 1; }
-    .list > li .tx { display: flex; flex-direction: column; gap: 2px; } .list > li > button { flex: none; }`];
+    .list > li .tx { display: flex; flex-direction: column; gap: 2px; } .list > li > button { flex: none; }
+    .list > li.inl { flex-wrap: wrap; } .list > li.inl .tx { flex: 1 1 100%; min-width: 0; }
+    .list > li.inl .acts { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; flex: 1 1 100%; }
+    pre.body.row { margin: 2px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 40vh; overflow: auto; }`];
 
-  constructor() { super(); this._err = ''; this._busy = ''; }
+  constructor() { super(); this._err = ''; this._busy = ''; this._all = new Set(); this._shownAt = new WeakMap(); }
   connectedCallback() { super.connectedCallback(); this.store.readSessions(); }
-  /** rearm(): every permission card waits again (something brought the tray into view — a page's message may). */
-  rearm() { for (const p of this.renderRoot.querySelectorAll('bx-agent-permits')) p.rearm(); }
+  /** rearm(): every permission card, and every row's Send, waits again (something brought the tray into view — a page's message may). */
+  rearm() { for (const p of this.renderRoot.querySelectorAll('bx-agent-permits')) p.rearm(); this._shownAt = new WeakMap(); this.requestUpdate(); }
+  // when each row's Send came into view: it answers as Allow on the sheet does — not before CHOICES.armMs
+  updated() { for (const el of this.renderRoot.querySelectorAll('button[data-send]')) if (!this._shownAt.has(el)) this._shownAt.set(el, performance.now()); }
 
   _act(r) {
     if (r.kind === 'session') return this.fire('bx-agent-open-session', { tile: r.tile, session: r.id });
     return this.fire('bx-agent-review', { kind: r.kind === 'retry' ? 'request' : r.kind, id: r.id });
+  }
+
+  // Send on a follow-up's row (D251): the person's own click, on a button in view for a moment, uncovered, in a window
+  // that has their attention — never Enter, never a script. What the row showed changed since: its sheet shows it as it
+  // is now (nothing was decided)
+  async _send(e, r) {
+    const el = e.currentTarget, at = this._shownAt.get(el);
+    if (!e.isTrusted || this._busy || at == null || performance.now() - at < CHOICES.armMs || !document.hasFocus() || !uncovered(el)) return;
+    this._busy = r.id; this._err = '';
+    const res = await this.store.approve(r.id, r.inline.body);
+    this._busy = '';
+    if (res.ok || res.gone) return;
+    if (res.changed) { this.fire('bx-agent-review', { kind: 'request', id: r.id }); return; }
+    this._err = res.error;
+  }
+
+  async _deny(e, r) {
+    if (!e.isTrusted || this._busy) return;
+    this._busy = r.id; this._err = '';
+    const res = await this.store.deny(r.id);
+    this._busy = '';
+    if (!res.ok && !res.gone) this._err = res.error;
+  }
+
+  _inline(r) {
+    const t = rowText(r.inline.text, this._all.has(r.id));
+    return html`${hiddenLine(r.inline.text)}<pre class="body row small" data-inline-text tabindex="-1">${shown(t.text)}${t.clipped ? '…' : ''}</pre>
+      ${t.clipped ? html`<span class="small muted" data-inline-note>${t.note} <button class="link" data-inline-all
+        @click=${() => { this._all = new Set([...this._all, r.id]); }}>Show all</button></span>` : nothing}`;
   }
 
   render() {
@@ -73,12 +111,17 @@ export class BxAgentNeeds extends StoreView {
     return html`<div class="hd"><h3 data-batch-title>${t.title}</h3>${t.count ? html`<span class="count" data-batch-count>${t.count}</span>` : nothing}
         <span class="small muted grow">oldest first</span>
         ${t.reviewAll ? html`<button class="primary" data-review-all @click=${() => this.fire('bx-agent-review-all', { items: rows.filter((r) => r.review).map((r) => ({ kind: r.kind, id: r.id })) })}>${t.reviewAll}</button>` : nothing}</div>
-      ${rows.length ? html`<ul class="list" aria-label=${t.title}>${rows.map((r) => html`<li data-kind=${r.kind} data-id=${r.id}>
+      ${rows.length ? html`<ul class="list" aria-label=${t.title}>${repeat(rows, (r) => `${r.kind}:${r.id}`, (r) => html`<li data-kind=${r.kind} data-id=${r.id} class=${r.inline ? 'inl' : ''}
+          data-inline=${r.inline ? r.inline.kind : nothing}>
         <span class="tx"><b>${r.title}</b>
           ${r.chips.length ? html`<span class="chips" data-chips>${r.chips.map((c) => html`<span class="chip">${c}</span>`)}</span>` : nothing}
+          ${r.inline ? this._inline(r) : nothing}
           ${r.parts.length ? html`<span class="parts small muted" data-parts>${r.parts.map((p) => html`<span>${p}</span>`)}</span>` : nothing}
           ${r.permits ? html`<bx-agent-permits data-permits .session=${r.id} .agentName=${r.agentName} @bx-agent-permitted=${() => this.store.readSessions()}></bx-agent-permits>` : nothing}</span>
-        ${r.kind === 'retry' ? html`<button data-retry @click=${() => this.fire('bx-agent-review', { kind: 'request', id: r.id })}>${r.action}</button>`
+        ${r.inline ? html`<span class="acts"><button data-act @click=${() => this._act(r)}>Review…</button>
+            <button data-deny ?disabled=${this._busy === r.id} @click=${(e) => this._deny(e, r)}>Deny</button>
+            <button class="primary" data-send ?disabled=${this._busy === r.id} @click=${(e) => this._send(e, r)} @keydown=${(e) => { if (e.key === 'Enter') e.preventDefault(); }}>${r.action}</button></span>`
+          : r.kind === 'retry' ? html`<button data-retry @click=${() => this.fire('bx-agent-review', { kind: 'request', id: r.id })}>${r.action}</button>`
           : html`<button data-act @click=${() => this._act(r)}>${r.action}</button>`}</li>`)}</ul>`
         : html`<div class="empty" data-empty>Nothing waits for you</div>`}
       ${this._err ? html`<div class="banner bad" role="alert"><bx-icon name="error"></bx-icon><span>${this._err}</span></div>` : nothing}`;
@@ -185,7 +228,7 @@ export class BxAgentPrefs extends StoreView {
         <label class="row"><input type="radio" name="start" data-start="ask" .checked=${start === 'ask'} @change=${() => this._save({ start: 'ask' })}><span>Ask me each time</span></label>
         <label class="row"><input type="radio" name="start" data-start="allow" data-widen="on" .checked=${start === 'allow'} @click=${this._widen.click} @keydown=${this._widen.key}
           @change=${() => this._save({ start: 'allow' })}>
-          <span>Start without asking<div class="small muted">Only in a mode that asks before acting, with the network below. You are told in the chat.</div></span></label></div>
+          <span>Start without asking<div class="small muted">Only where the mode below asks before acting, with the network below; in any other mode each start still comes to you. You are told in the chat.</div></span></label></div>
       <div class="sec" data-modes><h3>Sessions my workspace agent starts</h3>
         <div class="small muted">What its approval preselects, and what a start without asking runs. On the approval you can always pick another; a choice you remember for a tile comes first there.</div>
         <label class="mode"><span class="nm">Coding agent</span>
@@ -195,12 +238,12 @@ export class BxAgentPrefs extends StoreView {
         ${sessionModes(this._provs, a.modes).map((r) => html`<div class="small muted">${r.name}</div>
           <label class="mode sub"><span class="nm">Mode</span>
           <select data-mode=${r.id} aria-label=${`Mode for ${r.name}`} @change=${(e) => this._save({ modes: { [r.id]: e.target.value || null } })}>
-            <option value="" ?selected=${!r.value}>Its own asking mode</option>
+            <option value="" ?selected=${!r.value}>${MODE_DEFAULT}</option>
             ${r.options.map((o) => html`<option value=${o.id} ?selected=${o.id === r.value}>${o.name}</option>`)}</select></label>
           <label class="mode sub"><span class="nm">Model</span>
             <input data-model=${r.id} aria-label=${`Model for ${r.name}`} placeholder="its default" .value=${((this._prefs.harnesses || {})[r.id] || {}).model || ''}
               @change=${(e) => this._save({ harnesses: { [r.id]: { model: e.target.value.trim() || null } } }, true)}></label>
-          ${r.never.length ? html`<div class="small muted" data-never=${r.id}>${neverAsks(r.never)}</div>` : nothing}`)}
+          ${r.never.length ? html`<div class="small muted" data-never=${r.id}>${notOffered(r.never)}</div>` : nothing}`)}
         <div class="small muted">A model here is also what your own sessions of that coding agent start on.</div>
         <label class="row"><input type="checkbox" data-net data-widen="off" .checked=${!a.net || a.net === 'none'} @click=${this._widen.click} @keydown=${this._widen.key}
           @change=${(e) => this._save({ net: e.target.checked ? 'none' : null })}><span>Its model only. No internet.</span></label>

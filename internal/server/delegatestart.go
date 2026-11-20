@@ -259,7 +259,8 @@ func (s *Server) sessionPreviewFor(p auth.Principal, body []byte, person *delega
 		"options": options, // every setting the start carries; none of them can change the mode
 		// what the session will be told first: sent by xbind itself once the
 		// session is up, and bound by the ticket with the rest of the body.
-		// Nothing the agent sends the session later is approved one by one.
+		// What the agent sends the session later is approved one text at a
+		// time unless the session asks before it acts (D251).
 		"prompt": b.Prompt,
 		"net":    b.Net, "api": b.API == nil || *b.API, "vm": b.VM, "gpu": b.GPU, "model": options["model"], "name": b.Name, "resume": eff.Resumes,
 	}

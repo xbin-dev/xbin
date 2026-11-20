@@ -96,8 +96,12 @@ func (s *Server) messagePreview(p auth.Principal, path string, body []byte) (map
 	}
 	tile := s.sessionTile(info.Cwd)
 	prov, _ := agent.Lookup(info.Provider)
-	return map[string]any{"session": id, "provider": info.Provider, "providerName": cmp.Or(prov.Name, info.Provider), "mode": info.Mode, "asks": false,
-		"model": info.Model, "name": info.Name, "status": info.Status, "text": b.Text}, tile, 0, ""
+	out := map[string]any{"session": id, "provider": info.Provider, "providerName": cmp.Or(prov.Name, info.Provider), "mode": info.Mode, "asks": false,
+		"model": info.Model, "name": info.Name, "status": info.Status, "text": b.Text}
+	if si := info.Signin; si != nil && si.Source == "saved" && si.ID != "" {
+		out["signInId"], out["signInName"] = si.ID, si.Name // a fact of the session, shown as one (D251), as a continue's
+	}
+	return out, tile, 0, ""
 }
 
 // messageTicketKey carries, to the handler, the session a message ticket

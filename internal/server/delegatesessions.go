@@ -501,8 +501,9 @@ func (d startDefaultsView) netFor(id string) string  { h, _ := d.of(id); return 
 // it names nothing: per harness the tile's orgs' rules allow (the policy's
 // SessionAllows — their harness lists, and whether the harness can run
 // where the tile's sessions must), the mode, network and API access of the
-// person's preference for agent-started sessions (the policy's StartPrefs)
-// or, where they ask to approve each start, the harness's asking mode. One
+// person's preference for agent-started sessions (the policy's StartPrefs:
+// only a mode that asks starts unasked) or, where each start is approved,
+// the harness's work mode (D251). One
 // place: the preview of a start request, the unasked start and
 // GET /delegate/start-defaults all read it.
 //
