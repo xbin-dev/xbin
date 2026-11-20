@@ -6062,13 +6062,18 @@ with the core `ask_user` (here it takes `choices`, a `kind` and a `tile`),
 notes and `recall`.
 
 **A start is the person's pick; a follow-up goes to the session there**
-(D250; xbind's /docs/protocol/delegation.md §The person's pick):
+(D250, D251; xbind's /docs/protocol/delegation.md §The person's pick).
+Tile agents act without asking by default — each coding agent's ordinary
+mode for a task (D251) — so what contains the workspace agent is its
+person approving every text it sends one; the tools say so, and that the
+agent files and carries on (never asks in chat first, never opens a new
+session to avoid an approval):
 
 - `tile_agent_start {brief | tile, harness?, model?, mode?, new?, reason?}`
   — `harness`, `model` and `mode` only where the person named one: each is
   a suggestion they see on xbin's approval ("suggested by your agent"),
-  where they pick what runs; a suggested mode that acts without asking is
-  never picked for them. The tool reads xbind's `chosen` (start-defaults)
+  where they pick what runs; a suggested bypass mode is never picked for
+  them. The tool reads xbind's `chosen` (start-defaults)
   first and says it. Where this conversation has an idle session on the
   tile the start continues it (xbind's `continue`; the person may start a
   new one instead) — `new: true`, with `reason` shown to the person, asks
@@ -6076,8 +6081,9 @@ notes and `recall`.
   waiting is fine; what ran (the person's pick, or the session continued)
   or why it didn't start reaches the conversation as an update.
 - `tile_agent_message` to a session of this conversation's whose mode
-  doesn't ask is filed as ONE approval of that message (xbind's `message`
-  request, the whole text shown): approved, the backend sends exactly it,
+  doesn't ask — the usual — is filed as ONE approval of that message
+  (xbind's `message` request, the whole text shown; the person may send it
+  from its row in Waiting for you): approved, the backend sends exactly it,
   once. A session that asks takes messages as before.
 - `tile_agents [{tile}]` and `tile_status` list this conversation's
   sessions with their state, coding agent, model, mode and brief line, and
@@ -6089,17 +6095,17 @@ notes and `recall`.
   files every start with `knows: ["retry"]`, which is what lets xbind keep
   such a start for the person's Try again; a start the agent got wrong is
   refused before its ticket is spent, never "failed".
-- A message held behind a session's running turn is judged again when it
-  goes in: if the person switched the session to a mode that acts without
-  asking meanwhile, it is not delivered: the session's log says so (its
+- A message held behind a running turn of a session that asks is judged
+  again when it goes in: if the person switched the session to a mode that
+  acts without asking meanwhile, it is not delivered: the session's log says so (its
   `queue` event's `returned`, a notice), and the backend reads it from the
   session's compact row (`returned`) and tells the conversation once, in
   xbind's words — "not tried again: to send one now, tile_agent_message
   files it for your person's approval" (`ws_notify.go wsReturnedNews`).
-- A start on the person's own choice of a coding agent with no mode that
-  asks (OpenCode) is always theirs to approve, warned; the start's answer
-  says so ("your person's coding agent for this tile acts without asking,
-  so every start is approved on the sheet").
+- A start the person's preference would let through unasked goes to the
+  approval when the session would act without asking (any mode but an
+  asking one they named): xbind's 403 says so in plain words, and the tool
+  files the start.
 
 **Plans** (`_backend/ws_tools_plan.go`; xbind's
 /docs/protocol/delegation.md §Plans): `plan_propose {title, changes:

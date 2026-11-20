@@ -1154,7 +1154,7 @@ POST   /delegate/requests/<id>/approve
                                  via?: "notification", harness?, model?,
                                  mode?, remember?: true, continue?: false,
                                  knows?: ["continue"], seen?: {signInId?,
-                                 net?}}
+                                 net?, harness?, mode?}}
                                  → {request, approval?, trust?}. harness,
                                  model, mode: a tile agent start's, as the
                                  person picked them on the sheet (D250,
@@ -1174,13 +1174,16 @@ POST   /delegate/requests/<id>/approve
                                  seen: what the sheet showed of a start
                                  xbind resolves when it is approved (the
                                  sign-in offered, the network; "" for
-                                 none) — required, both, with harness,
-                                 model, mode, remember or continue, or a
-                                 continue the client knows (400 without);
-                                 where it would now be otherwise, 409
-                                 {error, changed, reload: true}, nothing
-                                 decided: load the request again and show
-                                 it. via: the person
+                                 none; for a continue also the session's
+                                 harness and mode, D251) — signInId and
+                                 net required with harness, model, mode,
+                                 remember or continue, or a continue the
+                                 client knows (400 without); where it
+                                 would now be otherwise, 409 {error,
+                                 changed: signin | net | session, reload:
+                                 true}, nothing decided: load the request
+                                 again and show it. A continue needs no
+                                 signin tick (D251). via: the person
                                  decided from a notification's action
                                  (D241): only once, and only a request the
                                  lock-screen rule passes (§Events and
@@ -1253,12 +1256,14 @@ providerName, mode, asks, options, net, api, vm, gpu, model, name,
 resume}`: the harness and mode the session **will** run in — a resumed
 session's come from its history when the request names none — and every
 option the start carries; `asks: false` means the mode lets the tile agent
-act without asking — say so on the card. A new session's start also
+act without asking — the default (D251): say so on the card as a fact,
+not a warning. A new session's start also
 carries what the person may pick (§The person's pick): `choices`,
 `from`, `suggested?`, `modeNotTaken?` and `continue?`. For a message,
 `preview.message` is `{session, provider, providerName, mode, asks: false,
-model, name, status, text}` — show the whole text: approving sends exactly
-it, once, to that session. A pending request expires after 24
+model, name, status, text, signInId?, signInName?}` — show the whole text:
+approving sends exactly it, once, to that session (the sign-in fields: the
+person's saved sign-in the session carries, a fact to show). A pending request expires after 24
 hours; decided and withdrawn ones are kept a day, 200 a person at most.
 
 **What a start leaves out, xbind fills.** A start may name only its tile
@@ -1371,8 +1376,7 @@ choices: {harnesses: [{id, name, defaultMode, modes: [{id, name, asks, explicit?
                        modelsKnown, noSignIn?, signIn?, signInId?, signInTrust?}]},
 from: {harness, model, mode},        // "tile" | "preference" | "agent" | "default"
 suggested?: {harness?, model?, mode?},
-modeNotTaken?: "<mode>",             // suggested, doesn't ask: not preselected
-harnessNotTaken?: "<harness>",       // suggested, has no mode that asks: not preselected
+modeNotTaken?: "<mode>",             // suggested, a bypass (explicit) one: not preselected
 continue?: {session, provider, providerName, mode, asks, model, name, started, since,
             signIn, signInId?, signInName?}
 ```
@@ -1380,27 +1384,26 @@ continue?: {session, provider, providerName, mode, asks, model, name, started, s
 - **Preselected by one chain, per field**: this tile's remembered choice
   (`agentSessions.tiles`, [agents.md](/docs/protocol/agents.md)) > the
   person's preference > the agent's suggestion > the workspace's default;
-  `from` says which. The default mode is the harness's asking one
-  (`defaultMode`) — for a coding agent whose entry names no default mode
-  but lists a mode that asks, that one: the start is strict, so it opens
-  in it or not at all (the agent is switched before the brief goes; one
-  that refuses the switch never gets it). **A coding agent with no mode xbin can vouch asks** —
-  OpenCode, whose modes ask or act by its own permission configuration,
-  which xbin doesn't set: the agent's suggestion of it is not preselected
-  (`harnessNotTaken`, warned); the person's own choice of it (remembered
-  for the tile, or their preference) is — with the warning, `asks:
-  false`, every time; it never starts without asking (403
-  `needs-approval`: "your person's coding agent for this tile acts
-  without asking, so every start is approved on the sheet"); a message
-  from the agent to a session of it is always a message approval; and a
-  plan's `agent.start` line that resolves to it carries the warning, so
-  the review starts it unticked. The workspace's default is a coding
-  agent that asks wherever the tile allows one — OpenCode only where it
-  is all the tile allows, warned.
-- **A suggested mode that doesn't ask is never preselected**: the asking
-  default is, `modeNotTaken` names the suggestion, and the sheet warns
-  beside it; only the person's own pick makes the start a mode that acts
-  without asking. An `explicit` (bypass) mode is never preselected at all.
+  `from` says which. **The default mode is the harness's work mode**
+  (`defaultMode`, D251) — its ordinary mode for a task, which acts without
+  asking: Claude Code `auto`, Codex `agent`, Gemini CLI `autoEdit`,
+  OpenCode its own (no mode named). Never an `explicit` (bypass) one. The
+  start is strict: it opens in its mode or not at all (the agent is
+  switched before the brief goes; one that refuses the switch never gets
+  it). The card states the mode as a fact (`asks`), with the ordinary
+  Start; a plan's `agent.start` line is an ordinary line. OpenCode, whose
+  modes ask or act by its own configuration, is an ordinary choice.
+- **The agent's suggestion is a preselection**, of a mode too — except an
+  `explicit` (bypass) mode, which is never preselected: the default is,
+  and `modeNotTaken` names the suggestion for the person to pick, or not.
+- **No path without the sheet starts a session in a mode that doesn't
+  ask, or sends text to one**: a start without asking (the person's
+  preference) starts unasked only in a mode that asks they named; any
+  other is 403 `needs-approval` ("the sessions your person's agent starts
+  act without asking, so every start is approved on the sheet"). A
+  notification's Allow once never approves a start or a message. Every
+  text the agent sends a session that acts without asking — whatever mode
+  it was approved in — is a `message` request, approved once.
 - **A sign-in is never suggested or picked here**: D230's unticked line
   (`signin`) stands, offered for the harness the person picks.
 - `modelsKnown: false`: the harness's own models are only known once a
@@ -1411,10 +1414,10 @@ continue?: {session, provider, providerName, mode, asks, model, name, started, s
   ("this start can't open as you picked it: …"), nothing decided either
   way. `remember: true` keeps for the tile only what the person CHANGED on
   the sheet — not what was preselected from the agent's suggestion: the
-  coding agent and model (any coding agent's), and the mode only when it
-  asks. The store refuses a mode that acts without asking, and a read
-  ignores one found there (a value an earlier xbind saved under looser
-  rules is ignored, never an error: it never blocks a later write).
+  coding agent, the model and the mode — any but a bypass one (D251).
+  The store refuses a bypass mode, and a read ignores one found there
+  (what an earlier xbind saved loads as it is, or is ignored, never an
+  error: it never blocks a later write).
   The request records it
   as `chosen`, and the agent is told what ran (the session's row, its
   `request` notice). Changing the coding agent, model or mode is never an
@@ -1433,12 +1436,14 @@ continue?: {session, provider, providerName, mode, asks, model, name, started, s
   instead is judged in full when they approve it. A follow-up is judged where it goes: on
   that session's own coding agent and model (its taint, a connector model
   by its own id), as a message to it is — never on what a new start there
-  would run on. **A session that carries the person's saved sign-in**
-  (`continue.signIn: "saved"`, `signInId`, `signInName`): a follow-up into
-  it uses that sign-in, so it needs the same unticked, warned tick as a
-  start with it — `signin: true` on the approve, each time; without it,
-  409, and the sheet offers "Start a new session instead" (which has
-  none). The redeem checks the session still carries the sign-in ticked.
+  would run on. **Continuing is one plain approval** (D251): no tick, for
+  a session that carries the person's saved sign-in too (`continue.signIn:
+  "saved"`, `signInId`, `signInName` — a fact the sheet shows, "uses your
+  Claude Code sign-in"; they ticked it when the session started). It is
+  held to the session shown: the approve's `seen` names its `harness`,
+  `mode` and `signInId` as the sheet showed them, and another one now is
+  409 `{changed: "session" | "signin", reload: true}`, nothing decided;
+  the redeem checks the session still carries the sign-in shown.
 - **A plan's `agent.start` line runs as it was reviewed**: the open is the
   line's coding agent, model and mode, whatever the call's body named; to
   run others the agent asks for a single start's approval, where the

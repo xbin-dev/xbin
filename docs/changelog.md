@@ -12,6 +12,26 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-20
 
+- workspace agent: **tile agents act without asking by default; a mode is
+  an ordinary choice; continuing is one plain approval** (D251). A start
+  the workspace agent asks for opens, by default, in the coding agent's
+  work mode — Claude Code `auto`, Codex `agent`, Gemini CLI `autoEdit`,
+  OpenCode its own (never a bypass mode) — and the sheet states the mode
+  as a fact (a chip and one plain line, the ordinary **Start**): no danger
+  banner, colour or delay. The agent's suggestion of a mode is
+  preselected (a bypass one never: `modeNotTaken`); `harnessNotTaken` is
+  gone. `agentSessions.modes` and "Remember for this tile" keep any mode
+  but a bypass one; what v0.3.83 and v0.3.84 saved loads as it is. Every
+  text the agent sends a session that doesn't ask is a `message` request,
+  whatever mode it was approved in, and "start without asking" starts
+  unasked only in a mode that asks the person named — otherwise the start
+  goes to the sheet. Continuing a session is one approval with **Send**,
+  no sign-in tick (`seen` now names a continue's `harness` and `mode`: a
+  changed session is `409 {changed: "session", reload}`); a continue or a
+  message can be sent from its row in Waiting for you. `preview.message`
+  carries the session's `signInId`/`signInName`. Nothing to change: a
+  person with an asking mode chosen keeps it; one with none now sees "acts
+  without asking" on each start.
 - workspace agent: **one approval, one place; a start is the person's
   pick; a follow-up goes to the session that is there** (D250). A tile
   agent's start binds its tile, brief and kind: the person picks the

@@ -99,7 +99,13 @@ mode.
    follow-up to one is shown to its person and goes when they allow it —
    file it and carry on; don't ask them in chat first, and don't open a
    new session to avoid it (`tile_agent_start`, `tile_agent_message`,
-   `tile_status`: descriptions and results; the prompt is at its cap).
+   and their results: the start's dry run, the "started" update, the
+   message's pending answer, the mode refusal's words). The prompt is at
+   its cap: it grows by nothing — two of its lines said the D250 rule
+   ("messaging needs no approval of its own"; "one you start runs in an
+   ask or plan mode") and were replaced by shorter true ones. A message
+   held behind a session's question that would meet the mode rule when it
+   goes in is filed for its person's approval then, never dropped.
 
 ## B. Continuing is smooth
 
