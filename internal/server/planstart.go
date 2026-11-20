@@ -1,15 +1,18 @@
 package server
 
-// planstart.go — a plan's agent.start line at Apply (plan.go describes it):
-// the open itself, authorised as a ticket authorises a single start.
+// planstart.go — a plan's agent.start line: described (previewStart, for
+// plan.go's previewLine) and, at Apply, the open itself, authorised as a
+// ticket authorises a single start.
 
 import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/xbin-dev/xbin/internal/agent"
@@ -150,4 +153,162 @@ func (d *delegateRuntime) allowDry(user, conv string) (ok bool, wait time.Durati
 		d.net[key] = share
 	}
 	return share.take(d.clock(), planDryShareBurst, planDryShareRefill)
+}
+
+// previewStart describes agent.start {tile, brief, harness?, mode?}: a
+// tile agent started on tile with the brief as its first prompt — what a
+// single start's request shows (sessionPreview), as a line. A tile an
+// earlier line creates can't be asked yet: the start is described from the
+// person's preferences and the harness catalog, and checked when applied.
+// brief is the agent's text, or {"template": "update"}: xbind's update
+// brief for the tile, which xbind writes here — so the review labels the
+// one xbin's and the other the agent's, whatever the text says (D248
+// review, finding 7).
+func (s *Server) previewStart(a planAgent, op delegation.ChangeOp, planned []delegation.PlannedTile) (delegation.ChangePreview, error) {
+	var in struct {
+		Tile     string          `json:"tile"`
+		BriefRaw json.RawMessage `json:"brief"`
+		Harness  string          `json:"harness"`
+		Mode     string          `json:"mode"`
+		Brief    string          `json:"-"`
+	}
+	dec := json.NewDecoder(bytes.NewReader(op.Args))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&in); err != nil {
+		return delegation.ChangePreview{}, fmt.Errorf("its arguments don't parse: %w", err)
+	}
+	in.Tile = strings.Trim(in.Tile, "/")
+	briefBy := BriefByAgent
+	if err := json.Unmarshal(in.BriefRaw, &in.Brief); err != nil && len(in.BriefRaw) > 0 {
+		if !nameOK(in.Tile) {
+			return delegation.ChangePreview{}, errors.New("tile, harness and mode are names")
+		}
+		for _, t := range planned {
+			if t.Path == in.Tile {
+				return delegation.ChangePreview{}, errors.New(`the brief {"template": "update"} is for a tile that has an update: ` + in.Tile + " is one this plan makes")
+			}
+		}
+		body, _ := json.Marshal(map[string]any{"cwd": in.Tile, "brief": in.BriefRaw})
+		resolved, by, bad := s.startBrief(a.p, body)
+		if bad != "" {
+			return delegation.ChangePreview{}, errors.New(bad)
+		}
+		var r struct{ Prompt string }
+		_ = json.Unmarshal(resolved, &r)
+		in.Brief, briefBy = r.Prompt, by
+	}
+	switch {
+	case in.Tile == "" || strings.TrimSpace(in.Brief) == "":
+		return delegation.ChangePreview{}, errors.New("agent.start names a tile and the brief the tile agent is told first")
+	case !nameOK(in.Tile) || !nameOK(in.Harness) || !nameOK(in.Mode):
+		return delegation.ChangePreview{}, errors.New("tile, harness and mode are names")
+	case len(in.Brief) > maxStartPrompt:
+		return delegation.ChangePreview{}, fmt.Errorf("a start's brief is at most %d KiB", maxStartPrompt>>10)
+	}
+	call := map[string]any{"cwd": in.Tile, "kind": term.KindAgent, "prompt": in.Brief}
+	if in.Harness != "" {
+		call["provider"] = in.Harness
+	}
+	if in.Mode != "" {
+		call["mode"] = in.Mode
+	}
+	body, _ := json.Marshal(call)
+	pv := delegation.ChangePreview{Line: "Start a tile agent in " + in.Tile,
+		Call:       delegation.AdminCall{Method: http.MethodPost, Path: "/term/sessions", Body: body},
+		UndoByHand: "xbin doesn't undo what a tile agent did: ending its session, and reverting what it changed, is yours to do in " + in.Tile}
+	if a.gone != "" {
+		pv.Blocked = a.gone
+		return pv, nil
+	}
+	p := a.p
+	var shown map[string]any
+	n, owner := 0, ""
+	for _, t := range planned {
+		if t.Path == in.Tile {
+			n, owner = t.N, t.Owner
+		}
+	}
+	if n == 0 {
+		var why string
+		if shown, why = s.sessionPreview(p, body); why != "" {
+			pv.Blocked = why
+			return pv, nil
+		}
+		pv.Tiles = []string{in.Tile}
+	} else {
+		pv.Uses, pv.Deferred = []int{n}, true
+		ask := sessionAskOf(body)
+		ask.planned = true
+		if _, why := s.startRefusal(p, ask); why != "" {
+			pv.Blocked = why
+			return pv, nil
+		}
+		def := s.startDefaults(p, in.Tile)
+		harness, mode := in.Harness, in.Mode
+		if harness == "" {
+			if harness = def.Harness; harness == "" {
+				pv.Blocked = def.Why
+				return pv, nil
+			}
+		}
+		prov, ok := agent.Lookup(harness)
+		if !ok {
+			return delegation.ChangePreview{}, fmt.Errorf("unknown coding agent %q", harness)
+		}
+		if _, allowed := def.of(harness); !allowed {
+			pv.Blocked = harness + " may not run on " + in.Tile
+			return pv, nil
+		}
+		if mode == "" {
+			mode = def.modeFor(harness)
+		}
+		mode, err := prov.ResolveMode(mode)
+		if err != nil {
+			return delegation.ChangePreview{}, err
+		}
+		shown = map[string]any{"tile": in.Tile, "provider": prov.ID, "providerName": prov.Name, "mode": mode, "asks": prov.Asks(mode),
+			"options": map[string]string{}, "prompt": in.Brief, "net": def.netFor(harness), "api": true, "vm": false, "gpu": "", "model": "", "name": "", "resume": false}
+		// what it runs on as things are, and — a tile this plan makes the
+		// person's own — their default saved sign-in, OFFERED like any
+		// start's (D230: the line's own tick): the open judges the tile
+		// itself once it exists
+		if h, _ := def.of(harness); h.SignIn != "" {
+			shown["signIn"] = h.SignIn
+		}
+		if id := s.plannedSignIn(p, in.Tile, owner, prov); id != "" {
+			shown["signInId"] = id
+		}
+	}
+	name, _ := shown["providerName"].(string)
+	mode, _ := shown["mode"].(string)
+	asks, _ := shown["asks"].(bool)
+	// a coding agent whose catalog entry names no default mode (OpenCode) opens as it opens itself: said so,
+	// not as a mode ""
+	inMode, inTheMode := fmt.Sprintf("in its mode %q", mode), fmt.Sprintf("in the mode %q", mode)
+	if mode == "" {
+		inMode, inTheMode = "in its own default mode", "in its own default mode"
+	}
+	pv.Line = fmt.Sprintf("Start a tile agent in %s — %s, %s", in.Tile, name, inMode)
+	if asks { // what the mode means, beside its name (D246; the feedback's E: "read-only" was read as the file permissions)
+		pv.Line += ", which asks before it edits or runs anything"
+	}
+	shown["briefBy"] = briefBy // who wrote what it is told first: the review's label, never the text's own claim
+	pv.Start, _ = json.Marshal(shown)
+	// what the start resolves to is part of what was shown: the network and
+	// the API access too, which a tile's org rules decide once it exists —
+	// and the brief xbind writes for a named one, at each look (an agent's
+	// text is its arguments: the line's basis already)
+	pinned := []any{shown["provider"], mode, asks, shown["net"], shown["api"], shown["vm"], shown["gpu"], shown["model"]}
+	if briefBy == BriefByXbin {
+		pinned = append(pinned, delegation.BodyHash([]byte(in.Brief)))
+	}
+	pin, _ := json.Marshal(pinned)
+	pv.Pin = delegation.BodyHash(pin)
+	if asks {
+		pv.Effects = []string{"It asks you before it edits a file or runs a command: its questions and permission requests come to you, never to your workspace agent."}
+	} else {
+		// only a harness's ask or plan mode is one xbind vouches for: anything else is the danger wording, and starts unticked
+		pv.Warnings = []string{fmt.Sprintf("ACTS WITHOUT ASKING: %s %s edits files and runs commands in %s without asking you. You will not get a chance to stop a single edit or command.", inTheMode, name, in.Tile)}
+	}
+	return pv, nil
 }
