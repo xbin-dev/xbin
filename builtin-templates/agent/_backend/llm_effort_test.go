@@ -462,6 +462,12 @@ func TestEffortLevelAndWhenItIsSent(t *testing.T) {
 	if !req.NoReplay {
 		t.Error("replay never: replay still on")
 	}
+	e.effortFn = func(string) *effortRec { return &effortRec{Replay: "never"} } // replay-only: nothing said of levels
+	req = LLMRequest{Model: "x"}
+	e.withEffort(context.Background(), &req, Config{ReasoningEffort: "high"})
+	if !req.NoReplay || req.Reasons != reasonsUnknown || req.ReasoningEffort != "high" {
+		t.Errorf("a replay-only record: %+v", req)
+	}
 }
 
 // covers D249 — the provider's list is untrusted: only ladder words and
@@ -487,6 +493,15 @@ func TestParseEffortUntrusted(t *testing.T) {
 		if r := parseEffort(json.RawMessage(raw)); r != nil {
 			t.Errorf("%s: read as no reasoning: %+v", raw, r)
 		}
+	}
+	// m4: an entry that says only "replay": "never" — replay off, levels unknown (nothing said of reasoning)
+	if r := parseEffort(json.RawMessage(`{"replay":"never","source":"admin"}`)); r == nil || r.Replay != "never" || r.Levels != nil {
+		t.Errorf("a replay-only record: %+v", r)
+	} else if known, _ := r.reasoning(); known {
+		t.Error("a replay-only record says whether the model reasons")
+	}
+	if r := parseEffort(json.RawMessage(`{"replay":"sometimes"}`)); r != nil {
+		t.Errorf("no levels, no replay never: %+v", r)
 	}
 	// m1: aliases onto its own levels are carried (the chip maps as the connector does); others are not
 	if r := parseEffort(json.RawMessage(`{"supported_levels":["low","high"],"aliases":{"medium":"high","xhigh":"max","none":"low","turbo":"low","minimal":7}}`)); r == nil ||

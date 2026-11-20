@@ -69,6 +69,13 @@ func parseEffort(raw json.RawMessage) *effortRec {
 		return nil
 	}
 	var words []json.RawMessage
+	if _, said := m["supported_levels"]; !said {
+		var replay string
+		if json.Unmarshal(m["replay"], &replay) == nil && replay == "never" {
+			return &effortRec{Replay: replay} // an admin's entry that says only that (D249 m4): levels unknown
+		}
+		return nil
+	}
 	if json.Unmarshal(m["supported_levels"], &words) != nil || words == nil || len(words) > 16 {
 		return nil
 	}
@@ -129,7 +136,7 @@ var noReasoningSources = map[string]bool{"admin": true, "host": true, "xbin": tr
 // reasoning answers whether the model reasons: known false when nothing
 // usable says (a model nothing describes).
 func (r *effortRec) reasoning() (known, yes bool) {
-	if r == nil || (r.Partial && len(r.Levels) == 0) {
+	if r == nil || r.Levels == nil || (r.Partial && len(r.Levels) == 0) {
 		return false, false
 	}
 	return true, len(r.Levels) > 0
