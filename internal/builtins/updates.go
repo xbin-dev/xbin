@@ -15,6 +15,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -22,6 +23,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
+	"time"
 )
 
 const (
@@ -127,7 +130,27 @@ type Updater struct {
 	tiles      *Set
 	scaffoldFS fs.FS
 	recorded   func(tile string) (raw []byte, has, ok bool) // SetRecordedPartition
+
+	// one listing at a time (Updates): it reads every managed file
+	listMu sync.Mutex
+	list   *listing
 }
+
+// listing is a listing under way, and its result once done is closed.
+type listing struct {
+	done chan struct{}
+	ups  []*UnitUpdate
+	err  error
+}
+
+// listWait bounds how long a listing waits for the one under way.
+var listWait = 30 * time.Second
+
+// ErrListingBusy: another listing ran past listWait.
+var ErrListingBusy = errors.New("the builtins' updates are being listed already: try again in a moment")
+
+// beforeList, when set (tests only), runs as a listing starts its work.
+var beforeList func()
 
 func NewUpdater(root string, tiles *Set, scaffoldFS fs.FS) *Updater {
 	return &Updater{root: root, tiles: tiles, scaffoldFS: scaffoldFS}
@@ -371,7 +394,35 @@ type UnitUpdate struct {
 
 // Updates scans every installed managed builtin and returns those with an
 // update available (or an adopted unit that diverges from the current embed).
+// One listing runs at a time — any authenticated caller may ask, and it
+// hashes every managed file — and a caller that comes while one runs gets
+// its result, waiting at most listWait (re-review of 2026-11-20, L6).
 func (u *Updater) Updates() ([]*UnitUpdate, error) {
+	u.listMu.Lock()
+	if l := u.list; l != nil {
+		u.listMu.Unlock()
+		select {
+		case <-l.done:
+			return l.ups, l.err
+		case <-time.After(listWait):
+			return nil, ErrListingBusy
+		}
+	}
+	l := &listing{done: make(chan struct{})}
+	u.list = l
+	u.listMu.Unlock()
+	if beforeList != nil {
+		beforeList()
+	}
+	l.ups, l.err = u.updates()
+	u.listMu.Lock()
+	u.list = nil
+	u.listMu.Unlock()
+	close(l.done)
+	return l.ups, l.err
+}
+
+func (u *Updater) updates() ([]*UnitUpdate, error) {
 	o := u.load()
 	var out []*UnitUpdate
 	for _, def := range u.defs() {
@@ -435,13 +486,9 @@ func (u *Updater) compare(def unitDef, installPath string, state *UnitState) (*U
 	for _, rel := range rels {
 		th, inTheirs := theirs[rel]
 		bh, inBase := baseFiles[rel]
-		tf := readTile(u.root, installPath, rel)
-		ou, inOurs := "", tf.present
-		if inOurs {
-			ou = sha(tf.data)
-		}
-
-		st, note := stUpToDate, leftAlone(u.root, installPath, rel, tf, ships, false)
+		note, tf := leftAlone(u.root, installPath, rel, ships, false, true) // the hash only: a listing holds no file
+		ou, inOurs := tf.hash, tf.present
+		st := stUpToDate
 		if note != "" {
 			st = stConflict
 		}
@@ -532,37 +579,47 @@ func (u *Updater) applyReplace(id string, notes *[]string) ([]string, error) {
 		base = state.Files
 	}
 	ships := shipsOf(theirs, base)
-	whole := true
+	left := map[string]bool{} // files left as they are: they keep their recorded base (recordPartly)
 	// Delete files removed upstream (present in base, gone in theirs): the
 	// file itself, never what a link there names.
-	var left []string
+	var said []string
 	for rel := range base {
 		if _, ok := theirs[rel]; ok {
 			continue
 		}
-		if why := leftAlone(u.root, installPath, rel, readTile(u.root, installPath, rel), ships, true); why != "" {
-			left, whole = append(left, why), false
+		if why, _ := leftAlone(u.root, installPath, rel, ships, true, true); why != "" {
+			said, left[rel] = append(said, why), true
 			continue
 		}
 		if err := removeTile(u.root, installPath, rel, ""); err != nil {
-			left, whole = append(left, err.Error()), false
+			said, left[rel] = append(said, err.Error()), true
 		}
 	}
-	kept, keptWhole := u.keepPartition(installPath, theirs, notes) // keptWhole: no manifest left as it is
-	whole = whole && keptWhole
+	kept, _ := u.keepPartition(installPath, theirs, notes) // a manifest it can't keep the partition of is left out of kept
+	for rel := range theirs {
+		if _, ok := kept[rel]; !ok {
+			left[rel] = true
+		}
+	}
 	for rel := range kept {
-		if why := leftAlone(u.root, installPath, rel, readTile(u.root, installPath, rel), ships, true); why != "" {
+		why, tf := leftAlone(u.root, installPath, rel, ships, true, true)
+		switch {
+		case why != "":
 			delete(kept, rel)
-			left, whole = append(left, why), false
+			said, left[rel] = append(said, why), true
+		case tf.refused != "": // a link or a FIFO at the file's own path: replaced by upstream's file — said (re-review, L5)
+			said = append(said, installPath+"/"+rel+" "+tf.refused+": replace put upstream's file in its place (what a link named is untouched)")
 		}
 	}
-	sort.Strings(left)
-	*notes = append(*notes, left...)
-	written, err := writeTreeIn(u.root, installPath, kept, "")
-	if err != nil || !whole { // a file left as it is keeps the update offered
+	sort.Strings(said)
+	*notes = append(*notes, said...)
+	written, err := writeTreeIn(u.root, installPath, kept, "", nil)
+	if err != nil {
 		return written, writtenSoFar(err, written)
 	}
-	return written, u.record(def, installPath, theirs)
+	// what was written is recorded at the new base; a file left as it is
+	// keeps its old one, and the update stays offered for it alone (M1)
+	return written, u.recordPartly(def, installPath, theirs, state, left)
 }
 
 // applyMerge 3-way merges each changed file (git merge-file: ours / base /
@@ -575,118 +632,6 @@ func (u *Updater) applyMerge(id string, notes *[]string) ([]string, error) {
 		return nil, err
 	}
 	return u.writeMerge(p)
-}
-
-// Proposal is a builtin update rendered as a git patch series, for filing
-// through the cross-tile PR flow (update mode "pr" — where builtin-updates
-// meets plans/code-prs.md). The series is base→theirs for tracked units and
-// ours→theirs for adopted ones (no trusted base), so `git am --3way` in the
-// tile's own terminal does the merge with real git machinery instead of
-// conflict markers dropped into live files. Provenance is refreshed only
-// when the PR closes merged (RecordApplied) — after resolution, not before.
-type Proposal struct {
-	ID          string
-	InstallPath string
-	Title       string
-	Message     string
-	Series      string // format-patch mbox; "" when upstream changed nothing but a partition (Notes say so)
-	ToVersion   int
-	ToHash      string // rollup of theirs; RecordApplied verifies the embed hasn't moved
-	Notes       []string
-}
-
-// Propose renders a unit's pending update as a Proposal. Errors when the
-// unit is unknown or already up to date.
-func (u *Updater) Propose(id string) (*Proposal, error) {
-	def, ok := u.defByID(id)
-	if !ok {
-		return nil, noSuchUnit(id)
-	}
-	o := u.load()
-	state := o.Units[id]
-	installPath := def.DefaultPath
-	if state != nil {
-		installPath = state.InstallPath
-	}
-	uu, err := u.compare(def, installPath, state)
-	if err != nil {
-		return nil, err
-	}
-	if !uu.HasUpdate {
-		return nil, fmt.Errorf("%s is up to date — nothing to propose", id)
-	}
-	theirs, err := u.render(def, installPath)
-	if err != nil {
-		return nil, err
-	}
-
-	// The "from" side of the diff: the recorded base snapshot, or — adopted
-	// units, no trusted base — the installed files as they are now.
-	base := map[string][]byte{}
-	if state != nil && !state.Adopted {
-		snap := u.snapDir(id)
-		for rel := range state.Files {
-			if data, err := os.ReadFile(filepath.Join(snap, filepath.FromSlash(rel))); err == nil { // walk-ok: the base snapshot is xbind's own (.xbin/builtins)
-				base[rel] = data
-			}
-		}
-	} else {
-		// Each file as it is at its path: a link, a FIFO, a file too large
-		// is not read (its status says so) — the series, which the tile's
-		// readers fetch, holds only what is there.
-		for _, fs := range uu.Files {
-			if tf := readTile(u.root, installPath, fs.Path); tf.present {
-				base[fs.Path] = tf.data
-			}
-		}
-	}
-
-	title := fmt.Sprintf("builtin update: %s v%d→v%d", def.Name, uu.FromVersion, uu.ToVersion)
-	if uu.FromVersion == 0 && state == nil {
-		title = fmt.Sprintf("builtin update: %s v%d (adopted — no recorded base)", def.Name, uu.ToVersion)
-	}
-	var msg strings.Builder
-	if def.Changelog != "" {
-		msg.WriteString(def.Changelog + "\n\n")
-	}
-	msg.WriteString("File status (base / yours / upstream):\n")
-	var unread []string
-	for _, fs := range uu.Files {
-		if fs.Status == stUpToDate {
-			continue
-		}
-		fmt.Fprintf(&msg, "  %-9s %s\n", fs.Status, fs.Path)
-		if fs.Note != "" {
-			unread = append(unread, fs.Note)
-		}
-	}
-	if len(unread) > 0 {
-		msg.WriteString("\nNot read (the series takes upstream's file for each):\n  " + strings.Join(unread, "\n  ") + "\n")
-	}
-	msg.WriteString("\nApply in this tile's terminal (clone-first keeps markers out of live files):\n" +
-		"  git clone \"$XBIN_WORKSPACE/" + installPath + "\" /tmp/upd && cd /tmp/upd\n" +
-		"  bx code pr fetch <n> | git am --3way    # resolve, build, test\n" +
-		"  git -C \"$XBIN_WORKSPACE/" + installPath + "\" pull /tmp/upd && bx code pr close <n> --merged\n" +
-		"Closing merged (a person's call, never the tile's own code) records the files that then hold\n" +
-		"the update; it stays offered for the rest, as rejecting keeps it offered.")
-
-	to, notes := u.proposalPartition(installPath, base, theirs) // the series never touches "partition"
-	notes = append(notes, unread...)
-	msg.WriteString(proposalNote(notes))
-	series := "" // stays "" when upstream changed nothing else: nothing to propose
-	if !sameFiles(base, to) {
-		if series, err = patchSeries(base, to, title, msg.String()); err != nil {
-			return nil, err
-		}
-	}
-	hashes := make(map[string]string, len(theirs))
-	for rel, data := range theirs {
-		hashes[rel] = sha(data)
-	}
-	return &Proposal{
-		ID: id, InstallPath: installPath, Title: title, Message: msg.String(),
-		Series: series, ToVersion: uu.ToVersion, ToHash: rollup(hashes), Notes: notes,
-	}, nil
 }
 
 // Pin/unpin stop/resume offering updates for a unit.

@@ -147,9 +147,7 @@ func (u *Updater) SafePlan(id string) (*SafePlanned, error) {
 			return nil, err
 		}
 		sp.Conflicts = append(append([]string{}, p.conflicts...), p.left...)
-		if !p.whole && len(p.left) == 0 { // a manifest it can't read: not something to merge unattended
-			sp.Conflicts = append(sp.Conflicts, manifestsOf(theirs)...)
-		}
+		sp.Conflicts = append(sp.Conflicts, p.keptAsIs...) // a manifest it can't read: not something to merge unattended
 		// a file deleted here is a change made here: kept deleted while
 		// upstream didn't change it, a conflict where it did
 		steps := p.steps[:0]
@@ -244,7 +242,7 @@ func (u *Updater) installWhereNothingIs(id, installPath string) ([]string, error
 	}
 	var written []string
 	for _, rel := range sortedKeys(theirs) {
-		wrote, err := writeTile(u.root, installPath, rel, theirs[rel], "-")
+		wrote, err := writeTile(u.root, installPath, rel, theirs[rel], "-", false)
 		if wrote {
 			written = append(written, installPath+"/"+rel)
 		}

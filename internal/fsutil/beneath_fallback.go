@@ -7,27 +7,30 @@ import (
 	"syscall"
 )
 
-// The fallbacks (non-Linux, pre-5.6 kernels) resolve every symlink and
-// compare; a racing swap between the check and the open can still win
-// here, which is why Linux uses openat2.
+// The fallbacks (non-Linux, pre-5.6 kernels, a seccomp profile that
+// refuses openat2): what must never follow a link walks one step at a time
+// from the root's fd with O_NOFOLLOW (walkDir, beneath_unix.go) — no
+// lstat-then-open; only OpenBeneath's in-tree links (rel) and
+// OpenResolved still resolve and compare, racy where openat2 is not.
 
 func openInFallback(root, sub, rel string) (*os.File, error) {
 	base, err := filepath.EvalSymlinks(root)
 	if err != nil {
 		return nil, err
 	}
-	dir := base
-	if sub != "" && sub != "." {
-		want := filepath.Join(base, filepath.FromSlash(sub))
-		got, err := filepath.EvalSymlinks(filepath.Join(root, filepath.FromSlash(sub)))
-		if err != nil {
-			return nil, err
-		}
-		if got != want { // a symlink somewhere in sub
-			return nil, &os.PathError{Op: "open", Path: want, Err: ErrEscapes}
-		}
-		dir = got
+	// sub: walked from root's fd one step at a time, never through a link
+	// (walkDir) — what OpenRootIn and a tile's own directory rest on
+	dfd, err := walkDir(root, filepath.Clean(filepath.FromSlash(sub)))
+	if err != nil {
+		return nil, err
 	}
+	if rel == "" || rel == "." {
+		return fileOf(dfd, filepath.Join(root, filepath.FromSlash(sub)))
+	}
+	closeFd(dfd)
+	// rel beneath sub, in-tree links allowed (OpenBeneath's contract): the
+	// resolve-and-compare of old, racy where openat2 is not
+	dir := filepath.Join(base, filepath.FromSlash(sub))
 	full, err := filepath.EvalSymlinks(filepath.Join(dir, filepath.FromSlash(rel)))
 	if err != nil {
 		return nil, err
@@ -36,67 +39,6 @@ func openInFallback(root, sub, rel string) (*os.File, error) {
 		return nil, &os.PathError{Op: "open", Path: filepath.Join(dir, rel), Err: ErrEscapes}
 	}
 	return openChecked(full)
-}
-
-// openNoSymlinksFallback refuses a link at any step of rel (Lstat each),
-// then opens the last with O_NOFOLLOW: a swap racing the walk can still
-// place a link on a parent step, which is why Linux uses openat2.
-func openNoSymlinksFallback(root, rel string) (*os.File, error) {
-	dir, err := filepath.EvalSymlinks(root)
-	if err != nil {
-		return nil, err
-	}
-	p := dir
-	for _, seg := range strings.Split(filepath.ToSlash(rel), "/") {
-		if seg == "." {
-			continue
-		}
-		p = filepath.Join(p, seg)
-		fi, err := os.Lstat(p)
-		if err != nil {
-			return nil, err
-		}
-		if fi.Mode()&os.ModeSymlink != 0 {
-			return nil, &os.PathError{Op: "open", Path: p, Err: ErrEscapes}
-		}
-	}
-	f, err := os.OpenFile(p, os.O_RDONLY|syscall.O_NONBLOCK|syscall.O_NOFOLLOW, 0)
-	if err != nil {
-		return nil, err
-	}
-	fi, err := f.Stat()
-	if err != nil {
-		f.Close()
-		return nil, err
-	}
-	if !fi.Mode().IsRegular() && !fi.IsDir() {
-		f.Close()
-		return nil, &os.PathError{Op: "open", Path: p, Err: ErrNotRegular}
-	}
-	return f, nil
-}
-
-func mkdirAllInFallback(root, sub string, perm os.FileMode) error {
-	dir, err := filepath.EvalSymlinks(root)
-	if err != nil {
-		return err
-	}
-	for _, seg := range strings.Split(filepath.ToSlash(sub), "/") {
-		dir = filepath.Join(dir, seg)
-		if err := os.Mkdir(dir, perm); err != nil && !os.IsExist(err) {
-			return err
-		}
-		fi, err := os.Lstat(dir)
-		switch {
-		case err != nil:
-			return err
-		case fi.Mode()&os.ModeSymlink != 0:
-			return &os.PathError{Op: "mkdir", Path: dir, Err: ErrEscapes}
-		case !fi.IsDir():
-			return &os.PathError{Op: "mkdir", Path: dir, Err: syscall.ENOTDIR}
-		}
-	}
-	return nil
 }
 
 // resolveIn resolves root and root/rel and checks the result: inside root,

@@ -56,7 +56,7 @@ func (u *Updater) RecordApplied(id, toHash string) (pending []string, err error)
 	snap := u.snapDir(id)
 	if state != nil {
 		base = state.Files
-		merged, _ = u.mergeTheirs(installPath, snap, theirs, &discard)
+		merged, _, _ = u.mergeTheirs(installPath, snap, theirs, &discard)
 	}
 	baseOf := func(rel string) ([]byte, bool) {
 		if _, had := base[rel]; !had {
@@ -75,30 +75,57 @@ func (u *Updater) RecordApplied(id, toHash string) (pending []string, err error)
 		}
 		return holdsChange(ours, b, merged[rel])
 	}
-	files := map[string][]byte{}
+	left := map[string]bool{}
+	ships := shipsOf(theirs, base)
 	for _, rel := range sortedRels(theirs, base) {
-		tf := readTile(u.root, installPath, rel)
-		th, inTheirs := theirs[rel]
+		why, tf := leftAlone(u.root, installPath, rel, ships, false, false) // a nested tile's file is never read
+		if why != "" {
+			pending, left[rel] = append(pending, installPath+"/"+rel), true
+			continue
+		}
+		_, inTheirs := theirs[rel]
 		switch {
 		case inTheirs && tf.present && holds(rel, tf.data):
-			files[rel] = th // updated
-			continue
+			continue // updated
 		case !inTheirs && !tf.present && tf.refused == "":
 			continue // removed upstream, and gone here
 		}
-		pending = append(pending, installPath+"/"+rel)
-		if b, ok := baseOf(rel); ok { // keeps its recorded base
+		pending, left[rel] = append(pending, installPath+"/"+rel), true
+	}
+	return pending, u.recordPartly(def, installPath, theirs, state, left)
+}
+
+// recordPartly records the unit at theirs but for the files of left,
+// which keep their recorded base (none for a file the record never had),
+// so the update stays offered for them alone; the version moves only when
+// left is empty (then it is record).
+func (u *Updater) recordPartly(def unitDef, installPath string, theirs map[string][]byte, state *UnitState, left map[string]bool) error {
+	if len(left) == 0 {
+		return u.record(def, installPath, theirs)
+	}
+	var base map[string]string
+	version := 0
+	if state != nil {
+		base, version = state.Files, state.Version
+	}
+	snap := u.snapDir(def.ID)
+	files := map[string][]byte{}
+	for _, rel := range sortedRels(theirs, base) {
+		if !left[rel] {
+			if th, ok := theirs[rel]; ok {
+				files[rel] = th
+			}
+			continue
+		}
+		if _, had := base[rel]; had { // read before record empties the snapshot
+			b, err := os.ReadFile(filepath.Join(snap, filepath.FromSlash(rel))) // walk-ok: the base snapshot is xbind's own (.xbin/builtins)
+			if err != nil {
+				return err
+			}
 			files[rel] = b
 		}
 	}
-	if len(pending) == 0 {
-		return nil, u.record(def, installPath, theirs)
-	}
-	version := 0
-	if state != nil {
-		version = state.Version
-	}
-	return pending, u.recordAs(def, installPath, files, version)
+	return u.recordAs(def, installPath, files, version)
 }
 
 // sortedRels is the paths of theirs and base, sorted.

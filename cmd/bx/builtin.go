@@ -29,6 +29,11 @@ func cmdBuiltin(args []string) error {
 			Clean       int    `json:"clean"`
 			Conflicts   int    `json:"conflicts"`
 			Missing     bool   `json:"missing"`
+			Files       []struct {
+				Path   string `json:"path"`
+				Status string `json:"status"`
+				Note   string `json:"note"` // why a file was not read: a link, a FIFO, a nested tile's
+			} `json:"files"`
 		}
 		if err := apiJSON("GET", "/api/xbin/builtins/updates", nil, &ups); err != nil {
 			return err
@@ -50,6 +55,11 @@ func cmdBuiltin(args []string) error {
 				note += ", adopted (no base — replace or hand-merge)"
 			}
 			fmt.Printf("%-22s v%d→v%d  %s\n", u.ID, u.FromVersion, u.ToVersion, note)
+			for _, f := range u.Files {
+				if f.Note != "" {
+					fmt.Printf("  %s (%s): %s\n", f.Path, f.Status, f.Note)
+				}
+			}
 		}
 		fmt.Println("\napply: bx builtin update <id> [--replace|--merge|--safe|--pr]  (--safe never overwrites your edits: a conflict becomes a proposal)")
 		return nil
@@ -116,7 +126,7 @@ func cmdBuiltin(args []string) error {
 				return err
 			}
 			if out.PR == nil {
-				fmt.Printf("nothing to propose for %s: upstream changed only what an update never changes; recorded as applied\n", id)
+				fmt.Printf("nothing to propose for %s: what the tile holds is recorded; the notes say what stays offered\n", id)
 				for _, n := range out.Notes {
 					fmt.Println("note: " + n)
 				}

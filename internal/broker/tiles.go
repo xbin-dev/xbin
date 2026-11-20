@@ -159,7 +159,11 @@ func (b *Broker) apiBuiltinsUpdates(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ups, err := b.updater.Updates()
-	if err != nil {
+	switch {
+	case errors.Is(err, builtins.ErrListingBusy): // one listing at a time; this one waited for it past its bound
+		server.WriteError(w, http.StatusServiceUnavailable, err.Error())
+		return
+	case err != nil:
 		server.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -204,7 +208,7 @@ func (b *Broker) apiBuiltinsUpdate(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case perr != nil:
 			server.WriteError(w, http.StatusBadRequest, perr.Error())
-		case m == nil: // upstream changed only a partition: recorded, nothing to propose (PD-52)
+		case m == nil: // nothing to propose (PD-52: upstream changed only a partition; or every file left is a link, a FIFO, a nested tile's): recorded as far as the tile holds it, the notes say what stays offered
 			out := map[string]any{"files": []string{}}
 			if len(notes) > 0 {
 				out["notes"] = notes

@@ -13,6 +13,10 @@ import (
 
 const readFlags = unix.O_RDONLY | unix.O_NONBLOCK | unix.O_NOCTTY | unix.O_CLOEXEC
 
+// forceFallback (tests only: SetFallbackForTests) makes every opener here
+// take its fallback, as on a kernel without openat2.
+var forceFallback bool
+
 // openat2Tries bounds openat2's retries on EAGAIN.
 const openat2Tries = 16
 
@@ -32,6 +36,9 @@ func openat2(dirfd int, path string, how *unix.OpenHow) (fd int, err error) {
 }
 
 func openIn(root, sub, rel string) (*os.File, error) {
+	if forceFallback {
+		return openInFallback(root, sub, rel)
+	}
 	rfd, err := unix.Open(root, unix.O_PATH|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
 	if err != nil {
 		return nil, &os.PathError{Op: "open", Path: root, Err: err}
@@ -75,6 +82,9 @@ func openIn(root, sub, rel string) (*os.File, error) {
 }
 
 func openNoSymlinks(root, rel string) (*os.File, error) {
+	if forceFallback {
+		return openNoSymlinksFallback(root, rel)
+	}
 	rfd, err := unix.Open(root, unix.O_PATH|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
 	if err != nil {
 		return nil, &os.PathError{Op: "open", Path: root, Err: err}
@@ -101,6 +111,9 @@ func openNoSymlinks(root, rel string) (*os.File, error) {
 // last component, and the open refuses a link, so nothing is made or
 // entered anywhere but beneath root, along sub, whatever races.
 func mkdirAllIn(root, sub string, perm os.FileMode) error {
+	if forceFallback {
+		return mkdirAllInFallback(root, sub, perm)
+	}
 	fd, err := unix.Open(root, unix.O_PATH|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
 	if err != nil {
 		return &os.PathError{Op: "open", Path: root, Err: err}
@@ -159,19 +172,11 @@ func openResolved(root, rel string, allow func(string) bool) (*os.File, string, 
 	return f, r, err
 }
 
-// fileOf admits a freshly opened (non-blocking) fd as a regular file or a
-// directory — anything else is closed and refused — and hands it back in
-// blocking mode.
-func fileOf(fd int, name string) (*os.File, error) {
-	var st unix.Stat_t
-	if err := unix.Fstat(fd, &st); err != nil {
-		unix.Close(fd)
-		return nil, &os.PathError{Op: "fstat", Path: name, Err: err}
-	}
-	if t := st.Mode & unix.S_IFMT; t != unix.S_IFREG && t != unix.S_IFDIR {
-		unix.Close(fd)
-		return nil, &os.PathError{Op: "open", Path: name, Err: ErrNotRegular}
-	}
-	_ = unix.SetNonblock(fd, false)
-	return os.NewFile(uintptr(fd), name), nil
+// SetFallbackForTests makes the openers take their fallback (the walk of
+// beneath_unix.go), as on a kernel without openat2, until restore: for
+// tests of every package that writes or reads through them.
+func SetFallbackForTests(on bool) (restore func()) {
+	was := forceFallback
+	forceFallback = on
+	return func() { forceFallback = was }
 }

@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"path"
@@ -219,7 +220,8 @@ func (b *Broker) apiTemplatesNew(w http.ResponseWriter, r *http.Request) {
 	var (
 		installed   string
 		files       []string
-		builtinName string // set for builtin templates → gets a `template` remote
+		builtinName string   // set for builtin templates → gets a `template` remote
+		notCopied   []string // a workspace template's files left out: links, FIFOs, files too large
 		err         error
 	)
 	switch {
@@ -227,7 +229,7 @@ func (b *Broker) apiTemplatesNew(w http.ResponseWriter, r *http.Request) {
 		builtinName = body.Source
 		installed, files, err = b.templates.Instantiate(b.Reg.Root, body.Source, target, opts)
 	default:
-		installed, files, err = instantiateWorkspace(b.Reg.Root, srcComp.Path, target, opts)
+		installed, files, notCopied, err = instantiateWorkspace(b.Reg.Root, srcComp.Path, target, opts)
 	}
 	if err != nil {
 		server.WriteError(w, http.StatusBadRequest, err.Error())
@@ -269,6 +271,11 @@ func (b *Broker) apiTemplatesNew(w http.ResponseWriter, r *http.Request) {
 	}
 	b.assignOwner(installed, owner) // D24: creator-owned (workspace-owned for admins) unless requested
 	out := map[string]any{"path": installed, "files": files, "pendingGrants": pending}
+	if len(notCopied) > 0 { // said, never silently left out (re-review of 2026-11-20, M3)
+		out["skipped"] = notCopied
+		out["notes"] = []string{fmt.Sprintf("%d file(s) of the template not copied — links, FIFOs and files over 32 MiB are not copied: %s",
+			len(notCopied), strings.Join(notCopied, "; "))}
+	}
 	switch {
 	case skipped != "":
 		out["partitionSkipped"] = skipped
@@ -287,15 +294,16 @@ func templateExists(s *builtins.TemplateSet, name string) bool {
 // a named instance, stripping the template marker; it starts in the partition
 // mode opts allows. Default target basename is the template's DefaultName
 // under apps/.
-func instantiateWorkspace(root, srcPath, targetPath string, opts builtins.InstanceOpts) (string, []string, error) {
+func instantiateWorkspace(root, srcPath, targetPath string, opts builtins.InstanceOpts) (string, []string, []string, error) {
 	if targetPath == "" {
 		targetPath = "apps/" + path.Base(srcPath)
 	}
 	// The template is a tile someone writes: its files are read as they
-	// are, never through a link (to a home, to another tile) or from a FIFO.
-	written, err := builtins.CopyTree(fsutil.NoSymlinksFS(root), srcPath, root, targetPath, srcPath, &opts)
+	// are, never through a link (to a home, to another tile) or from a
+	// FIFO; such a file is not copied, and said (skipped).
+	written, skipped, err := builtins.CopyTreeSkipping(fsutil.NoSymlinksFS(root), srcPath, root, targetPath, srcPath, &opts)
 	if err != nil {
-		return "", written, err
+		return "", written, skipped, err
 	}
-	return targetPath, written, nil
+	return targetPath, written, skipped, nil
 }

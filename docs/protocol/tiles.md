@@ -200,6 +200,9 @@ GET    /builtins/updates            any. builtins (scaffold + imported tiles) wi
                                    read — it is a "conflict" whose note says
                                    why ("apps/chat/index.html is a symbolic
                                    link: not read, and no update writes it").
+                                   Files are hashed as a stream; one listing
+                                   runs at a time (a caller during one gets
+                                   its result; 503 past 30 s).
 POST   /builtins/update             xbin:writer. body {id, mode:
                                    replace|merge|safe|pr|pin|unpin, pin?}. replace
                                    overwrites, merge 3-way-merges (git merge-file);
@@ -258,9 +261,15 @@ POST   /builtins/update             xbin:writer. body {id, mode:
                                    place of a link or a FIFO at a file's
                                    path (never following it) and leaves a
                                    file beneath a link, a directory, or a
-                                   nested component's file, noted. Each
-                                   file is written beside itself and
-                                   renamed in; merge writes a file only
+                                   nested component's file, noted — and a
+                                   link or FIFO it replaced is noted too.
+                                   What merge and replace leave alone keeps
+                                   its recorded base, so the update stays
+                                   offered for those files only (a later
+                                   merge never re-merges a merged one).
+                                   Each file keeps its permission bits (a
+                                   new one is 0644); each is written beside
+                                   itself and renamed in; merge writes a file only
                                    while it is what merge read (a file
                                    changed meanwhile stops the merge there:
                                    400 naming it and the files written
@@ -299,8 +308,15 @@ POST   /templates/new               same authority as /create on the
                                    source also needs READ. body {source,
                                    path?, owner?, partition?} → {path,
                                    files, pendingGrants, partition?,
-                                   partitionSkipped?} — instantiates a template
-                                   into a named copy (docs/overview/03-components.md §Templates).
+                                   partitionSkipped?, skipped?, notes?} —
+                                   instantiates a template into a named copy
+                                   (docs/overview/03-components.md §Templates).
+                                   A workspace template's link, FIFO,
+                                   socket, device or file over 32 MiB is not
+                                   copied (never followed): skipped names
+                                   each ("<rel>: a symbolic link"), notes
+                                   says so, and the rest is copied with its
+                                   executable bit.
                                    The copy's top-level "partition" is the
                                    template block's (docs/partitions.md) unless
                                    the body says "partition": false or xbind

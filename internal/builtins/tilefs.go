@@ -16,6 +16,7 @@ package builtins
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -36,6 +37,7 @@ const maxTileFile = 32 << 20
 // or refused (a link, not a regular file, too large) with why.
 type tileFile struct {
 	data    []byte
+	hash    string // sha of data (hashTile: of the file, streamed, data nil)
 	present bool
 	refused string // "is a symbolic link" … ("" when read or absent)
 }
@@ -49,30 +51,45 @@ func (f tileFile) stamp() string {
 	case !f.present:
 		return "-"
 	}
-	return sha(f.data)
+	return f.hash
 }
 
-// readTile reads installPath/rel beneath root (the workspace) with no
-// link on the way (none at all: an in-tree one is refused too).
-func readTile(root, installPath, rel string) tileFile {
+// openTile opens installPath/rel beneath root (the workspace) with no
+// link on the way (none at all: an in-tree one is refused too), a regular
+// file of at most maxTileFile; or says it is absent, or why not.
+func openTile(root, installPath, rel string) (*os.File, os.FileInfo, tileFile) {
 	full := path.Join(installPath, rel)
 	f, err := fsutil.OpenNoSymlinks(root, full)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return tileFile{}
+			return nil, nil, tileFile{}
 		}
-		return tileFile{refused: whyNot(root, full, err)}
+		return nil, nil, tileFile{refused: whyNot(root, full, err)}
 	}
-	defer f.Close()
 	fi, err := f.Stat()
+	var why string
 	switch {
 	case err != nil:
-		return tileFile{refused: "can't be read (" + err.Error() + ")"}
+		why = "can't be read (" + err.Error() + ")"
 	case fi.IsDir():
-		return tileFile{refused: "is a directory"}
+		why = "is a directory"
 	case fi.Size() > maxTileFile:
-		return tileFile{refused: fmt.Sprintf("is larger than %d MiB", maxTileFile>>20)}
+		why = fmt.Sprintf("is larger than %d MiB", maxTileFile>>20)
 	}
+	if why != "" {
+		f.Close()
+		return nil, nil, tileFile{refused: why}
+	}
+	return f, fi, tileFile{present: true}
+}
+
+// readTile reads installPath/rel (openTile).
+func readTile(root, installPath, rel string) tileFile {
+	f, _, tf := openTile(root, installPath, rel)
+	if f == nil {
+		return tf
+	}
+	defer f.Close()
 	data, err := io.ReadAll(io.LimitReader(f, maxTileFile+1))
 	switch {
 	case err != nil:
@@ -80,7 +97,26 @@ func readTile(root, installPath, rel string) tileFile {
 	case len(data) > maxTileFile:
 		return tileFile{refused: fmt.Sprintf("is larger than %d MiB", maxTileFile>>20)}
 	}
-	return tileFile{data: data, present: true}
+	return tileFile{data: data, hash: sha(data), present: true}
+}
+
+// hashTile is readTile's stamp without holding the file: its hash,
+// streamed (a listing reads every managed file; re-review, L6).
+func hashTile(root, installPath, rel string) tileFile {
+	f, _, tf := openTile(root, installPath, rel)
+	if f == nil {
+		return tf
+	}
+	defer f.Close()
+	h := sha256.New()
+	n, err := io.Copy(h, io.LimitReader(f, maxTileFile+1))
+	switch {
+	case err != nil:
+		return tileFile{refused: "can't be read (" + err.Error() + ")"}
+	case n > maxTileFile:
+		return tileFile{refused: fmt.Sprintf("is larger than %d MiB", maxTileFile>>20)}
+	}
+	return tileFile{hash: "sha256:" + hex.EncodeToString(h.Sum(nil)), present: true}
 }
 
 // whyNot words an open's refusal of full (workspace-relative).
@@ -133,7 +169,7 @@ func (e *ChangedError) Error() string {
 // over it (a link there is replaced, never followed). want, when not "",
 // is the stamp the decision read: a file that is no longer that is left as
 // it is (*ChangedError). A file already holding data is not written.
-func writeTile(root, installPath, rel string, data []byte, want string) (bool, error) {
+func writeTile(root, installPath, rel string, data []byte, want string, exec bool) (bool, error) {
 	full := path.Join(installPath, rel)
 	if beforeWrite != nil {
 		beforeWrite(full)
@@ -157,17 +193,32 @@ func writeTile(root, installPath, rel string, data []byte, want string) (bool, e
 		return false, writeErr(full, err)
 	}
 	defer r.Close()
-	if fi, err := r.Lstat(base); err == nil && fi.IsDir() {
-		return false, fmt.Errorf("%s is a directory: not written", full)
+	// the file's mode: an existing regular file keeps its permission bits
+	// (never setuid, setgid or sticky — Perm has none of them); a new one is
+	// 0644, or 0755 where its source is executable (re-review, L4)
+	perm := os.FileMode(0o644)
+	if exec {
+		perm = 0o755
+	}
+	if fi, err := r.Lstat(base); err == nil {
+		switch {
+		case fi.IsDir():
+			return false, fmt.Errorf("%s is a directory: not written", full)
+		case fi.Mode().IsRegular():
+			perm = fi.Mode().Perm()
+		}
 	}
 	var rnd [8]byte
 	_, _ = rand.Read(rnd[:])
 	tmp := "." + base + "." + hex.EncodeToString(rnd[:]) + ".tmp"
-	f, err := r.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	f, err := r.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return false, err
 	}
-	_, werr := f.Write(data)
+	werr := f.Chmod(perm) // the umask doesn't decide it
+	if werr == nil {
+		_, werr = f.Write(data)
+	}
 	if werr == nil {
 		werr = f.Sync()
 	}
@@ -245,7 +296,10 @@ func nestedIn(root, installPath, rel string, ships func(rel string) bool) string
 			if ships(d + "/" + f) {
 				continue
 			}
-			tf := readTile(root, installPath, d+"/"+f)
+			f, _, tf := openTile(root, installPath, d+"/"+f) // presence only: a nested tile's files are never read
+			if f != nil {
+				f.Close()
+			}
 			if tf.present || tf.refused != "" && !strings.HasPrefix(tf.refused, "is beneath") {
 				return installPath + "/" + d
 			}
@@ -255,20 +309,27 @@ func nestedIn(root, installPath, rel string, ships func(rel string) bool) string
 }
 
 // leftAlone is why an update leaves installPath/rel as it is ("" when it
-// may write it): it lies beneath a link or in a nested component — or, but
-// for a replace (which puts a regular file in place of a link, a FIFO or
-// the like, never following it), it isn't a regular file it could read.
-// tf is the file as read.
-func leftAlone(root, installPath, rel string, tf tileFile, ships func(string) bool, replace bool) string {
+// may write it), and the file as read: a file in a nested component (never
+// read: its tile may be someone else's, re-review L2) or beneath a link —
+// or, but for a replace (which puts a regular file in place of a link, a
+// FIFO or the like, never following it, and says so), one that isn't a
+// regular file it could read. hashOnly: the file's hash, streamed, not its
+// bytes.
+func leftAlone(root, installPath, rel string, ships func(string) bool, replace, hashOnly bool) (string, tileFile) {
+	if n := nestedIn(root, installPath, rel, ships); n != "" {
+		return nestedNote(installPath, rel, n), tileFile{}
+	}
+	read := readTile
+	if hashOnly {
+		read = hashTile
+	}
+	tf := read(root, installPath, rel)
 	switch {
 	case tf.refused == "":
 	case !replace, strings.HasPrefix(tf.refused, "is beneath"), tf.refused == "is a directory":
-		return refusedNote(installPath, rel, tf.refused)
+		return refusedNote(installPath, rel, tf.refused), tf
 	}
-	if n := nestedIn(root, installPath, rel, ships); n != "" {
-		return nestedNote(installPath, rel, n)
-	}
-	return ""
+	return "", tf
 }
 
 // shipsOf is "the unit ships rel": a file of upstream's (theirs) or of the

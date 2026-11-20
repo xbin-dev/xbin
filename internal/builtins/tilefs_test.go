@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 	"testing"
@@ -121,8 +122,8 @@ func TestProposeNeverReadsThroughALink(t *testing.T) {
 	if !strings.Contains(prop.Message, "apps/chat/index.html is a symbolic link: not read") {
 		t.Fatalf("the proposal doesn't say the link was not read:\n%s", prop.Message)
 	}
-	if !strings.Contains(prop.Series, "-mine") || !strings.Contains(prop.Series, "+<p>upstream</p>") {
-		t.Fatalf("the series isn't ours→theirs for what was read:\n%s", prop.Series)
+	if !strings.Contains(prop.Series, "-mine") || strings.Contains(prop.Series, "diff --git a/index.html") {
+		t.Fatalf("the series isn't ours→theirs for what was read, and nothing of the link:\n%s", prop.Series)
 	}
 	if b, _ := os.ReadFile(secret); string(b) != "TOKEN-s3cret" {
 		t.Fatal("the secret changed")
@@ -397,5 +398,231 @@ func TestUpdateWriteNeverFollowsALinkSwappedIn(t *testing.T) {
 	}
 	if b, _ := os.ReadFile(filepath.Join(other, "a.js")); string(b) != "other's\n" {
 		t.Fatalf("another tile's file was written: %q", b)
+	}
+}
+
+// covers the re-review of 2026-11-20, M1 — a merge that leaves a file
+// alone (here a harmless in-tree link, index.html → shared.html) still
+// records the files it merged: a second merge touches only what is
+// pending, so a file merged with conflict markers the first time is
+// byte-identical after the second — no second layer of markers.
+func TestRepeatedMergesStackNoMarkers(t *testing.T) {
+	root, tile, _, v2 := hostile(t)
+	must(t, os.WriteFile(filepath.Join(tile, "app.js"), []byte("a-mine\nb\nc\nd\ne\n"), 0o644)) // upstream changes the same line: markers
+	must(t, os.WriteFile(filepath.Join(tile, "shared.html"), []byte("<p>v1</p>\n"), 0o644))
+	must(t, os.Remove(filepath.Join(tile, "index.html")))
+	must(t, os.Symlink("shared.html", filepath.Join(tile, "index.html")))
+	u := NewUpdater(root, nil, v2)
+	a, err := u.ApplyMerge("scaffold:tiles/x")
+	must(t, err)
+	first, _ := os.ReadFile(filepath.Join(tile, "app.js"))
+	if !strings.Contains(string(first), "<<<<<<<") {
+		t.Fatalf("the fixture's merge has no conflict: %q (%v)", first, a.Notes)
+	}
+	for i := 0; i < 2; i++ {
+		if _, err := u.ApplyMerge("scaffold:tiles/x"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if again, _ := os.ReadFile(filepath.Join(tile, "app.js")); string(again) != string(first) {
+		t.Fatalf("a later merge changed app.js again:\n%s\n→\n%s", first, again)
+	}
+	uu := unitOf(t, u, "scaffold:tiles/x")
+	if uu == nil || noteOf(uu, "index.html") == "" {
+		t.Fatalf("the link isn't pending: %+v", uu)
+	}
+	for _, f := range uu.Files {
+		if f.Path != "index.html" && f.Status != stUser {
+			t.Errorf("%s is still pending after the merge: %s", f.Path, f.Status)
+		}
+	}
+}
+
+// covers the re-review of 2026-11-20, L2 — an adopted unit's proposal
+// never reads a component nested in it (its readers may not be the
+// nested tile's): the nested file is named as not read, and neither its
+// bytes nor upstream's for it are in the series.
+func TestProposeNeverReadsANestedComponent(t *testing.T) {
+	root := t.TempDir()
+	tile := filepath.Join(root, "apps", "chat")
+	must(t, os.MkdirAll(filepath.Join(tile, "sub"), 0o755))
+	must(t, os.WriteFile(filepath.Join(tile, "index.html"), []byte("<p>mine</p>\n"), 0o644))
+	must(t, os.WriteFile(filepath.Join(tile, "sub", "xbin.json"), []byte("{\"title\": \"bob's\"}\n"), 0o644))
+	must(t, os.WriteFile(filepath.Join(tile, "sub", "a.js"), []byte("BOB-PRIVATE\n"), 0o644))
+	u := NewUpdater(root, nil, fstest.MapFS{
+		"apps/chat/index.html": {Data: []byte("<p>upstream</p>\n")},
+		"apps/chat/sub/a.js":   {Data: []byte("upstream a\n")},
+	})
+	prop, err := u.Propose("scaffold:apps/chat")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(prop.Series, "BOB-PRIVATE") || strings.Contains(prop.Series, "diff --git a/sub/a.js") {
+		t.Fatalf("the series holds the nested tile's file:\n%s", prop.Series)
+	}
+	if !strings.Contains(prop.Message, "apps/chat/sub/a.js is inside apps/chat/sub, a component of its own") {
+		t.Fatalf("not said:\n%s", prop.Message)
+	}
+}
+
+// covers the re-review of 2026-11-20, L6 — a listing hashes each file as
+// a stream (it holds no file: a 24 MiB file costs far less than 24 MiB),
+// and runs one at a time: a listing asked while one runs gets that one's
+// result, or ErrListingBusy past the wait — never a second scan.
+func TestListingStreamsAndRunsOneAtATime(t *testing.T) {
+	root, tile, _, v2 := hostile(t)
+	big, err := os.Create(filepath.Join(tile, "app.js"))
+	must(t, err)
+	must(t, big.Truncate(24<<20))
+	big.Close()
+	u := NewUpdater(root, nil, v2)
+	var before, after runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&before)
+	if _, err := u.Updates(); err != nil {
+		t.Fatal(err)
+	}
+	runtime.ReadMemStats(&after)
+	if grew := after.TotalAlloc - before.TotalAlloc; grew > 8<<20 {
+		t.Errorf("a listing allocated %d MiB for a 24 MiB file", grew>>20)
+	}
+
+	release := make(chan struct{})
+	started := make(chan struct{})
+	scans := 0
+	beforeList = func() { scans++; close(started); <-release }
+	defer func() { beforeList = nil }()
+	first := make(chan []*UnitUpdate, 1)
+	go func() { ups, _ := u.Updates(); first <- ups }()
+	<-started
+	old := listWait
+	listWait = 50 * time.Millisecond
+	if _, err := u.Updates(); !errors.Is(err, ErrListingBusy) {
+		t.Fatalf("a listing past the wait: %v", err)
+	}
+	listWait = 10 * time.Second
+	second := make(chan []*UnitUpdate, 1)
+	go func() { ups, _ := u.Updates(); second <- ups }()
+	time.Sleep(20 * time.Millisecond)
+	close(release)
+	a, b := <-first, <-second
+	listWait = old
+	if scans != 1 || len(a) != len(b) || len(a) == 0 || a[0] != b[0] {
+		t.Fatalf("scans %d; results %v / %v", scans, a, b)
+	}
+}
+
+// covers the re-review of 2026-11-20, L3 — the hostile shapes again, with
+// the openers forced onto their fallback (a kernel without openat2): the
+// update still never follows a link, never blocks, never writes through a
+// swapped-in one.
+func TestUpdateSafeOnTheFallback(t *testing.T) {
+	defer fsutil.SetFallbackForTests(true)()
+	t.Run("follows or blocks", TestUpdateNeverFollowsOrBlocks)
+	t.Run("swapped in", TestUpdateWriteNeverFollowsALinkSwappedIn)
+	t.Run("propose", TestProposeNeverReadsThroughALink)
+	t.Run("nested", TestUpdateNeverWritesInANestedComponent)
+}
+
+// covers the re-review of 2026-11-20, L4 — an update keeps an existing
+// file's permission bits (0755, 0600 — never setuid, setgid or sticky) and
+// writes a new file 0644, whatever the umask: replace and merge alike.
+func TestUpdateKeepsFileModes(t *testing.T) {
+	for _, mode := range []string{"replace", "merge"} {
+		t.Run(mode, func(t *testing.T) {
+			root, tile, _, v2 := hostile(t)
+			must(t, os.Chmod(filepath.Join(tile, "app.js"), 0o755))
+			must(t, os.Chmod(filepath.Join(tile, "index.html"), 0o600))
+			must(t, os.Chmod(filepath.Join(tile, "xbin.json"), 0o644|os.ModeSetuid))
+			v2["tiles/x/new.txt"] = &fstest.MapFile{Data: []byte("new\n")}
+			u := NewUpdater(root, nil, v2)
+			var err error
+			if mode == "replace" {
+				_, err = u.ApplyReplace("scaffold:tiles/x")
+			} else {
+				_, err = u.ApplyMerge("scaffold:tiles/x")
+			}
+			must(t, err)
+			for rel, want := range map[string]os.FileMode{"app.js": 0o755, "index.html": 0o600, "xbin.json": 0o644, "new.txt": 0o644} {
+				fi, err := os.Stat(filepath.Join(tile, rel))
+				if err != nil || fi.Mode()&(os.ModePerm|os.ModeSetuid|os.ModeSetgid|os.ModeSticky) != want {
+					t.Errorf("%s: %v %v (want %v)", rel, fi.Mode(), err, want)
+				}
+			}
+			if b, _ := os.ReadFile(filepath.Join(tile, "app.js")); string(b) != "A\nb\nc\nd\ne\n" {
+				t.Errorf("app.js wasn't updated: %q", b)
+			}
+		})
+	}
+}
+
+// covers the re-review of 2026-11-20 (missing tests) — the tile's own
+// directory swapped for a link (to another tile): it lists as installed,
+// every file is a conflict "beneath a symbolic link", and no mode reads or
+// writes through it.
+func TestUpdateWhenTheTileItselfIsALink(t *testing.T) {
+	root, tile, _, v2 := hostile(t)
+	other := filepath.Join(root, "apps", "other")
+	must(t, os.MkdirAll(filepath.Join(root, "apps"), 0o755))
+	must(t, os.Rename(tile, other))
+	must(t, os.Symlink(other, tile))
+	before, _ := os.ReadFile(filepath.Join(other, "app.js"))
+	u := NewUpdater(root, nil, v2)
+	uu := unitOf(t, u, "scaffold:tiles/x")
+	if uu == nil || !strings.Contains(noteOf(uu, "app.js"), "tiles/x/app.js is beneath a symbolic link") {
+		t.Fatalf("the listing: %+v", uu)
+	}
+	for _, apply := range []func(string) (Applied, error){u.ApplyReplace, u.ApplyMerge} {
+		_, _ = apply("scaffold:tiles/x")
+	}
+	if p, err := u.Propose("scaffold:tiles/x"); err == nil && strings.Contains(p.Series, "diff --git a/app.js") {
+		t.Errorf("the series reads through the tile's link:\n%s", p.Series)
+	}
+	if after, _ := os.ReadFile(filepath.Join(other, "app.js")); string(after) != string(before) {
+		t.Fatalf("written through the tile's link: %q", after)
+	}
+}
+
+// covers the re-review of 2026-11-20 (missing tests) — the 32 MiB cap
+// through the public entry points: the listing says the file is too large,
+// a merge leaves it alone, and neither reads it whole.
+func TestUpdateSizeCapThroughTheEntryPoints(t *testing.T) {
+	root, tile, _, v2 := hostile(t)
+	big, err := os.Create(filepath.Join(tile, "app.js"))
+	must(t, err)
+	must(t, big.Truncate(33<<20))
+	big.Close()
+	u := NewUpdater(root, nil, v2)
+	if n := noteOf(unitOf(t, u, "scaffold:tiles/x"), "app.js"); !strings.Contains(n, "is larger than 32 MiB") {
+		t.Fatalf("the listing: %q", n)
+	}
+	a, err := u.ApplyMerge("scaffold:tiles/x")
+	must(t, err)
+	if !strings.Contains(strings.Join(a.Notes, "\n"), "tiles/x/app.js is larger than 32 MiB") {
+		t.Fatalf("the merge: %v", a.Notes)
+	}
+	if fi, _ := os.Stat(filepath.Join(tile, "app.js")); fi.Size() != 33<<20 {
+		t.Fatal("the large file was written")
+	}
+}
+
+// covers the re-review of 2026-11-20 (missing tests) — a proposal's merged
+// close against a link and a FIFO: never followed, never blocking, and
+// each stays pending.
+func TestRecordAppliedAgainstALinkAndAFIFO(t *testing.T) {
+	root, tile, secret, v2 := hostile(t)
+	u := NewUpdater(root, nil, v2)
+	prop, err := u.Propose("scaffold:tiles/x")
+	must(t, err)
+	must(t, os.Remove(filepath.Join(tile, "index.html")))
+	must(t, os.Symlink(secret, filepath.Join(tile, "index.html")))
+	must(t, os.Remove(filepath.Join(tile, "app.js")))
+	must(t, syscall.Mkfifo(filepath.Join(tile, "app.js"), 0o644))
+	var pending []string
+	within(t, "RecordApplied", func() { pending, err = u.RecordApplied("scaffold:tiles/x", prop.ToHash) })
+	must(t, err)
+	got := strings.Join(pending, ",")
+	if !strings.Contains(got, "tiles/x/index.html") || !strings.Contains(got, "tiles/x/app.js") {
+		t.Fatalf("pending: %v", pending)
 	}
 }

@@ -15,6 +15,7 @@ package builtins
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path"
@@ -307,21 +308,36 @@ func (s *Set) Import(workspaceRoot, name, targetPath string) (string, []string, 
 // plugged-in component, starting in the partition mode tpl allows. Never
 // overwrites an existing component.
 func CopyTree(srcFS fs.FS, srcRoot, workspaceRoot, targetPath, defaultPath string, tpl *InstanceOpts) ([]string, error) {
+	written, _, err := copyTree(srcFS, srcRoot, workspaceRoot, targetPath, defaultPath, tpl, false)
+	return written, err
+}
+
+// CopyTreeSkipping is CopyTree for a tree someone writes (a workspace
+// template, read through fsutil.NoSymlinksFS): a symbolic link, a FIFO or
+// another file that isn't a regular one, and a file over 32 MiB, is not
+// copied — skipped says each ("<rel>: a symbolic link") — and the rest is
+// (re-review of 2026-11-20, M3). A file's executable bit comes along.
+func CopyTreeSkipping(srcFS fs.FS, srcRoot, workspaceRoot, targetPath, defaultPath string, tpl *InstanceOpts) (written, skipped []string, err error) {
+	return copyTree(srcFS, srcRoot, workspaceRoot, targetPath, defaultPath, tpl, true)
+}
+
+func copyTree(srcFS fs.FS, srcRoot, workspaceRoot, targetPath, defaultPath string, tpl *InstanceOpts, skipping bool) ([]string, []string, error) {
 	targetPath = strings.Trim(strings.TrimSpace(targetPath), "/")
 	if !util.ComponentPathOK(targetPath) {
-		return nil, fmt.Errorf("invalid target path %q", targetPath)
+		return nil, nil, fmt.Errorf("invalid target path %q", targetPath)
 	}
 	if _, _, err := util.SafeJoin(workspaceRoot, targetPath); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if hasTile(workspaceRoot, targetPath, "xbin.json") {
-		return nil, fmt.Errorf("%s already exists", targetPath)
+		return nil, nil, fmt.Errorf("%s already exists", targetPath)
 	}
-	files, err := RenderTree(srcFS, srcRoot, targetPath, defaultPath, tpl)
+	r, err := renderTree(srcFS, srcRoot, targetPath, defaultPath, tpl, skipping)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return writeTreeIn(workspaceRoot, targetPath, files, "")
+	written, err := writeTreeIn(workspaceRoot, targetPath, r.files, "", r.exec)
+	return written, r.skipped, err
 }
 
 // RenderTree produces the *installed form* of a component tree from srcFS
@@ -331,8 +347,21 @@ func CopyTree(srcFS fs.FS, srcRoot, workspaceRoot, targetPath, defaultPath strin
 // lets update detection compare the embedded source against a workspace copy
 // byte-for-byte.
 func RenderTree(srcFS fs.FS, srcRoot, targetPath, defaultPath string, tpl *InstanceOpts) (map[string][]byte, error) {
+	r, err := renderTree(srcFS, srcRoot, targetPath, defaultPath, tpl, false)
+	return r.files, err
+}
+
+// rendered is a tree's installed form: its files, those the source marks
+// executable, and (skipping) the files left out, each with why.
+type rendered struct {
+	files   map[string][]byte
+	exec    map[string]bool
+	skipped []string
+}
+
+func renderTree(srcFS fs.FS, srcRoot, targetPath, defaultPath string, tpl *InstanceOpts, skipping bool) (rendered, error) {
 	rename := defaultPath != "" && targetPath != defaultPath
-	out := map[string][]byte{}
+	out := rendered{files: map[string][]byte{}, exec: map[string]bool{}}
 	err := fs.WalkDir(srcFS, srcRoot, func(p string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return err
@@ -342,9 +371,28 @@ func RenderTree(srcFS fs.FS, srcRoot, targetPath, defaultPath string, tpl *Insta
 		if skip(rel) {
 			return nil
 		}
-		data, err := fs.ReadFile(srcFS, p)
-		if err != nil {
-			return err
+		why := ""
+		info, ierr := d.Info()
+		switch {
+		case d.Type()&fs.ModeSymlink != 0:
+			why = "a symbolic link"
+		case !d.Type().IsRegular():
+			why = "not a regular file (a FIFO, a socket or a device)"
+		case ierr == nil && info.Size() > maxTileFile:
+			why = fmt.Sprintf("larger than %d MiB", maxTileFile>>20)
+		}
+		var data []byte
+		if why == "" {
+			if data, err = readCapped(srcFS, p); err != nil {
+				why = "unreadable (" + err.Error() + ")"
+			}
+		}
+		if why != "" {
+			if !skipping {
+				return fmt.Errorf("%s: %s", p, why)
+			}
+			out.skipped = append(out.skipped, rel+": "+why)
+			return nil
 		}
 		if strayBuildOutput(rel, data) {
 			return nil
@@ -367,10 +415,28 @@ func RenderTree(srcFS fs.FS, srcRoot, targetPath, defaultPath string, tpl *Insta
 				data = []byte(strings.ReplaceAll(string(data), defaultPath, targetPath))
 			}
 		}
-		out[rel] = data
+		out.files[rel] = data
+		if ierr == nil && info.Mode().Perm()&0o111 != 0 {
+			out.exec[rel] = true
+		}
 		return nil
 	})
 	return out, err
+}
+
+// readCapped is p of fsys, refused past maxTileFile (a file that grew
+// after it was listed included).
+func readCapped(fsys fs.FS, p string) ([]byte, error) {
+	f, err := fsys.Open(p)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	data, err := io.ReadAll(io.LimitReader(f, maxTileFile+1))
+	if err == nil && len(data) > maxTileFile {
+		err = fmt.Errorf("larger than %d MiB", maxTileFile>>20)
+	}
+	return data, err
 }
 
 // WriteTree writes a rendered file set under dstRoot, never through a
@@ -380,14 +446,15 @@ func WriteTree(dstRoot, targetPath string, files map[string][]byte) ([]string, e
 	if err := os.MkdirAll(dstRoot, 0o755); err != nil { // dstRoot is the caller's: the trust boundary
 		return nil, err
 	}
-	written, err := writeTreeIn(dstRoot, "", files, targetPath)
+	written, err := writeTreeIn(dstRoot, "", files, targetPath, nil)
 	return written, writtenSoFar(err, written)
 }
 
 // writeTreeIn writes files beneath root/installPath (tilefs.go: no link on
 // the way, one file at a time through a rename), sorted; each path written
-// is named as as/<rel> (installPath/<rel> when as is "").
-func writeTreeIn(root, installPath string, files map[string][]byte, as string) ([]string, error) {
+// is named as as/<rel> (installPath/<rel> when as is ""). exec: the files
+// a new copy makes executable (an existing file keeps its own mode).
+func writeTreeIn(root, installPath string, files map[string][]byte, as string, exec map[string]bool) ([]string, error) {
 	if as == "" {
 		as = installPath
 	}
@@ -398,7 +465,7 @@ func writeTreeIn(root, installPath string, files map[string][]byte, as string) (
 	sort.Strings(rels)
 	written := make([]string, 0, len(files))
 	for _, rel := range rels {
-		if _, err := writeTile(root, installPath, rel, files[rel], ""); err != nil {
+		if _, err := writeTile(root, installPath, rel, files[rel], "", exec[rel]); err != nil {
 			return written, err
 		}
 		written = append(written, as+"/"+rel)

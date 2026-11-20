@@ -32,6 +32,7 @@ type mergePlan struct {
 	def         unitDef
 	installPath string
 	theirs      map[string][]byte
+	state       *UnitState // the record the plan was decided from
 	steps       []mergeStep
 	// whole: no file was left as it is (a manifest mergeTheirs couldn't
 	// read, a link, a FIFO, a nested tile) — the update is recorded as
@@ -44,6 +45,9 @@ type mergePlan struct {
 	// left are the files no update reads or writes (leftAlone): a merge
 	// leaves them and says so; to safe mode each is a conflict.
 	left []string
+	// keptAsIs are the manifests mergeTheirs left as they are (neither the
+	// installed copy nor its base can be read).
+	keptAsIs []string
 	// deleted are files of the recorded base that are gone here: a merge
 	// restores them (a step adds each); to safe mode, a change made here.
 	deleted []string
@@ -66,8 +70,8 @@ func (u *Updater) planMerge(id string, notes *[]string) (*mergePlan, error) {
 		return nil, err
 	}
 	snap := u.snapDir(id)
-	kept, whole := u.mergeTheirs(installPath, snap, theirs, notes) // theirs, upstream's "partition" change undone
-	p := &mergePlan{def: def, installPath: installPath, theirs: theirs, whole: whole}
+	kept, whole, keptAsIs := u.mergeTheirs(installPath, snap, theirs, notes) // theirs, upstream's "partition" change undone
+	p := &mergePlan{def: def, installPath: installPath, theirs: theirs, state: state, whole: whole, keptAsIs: keptAsIs}
 	ships := shipsOf(theirs, state.Files)
 	seen := map[string]bool{}
 	for rel := range theirs {
@@ -85,8 +89,8 @@ func (u *Updater) planMerge(id string, notes *[]string) (*mergePlan, error) {
 	for _, rel := range rels {
 		th, inTheirs := kept[rel]
 		bh, inBase := state.Files[rel]
-		tf := readTile(u.root, installPath, rel)
-		if why := leftAlone(u.root, installPath, rel, tf, ships, false); why != "" { // a link, a FIFO, a nested tile…: left as it is, and said
+		why, tf := leftAlone(u.root, installPath, rel, ships, false, false)
+		if why != "" { // a link, a FIFO, a nested tile…: left as it is, and said
 			*notes = append(*notes, why)
 			p.left, p.whole = append(p.left, rel), false
 			continue
@@ -124,7 +128,8 @@ func (u *Updater) planMerge(id string, notes *[]string) (*mergePlan, error) {
 	return p, nil
 }
 
-// writeMerge writes p and, when it is whole, records the new base. A step
+// writeMerge writes p and records it (recordPartly: what it left keeps
+// its old base). A step
 // that leaves its file as it is writes nothing; every other file is
 // written only while it is what planMerge read (tilefs.go): one changed
 // meanwhile stops the merge there, said with what was written before.
@@ -140,7 +145,7 @@ func (u *Updater) writeMerge(p *mergePlan) ([]string, error) {
 			}
 			continue
 		}
-		wrote, err := writeTile(u.root, p.installPath, st.rel, st.data, st.want)
+		wrote, err := writeTile(u.root, p.installPath, st.rel, st.data, st.want, false)
 		if wrote {
 			written = append(written, p.installPath+"/"+st.rel)
 		}
@@ -148,8 +153,12 @@ func (u *Updater) writeMerge(p *mergePlan) ([]string, error) {
 			return written, writtenSoFar(err, written)
 		}
 	}
-	if !p.whole { // a file left as it is keeps the update offered
-		return written, nil
+	// what was merged is recorded at the new base; a file left as it is
+	// keeps its old one, so the update stays offered for it alone and a
+	// later merge never merges a merged file again (re-review, M1)
+	left := map[string]bool{}
+	for _, rel := range append(append([]string{}, p.left...), p.keptAsIs...) {
+		left[rel] = true
 	}
-	return written, u.record(p.def, p.installPath, p.theirs)
+	return written, u.recordPartly(p.def, p.installPath, p.theirs, p.state, left)
 }
