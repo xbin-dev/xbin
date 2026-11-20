@@ -156,7 +156,7 @@ func TestWsBriefCard(t *testing.T) {
 		Line        string
 	}
 	fx.json(t, fx.call(t, wsAlice, "GET", base+"/briefs/1/start-defaults", nil), 200, &defs)
-	if defs.Line != "Claude Code, asks before acting" || len(defs.Defaults.Harnesses) != 2 || !defs.Defaults.Ticket || !defs.Defaults.Harnesses[1].NeedsTicket || defs.Picked != "" {
+	if defs.Line != "Claude Code · asks before acting" || len(defs.Defaults.Harnesses) != 2 || !defs.Defaults.Ticket || !defs.Defaults.Harnesses[1].NeedsTicket || defs.Picked != "" {
 		t.Fatalf("the start's defaults: %+v", defs)
 	}
 	// the person edits the brief and picks another harness the tile allows:

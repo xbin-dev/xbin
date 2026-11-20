@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -523,21 +524,25 @@ func TestContinueOnlyOwnSessionSameTile(t *testing.T) {
 		t.Fatalf("a second session of the agent's opened: %d sessions", n)
 	}
 	// approved, and the session ends before it is used: refused, nothing spent
-	// (idle again after the follow-up's turn: an idle read can come before the turn began — file until it offers it)
+	// (idle again after the follow-up's turn: an idle read can come before that turn began, so the offer — or the
+	// approval, which checks again and refuses a busy session, nothing decided — is tried until the turn is over)
 	var r3 delegation.Request
 	for deadline := time.Now().Add(20 * time.Second); ; time.Sleep(100 * time.Millisecond) {
 		waitIdle(t, w, a.ID)
 		r3 = w.ask(alice, "POST", "/api/xbin/term/sessions", startBody("apps/x", "Goal: polish.", "provider", "fake", "continue", a.ID))
+		rec := httptest.NewRecorder()
 		if sessOf(r3)["continue"] != nil {
-			break
+			if rec = w.do(w.full, "POST", "/api/xbin/delegate/requests/"+r3.ID+"/approve", `{"knows":["continue"]}`, person); rec.Code == 200 {
+				break
+			}
+			if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "is busy") {
+				t.Fatalf("approve the continue: %d %s", rec.Code, rec.Body.String())
+			}
 		}
 		w.do(w.full, "DELETE", "/api/xbin/delegate/requests/"+r3.ID, "", alice)
 		if time.Now().After(deadline) {
-			t.Fatalf("the idle session never offered to continue: %v", sessOf(r3))
+			t.Fatalf("the idle session never offered to continue: %v %d %s", sessOf(r3), rec.Code, rec.Body.String())
 		}
-	}
-	if rec := w.do(w.full, "POST", "/api/xbin/delegate/requests/"+r3.ID+"/approve", `{"knows":["continue"]}`, person); rec.Code != 200 {
-		t.Fatalf("approve the continue: %d %s", rec.Code, rec.Body.String())
 	}
 	w.s.Term.Kill(a.ID)
 	deadline := time.Now().Add(10 * time.Second)
