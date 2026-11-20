@@ -354,9 +354,30 @@ func TestAgentQueuedMessageIsMarkedAsTheAgents(t *testing.T) {
 	if rec := w.do(w.full, "POST", "/api/xbin/term/sessions", body, alice, header(HeaderTicket, req.ID)); rec.Code != 200 || json.Unmarshal(rec.Body.Bytes(), &a) != nil {
 		t.Fatalf("the start: %d %s", rec.Code, rec.Body.String())
 	}
+	// the brief's own turn over first (xbind hands it the brief once it is up: an idle read can come before that
+	// turn began), then the person's turn, held until they cancel it ("stall": the scripted agent waits for it)
+	turnEnds := func(n int) {
+		t.Helper()
+		for deadline := time.Now().Add(20 * time.Second); ; time.Sleep(50 * time.Millisecond) {
+			page, _ := w.s.Term.AgentPage(a.ID, 0, 200)
+			ends := 0
+			for _, e := range page.Events {
+				if e.Type == agent.EvTurnEnd {
+					ends++
+				}
+			}
+			if ends >= n {
+				return
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("turn %d never ended (%d ended)", n, ends)
+			}
+		}
+	}
+	turnEnds(1)
 	waitIdle(t, w, a.ID)
-	if rec := w.do(w.full, "POST", "/api/xbin/term/sessions/"+a.ID+"/prompt", `{"text":"slow"}`, person); rec.Code != 200 {
-		t.Fatalf("the person's slow turn: %d %s", rec.Code, rec.Body.String())
+	if rec := w.do(w.full, "POST", "/api/xbin/term/sessions/"+a.ID+"/prompt", `{"text":"stall"}`, person); rec.Code != 200 {
+		t.Fatalf("the person's turn: %d %s", rec.Code, rec.Body.String())
 	}
 	rec := w.do(w.full, "POST", "/api/xbin/term/sessions/"+a.ID+"/queue", `{"text":"Fix the stray O."}`, alice)
 	var held term.QueueResult
@@ -365,6 +386,18 @@ func TestAgentQueuedMessageIsMarkedAsTheAgents(t *testing.T) {
 	}
 	if rec := w.do(w.full, "POST", "/api/xbin/term/sessions/"+a.ID+"/options", `{"id":"mode","value":"auto"}`, person); rec.Code != 200 {
 		t.Fatalf("the person's switch: %d %s", rec.Code, rec.Body.String())
+	}
+	// the mode is the session's once the agent says so: then the person ends their turn, and what is held goes in
+	for deadline := time.Now().Add(20 * time.Second); ; time.Sleep(50 * time.Millisecond) {
+		if info, _ := w.s.Term.Info(a.ID); info.Mode == "auto" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the switch to auto never reached the session")
+		}
+	}
+	if rec := w.do(w.full, "POST", "/api/xbin/term/sessions/"+a.ID+"/cancel", "", person); rec.Code != 200 {
+		t.Fatalf("the person's cancel: %d %s", rec.Code, rec.Body.String())
 	}
 	for deadline := time.Now().Add(20 * time.Second); ; time.Sleep(50 * time.Millisecond) {
 		page, _ := w.s.Term.AgentPage(a.ID, 0, 200)
