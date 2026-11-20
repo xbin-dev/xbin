@@ -37,7 +37,7 @@ const llmUsage = `  bx llm [status] [--json]              the LLM connector: ups
                                         family: 'deepseek*=deepseek'): a preset, or the levels it
                                         takes ('none,medium,high,xhigh/high' — none: it can be
                                         turned off; /high: its default); - forgets it
-  bx llm upstream rm <name> | test <name> [<model>]
+  bx llm upstream rm <name> | test <name> [<model>] | replay-reset <name> [<model>]
   bx llm models [--json]                the models offered (<upstream>/<model>, aliases),
                                         each with its reasoning effort when described
   bx llm default [set <model> [--role agent|harness|…] | unset [--role <role>]]
@@ -80,8 +80,10 @@ type llmUpstream struct {
 	ResponsesVia     string `json:"responsesVia"`
 	Translating      bool   `json:"translating"`
 	TranslatingSince string `json:"translatingSince"`
-	// its own description of its models' reasoning effort (D249), keyed like prices
-	Reasoning map[string]llmEffort `json:"reasoning"`
+	// its own description of its models' reasoning effort (D249), keyed like prices; its models found to refuse
+	// the reasoning a translated call sends back
+	Reasoning map[string]llmEffort    `json:"reasoning"`
+	ReplayOff map[string]llmReplayOff `json:"replayOff"`
 }
 
 type llmDefaults struct {
@@ -386,6 +388,7 @@ func printLLMConfig(v llmConfig) {
 			e := u.Reasoning[m]
 			fmt.Printf("    %s: %s\n", m, effortLine(&e))
 		}
+		printReplayOff(u)
 		for _, m := range llmKeys(u.Prices) {
 			p := u.Prices[m]
 			cached := ""
@@ -568,6 +571,8 @@ func llmUpstreamCmd(args []string) error {
 		}
 		fmt.Printf("removed upstream %s\n", pos[0])
 		return nil
+	case "replay-reset":
+		return llmReplayReset(pos, usage)
 	case "test":
 		if len(pos) < 1 || len(pos) > 2 {
 			return usage
@@ -622,42 +627,6 @@ func parseLLMPrice(spec string) (string, llmPrice, error) {
 		p.CachedIn = &nums[2]
 	}
 	return model, p, nil
-}
-
-func llmModelsCmd(jsonOut bool) error {
-	var out struct {
-		Data []struct {
-			ID      string          `json:"id"`
-			OwnedBy string          `json:"owned_by"`
-			AliasOf string          `json:"alias_of"`
-			Effort  json.RawMessage `json:"effort"`
-		} `json:"data"`
-		Errors map[string]string `json:"upstream_errors"`
-	}
-	var raw []byte
-	if err := llmCall("GET", "/api/xbin/llm/v1/models", nil, &out, &raw); err != nil {
-		return err
-	}
-	if jsonOut {
-		fmt.Println(strings.TrimSpace(string(raw)))
-		return nil
-	}
-	for _, m := range out.Data {
-		if m.AliasOf != "" {
-			fmt.Printf("%s → %s\n", m.ID, m.AliasOf)
-			continue
-		}
-		var e llmEffort
-		if len(m.Effort) == 0 || json.Unmarshal(m.Effort, &e) != nil || (e.Levels == nil && (e.Reasons == nil || !*e.Reasons)) {
-			fmt.Println(m.ID)
-			continue
-		}
-		fmt.Printf("%s  %s\n", m.ID, effortLine(&e))
-	}
-	for _, name := range llmKeys(out.Errors) {
-		fmt.Fprintf(os.Stderr, "bx: upstream %s: %s\n", name, out.Errors[name])
-	}
-	return nil
 }
 
 func llmDefaultCmd(args []string) error {
