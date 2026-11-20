@@ -6489,3 +6489,14 @@ here: cut from the old end, never reword.
     too, and the agent is told once when one is returned. Tests that swap
     the package's globals drain their engine within a deadline that fails
     the test before restoring them (the flake "no plan waits").
+  - **A coding agent with no default mode that lists an asking mode
+    starts IN it, and the line says it asks** — superseding master's "a
+    harness with no default mode is shown with no mode, warned": a
+    delegate's start is strict (the handshake's session/set_mode, refused
+    → the start fails before the brief; the first prompt waits for the
+    start), checked on real sessions in `test/isolated` (the agent opening
+    in another mode reports the asking one after the open and asks; one
+    that refuses the switch never takes the brief). One with no mode that
+    asks (OpenCode's shape) is shown with no mode, warned, unticked. Not
+    detected: an agent that acknowledges set_mode and stays in its own —
+    xbind takes the agent's answer, as for any coding agent's mode.

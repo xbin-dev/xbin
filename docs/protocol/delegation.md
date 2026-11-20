@@ -1381,7 +1381,10 @@ continue?: {session, provider, providerName, mode, asks, model, name, started, s
   (`agentSessions.tiles`, [agents.md](/docs/protocol/agents.md)) > the
   person's preference > the agent's suggestion > the workspace's default;
   `from` says which. The default mode is the harness's asking one
-  (`defaultMode`). **A coding agent with no mode xbin can vouch asks** —
+  (`defaultMode`) — for a coding agent whose entry names no default mode
+  but lists a mode that asks, that one: the start is strict, so it opens
+  in it or not at all (the agent is switched before the brief goes; one
+  that refuses the switch never gets it). **A coding agent with no mode xbin can vouch asks** —
   OpenCode, whose modes ask or act by its own permission configuration,
   which xbin doesn't set: the agent's suggestion of it is not preselected
   (`harnessNotTaken`, warned); the person's own choice of it (remembered
