@@ -86,14 +86,21 @@ POST   /code/pr/state              {target, n, state, comment?}. merged and
                                    (<deployment>)". A builtin-update
                                    proposal (kind "builtin-update") closes
                                    merged only by a person — an admin, a
-                                   user who may write the tile, or that
-                                   person's terminal session in the tile —
-                                   never by the tile's backend, a frame of
-                                   it or another tile (403): tile code
+                                   user who may write the tile, or a
+                                   terminal session in the tile (a
+                                   person's, or one the root token opened)
+                                   — never by the tile's backend, a frame
+                                   of it, a cron job, another tile, a
+                                   deployment's terminal, a person's agent
+                                   or a view-as session (403): tile code
                                    can't bury an update. Its merged close
                                    records as updated only the files that
-                                   hold upstream's change (equal to it, or
-                                   carrying it beside edits of their own);
+                                   contain the update's changes (equal to
+                                   upstream's, or carrying them beside
+                                   edits of their own — it doesn't parse
+                                   code, and a tile's writers can undo a
+                                   change afterwards, which then lists as
+                                   a local edit);
                                    the others keep their recorded base, so
                                    the update stays offered for them, and
                                    the PR's meta names them: pending

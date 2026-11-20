@@ -287,7 +287,7 @@ func undoPartition(base, theirs []byte, inst func() (pval, string, []byte)) (out
 // base nor its installed copy can be read) is the installed copy itself —
 // left as it is — and whole is false, so the caller keeps the update
 // offered.
-func (u *Updater) mergeTheirs(installPath, snap string, theirs map[string][]byte, notes *[]string) (out map[string][]byte, whole bool) {
+func (u *Updater) mergeTheirs(installPath, snap string, theirs map[string][]byte, notes *[]string) (out map[string][]byte, whole bool, left []string) {
 	out, whole = make(map[string][]byte, len(theirs)), true
 	var n []string
 	for rel, th := range theirs {
@@ -304,7 +304,7 @@ func (u *Updater) mergeTheirs(installPath, snap string, theirs map[string][]byte
 		inst := func() (pval, string, []byte) { return u.installedPartition(installPath, rel, ours) }
 		undone, changed, ok := undoPartition(base, th, inst)
 		if !ok {
-			out[rel], whole = ours, false
+			out[rel], whole, left = ours, false, append(left, rel)
 			n = append(n, installPath+"/"+rel+": neither the installed xbin.json nor its recorded base can be read, "+
 				"so it was left as it is and the update stays offered: fix it, then update again")
 			continue
@@ -318,7 +318,7 @@ func (u *Updater) mergeTheirs(installPath, snap string, theirs map[string][]byte
 	}
 	sort.Strings(n)
 	*notes = append(*notes, n...)
-	return out, whole
+	return out, whole, left
 }
 
 // proposalPartition is the "to" side of a proposal's series (Propose):

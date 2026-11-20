@@ -12,6 +12,18 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-20
 
+- tiles: **BREAKING — a link, a FIFO or a file over 32 MiB in a tile is
+  never followed or read.** Instantiating a workspace template no longer
+  copies a link's target: such a file is skipped and named (`skipped`,
+  `notes`), the instance is still made, and executable bits are copied.
+  A builtin update leaves such a file alone (merge, pr) or replaces it
+  saying so (replace), updates and records the other files — a later
+  merge never re-merges a merged file — keeps file modes, and the Tile
+  Manager and `bx builtin updates` show why a file is left alone. A
+  terminal opened with the root token closes a builtin-update proposal
+  merged, as before. `GET /builtins/updates` runs one listing at a time
+  (a caller during one gets its result; 503 past 30 s).
+  [Migration note](/docs/changes/2026-11-20-links-in-tiles.md).
 - builtin updates: **a tile's links, FIFOs and nested tiles are never
   followed, read or written through.** `GET /builtins/updates`, every
   `POST /builtins/update` mode and a `pr` proposal's series read each of

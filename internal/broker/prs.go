@@ -117,14 +117,22 @@ func (b *Broker) canDecidePR(p auth.Principal, target string) bool {
 
 // canMergeBuiltinUpdate gates closing a builtin-update proposal merged — a
 // security update the tile's own code must not be able to bury: a person
-// (an admin, or one who may write the tile), or a person's terminal
-// session in the tile (its coding agent's); never the tile's backend, a
-// frame of it or another tile's code.
+// (an admin, or one who may write the tile) in their own session, or a
+// terminal session in the tile — a person's (its coding agent's), or, with
+// no user, the owner's: only a human-plane caller is ever given a terminal
+// (CanTerminalTile refuses every element), so a root-token workspace's
+// `bx code pr close --merged` works as it did. Never the tile's backend
+// (a partition's too), a frame of it, a cron job, another tile, a
+// deployment's terminal, a person's agent, or someone looking through a
+// person's eyes (view-as).
 func canMergeBuiltinUpdate(p auth.Principal, target string) bool {
-	if p.Component == "" {
+	switch {
+	case p.ViewAs(), p.Preview(), p.Agent != "":
+		return false
+	case p.Component == "":
 		return p.IsAdmin() || p.CanWriteTile(target)
 	}
-	return p.Component == target && p.Via == "terminal" && p.UserID != ""
+	return p.Component == target && p.Via == "terminal" && p.Deployment == ""
 }
 
 // prIsAuthor gates withdrawn: element-filed PRs belong to that element
@@ -360,9 +368,14 @@ func (b *Broker) ProposeBuiltinPR(id string, p auth.Principal) (*prMeta, []strin
 	if err != nil {
 		return nil, nil, err
 	}
-	if prop.Series == "" {
-		_, err := b.updater.RecordApplied(id, prop.ToHash)
-		return nil, prop.Notes, err
+	if prop.Series == "" { // nothing to propose: what the tile holds is recorded; anything else stays offered, said
+		pending, err := b.updater.RecordApplied(id, prop.ToHash)
+		notes := prop.Notes
+		if len(pending) > 0 {
+			notes = append(notes, "nothing could be proposed for "+strings.Join(pending, ", ")+
+				": each stays offered as an update (its note in the updates list says why)")
+		}
+		return nil, notes, err
 	}
 	m, err := b.fileBuiltinPR(id, p, prop)
 	return m, nil, err

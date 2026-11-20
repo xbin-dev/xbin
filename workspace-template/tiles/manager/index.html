@@ -492,7 +492,7 @@
           <span class="name">${esc(u.installPath)} · ${ver}</span><span class="spacer"></span></div>
         <div class="desc">${counts.join(' · ')}</div>
         <div class="desc files">${(u.files || []).map((f) =>
-          `${esc(f.path)} <span class="muted">(${esc(f.status)})</span>`).join('<br>')}</div>
+          `${esc(f.path)} <span class="muted">(${esc(f.status)})</span>${f.note ? ` <span class="warn">${esc(f.note)}</span>` : ''}`).join('<br>')}</div>
         <div class="row">
           ${u.missing
             ? '<button class="btn go" data-mode="replace">Install</button>'
@@ -521,7 +521,7 @@
           imsg.textContent = mode === 'pr' && d.pr
             ? `proposed as ${d.pr.target}#${d.pr.number} — review it in the tile's terminal (its change proposals tab); closing it merged completes the update`
             : mode === 'pr'
-              ? 'nothing to propose — recorded as applied'
+              ? 'nothing to propose — what the tile holds is recorded; the notes say what stays offered'
               : mode === 'merge'
                 ? `merged ${(d.files || []).length} file(s) — resolve any <<<<<<< conflict markers`
                 : `${mode}d — reload tiles to see changes`;
