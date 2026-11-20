@@ -307,3 +307,69 @@ func TestOpenNoSymlinks(t *testing.T) {
 		f.Close()
 	}
 }
+
+// covers the re-review of 2026-11-20, L3 — on a kernel without openat2 the
+// openers walk from the root's fd one step at a time with O_NOFOLLOW: a
+// link at the last step, a directory swapped for a link, a dangling link
+// and a FIFO are refused (never followed, never blocking) through the
+// public entry points — OpenNoSymlinks, MkdirAllIn and OpenRootIn — with
+// the fallback forced.
+func TestForcedFallbackRefusesLinks(t *testing.T) {
+	defer SetFallbackForTests(true)()
+	root := t.TempDir()
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	must(os.MkdirAll(filepath.Join(root, "apps", "x", "dir"), 0o755))
+	must(os.MkdirAll(filepath.Join(root, "other"), 0o755))
+	must(os.WriteFile(filepath.Join(root, "apps", "x", "dir", "f"), []byte("ok"), 0o644))
+	must(os.WriteFile(filepath.Join(root, "secret"), []byte("s"), 0o600))
+	must(os.Symlink(filepath.Join(root, "secret"), filepath.Join(root, "apps", "x", "link")))
+	must(os.Symlink(filepath.Join(root, "other"), filepath.Join(root, "apps", "x", "swapped")))
+	must(os.Symlink("nowhere", filepath.Join(root, "apps", "x", "dangling")))
+	fifo := mkfifo(filepath.Join(root, "apps", "x", "pipe")) == nil
+
+	if f, err := OpenNoSymlinks(root, "apps/x/dir/f"); err != nil {
+		t.Fatalf("a plain file: %v", err)
+	} else {
+		f.Close()
+	}
+	for _, rel := range []string{"apps/x/link", "apps/x/swapped/f", "apps/x/dangling"} {
+		if f, err := OpenNoSymlinks(root, rel); !errors.Is(err, ErrEscapes) {
+			if f != nil {
+				f.Close()
+			}
+			t.Errorf("OpenNoSymlinks %s: %v", rel, err)
+		}
+	}
+	if fifo {
+		done := make(chan error, 1)
+		go func() { _, err := OpenNoSymlinks(root, "apps/x/pipe"); done <- err }()
+		select {
+		case err := <-done:
+			if !errors.Is(err, ErrNotRegular) {
+				t.Errorf("a FIFO: %v", err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("blocked on a FIFO")
+		}
+	}
+	if err := MkdirAllIn(root, "apps/x/swapped/deeper", 0o755); !errors.Is(err, ErrEscapes) {
+		t.Errorf("MkdirAllIn through a link: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "other", "deeper")); err == nil {
+		t.Fatal("a directory was made through the link")
+	}
+	if r, err := OpenRootIn(root, "apps/x/swapped"); err == nil {
+		r.Close()
+		t.Error("OpenRootIn through a link: opened")
+	}
+	if r, err := OpenRootIn(root, "apps/x/dir"); err != nil {
+		t.Errorf("OpenRootIn of a plain directory: %v", err)
+	} else {
+		r.Close()
+	}
+}

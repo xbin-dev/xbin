@@ -17,3 +17,6 @@ func openResolved(root, rel string, allow func(string) bool) (*os.File, string, 
 	}
 	return openResolvedFallback(real, r)
 }
+
+// SetFallbackForTests is a no-op where the fallback is all there is.
+func SetFallbackForTests(bool) (restore func()) { return func() {} }
