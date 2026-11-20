@@ -78,17 +78,22 @@ func (s *Server) withoutSignin(p auth.Principal, tile string, prov agent.Provide
 	return "none"
 }
 
-// approveTicks is signinTicks for a request's approval: it answers the
+// approveTicksOn is signinTicks for a request's approval, held to preview —
+// the request's (nil), or the one redrawn for the person's pick of coding
+// agent (D250: the sign-in offered is that coding agent's). It answers the
 // refusal itself (ok false).
-func (s *Server) approveTicks(w http.ResponseWriter, user, id string, use, trust bool, shown string) (basis string, ok bool) {
+func (s *Server) approveTicksOn(w http.ResponseWriter, user, id string, preview map[string]any, use, trust bool, shown string) (basis string, ok bool) {
 	if !use && !trust {
 		return "", true
 	}
 	if trust && !s.trustShown(w, shown) { // the sheet said what trusting means, or it is an old page's
 		return "", false
 	}
-	cur, _ := s.Delegation.Request(user, id)
-	basis, status, why := s.signinTicks(user, cur.Preview, use, trust)
+	if preview == nil {
+		cur, _ := s.Delegation.Request(user, id)
+		preview = cur.Preview
+	}
+	basis, status, why := s.signinTicks(user, preview, use, trust)
 	if why != "" {
 		WriteJSON(w, status, map[string]any{"error": why, "changed": status == http.StatusConflict, "docs": agentSigninsDocs})
 		return "", false

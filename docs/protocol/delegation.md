@@ -1154,6 +1154,12 @@ POST   /delegate/requests/<id>/approve
 POST   /delegate/requests/<id>/deny
                                  the person. {via?: "notification"} →
                                  {request}
+POST   /delegate/requests/<id>/retry
+                                 the person, in their own session. A
+                                 start that failed to open for a reason
+                                 that isn't the agent's (state failed,
+                                 failure.retry) is a ticket again, for 15
+                                 minutes → {request}. 409 otherwise
 DELETE /delegate/requests/<id>  the person, or their agent. withdraws a
                                  pending or approved request
 ```

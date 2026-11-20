@@ -248,6 +248,7 @@ POST /delegate/plans	act
 POST /delegate/requests	act
 POST /delegate/requests/{id}/approve	never
 POST /delegate/requests/{id}/deny	never
+POST /delegate/requests/{id}/retry	never
 POST /delegate/sessions	act
 POST /delegate/sessions/{id}/allows	act
 POST /delegate/sessions/{id}/taint	act

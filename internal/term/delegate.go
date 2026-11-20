@@ -84,6 +84,16 @@ type DelegateStart struct {
 	// Prefs: the person's preferences for sessions their agent starts
 	// without asking; nil when they allow none.
 	Prefs *delegation.StartPrefs
+	// Model is the model the session starts on — the person's pick on the
+	// approval, or their preference's (D250); "" the harness's own default.
+	// With Picked the open takes Provider, Mode and Model as these say,
+	// whatever the request's body named (the agent's suggestion).
+	Model  string
+	Picked bool
+	// Continue is a live session of the agent's on the same tile that the
+	// person chose to continue instead of opening one (D250): the start's
+	// first prompt goes to it.
+	Continue string
 }
 
 // EffectiveStart is what a delegate's session start amounts to once the
@@ -284,6 +294,30 @@ func DelegateProvider(a AgentOpen) string {
 		return a.Delegate.Provider
 	}
 	return a.Provider
+}
+
+// ConnectorModels are the models a new agent session of prov that userID
+// opens on tile may be started on through the workspace's LLM connector,
+// as its CLI writes them (the harness's ModelPrefix + the connector's id),
+// and the default among them; ok false where the connector doesn't serve
+// prov there — its models are then the CLI's own, known once a session
+// runs (D250: the approval's Model picker).
+func (m *Manager) ConnectorModels(ctx context.Context, userID, tile string, prov agent.Provider) (models []string, def string, ok bool) {
+	if m.LLM == nil || prov.Connector == nil || prov.Connector.ModelOption == "" {
+		return nil, "", false
+	}
+	offer, ok := m.LLM.Offer(ctx, llmUser(openOpts{userID: userID}), tile, KindAgent)
+	if !ok || !offer.Agents || llmWhyNot(prov, offer) != "" {
+		return nil, "", false
+	}
+	k := prov.Connector
+	for _, cm := range offer.Models {
+		models = append(models, k.ModelPrefix+cm.ID)
+	}
+	if offer.Model != "" {
+		def = k.ModelPrefix + offer.Model
+	}
+	return models, def, len(models) > 0
 }
 
 // AgentEnded says how an agent session of p that is no longer live ended:

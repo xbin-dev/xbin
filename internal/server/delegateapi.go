@@ -39,9 +39,11 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
+	"github.com/xbin-dev/xbin/internal/agentprefs"
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/delegation"
 	"github.com/xbin-dev/xbin/internal/events"
@@ -67,6 +69,7 @@ func (s *Server) registerDelegationAPI() {
 	s.RegisterAPI("GET /delegate/requests/{id}", s.apiDelegateRequest)
 	s.RegisterAPI("POST /delegate/requests/{id}/approve", s.apiDelegateRequestDecide)
 	s.RegisterAPI("POST /delegate/requests/{id}/deny", s.apiDelegateRequestDecide)
+	s.RegisterAPI("POST /delegate/requests/{id}/retry", s.apiDelegateRequestRetry)
 	s.RegisterAPI("DELETE /delegate/requests/{id}", s.apiDelegateRequestWithdraw)
 	s.RegisterAPI("GET /delegate/approvals", s.apiDelegateApprovals)
 	s.RegisterAPI("POST /delegate/approvals", s.apiDelegateApprovalAdd)
@@ -517,7 +520,7 @@ func (s *Server) apiDelegateRequestNew(w http.ResponseWriter, r *http.Request) {
 	case v.deny != "":
 		WriteError(w, http.StatusBadRequest, "this call isn't delegated: "+v.deny, delegationDocs)
 		return
-	case !v.effect || !(v.tileAPI || v.row.ticket || v.pattern == webFetchPattern || v.pattern == mcpCallPattern):
+	case !v.effect || !(v.tileAPI || v.row.ticket || v.pattern == webFetchPattern || v.pattern == mcpCallPattern || messagePatterns[v.pattern]):
 		WriteError(w, http.StatusBadRequest, "this call needs no approval: make it", delegationDocs)
 		return
 	case v.tileAPI && s.mcpEndpointOf(u.Path) != "":
@@ -536,7 +539,8 @@ func (s *Server) apiDelegateRequestNew(w http.ResponseWriter, r *http.Request) {
 	case len(body) > 0:
 		ctype = "application/json"
 	}
-	req := delegation.Request{User: a.user, Agent: p.Agent, Method: method, Target: requestTarget(sr), Tile: v.tile, ContentType: ctype, Summary: in.Summary, Kind: delegation.KindCall}
+	req := delegation.Request{User: a.user, Agent: p.Agent, Method: method, Target: requestTarget(sr), Tile: v.tile, ContentType: ctype, Summary: in.Summary, Kind: delegation.KindCall,
+		Session: p.AgentSession}
 	preview := map[string]any{"class": v.class, "reversible": false}
 	switch {
 	case v.tileAPI:
@@ -581,6 +585,15 @@ func (s *Server) apiDelegateRequestNew(w http.ResponseWriter, r *http.Request) {
 		}
 		req.Tile = ask["tile"].(string)
 		preview["tile"], preview["owner"], preview["session"] = req.Tile, s.policy().OwnerOf(req.Tile), ask
+	case messagePatterns[v.pattern]: // a message to a tile agent that acts without asking (delegatemessage.go, D250)
+		req.Kind = delegation.KindMessage
+		mp, tile, status, why := s.messagePreview(p, u.Path, body)
+		if why != "" {
+			WriteError(w, status, why, delegationDocs)
+			return
+		}
+		req.Tile = tile
+		preview["tile"], preview["message"] = tile, mp
 	case v.pattern == mcpCallPattern: // one tool of an MCP tile (delegatemcp.go)
 		req.Kind = delegation.KindMCP
 		mp, tile, status, why := s.mcpRequestPreview(r.Context(), p, body)
@@ -641,16 +654,27 @@ func (s *Server) apiDelegateRequestNew(w http.ResponseWriter, r *http.Request) {
 // It shows what the start AMOUNTS TO (term.DelegateEffective): the harness
 // and mode a resumed session takes from its history entry, not only what
 // the body says; every option the body carries; whether that mode asks
-// before acting; the sandbox pickers. The ticket is bound to the harness
-// and mode shown here (delegateApproval hands them to the open), and to
-// the body — so to every option — by its hash.
+// before acting; the sandbox pickers. The ticket is bound to the body by
+// its hash — the tile, the brief, the kind of act: what the agent chose
+// (D250) — and the start opens with the coding agent, model and mode shown
+// here, or the ones the person picks on the approval (sessionPreviewFor).
 func (s *Server) sessionPreview(p auth.Principal, body []byte) (map[string]any, string) {
+	return s.sessionPreviewFor(p, body, nil)
+}
+
+// sessionPreviewFor is sessionPreview with the person's pick on the
+// approval (nil: none yet): the coding agent, model and mode the start
+// opens with. A body's provider, model and mode are the agent's
+// SUGGESTION, preselected below the person's own choices for the tile and
+// their preference (startPick) — and a suggested mode that doesn't ask is
+// never preselected.
+func (s *Server) sessionPreviewFor(p auth.Principal, body []byte, person *delegation.StartChoice) (map[string]any, string) {
 	var b struct {
-		Cwd, Kind, Provider, Mode, Net, GPU, Name, Model, Resume string
-		API                                                      *bool
-		VM                                                       bool
-		Options                                                  map[string]string
-		Prompt                                                   string
+		Cwd, Kind, Provider, Mode, Net, GPU, Name, Model, Resume, Continue string
+		API                                                                *bool
+		VM                                                                 bool
+		Options                                                            map[string]string
+		Prompt                                                             string
 	}
 	if json.Unmarshal(body, &b) != nil || b.Cwd == "" {
 		return nil, "a session start names its tile: {cwd, kind:\"agent\", provider?, …}"
@@ -661,22 +685,32 @@ func (s *Server) sessionPreview(p auth.Principal, body []byte) (map[string]any, 
 	if _, why := s.startRefusal(p, sessionAskOf(body)); why != "" {
 		return nil, why // no approval makes it startable: don't put it in front of the person
 	}
-	// what the request leaves out, xbind fills from the person's
-	// preferences for sessions their agent starts and the tile's orgs'
-	// rules (startDefaults) — and shows: the card says the EFFECTIVE values
-	def := s.startDefaults(p, strings.Trim(b.Cwd, "/"))
+	options := map[string]string{}
+	for k, v := range b.Options {
+		options[k] = v
+	}
+	if b.Model != "" { // the body's shorthand for options.model
+		options["model"] = b.Model
+	}
+	tile := strings.Trim(b.Cwd, "/")
+	// what the request leaves out, xbind fills from the person's choices
+	// for the tile, their preferences for sessions their agent starts and
+	// the tile's orgs' rules — and shows: the card says the EFFECTIVE values
+	var pick startPick
+	sug := startSuggestion{Harness: b.Provider, Model: options["model"], Mode: b.Mode}
 	if b.Resume == "" {
-		if b.Provider == "" {
-			if def.Harness == "" {
-				return nil, def.Why
-			}
-			b.Provider = def.Harness
+		var why string
+		if pick, why = s.startPick(p, tile, sug, person); why != "" {
+			return nil, why
+		}
+		b.Provider, b.Mode = pick.Harness, pick.Mode
+		if pick.Model != "" {
+			options["model"] = pick.Model
+		} else {
+			delete(options, "model")
 		}
 		if b.Net == "" {
-			b.Net = def.netFor(b.Provider)
-		}
-		if b.Mode == "" {
-			b.Mode = def.modeFor(b.Provider)
+			b.Net = s.startDefaults(p, tile).netFor(b.Provider)
 		}
 	}
 	if s.Term == nil {
@@ -689,17 +723,10 @@ func (s *Server) sessionPreview(p auth.Principal, body []byte) (map[string]any, 
 	if err := s.agentPolicy().SessionAllows(delegation.Subject{Holder: p.Agent, User: p.UserID, Tile: eff.Tile, Model: p.AgentModel}, eff.Provider.ID); err != nil {
 		return nil, err.Error()
 	}
-	options := map[string]string{}
-	for k, v := range b.Options {
-		options[k] = v
-	}
-	if b.Model != "" { // the body's shorthand for options.model
-		options["model"] = b.Model
-	}
 	// signIn: what it runs on as things are; signInId OFFERS the person's saved sign-in (the sheet's own line,
 	// unticked; the label is drawn from their list); signInTrust: the trust line that goes with it (signinstrust.go)
 	signIn, signInID, trust := s.approvalSignIn(p, eff.Tile, eff.Provider)
-	return map[string]any{
+	out := map[string]any{
 		"signIn": signIn, "signInId": signInID, "signInTrust": trustLine(trust),
 		"tile": eff.Tile, "provider": eff.Provider.ID, "providerName": eff.Provider.Name, "mode": eff.Mode,
 		// false: this mode lets the tile agent act without asking. The mode
@@ -713,7 +740,30 @@ func (s *Server) sessionPreview(p auth.Principal, body []byte) (map[string]any, 
 		// Nothing the agent sends the session later is approved one by one.
 		"prompt": b.Prompt,
 		"net":    b.Net, "api": b.API == nil || *b.API, "vm": b.VM, "gpu": b.GPU, "model": options["model"], "name": b.Name, "resume": eff.Resumes,
-	}, ""
+	}
+	if b.Resume == "" {
+		// D250: what may be picked, where each part came from, and what the agent suggested
+		out["choices"] = map[string]any{"harnesses": pick.Harnesses}
+		out["from"] = pick.From
+		if sug.any() {
+			sg := map[string]string{}
+			for k, v := range map[string]string{"harness": sug.Harness, "model": sug.Model, "mode": sug.Mode} {
+				if v != "" {
+					sg[k] = v
+				}
+			}
+			out["suggested"] = sg
+		}
+		if pick.ModeNotTaken != "" {
+			out["modeNotTaken"] = pick.ModeNotTaken
+		}
+		if b.Continue != "" { // the agent's own idle session there: continued unless the person starts a new one
+			if c, why := s.continuable(p, b.Continue, eff.Tile); why == "" {
+				out["continue"] = c
+			}
+		}
+	}
+	return out, ""
 }
 
 // apiDelegateRequests — GET /delegate/requests[?all=1]: the person or
@@ -724,11 +774,16 @@ func (s *Server) apiDelegateRequests(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	rows, err := s.Delegation.Requests(a.user, r.URL.Query().Get("all") == "")
+	all, failed := r.URL.Query().Get("all") != "", r.URL.Query().Get("failed") != ""
+	rows, err := s.Delegation.Requests(a.user, false)
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, "the requests can't be read", delegationDocs)
 		return
 	}
+	// pending ones; ?all=1 every one of the last day; ?failed=1 also the starts that failed and may be tried again (D250)
+	rows = slices.DeleteFunc(rows, func(q delegation.Request) bool {
+		return !all && q.State != delegation.Pending && !(failed && q.State == delegation.Failed && q.Failure != nil && q.Failure.Retry)
+	})
 	for i := range rows {
 		rows[i] = a.shown(rows[i])
 	}
@@ -776,10 +831,21 @@ func (s *Server) apiDelegateRequestDecide(w http.ResponseWriter, r *http.Request
 		// and recorded as such
 		Via            string `json:"via"`
 		signinTickBody        // a start's "use my sign-in" line and its trust line, ticked, and what the sheet showed (signinstrust.go)
+		// a tile agent start's coding agent, model and mode as the person
+		// picked them on the sheet (D250): absent, what the preview shows;
+		// remember: keep the pick for the tile; continue false: a new
+		// session rather than the one the preview offers to continue —
+		// offered only to a client that knows it (knows: ["continue"])
+		Harness  *string  `json:"harness"`
+		Model    *string  `json:"model"`
+		Mode     *string  `json:"mode"`
+		Remember bool     `json:"remember"`
+		Continue *bool    `json:"continue"`
+		Knows    []string `json:"knows"`
 	}
 	if r.ContentLength != 0 {
 		if err := DecodeJSON(r, &body); err != nil {
-			WriteError(w, http.StatusBadRequest, `need {grant?: "once" | "hour" | "always", scope?: "call" | "tile", unseen?: true, signin?: true, trust?: true, via?: "notification"}`, delegationDocs)
+			WriteError(w, http.StatusBadRequest, `need {grant?: "once" | "hour" | "always", scope?: "call" | "tile", unseen?: true, signin?: true, trust?: true, via?: "notification", harness?, model?, mode?, remember?: true, continue?: false, knows?: [..]}`, delegationDocs)
 			return
 		}
 	}
@@ -806,7 +872,7 @@ func (s *Server) apiDelegateRequestDecide(w http.ResponseWriter, r *http.Request
 		// show in full (the same rule the push offered it by)
 		if body.Via == viaNotification && found && cur.State == delegation.Pending {
 			ok, why := delegation.LockScreenOffer(cur)
-			if grant != delegation.GrantOnce || scope != "" || unseen || body.Signin || body.Trust {
+			if grant != delegation.GrantOnce || scope != "" || unseen || body.Signin || body.Trust || body.Harness != nil || body.Model != nil || body.Mode != nil || body.Remember {
 				ok, why = false, "only an approval of this one call can be given from a notification"
 			}
 			if !ok {
@@ -819,13 +885,27 @@ func (s *Server) apiDelegateRequestDecide(w http.ResponseWriter, r *http.Request
 	if a.p.Via == "device" {
 		device = a.p.DeviceID
 	}
+	// a start's coding agent, model and mode: the person's pick, validated as theirs by hand (D250) — and the
+	// preview redrawn for it, which the sign-in ticks below are held to
+	var chosen *delegation.StartChoice
+	var redrawn map[string]any
+	if approve {
+		var status int
+		var why string
+		chosen, redrawn, status, why = s.startPickOf(a, r.PathValue("id"), pickBody{Harness: body.Harness, Model: body.Model, Mode: body.Mode, Remember: body.Remember,
+			Continue: body.Continue, Knows: body.Knows})
+		if why != "" {
+			WriteError(w, status, why, delegationDocs)
+			return
+		}
+	}
 	// a start's sign-in lines, ticked: held to what the sheet showed, before anything is decided
-	basis, ok := s.approveTicks(w, a.user, r.PathValue("id"), approve && body.Signin, approve && body.Trust, body.Shown)
+	basis, ok := s.approveTicksOn(w, a.user, r.PathValue("id"), redrawn, approve && body.Signin, approve && body.Trust, body.Shown)
 	if !ok {
 		return
 	}
 	req, ap, err := s.Delegation.DecideAs(a.user, r.PathValue("id"), delegation.Decision{Grant: grant, Scope: scope, Via: a.via,
-		Unseen: unseen, UseSignin: approve && body.Signin, From: body.Via, Device: device})
+		Unseen: unseen, UseSignin: approve && body.Signin, From: body.Via, Device: device, Chosen: chosen, Preview: redrawn})
 	switch {
 	case errors.Is(err, delegation.ErrUnseenBody):
 		// say what would be approved: bytes of this size and hash, unread
@@ -857,6 +937,12 @@ func (s *Server) apiDelegateRequestDecide(w http.ResponseWriter, r *http.Request
 		s.notifyAt(req.Expires, a.user, req.ID, req.Agent) // a ticket nobody used
 	}
 	out := map[string]any{"request": req}
+	if chosen != nil && chosen.Remember && req.State == delegation.Approved && s.AgentPrefs != nil {
+		// "Remember for this tile": the person's own act, made only here (a mode that doesn't ask is never kept)
+		if err := s.AgentPrefs.RememberTile(a.user, req.Tile, agentprefs.TileStart{Harness: chosen.Provider, Model: chosen.Model, Mode: chosen.Mode}, time.Now().Unix()); err != nil {
+			out["rememberError"] = err.Error()
+		}
+	}
 	if approve && body.Trust && req.State == delegation.Approved {
 		s.approvalTrust(out, a.user, req, basis) // the trust line, ticked (signinstrust.go)
 	}
@@ -872,6 +958,39 @@ func (s *Server) apiDelegateRequestDecide(w http.ResponseWriter, r *http.Request
 		Class: "decision:" + req.State, Effect: true, Status: http.StatusOK, Ticket: req.ID, Under: under, Via: body.Via})
 	s.delegateEvent(a.user, "request", req.ID)
 	WriteJSON(w, http.StatusOK, out)
+}
+
+// apiDelegateRequestRetry — POST /delegate/requests/{id}/retry: the
+// person, in their own session — never the agent or its page. A start that
+// was approved and failed to open for a reason that isn't the agent's
+// (state failed, failure.retry) is a ticket again, for 15 minutes: the
+// agent's backend, told by a notice, makes the same start — no new request
+// from the agent (D250). 409 for anything else, and while the agent is
+// stopped (as Allow).
+func (s *Server) apiDelegateRequestRetry(w http.ResponseWriter, r *http.Request) {
+	a, ok := s.delegateCaller(w, r, true, false, false)
+	if !ok {
+		return
+	}
+	cur, found := s.Delegation.Request(a.user, r.PathValue("id"))
+	if !found {
+		WriteError(w, http.StatusNotFound, delegation.ErrNoRequest.Error(), delegationDocs)
+		return
+	}
+	if refusal, msg := s.decideRefusal(a.user, cur.Agent); refusal != "" {
+		refuseDecision(w, refusal, msg)
+		return
+	}
+	req, err := s.Delegation.Retry(a.user, cur.ID)
+	if err != nil {
+		WriteError(w, http.StatusConflict, err.Error(), delegationDocs)
+		return
+	}
+	s.delegateAudit(delegation.Call{User: a.user, Agent: req.Agent, Method: req.Method, Path: req.Path(), Tile: req.Tile,
+		Class: "decision:retry", Effect: true, Status: http.StatusOK, Ticket: req.ID, Under: "once"})
+	s.delegateEvent(a.user, "request", req.ID)
+	s.notifyAt(req.Expires, a.user, req.ID, req.Agent)
+	WriteJSON(w, http.StatusOK, map[string]any{"request": req})
 }
 
 // apiDelegateRequestWithdraw — DELETE /delegate/requests/{id}: the agent

@@ -55,6 +55,11 @@ func (s *Server) drivesRefusal(p auth.Principal, id string) string {
 //     holds data of (sendRefusal).
 func (s *Server) delegateSends(w http.ResponseWriter, r *http.Request, id, text string) bool {
 	why, refusal := s.sendsRefusal(auth.PrincipalOf(r), id, text)
+	if refusal == "mode" && messageApproved(r, id) {
+		// its person approved exactly this message to this session, as it is now (delegatemessage.go): the mode
+		// rule's way forward — the taint and the command rules still hold
+		why, refusal = s.sendsRefusalPast(auth.PrincipalOf(r), id, text)
+	}
 	if why == "" {
 		return true
 	}
@@ -88,6 +93,26 @@ func (s *Server) sendsRefusal(p auth.Principal, id, text string) (why, refusal s
 		return "", ""
 	}
 	return why, refusal
+}
+
+// sendsRefusalPast is sendsRefusal without the mode rule: for a message
+// its person approved (D250).
+func (s *Server) sendsRefusalPast(p auth.Principal, id, text string) (why, refusal string) {
+	info, live := s.Term.Info(id)
+	if !live {
+		return "", ""
+	}
+	if why := harnessCommand(text); why != "" {
+		return why, "command"
+	}
+	t := sendTargetOf(info)
+	if t.served == agentpolicy.ServedConnector {
+		t.model = s.Term.AgentConnectorModel(id)
+	}
+	if why := s.sendRefusal(p, t); why != "" {
+		return why, "taint"
+	}
+	return "", ""
 }
 
 // harnessCommand is why text may not go to a tile agent from a person's
@@ -216,6 +241,9 @@ type sessionAsk struct {
 	Resume                           string
 	Model                            string
 	Options                          map[string]string
+	// Continue: the agent's own idle session on the tile, which the start
+	// continues unless its person starts a new one (D250) — always asked
+	Continue string
 	// planned: the tile is one an earlier line of the same plan makes
 	// (previewStart): it isn't there yet, by design. Never read from a body.
 	planned bool
@@ -234,10 +262,14 @@ func sessionAskOf(body []byte) sessionAsk {
 // and the body names no mode or picker of its own (naming one is asking
 // for something else). What a dry run of a start answers.
 func (s *Server) startsUnasked(p auth.Principal, ask sessionAsk) bool {
-	if ask.Mode != "" || ask.Net != "" || ask.API != nil || ask.VM || ask.Resume != "" {
+	if ask.Mode != "" || ask.Net != "" || ask.API != nil || ask.VM || ask.Resume != "" || ask.Continue != "" {
+		return false
+	}
+	provider, _, differs := s.unaskedStart(p, ask) // the person's own choice of coding agent and model wins (D250)
+	if differs != "" {
 		return false
 	}
 	def := s.startDefaults(p, ask.Cwd)
-	h, ok := def.of(cmp.Or(ask.Provider, def.Harness))
+	h, ok := def.of(cmp.Or(provider, def.Harness))
 	return ok && !h.NeedsTicket
 }

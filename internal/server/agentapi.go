@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/url"
 	"slices"
@@ -163,6 +164,25 @@ func (s *Server) apiAgentCreate(w http.ResponseWriter, r *http.Request) {
 	open := term.AgentOpen{Signin: body.Signin, Cwd: body.Cwd, Net: body.Net, GPU: body.GPU,
 		NoAPI: body.API != nil && !*body.API, VM: body.VM, Provider: body.Provider, Mode: body.Mode, Name: body.Name, Resume: body.Resume, Options: body.Options,
 		Deployment: r.URL.Query().Get("deployment"), LLM: body.LLM, Delegate: start}
+	if start != nil && start.Picked {
+		// what its person picked on the approval — or what it showed them —
+		// whatever the body named: the agent's suggestion (D250)
+		open.Provider, open.Mode = start.Provider, start.Mode
+		open.Options = maps.Clone(open.Options)
+		if open.Options == nil {
+			open.Options = map[string]string{}
+		}
+		if delete(open.Options, "model"); start.Model != "" {
+			open.Options["model"] = start.Model
+		}
+	} else if start != nil && start.Model != "" && open.Options["model"] == "" {
+		// started without asking: the model of the person's own choice for the tile, or their preference
+		open.Options = maps.Clone(open.Options)
+		if open.Options == nil {
+			open.Options = map[string]string{}
+		}
+		open.Options["model"] = start.Model
+	}
 	open.Provider = term.DelegateProvider(open) // a delegate's start that names no harness: the one xbind resolved for it
 	if body.Prompt != "" && start == nil {
 		apiErr(w, http.StatusBadRequest, "prompt is for a workspace agent's start: send a session its first message with POST /term/sessions/<id>/prompt")
@@ -170,6 +190,10 @@ func (s *Server) apiAgentCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(body.Prompt) > maxStartPrompt {
 		apiErr(w, http.StatusRequestEntityTooLarge, fmt.Sprintf("a start's first prompt is at most %d KiB", maxStartPrompt>>10))
+		return
+	}
+	if start != nil && start.Continue != "" { // its person chose to continue the session that is there (D250)
+		s.continueSession(w, r, start.Continue, body.Prompt)
 		return
 	}
 	// the brief the person approved with the start (the ticket binds the
@@ -181,6 +205,29 @@ func (s *Server) apiAgentCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	WriteJSON(w, http.StatusOK, info)
+}
+
+// continueSession hands an approved start's brief to the live session its
+// person chose to continue instead of opening one (D250: the gate checked,
+// before the ticket was spent, that it is theirs, this agent's, on that
+// tile and as approved) → the session's row, continued: true, and how the
+// session took it (outcome: prompted | steered | queued).
+func (s *Server) continueSession(w http.ResponseWriter, r *http.Request, id, prompt string) {
+	info, live := s.Term.Info(id)
+	if !live {
+		apiErr(w, http.StatusConflict, "the session your person chose to continue ended before the follow-up reached it")
+		return
+	}
+	res, err := s.Term.AgentQueue(r.Context(), id, agent.Prompt{Text: prompt}, false)
+	if err != nil {
+		apiErr(w, agentStatus(err), "the follow-up couldn't be handed to the session: "+err.Error())
+		return
+	}
+	raw, _ := json.Marshal(info)
+	var out map[string]any
+	_ = json.Unmarshal(raw, &out)
+	out["continued"], out["outcome"] = true, res.Outcome
+	WriteJSON(w, http.StatusOK, out)
 }
 
 // apiAgentRestart restarts an agent session with other sandbox pickers

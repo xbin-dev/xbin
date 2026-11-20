@@ -1,6 +1,7 @@
 package agentprefs
 
 import (
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -135,5 +136,50 @@ func TestAgentSessionModesMustAsk(t *testing.T) {
 		if _, err := s.Update("ana", []byte(`{"agentSessions":{"modes":{"`+harness+`":"`+mode+`"}}}`)); err == nil {
 			t.Errorf("%s %s was saved for agent-started sessions", harness, mode)
 		}
+	}
+}
+
+// "Remember for this tile" (D250): the person's last approved choice per
+// tile — never a bypass mode, at most MaxTiles, the oldest going first —
+// and a preferred coding agent, checked like every other key.
+func TestRememberTile(t *testing.T) {
+	s := New(t.TempDir())
+	s.Person = func(string) (int64, bool) { return 7, true }
+	if err := s.RememberTile("ada", "apps/eui", TileStart{Harness: "opencode", Model: "m1", Mode: "build"}, 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RememberTile("ada", "apps/x", TileStart{Harness: "claude", Mode: "bypassPermissions"}, 2); err != nil {
+		t.Fatal(err)
+	}
+	p := s.Get("ada")
+	if got := p.AgentSessions.Tiles["apps/eui"]; got.Harness != "opencode" || got.Model != "m1" || got.Mode != "build" {
+		t.Fatalf("apps/eui: %+v", got)
+	}
+	if got := p.AgentSessions.Tiles["apps/x"]; got.Mode != "" {
+		t.Fatalf("a bypass mode was remembered: %+v", got)
+	}
+	if r, _ := s.TileChoice("bob", "apps/eui"); r != nil {
+		t.Fatalf("bob reads ada's choice: %+v", r)
+	}
+	// the next pick replaces the whole entry: a mode the last pick had no word on doesn't linger
+	_ = s.RememberTile("ada", "apps/eui", TileStart{Harness: "codex"}, 3)
+	if got := s.Get("ada").AgentSessions.Tiles["apps/eui"]; got.Harness != "codex" || got.Mode != "" || got.Model != "" {
+		t.Fatalf("replaced: %+v", got)
+	}
+	for i := 0; i < MaxTiles+5; i++ {
+		_ = s.RememberTile("ada", fmt.Sprintf("apps/t%03d", i), TileStart{Harness: "claude"}, int64(10+i))
+	}
+	tiles := s.Get("ada").AgentSessions.Tiles
+	if len(tiles) != MaxTiles || tiles["apps/t000"].Harness != "" || tiles[fmt.Sprintf("apps/t%03d", MaxTiles+4)].Harness != "claude" {
+		t.Fatalf("bounded: %d tiles", len(tiles))
+	}
+	for _, bad := range []string{`{"agentSessions":{"harness":"no-such"}}`, `{"agentSessions":{"tiles":{"../x":{"harness":"claude"}}}}`,
+		`{"agentSessions":{"tiles":{"apps/y":{"harness":"claude","mode":"bypassPermissions"}}}}`} {
+		if _, err := s.Update("ada", []byte(bad)); err == nil {
+			t.Errorf("accepted %s", bad)
+		}
+	}
+	if p, err := s.Update("ada", []byte(`{"agentSessions":{"harness":"codex"}}`)); err != nil || p.AgentSessions.Harness != "codex" {
+		t.Fatalf("the preferred coding agent: %+v %v", p.AgentSessions, err)
 	}
 }

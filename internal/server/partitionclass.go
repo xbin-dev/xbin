@@ -676,6 +676,7 @@ var partitionClasses = map[string]PartitionClass{
 	"GET /delegate/requests/{id}":            PartitionNeutral,
 	"POST /delegate/requests/{id}/approve":   PartitionNeutral,
 	"POST /delegate/requests/{id}/deny":      PartitionNeutral,
+	"POST /delegate/requests/{id}/retry":     PartitionNeutral,
 	"DELETE /delegate/requests/{id}":         PartitionNeutral,
 	"GET /delegate/approvals":                PartitionNeutral,
 	"POST /delegate/approvals":               PartitionNeutral,

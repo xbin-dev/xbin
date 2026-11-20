@@ -196,7 +196,7 @@ func TestDelegateStartDefaultsSavedSignIn(t *testing.T) {
 	if c, b := approve(req.ID, `{"grant":"once"}`, own); c != 200 {
 		t.Fatalf("approve: %d %s", c, b)
 	}
-	if d, why := ticketStart(stored(req.ID).Preview, stored(req.ID).UseSignin); why != "" || d.Signin != "" || d.TrustAsked || !d.Approved {
+	if d, why := ticketStart(stored(req.ID)); why != "" || d.Signin != "" || d.TrustAsked || !d.Approved {
 		t.Fatalf("approved without the tick: the ticket's start %+v %q", d, why)
 	}
 	// ticked — by her, in her own session; never by the agent, never from a notification
@@ -216,7 +216,7 @@ func TestDelegateStartDefaultsSavedSignIn(t *testing.T) {
 	if c, b := approve(req.ID, `{"grant":"once","signin":true}`, own); c != 200 {
 		t.Fatalf("approve with the sign-in ticked: %d %s", c, b)
 	}
-	if d, _ := ticketStart(stored(req.ID).Preview, stored(req.ID).UseSignin); d == nil || d.Signin != mine[0].ID || d.TrustAsked {
+	if d, _ := ticketStart(stored(req.ID)); d == nil || d.Signin != mine[0].ID || d.TrustAsked {
 		t.Fatalf("approved with the tick: the ticket's start %+v", d)
 	}
 	// the tick is this start's: her preference to start unasked changes nothing of it
@@ -240,7 +240,7 @@ func TestDelegateStartDefaultsSavedSignIn(t *testing.T) {
 	if c, b := approve(req.ID, `{"grant":"once","signin":true}`, own); c != 200 {
 		t.Fatalf("approve: %d %s", c, b)
 	}
-	if d, _ := ticketStart(stored(req.ID).Preview, stored(req.ID).UseSignin); d == nil || !d.TrustAsked || d.Signin != mine[0].ID || len(w.s.Signins.Trusted("alice")) != 0 {
+	if d, _ := ticketStart(stored(req.ID)); d == nil || !d.TrustAsked || d.Signin != mine[0].ID || len(w.s.Signins.Trusted("alice")) != 0 {
 		t.Fatalf("the ticket's start: %+v; trusted %+v", d, w.s.Signins.Trusted("alice"))
 	}
 	// the tile changes between the question and her answer: the tick is for

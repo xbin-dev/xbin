@@ -468,6 +468,20 @@ type startDefaultsView struct {
 	Harness   string         `json:"harness"` // the default: the first the person lets start unasked, else the first allowed that can run (startDefaults)
 	Harnesses []startHarness `json:"harnesses"`
 	Why       string         `json:"why,omitempty"` // no harness may run there: the rule's reason
+	// Chosen is what a start the agent files now would preselect on the
+	// approval, with where each part came from (D250): the agent reads its
+	// person's choice for the tile here, so it stops asking — and sets
+	// nothing (GET /delegate/start-defaults only).
+	Chosen *startChosen `json:"chosen,omitempty"`
+}
+
+// startChosen is startDefaultsView.Chosen.
+type startChosen struct {
+	Harness string            `json:"harness"`
+	Model   string            `json:"model"`
+	Mode    string            `json:"mode"`
+	Asks    bool              `json:"asks"`
+	From    map[string]string `json:"from"`
 }
 
 func (d startDefaultsView) of(id string) (startHarness, bool) {
@@ -478,6 +492,7 @@ func (d startDefaultsView) of(id string) (startHarness, bool) {
 	}
 	return startHarness{}, false
 }
+func (d startDefaultsView) allows(id string) bool    { _, ok := d.of(id); return id != "" && ok }
 func (d startDefaultsView) modeFor(id string) string { h, _ := d.of(id); return h.Mode }
 func (d startDefaultsView) netFor(id string) string  { h, _ := d.of(id); return h.Net }
 
@@ -550,6 +565,14 @@ func (s *Server) startDefaults(p auth.Principal, tile string) startDefaultsView 
 	}
 	if out.Harness == "" && len(out.Harnesses) > 0 {
 		out.Harness = out.Harnesses[0].ID
+	}
+	// the person's own: their choice remembered for this tile, then their
+	// preference — an allowed one wins over the workspace's default (D250)
+	prefs := s.startPrefsOf(p.UserID)
+	if ts, ok := prefs.AgentSessions.Tiles[tile]; ok && out.allows(ts.Harness) {
+		out.Harness = ts.Harness
+	} else if out.allows(prefs.AgentSessions.Harness) {
+		out.Harness = prefs.AgentSessions.Harness
 	}
 	if len(out.Harnesses) > 0 {
 		out.Why = ""
@@ -664,7 +687,12 @@ func (s *Server) apiStartDefaults(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusForbidden, p.UserID+" doesn't have terminal access there: their agent can't start a tile agent", delegationDocs)
 		return
 	}
-	WriteJSON(w, http.StatusOK, s.startDefaults(p, tile))
+	out := s.startDefaults(p, tile)
+	if pick, why := s.startPick(p, tile, startSuggestion{}, nil); why == "" {
+		prov, _ := agent.Lookup(pick.Harness)
+		out.Chosen = &startChosen{Harness: pick.Harness, Model: pick.Model, Mode: pick.Mode, Asks: prov.Asks(pick.Mode), From: pick.From}
+	}
+	WriteJSON(w, http.StatusOK, out)
 }
 
 // sessionOrgs reads {orgs: […]} and checks each is one the person can see

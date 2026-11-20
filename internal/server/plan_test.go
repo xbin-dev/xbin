@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/xbin-dev/xbin/internal/agent"
+	"github.com/xbin-dev/xbin/internal/agentprefs"
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/delegation"
 	"github.com/xbin-dev/xbin/internal/term"
@@ -85,10 +86,22 @@ func TestPlanStartsATileAgent(t *testing.T) {
 		t.Fatalf("applying the start: %+v", done.Items[0])
 	}
 
-	// a mode that doesn't ask: the danger wording, as a warning (the review starts it unticked)
+	// a mode that doesn't ask, suggested by the agent: never taken (D250) — the line asks, and says what it left out
 	_, cs, _ = plan(`[{"kind":"agent.start","args":{"tile":"apps/x","brief":"go","harness":"claude","mode":"bypassPermissions"}}]`)
-	if it := cs.Items[0]; len(it.Warnings) != 1 || !strings.HasPrefix(it.Warnings[0], "ACTS WITHOUT ASKING: ") || !strings.Contains(it.Line, "bypassPermissions") {
-		t.Fatalf("a start in a mode that doesn't ask: %+v", it)
+	if it := cs.Items[0]; len(it.Warnings) != 0 || !strings.Contains(it.Line, `"default"`) || !strings.Contains(strings.Join(it.Effects, " "), `suggested the mode "bypassPermissions", which acts without asking: not taken`) {
+		t.Fatalf("a start the agent suggested a mode that doesn't ask for: %+v", it)
+	}
+	// …and the person's own pick for the tile, remembered, is theirs — one that doesn't ask is warned as ever (the
+	// review starts it unticked)
+	if err := w.s.AgentPrefs.RememberTile("alice", "apps/x", agentprefs.TileStart{Harness: "claude", Mode: "acceptEdits"}, 1); err != nil {
+		t.Fatal(err)
+	}
+	_, cs, _ = plan(`[{"kind":"agent.start","args":{"tile":"apps/x","brief":"go"}}]`)
+	if it := cs.Items[0]; len(it.Warnings) != 1 || !strings.HasPrefix(it.Warnings[0], "ACTS WITHOUT ASKING: ") || !strings.Contains(it.Line, "acceptEdits") {
+		t.Fatalf("a start in the mode the person remembered for the tile: %+v", it)
+	}
+	if err := w.s.AgentPrefs.RememberTile("alice", "apps/x", agentprefs.TileStart{Harness: "claude"}, 2); err != nil {
+		t.Fatal(err)
 	}
 	// a harness command is nobody's to approve
 	if _, cs, _ = plan(`[{"kind":"agent.start","args":{"tile":"apps/x","brief":" /model opus"}}]`); !strings.Contains(cs.Items[0].Blocked, "its own commands") {
@@ -290,10 +303,10 @@ func TestPlanStartUsesOnlyTheSignInItsLineNamed(t *testing.T) {
 		opened = append(opened, *d)
 		return "sess", 200, ""
 	}
-	// a coding agent with no default mode of its own in the catalog (OpenCode): the line says so in words, warns —
-	// xbind vouches for no mode it wasn't given — and applies; it used to be shown as the mode "" and refused at
-	// Apply ("the start names no coding agent and mode"), so a plan could never start one (the real-model run,
-	// 2026-11-17)
+	// a coding agent with no default mode of its own in the catalog (OpenCode): it opens, by default, in the mode
+	// in which it asks (D250: plan — it proposes and edits nothing), and applies; it used to be shown as the mode
+	// "" and refused at Apply ("the start names no coding agent and mode"), so a plan could never start one (the
+	// real-model run, 2026-11-17)
 	{
 		rec := w.do(w.full, "POST", "/api/xbin/delegate/plans", `{"title":"t","items":[{"kind":"agent.start","args":{"tile":"apps/x","brief":"go","harness":"opencode"}}]}`, alice)
 		var cs delegation.ChangeSet
@@ -303,15 +316,25 @@ func TestPlanStartUsesOnlyTheSignInItsLineNamed(t *testing.T) {
 			t.Fatalf("a plan that starts OpenCode: %d %s", rec.Code, rec.Body.String())
 		}
 		it := full.Items[0]
-		if it.Line != "Start a tile agent in apps/x — OpenCode, in its own default mode" || it.Blocked != "" || len(it.Warnings) != 1 ||
-			!strings.HasPrefix(it.Warnings[0], "ACTS WITHOUT ASKING: in its own default mode OpenCode edits files and runs commands in apps/x without asking you.") {
+		if it.Line != `Start a tile agent in apps/x — OpenCode, in its mode "plan", which asks before it edits or runs anything` || it.Blocked != "" || len(it.Warnings) != 0 {
 			t.Fatalf("the line that starts OpenCode: %q blocked %q warnings %q", it.Line, it.Blocked, it.Warnings)
 		}
 		opened = nil
 		done := decode[delegation.ChangeSet](t, w.do(w.full, "POST", "/api/xbin/delegate/changesets/"+cs.ID+"/approve", `{"items":[1]}`, own))
-		if done.Items[0].Result != delegation.ItemApplied || len(opened) != 1 || opened[0].Provider != "opencode" || opened[0].Mode != "" || !opened[0].Approved {
+		if done.Items[0].Result != delegation.ItemApplied || len(opened) != 1 || opened[0].Provider != "opencode" || opened[0].Mode != "plan" || !opened[0].Approved {
 			t.Fatalf("applying it: %+v (error %q; opens %+v)", done.Items[0].Result, done.Items[0].Error, opened)
 		}
+		// the person's own pick of its own default mode, remembered for the tile: warned, and opened with no mode
+		if err := w.s.AgentPrefs.RememberTile("alice", "apps/x", agentprefs.TileStart{Harness: "opencode", Mode: "build"}, 3); err != nil {
+			t.Fatal(err)
+		}
+		rec = w.do(w.full, "POST", "/api/xbin/delegate/plans", `{"title":"t","items":[{"kind":"agent.start","args":{"tile":"apps/x","brief":"go"}}]}`, alice)
+		_ = json.Unmarshal(rec.Body.Bytes(), &cs)
+		full, _ = w.store.ChangeSet("alice", cs.ID)
+		if it := full.Items[0]; len(it.Warnings) != 1 || !strings.HasPrefix(it.Warnings[0], `ACTS WITHOUT ASKING: in the mode "build" OpenCode edits files`) {
+			t.Fatalf("the line that starts OpenCode in build, remembered: %q warnings %q", it.Line, it.Warnings)
+		}
+		_ = w.s.AgentPrefs.RememberTile("alice", "apps/x", agentprefs.TileStart{Harness: "claude"}, 4)
 		// …and a start of a coding agent that HAS a default is never opened with no mode
 		if noDefaultMode("claude") || noDefaultMode("codex") || noDefaultMode("no-such-agent") || !noDefaultMode("opencode") {
 			t.Error("which coding agents open with no mode named")

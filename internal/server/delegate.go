@@ -45,7 +45,9 @@ package server
 
 import (
 	"bytes"
+	"cmp"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -416,25 +418,75 @@ func (s *Server) tileExists(tile string) bool {
 type delegateStartKey struct{}
 type delegateAdminReadKey struct{}
 
-// ticketStart is the start a ticket authorises: the harness and mode the
-// person was shown (sessionPreview) — the open refuses anything else —
-// and the saved sign-in the sheet offered ONLY where they ticked it for
-// this start (use: Request.UseSignin; D230): the open then uses that one,
-// or none. trustAsked: the sheet carried the trust line too — ticked, the
-// person's trust is on record by now; not, the session has no sign-in.
-func ticketStart(preview map[string]any, use bool) (*term.DelegateStart, string) {
-	shown, _ := preview["session"].(map[string]any)
+// ticketStart is the start a ticket authorises (D250): the coding agent,
+// model and mode the person picked on the approval (Request.Chosen) — or,
+// for an approval that picked nothing (an older client), the ones the
+// preview showed; never the body's, which are the agent's suggestion. And
+// the saved sign-in the sheet offered ONLY where they ticked it for this
+// start (Request.UseSignin; D230): the open then uses that one, or none.
+// trustAsked: the sheet carried the trust line too — ticked, the person's
+// trust is on record by now; not, the session has no sign-in. A coding
+// agent whose catalog names no default mode (OpenCode) is approved, and
+// opens, in "its own" mode: no mode is no refusal for it.
+func ticketStart(r delegation.Request) (*term.DelegateStart, string) {
+	shown, _ := r.Preview["session"].(map[string]any)
 	prov, _ := shown["provider"].(string)
 	mode, _ := shown["mode"].(string)
-	if prov == "" || mode == "" {
-		return nil, "the ticket says no harness and mode: ask again"
+	model, _ := shown["model"].(string)
+	cont := ""
+	if c := r.Chosen; c != nil {
+		prov, mode, model, cont = c.Provider, c.Mode, c.Model, c.Continue
+	}
+	switch {
+	case prov == "":
+		return nil, "the approval names no coding agent: file the start again"
+	case mode == "" && !noDefaultMode(prov):
+		return nil, "the approval names no mode for " + prov + ": file the start again"
 	}
 	net, _ := shown["net"].(string)
 	signin := ""
-	if use {
+	if r.UseSignin {
 		signin, _ = shown["signInId"].(string)
 	}
-	return &term.DelegateStart{Approved: true, Provider: prov, Mode: mode, Net: net, Signin: signin, TrustAsked: shown["signInTrust"] != nil}, ""
+	// a resume opens what its history entry says, and is refused when that is no longer what the card showed
+	// (term.OpenAgentWith); any other start opens what the card showed or the person picked
+	resume, _ := shown["resume"].(bool)
+	return &term.DelegateStart{Approved: true, Picked: !resume, Provider: prov, Mode: mode, Model: model, Net: net, Signin: signin, TrustAsked: shown["signInTrust"] != nil, Continue: cont}, ""
+}
+
+// startStill is why an approved start can't open as its person approved
+// it, now — before its ticket is spent (D250): the coding agent they
+// picked no longer allowed there; the conversation's taint keeping it from
+// briefing that coding agent on that model; the session they chose to
+// continue ended, moved, or is no longer as they saw it. code is the
+// refusal; reason the ticket's.
+func (s *Server) startStill(p auth.Principal, r delegation.Request, st *term.DelegateStart, asked sessionAsk) (code, reason, why string) {
+	tile := asked.Cwd
+	if shown, _ := r.Preview["session"].(map[string]any); shown != nil {
+		if t, _ := shown["tile"].(string); t != "" {
+			tile = t
+		}
+	}
+	if err := s.agentPolicy().SessionAllows(delegation.Subject{Holder: p.Agent, User: p.UserID, Tile: tile, Model: p.AgentModel}, st.Provider); err != nil {
+		return "ticket", delegation.ReasonChoice, "the coding agent your person picked, " + st.Provider + ", may no longer run on " + tile + " (" + err.Error() + "): file the start again"
+	}
+	eff := asked
+	eff.Provider, eff.Model, eff.Options = st.Provider, st.Model, nil
+	if code, why := s.startRefusal(p, eff); why != "" {
+		return code, "", why
+	}
+	if st.Continue != "" {
+		approved, _ := r.Preview["session"].(map[string]any)
+		was, _ := approved["continue"].(map[string]any)
+		c, why := s.continuable(p, st.Continue, tile)
+		switch {
+		case why != "":
+			return "ticket", delegation.ReasonSession, "the session your person chose to continue can't take it now (" + why + "): file the start again"
+		case was == nil || c["provider"] != was["provider"] || c["mode"] != was["mode"]:
+			return "ticket", delegation.ReasonSession, fmt.Sprintf("the session your person chose to continue is now %v in mode %q, not %v in mode %q as approved: file the start again", c["provider"], c["mode"], was["provider"], was["mode"])
+		}
+	}
+	return "", "", ""
 }
 
 // delegateStartOf is how the gate authorised a delegate's session start
@@ -475,7 +527,11 @@ func (s *Server) DelegateHides(p auth.Principal, tile string) bool { return s.de
 // ---- the gate ----
 
 func delegateRefuse(w http.ResponseWriter, status int, refusal, class, msg string) {
-	WriteJSON(w, status, map[string]string{"error": msg, "refusal": refusal, "class": class, "docs": "/docs/auth.md"})
+	out := map[string]string{"error": msg, "refusal": refusal, "class": class, "docs": "/docs/auth.md"}
+	if reason, words, ok := strings.Cut(msg, "\x00"); ok { // a ticket's refusal names what differed (reasoned, D250)
+		out["error"], out["reason"] = words, reason
+	}
+	WriteJSON(w, status, out)
 }
 
 // agentModel is the model a delegate call is judged on: the model of the
@@ -528,6 +584,9 @@ func (s *Server) serveDelegate(w http.ResponseWriter, r *http.Request, next http
 	row := delegation.Call{User: p.UserID, Agent: p.Agent, Method: r.Method, Path: r.URL.Path, Tile: v.tile, Class: v.class, Effect: v.effect, Session: handle.ID}
 	refuse := func(status int, refusal, msg string) {
 		row.Status, row.Refused = status, msg
+		if _, words, ok := strings.Cut(msg, "\x00"); ok {
+			row.Refused = words // (the reason code rides to the answer only)
+		}
 		s.delegateAudit(row)
 		delegateRefuse(w, status, refusal, v.class, msg)
 	}
@@ -620,7 +679,8 @@ func (s *Server) serveDelegate(w http.ResponseWriter, r *http.Request, next http
 		preview["tile"], preview["owner"] = v.tile, s.policy().OwnerOf(v.tile)
 	}
 
-	needsApproval := v.effect && (v.tileAPI || v.row.ticket)
+	// a message to a tile agent that acts without asking goes only under its person's approval (delegatemessage.go)
+	needsApproval := v.effect && (v.tileAPI || v.row.ticket || messagePatterns[v.pattern] && strings.TrimSpace(r.Header.Get(HeaderTicket)) != "")
 	if v.effect {
 		preview["reversible"] = false // xbind undoes nothing a tile or a tile agent did
 		preview["needsApproval"] = needsApproval
@@ -654,14 +714,17 @@ func (s *Server) serveDelegate(w http.ResponseWriter, r *http.Request, next http
 
 	// 6. the person's approval
 	ctx := r.Context()
+	ticketedStart := false // an approved start: what came of it is the request's (D250)
 	if needsApproval {
 		start, status, refusal, msg := s.delegateApproval(w, r, p, v, &row)
 		if msg != "" {
 			refuse(status, refusal, msg)
 			return
 		}
+		ctx = r.Context() // (a message's spent ticket rides on it)
 		if start != nil {
 			ctx = context.WithValue(ctx, delegateStartKey{}, start)
+			ticketedStart = start.Approved && row.Ticket != ""
 		}
 	}
 	if v.row.class == DelegateAdminRead {
@@ -707,8 +770,14 @@ func (s *Server) serveDelegate(w http.ResponseWriter, r *http.Request, next http
 	}
 	s.taint(p, v.tile) // the conversation has touched this tile's orgs' data, reads included
 	dw := &delegateWriter{ResponseWriter: w, status: http.StatusOK, tile: v.tileAPI}
+	if ticketedStart {
+		dw.hold = &bytes.Buffer{} // its answer is read before it is sent: a start that failed to open is said so
+	}
 	next.ServeHTTP(dw, r.WithContext(auth.WithPrincipal(ctx, run)))
 	row.Status = dw.status
+	if ticketedStart {
+		s.startOutcome(w, p.UserID, row.Ticket, dw)
+	}
 	if v.effect || v.audit {
 		s.delegateAudit(row)
 	}
@@ -829,15 +898,52 @@ func (s *Server) delegateApproval(w http.ResponseWriter, r *http.Request, p auth
 	const ask = " — ask for one: POST /api/xbin/delegate/requests {method, path, body}, then send its id as X-XBin-Ticket once the person approved"
 	switch {
 	case ticket != "":
-		req, err := s.Delegation.Redeem(p.UserID, ticket, r.Method, requestTarget(r), v.tile, contentTypeOf(r.Header.Get("Content-Type")), body)
+		// checked first, spent after: a start that can't open as approved spends nothing (D250)
+		peek, _ := s.Delegation.Request(p.UserID, ticket)
+		message := messagePatterns[v.pattern]
+		if message && peek.State == delegation.Approved {
+			if peek.Kind != delegation.KindMessage {
+				return nil, http.StatusForbidden, "ticket", reasoned(delegation.ReasonBound, "this approval isn't of a message: make exactly the approved call")
+			}
+			if why := s.messageStill(p, peek, r.URL.Path); why != "" {
+				row.Ticket = peek.ID
+				return nil, http.StatusForbidden, "ticket", reasoned(delegation.ReasonSession, why)
+			}
+		}
+		if session && peek.State == delegation.Approved && peek.Kind == delegation.KindSession {
+			st, why := ticketStart(peek)
+			code, reason := "ticket", delegation.ReasonChoice
+			if why == "" {
+				code, reason, why = s.startStill(p, peek, st, sessionAskOf(body))
+			}
+			if why != "" {
+				row.Ticket = peek.ID
+				return nil, http.StatusForbidden, code, reasoned(reason, why)
+			}
+			start = st
+		}
+		req, err := s.Delegation.RedeemCall(p.UserID, ticket, delegation.TicketCall{Method: r.Method, Target: requestTarget(r), Tile: v.tile,
+			ContentType: contentTypeOf(r.Header.Get("Content-Type")), Body: body}, func(rq delegation.Request) *delegation.RedeemError {
+			if start != nil && !rq.ApprovedAt.Equal(peek.ApprovedAt) {
+				return &delegation.RedeemError{Reason: delegation.ReasonChoice, Msg: "the approval changed while it was being used: make the call again"}
+			}
+			return nil
+		})
 		if err != nil {
+			var re *delegation.RedeemError
+			if errors.As(err, &re) {
+				return nil, http.StatusForbidden, "ticket", reasoned(re.Reason, re.Msg)
+			}
 			return nil, http.StatusForbidden, "ticket", err.Error()
 		}
 		row.Ticket = req.ID
-		if session {
+		if message {
+			withMessageTicket(r, sessionOfPath(r.URL.Path))
+		}
+		if session && start == nil {
 			var why string
-			if start, why = ticketStart(req.Preview, req.UseSignin); why != "" {
-				return nil, http.StatusForbidden, "ticket", why
+			if start, why = ticketStart(req); why != "" {
+				return nil, http.StatusForbidden, "ticket", reasoned(delegation.ReasonChoice, why)
 			}
 		}
 		s.delegateEvent(p.UserID, "request", req.ID)
@@ -851,18 +957,54 @@ func (s *Server) delegateApproval(w http.ResponseWriter, r *http.Request, p auth
 		return nil, 0, "", ""
 	case session:
 		asked := sessionAskOf(body)
-		cwd, provider := asked.Cwd, asked.Provider
-		if provider == "" { // no harness named: the person's default for this tile (startDefaults)
-			provider = s.startDefaults(p, cwd).Harness
+		provider, model, differs := s.unaskedStart(p, asked)
+		if differs != "" {
+			return nil, http.StatusForbidden, "needs-approval", differs + ask
 		}
-		prefs, ok := s.agentPolicy().StartPrefs(p.UserID, cwd, provider)
+		prefs, ok := s.agentPolicy().StartPrefs(p.UserID, asked.Cwd, provider)
 		if !ok {
 			return nil, http.StatusForbidden, "needs-approval", "starting a tile agent needs its person's approval" + ask
 		}
 		row.Under = "preference"
-		return &term.DelegateStart{Prefs: &prefs, Provider: provider}, 0, "", "" // the harness the preference was read for: what opens must be it
+		return &term.DelegateStart{Prefs: &prefs, Provider: provider, Model: model}, 0, "", "" // the harness the preference was read for: what opens must be it
 	}
 	return nil, http.StatusForbidden, "needs-approval", "this needs its person's approval" + ask
+}
+
+// reasoned carries a ticket refusal's reason code to the answer
+// (delegateRefuse writes it as `reason`): "brief\x00the brief's text…".
+func reasoned(reason, msg string) string {
+	if reason == "" {
+		return msg
+	}
+	return reason + "\x00" + msg
+}
+
+// unaskedStart is what a start the person lets their agent make without
+// asking opens with (D250: the preference chain, without the agent's
+// step): the coding agent and model their choice for the tile or their
+// preference names, else what the start names, else the workspace's
+// default. differs: the start names a coding agent or a model other than
+// the person's own choice for it — asking for something else, which needs
+// their approval, as naming a mode always did.
+func (s *Server) unaskedStart(p auth.Principal, asked sessionAsk) (provider, model, differs string) {
+	pick, why := s.startPick(p, asked.Cwd, startSuggestion{}, nil)
+	if why != "" {
+		return cmp.Or(asked.Provider, s.startDefaults(p, asked.Cwd).Harness), cmp.Or(asked.Model, asked.Options["model"]), ""
+	}
+	theirs := func(field string) bool { return pick.From[field] == fromTile || pick.From[field] == fromPreference }
+	provider = cmp.Or(asked.Provider, pick.Harness)
+	if asked.Provider != "" && theirs("harness") && asked.Provider != pick.Harness {
+		return "", "", "your person's choice for " + asked.Cwd + " is " + pick.Harness + ", not " + asked.Provider + ": a start on another coding agent needs their approval"
+	}
+	model = cmp.Or(asked.Model, asked.Options["model"])
+	if provider == pick.Harness {
+		if model != "" && theirs("model") && model != pick.Model {
+			return "", "", "your person's choice of model for " + provider + " is " + pick.Model + ", not " + model + ": another model needs their approval"
+		}
+		model = cmp.Or(model, pick.Model)
+	}
+	return provider, model, ""
 }
 
 // writeDryRun answers a dry run and records it when it described an act.
@@ -904,7 +1046,37 @@ func (s *Server) delegateAudit(c delegation.Call) {
 type delegateWriter struct {
 	http.ResponseWriter
 	status int
-	tile   bool // a tile's answer: its redirect goes nowhere
+	tile   bool          // a tile's answer: its redirect goes nowhere
+	hold   *bytes.Buffer // an approved start's answer, kept to be read (startOutcome); nil: sent as it comes
+}
+
+// startOutcome sends an approved start's answer on (dw held it): as it
+// was when the session opened; when it didn't, the request is Failed
+// (D250) — xbind's words for why, and whether the person may try it again
+// (a fault of xbin's or the coding agent's: 5xx, or a limit that may clear:
+// 409) without a new request from the agent — and the agent is told it
+// was that, never a lapse or a refusal of its own.
+func (s *Server) startOutcome(w http.ResponseWriter, user, ticket string, dw *delegateWriter) {
+	if dw.status < 400 {
+		w.WriteHeader(dw.status)
+		_, _ = w.Write(dw.hold.Bytes())
+		return
+	}
+	var e struct {
+		Error string `json:"error"`
+	}
+	_ = json.Unmarshal(dw.hold.Bytes(), &e)
+	why := cmp.Or(strings.TrimSpace(e.Error), strings.TrimSpace(dw.hold.String()), http.StatusText(dw.status))
+	retry := dw.status >= 500 || dw.status == http.StatusConflict
+	if _, err := s.Delegation.MarkFailed(user, ticket, why, retry); err == nil {
+		s.delegateEvent(user, "request", ticket)
+	}
+	then := "it is not the agent's doing; file it again only if the person asks"
+	if retry {
+		then = "it is not the agent's doing: the person can try it again from the card without a new request, and you are told when it starts"
+	}
+	WriteJSON(w, dw.status, map[string]any{"error": "approved by the person, but the tile agent didn't start: " + why + " — " + then,
+		"refusal": "start-failed", "reason": delegation.ReasonFailed, "retry": retry, "request": ticket, "docs": delegationDocs})
 }
 
 // redirectHeaders are how an answer sends a client on to another URL. A
@@ -917,6 +1089,9 @@ var redirectHeaders = []string{"Location", "Content-Location", "Refresh"}
 
 func (d *delegateWriter) WriteHeader(code int) {
 	d.status = code
+	if d.hold != nil {
+		return
+	}
 	if d.tile {
 		for _, h := range redirectHeaders {
 			d.Header().Del(h)
@@ -926,6 +1101,9 @@ func (d *delegateWriter) WriteHeader(code int) {
 }
 
 func (d *delegateWriter) Write(b []byte) (int, error) {
+	if d.hold != nil {
+		return d.hold.Write(b)
+	}
 	if d.tile { // an answer that never called WriteHeader: the same rule
 		for _, h := range redirectHeaders {
 			d.Header().Del(h)
@@ -935,6 +1113,9 @@ func (d *delegateWriter) Write(b []byte) (int, error) {
 }
 
 func (d *delegateWriter) Flush() {
+	if d.hold != nil {
+		return
+	}
 	if f, ok := d.ResponseWriter.(http.Flusher); ok {
 		f.Flush()
 	}
