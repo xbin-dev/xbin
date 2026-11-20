@@ -38,6 +38,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -160,7 +161,7 @@ func wsBoot() {
 // wsOpenSessions are the sessions with a request or a tile agent that may
 // still change.
 func (ag *Agent) wsOpenSessions() []*wsSession {
-	rows, err := ag.db.q.Query(`SELECT DISTINCT run_id FROM ws_requests WHERE state IN ('pending','approved','proposed','applying','running','waiting')
+	rows, err := ag.db.q.Query(`SELECT DISTINCT run_id FROM ws_requests WHERE state IN ('pending','approved','proposed','applying','running','waiting','retry')
 		UNION SELECT DISTINCT run_id FROM ws_agents WHERE status IN ('starting','running','idle')`)
 	if err != nil {
 		return nil
@@ -197,7 +198,7 @@ func (ag *Agent) wsReconcile(ctx context.Context) bool {
 // wsReconcileSession reads s's open requests and live tile agents again
 // (boot: the first pass after a start).
 func (ag *Agent) wsReconcileSession(ctx context.Context, s *wsSession, boot bool) (open bool) {
-	for _, r := range ag.db.wsReqs(`WHERE run_id=? AND state IN ('pending','approved','proposed','applying','running','waiting') ORDER BY id`, s.Run) {
+	for _, r := range ag.db.wsReqs(`WHERE run_id=? AND state IN ('pending','approved','proposed','applying','running','waiting','retry') ORDER BY id`, s.Run) {
 		if ag.wsCheckReq(ctx, s, r) {
 			open = true
 		}
@@ -303,6 +304,8 @@ func (ag *Agent) wsCheckReq(ctx context.Context, s *wsSession, r *wsReq) bool {
 	switch xr.State {
 	case "pending":
 		return true
+	case "failed": // an approved start that didn't open, which its person may try again from the card (D250)
+		return r.State == wsReqRetry && xr.Failure != nil && xr.Failure.Retry
 	case "approved":
 		ag.wsDecide(ctx, s, r, xr)
 	case "denied":
@@ -322,7 +325,7 @@ func (ag *Agent) wsCheckReq(ctx context.Context, s *wsSession, r *wsReq) bool {
 // "running" in one statement, so two passes (or a pass and a click) never
 // both use its ticket.
 func (ag *Agent) wsClaim(r *wsReq) bool {
-	res, err := ag.db.q.Exec(`UPDATE ws_requests SET state='running' WHERE id=? AND state IN ('pending','approved')`, r.ID)
+	res, err := ag.db.q.Exec(`UPDATE ws_requests SET state='running' WHERE id=? AND state IN ('pending','approved','retry')`, r.ID)
 	if err != nil {
 		return false
 	}
@@ -405,9 +408,18 @@ func (ag *Agent) wsDecide(ctx context.Context, s *wsSession, r *wsReq, xr wsRequ
 	fail := func(err error) {
 		state = "failed"
 		done.Result = clip(wsPlain(wsRefusal(err)), 240)
+		var de *xbin.DelegateError
 		switch {
+		case errors.As(err, &de) && errors.Is(err, xbin.ErrStartFailed):
+			// approved and made, and the session didn't open — not the agent's doing, never a lapse (D250)
+			outcome = how + ", but the tile agent didn't start: " + wsRefusal(err) + "."
+			if de.Retry {
+				state = wsReqRetry
+				outcome = how + ", but the tile agent didn't start. xbin says: " + wsRefusal(err) + ". This is not your doing and not a refusal: your person can try it again from the card, under the same approval — don't file it again; you are told when it starts."
+			}
 		case errors.Is(err, xbin.ErrBadTicket):
-			outcome = how + ", but the approval no longer covered the call when it was made (it expired after 15 minutes, or the tile changed). Nothing ran. Ask again if it is still wanted."
+			// xbind's words say what differed from what the person approved, and what to do (D250)
+			outcome = how + ", but xbin didn't make the call: " + wsRefusal(err) + ". Nothing ran."
 		default:
 			outcome = how + ", but it failed: " + wsRefusal(err) + ". Check what state it left before trying again."
 		}
@@ -454,9 +466,42 @@ func (ag *Agent) wsDecide(ctx context.Context, s *wsSession, r *wsReq, xr wsRequ
 			break
 		}
 		row := ag.wsAddAgent(s, r, a)
-		outcome = fmt.Sprintf("%s — tile agent #%d started in %s (%s, %s) and was told the brief. It is your person's session: they can open it and only they answer its questions. You are told when it ends its turn, fails or asks them a question (a permission it asks them for doesn't wake you); until then go on with what doesn't depend on it.",
-			how, row.ID, row.Tile, orStr(row.Harness, "coding agent"), map[bool]string{true: "asks before acting", false: "acts without asking"}[row.Asks])
-		done.Result = fmt.Sprintf("tile agent #%d started in %s (%s)", row.ID, row.Tile, orStr(row.Harness, "coding agent"))
+		ran := wsRanWords(row)
+		if a.Continued {
+			outcome = fmt.Sprintf("%s — your person chose to continue tile agent #%d in %s (%s) with it: the brief went to it as a follow-up, and no new session opened. Follow up there; you are told when it ends its turn, fails or asks them a question.",
+				how, row.ID, row.Tile, ran)
+			done.Result = fmt.Sprintf("tile agent #%d continued in %s", row.ID, row.Tile)
+		} else {
+			outcome = fmt.Sprintf("%s — tile agent #%d started in %s: %s. It was told the brief. It is your person's session: they can open it and only they answer its questions. You are told when it ends its turn, fails or asks them a question (a permission it asks them for doesn't wake you); until then go on with what doesn't depend on it.",
+				how, row.ID, row.Tile, ran)
+			done.Result = fmt.Sprintf("tile agent #%d started in %s: %s", row.ID, row.Tile, ran)
+		}
+		if xr.Chosen != nil && start.Harness != "" && xr.Chosen.Provider != start.Harness {
+			outcome += " Your person picked the coding agent on the approval: that is what runs here, and on this tile next time if they asked xbin to remember it."
+		}
+		if r.Brief != 0 {
+			if b, err := ag.db.wsBrief(r.Run, r.Brief); err == nil && b.Edited {
+				// the person edited the brief's TEXT on its card before approving: what was sent is theirs (D250)
+				outcome += "\nYour person edited the brief before approving; what was sent:\n" + wsBriefWords(b)
+			}
+		}
+	case wsReqMessage:
+		// a message to a tile agent in a mode that doesn't ask, as its person approved it: that text, once (D250)
+		var said string
+		sid := wsSessionOfPath(r.Path)
+		if err := ag.wsWith(ctx, s, func(hid string) (err error) {
+			said, err = wsX.AgentSayTicket(ctx, hid, sid, string(r.Body), ticket)
+			return
+		}); err != nil {
+			fail(err)
+			break
+		}
+		name := sid
+		if row, err := ag.db.wsAgentOf(r.Run, sid); err == nil {
+			name = fmt.Sprintf("#%d", row.ID)
+		}
+		outcome = fmt.Sprintf("%s — your message went to tile agent %s (%s). You are told when it ends its turn.", how, name, orStr(said, "delivered"))
+		done.Result = "the message went to tile agent " + name
 	case wsReqMCP:
 		o, res, err := ag.wsDecideMCP(ctx, s, r, ticket, how)
 		if err != nil {
@@ -485,6 +530,30 @@ func (ag *Agent) wsDecide(ctx context.Context, s *wsSession, r *wsReq, xr wsRequ
 	done.State, done.Outcome = state, outcome
 	ag.wsSettled(r, done)
 	ag.wsRefresh(ctx, s, true)
+}
+
+// wsRanWords is what a tile agent runs on, in a clause: "OpenCode, model
+// big, asks before acting" (no "·": the page and the model read it alike).
+func wsRanWords(row *wsAgentRow) string {
+	parts := []string{orStr(row.Harness, "a coding agent")}
+	if row.Model != "" {
+		parts = append(parts, "model "+row.Model)
+	}
+	parts = append(parts, map[bool]string{true: "asks before acting", false: "acts without asking"}[row.Asks])
+	return strings.Join(parts, ", ")
+}
+
+// wsSessionOfPath is the session id of a message's path
+// (/api/xbin/term/sessions/<id>/queue).
+func wsSessionOfPath(p string) string {
+	rest := strings.TrimPrefix(p, "/api/xbin/term/sessions/")
+	if i := strings.Index(rest, "/"); i >= 0 {
+		rest = rest[:i]
+	}
+	if u, err := url.PathUnescape(rest); err == nil {
+		return u
+	}
+	return rest
 }
 
 // wsLostTicket: r was claimed and this backend stopped before recording
@@ -535,7 +604,7 @@ func (ag *Agent) wsSettled(r *wsReq, d wsDone) {
 	// (an outcome not delivered yet is kept: a plan's waiting line may end before its decision was told)
 	res, err := ag.db.q.Exec(`UPDATE ws_requests SET state=?, outcome=CASE WHEN owed=1 AND outcome<>'' THEN outcome || char(10) || ? ELSE ? END, decided_ms=?, owed=1,
 		grant_scope=?, grant_until_ms=?, decided_by=?, decided_via=?, result_status=?, result=?
-		WHERE id=? AND state IN ('pending','approved','proposed','applying','running','waiting')`,
+		WHERE id=? AND state IN ('pending','approved','proposed','applying','running','waiting','retry')`,
 		d.State, d.Outcome, d.Outcome, nowMs(), d.Grant, d.Until, d.By, d.Via, d.Status, d.Result, r.ID)
 	if err != nil {
 		return
@@ -543,7 +612,7 @@ func (ag *Agent) wsSettled(r *wsReq, d wsDone) {
 	if n, _ := res.RowsAffected(); n != 1 {
 		return // decided already
 	}
-	if r.Brief != 0 && d.State != "used" {
+	if r.Brief != 0 && d.State != "used" && d.State != wsReqRetry {
 		_, _ = ag.db.q.Exec(`UPDATE ws_briefs SET state=?, updated_ms=? WHERE id=? AND state='asked'`,
 			map[bool]string{true: "denied", false: "draft"}[d.State == "denied"], nowMs(), r.Brief)
 	}
@@ -562,12 +631,13 @@ func (ag *Agent) wsSettled(r *wsReq, d wsDone) {
 // (a.Name, a.Asks: start-defaults); a harness xbind didn't name shows its id.
 func (ag *Agent) wsAddAgent(s *wsSession, r *wsReq, a wsAgent) *wsAgentRow {
 	row := &wsAgentRow{Run: s.Run, Session: a.ID, Tile: orStr(a.Tile, r.Tile), Harness: orStr(a.Name, a.Provider), Mode: a.Mode, Asks: a.Asks,
-		Brief: r.Brief, Request: r.ID, CallID: r.CallID, Status: orStr(a.Status, "starting"), Started: nowMs()}
+		Brief: r.Brief, Request: r.ID, CallID: r.CallID, Status: orStr(a.Status, "starting"), Started: nowMs(), Model: a.Model}
 	_ = ag.db.Tx(func(t *DB) error {
-		if err := t.q.QueryRow(`INSERT INTO ws_agents (run_id, session, tile, harness, mode, asks, brief_id, request_id, call_id, status, told, started_ms, updated_ms)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(session) DO UPDATE SET status=excluded.status, updated_ms=excluded.updated_ms,
-			request_id=excluded.request_id, call_id=excluded.call_id RETURNING id`,
-			row.Run, row.Session, row.Tile, row.Harness, row.Mode, row.Asks, row.Brief, row.Request, row.CallID, row.Status, row.state(), row.Started, row.Started).Scan(&row.ID); err != nil {
+		// a start its person chose to continue a session with (D250) lands on that session's row: one tile agent
+		if err := t.q.QueryRow(`INSERT INTO ws_agents (run_id, session, tile, harness, mode, asks, brief_id, request_id, call_id, status, told, started_ms, updated_ms, model)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(session) DO UPDATE SET status=excluded.status, updated_ms=excluded.updated_ms,
+			request_id=excluded.request_id, call_id=excluded.call_id, brief_id=CASE WHEN excluded.brief_id<>0 THEN excluded.brief_id ELSE brief_id END RETURNING id`,
+			row.Run, row.Session, row.Tile, row.Harness, row.Mode, row.Asks, row.Brief, row.Request, row.CallID, row.Status, row.state(), row.Started, row.Started, row.Model).Scan(&row.ID); err != nil {
 			return err
 		}
 		if r.Brief != 0 {
@@ -611,6 +681,9 @@ func (ag *Agent) wsSeen(ctx context.Context, s *wsSession, row *wsAgentRow, a ws
 	if a.Turn > 0 {
 		next.Turn = a.Turn
 	}
+	if a.live() && a.Model != "" {
+		next.Model = a.Model
+	}
 	// its harness's name and whether its mode asks are xbind's too
 	// (start-defaults, ws_xbin_http.go named): as read when xbind names the
 	// harness; when it doesn't, the row stays — but a mode it moved to is
@@ -643,8 +716,8 @@ func (ag *Agent) wsSeen(ctx context.Context, s *wsSession, row *wsAgentRow, a ws
 		ag.wsFlushHeld(ctx, s, &next)
 		return false // nothing new: what is still owed was asked for when it was found (wsBoot asks again after a stop)
 	}
-	_, _ = ag.db.q.Exec(`UPDATE ws_agents SET status=?, waiting=?, waits=?, last=?, turn=?, harness=?, mode=?, asks=?, told=?, owed=?, wake=?, updated_ms=? WHERE id=?`,
-		next.Status, next.Waiting, next.Waits, next.Last, next.Turn, next.Harness, next.Mode, next.Asks, next.Told, next.Owed, next.Wake, nowMs(), row.ID)
+	_, _ = ag.db.q.Exec(`UPDATE ws_agents SET status=?, waiting=?, waits=?, last=?, turn=?, harness=?, mode=?, asks=?, told=?, owed=?, wake=?, updated_ms=?, model=? WHERE id=?`,
+		next.Status, next.Waiting, next.Waits, next.Last, next.Turn, next.Harness, next.Mode, next.Asks, next.Told, next.Owed, next.Wake, nowMs(), next.Model, row.ID)
 	ag.wsFlushHeld(ctx, s, &next)
 	ag.wsChanged(row.Run, "agent")
 	return next.Owed && next.Wake

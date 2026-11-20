@@ -162,6 +162,8 @@ func (d *DB) addWsSchema() error {
 		// the brief template xbind writes this brief from, word for word ('': the agent's own words, or a person's
 		// edit of xbind's): its start names the template, and xbind writes the text (D248 review)
 		`ALTER TABLE ws_briefs ADD COLUMN xbin TEXT NOT NULL DEFAULT ''`,
+		// the model a tile agent runs on, as xbind last read it (D250: what the conversation is told of what is there)
+		`ALTER TABLE ws_agents ADD COLUMN model TEXT NOT NULL DEFAULT ''`,
 	} {
 		_, _ = d.q.Exec(q)
 	}
@@ -378,6 +380,17 @@ type wsReq struct {
 // again when the line is applied or ends.
 const wsReqWaiting = "waiting"
 
+// wsReqRetry is an approved start's state when it didn't open for a reason
+// that isn't the agent's and its person may try it again from xbin's card
+// (D250): still open — xbind's request turning approved again is used as
+// the first approval was.
+const wsReqRetry = "retry"
+
+// wsReqMessage is a message to a tile agent in a mode that doesn't ask,
+// filed for its person's approval (D250): Path names the session, Body is
+// the text.
+const wsReqMessage = "message"
+
 // open: nothing came of it yet.
 func (r *wsReq) open() bool {
 	switch r.State {
@@ -452,6 +465,11 @@ type wsAgentRow struct {
 	Wake     bool   `json:"-"`
 	Started  int64  `json:"startedMs"`
 	Updated  int64  `json:"updatedMs"`
+	// Model is the model it runs on, as xbind last read it ("" its default);
+	// BriefLine its brief's goal in a line — what the conversation is told of
+	// what is there (D250)
+	Model     string `json:"model,omitempty"`
+	BriefLine string `json:"briefLine,omitempty"`
 }
 
 // live: it may still change.
@@ -479,13 +497,24 @@ func (a *wsAgentRow) state() string {
 	return a.Status
 }
 
-const wsAgentCols = `id, run_id, session, tile, harness, mode, asks, brief_id, request_id, call_id, status, waiting, waits, last, turn, told, owed, wake, started_ms, updated_ms, refused, told_turn`
+const wsAgentCols = `id, run_id, session, tile, harness, mode, asks, brief_id, request_id, call_id, status, waiting, waits, last, turn, told, owed, wake, started_ms, updated_ms, refused, told_turn, model`
 
 func scanWsAgent(scan func(...any) error) (*wsAgentRow, error) {
 	var a wsAgentRow
 	err := scan(&a.ID, &a.Run, &a.Session, &a.Tile, &a.Harness, &a.Mode, &a.Asks, &a.Brief, &a.Request, &a.CallID, &a.Status, &a.Waiting, &a.Waits, &a.Last, &a.Turn,
-		&a.Told, &a.Owed, &a.Wake, &a.Started, &a.Updated, &a.Refused, &a.ToldTurn)
+		&a.Told, &a.Owed, &a.Wake, &a.Started, &a.Updated, &a.Refused, &a.ToldTurn, &a.Model)
 	return &a, err
+}
+
+// withBriefLine fills a's BriefLine: its brief's goal, in a line.
+func (d *DB) withBriefLine(a *wsAgentRow) *wsAgentRow {
+	if a != nil && a.Brief != 0 && a.BriefLine == "" {
+		var goal string
+		if d.q.QueryRow(`SELECT goal FROM ws_briefs WHERE id=?`, a.Brief).Scan(&goal) == nil {
+			a.BriefLine = clip(oneLineTitle(goal), 100)
+		}
+	}
+	return a
 }
 
 func (d *DB) wsAgents(where string, args ...any) []*wsAgentRow {
@@ -493,12 +522,15 @@ func (d *DB) wsAgents(where string, args ...any) []*wsAgentRow {
 	if err != nil {
 		return nil
 	}
-	defer rows.Close()
 	var out []*wsAgentRow
 	for rows.Next() {
 		if a, err := scanWsAgent(rows.Scan); err == nil {
 			out = append(out, a)
 		}
+	}
+	rows.Close() // (before the briefs are read: one connection)
+	for _, a := range out {
+		d.withBriefLine(a)
 	}
 	return out
 }
@@ -507,10 +539,17 @@ func (d *DB) wsAgents(where string, args ...any) []*wsAgentRow {
 // session id.
 func (d *DB) wsAgentOf(runID int64, name string) (*wsAgentRow, error) {
 	name = strings.TrimSpace(name)
+	var a *wsAgentRow
+	var err error
 	if n := toInt(strings.TrimPrefix(name, "#")); n > 0 {
-		return scanWsAgent(d.q.QueryRow(`SELECT `+wsAgentCols+` FROM ws_agents WHERE run_id=? AND id=?`, runID, n).Scan)
+		a, err = scanWsAgent(d.q.QueryRow(`SELECT `+wsAgentCols+` FROM ws_agents WHERE run_id=? AND id=?`, runID, n).Scan)
+	} else {
+		a, err = scanWsAgent(d.q.QueryRow(`SELECT `+wsAgentCols+` FROM ws_agents WHERE run_id=? AND session=?`, runID, name).Scan)
 	}
-	return scanWsAgent(d.q.QueryRow(`SELECT `+wsAgentCols+` FROM ws_agents WHERE run_id=? AND session=?`, runID, name).Scan)
+	if err != nil {
+		return nil, err
+	}
+	return d.withBriefLine(a), nil
 }
 
 func (d *DB) wsHeld(agentID int64) (ids []int64, texts []string) {

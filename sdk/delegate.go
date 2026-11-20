@@ -153,6 +153,12 @@ var (
 	// ErrHarnessCommand: the text begins with "/", which the coding agent
 	// reads as one of its own commands — those are the person's to give.
 	ErrHarnessCommand = errors.New("a harness command is the person's to give")
+	// ErrStartFailed: the person approved a tile agent's start and it was
+	// made, and the session didn't open for a reason that isn't the
+	// agent's (the coding agent or its sandbox didn't start). With
+	// DelegateError.Retry the person can try it again from xbin's card —
+	// no new request (D250).
+	ErrStartFailed = errors.New("the approved start didn't open")
 )
 
 // DelegateError is a refused delegate call.
@@ -164,12 +170,19 @@ type DelegateError struct {
 	// RetryAfter: when a rate-limited call may be made again.
 	RetryAfter time.Duration
 	// Orgs: for ErrModelTaint, the orgs whose data the session has seen and
-	// that don't allow the model; Reason the first one's rule.
+	// that don't allow the model; Reason the first one's rule. For a refused
+	// ticket (ErrBadTicket) Reason says what differed from what the person
+	// approved — brief | bound | tile | expired | voided | used | denied |
+	// withdrawn | pending | missing | failed | choice | session (D250) — and
+	// Message says it in words.
 	Orgs   []string
 	Reason string
 	// Said: what an outside MCP server itself wrote behind the refusal
 	// (D240) — an outsider's words, never xbind's: show it as data.
 	Said string
+	// Retry: for ErrStartFailed, the person may try the start again from
+	// xbin's card, under the same request (D250).
+	Retry bool
 }
 
 func (e *DelegateError) Error() string {
@@ -206,6 +219,8 @@ func (e *DelegateError) Is(target error) bool {
 		return target == ErrSessionMode
 	case "command":
 		return target == ErrHarnessCommand
+	case "start-failed":
+		return target == ErrStartFailed
 	case "admin-read":
 		return target == ErrAdminRead
 	case "rate-limited":
@@ -231,9 +246,10 @@ func DelegateRefusal(resp *http.Response) error {
 		Orgs    []string `json:"orgs"`
 		Reason  string   `json:"reason"`
 		Said    string   `json:"said"`
+		Retry   bool     `json:"retry"`
 	}
 	_ = json.Unmarshal(raw, &b)
-	e := &DelegateError{Status: resp.StatusCode, Refusal: b.Refusal, Class: b.Class, Message: b.Error, Orgs: b.Orgs, Reason: b.Reason, Said: b.Said}
+	e := &DelegateError{Status: resp.StatusCode, Refusal: b.Refusal, Class: b.Class, Message: b.Error, Orgs: b.Orgs, Reason: b.Reason, Said: b.Said, Retry: b.Retry}
 	if b.Refusal == "" && b.Code == "model_taint" {
 		e.Refusal = b.Code
 	}

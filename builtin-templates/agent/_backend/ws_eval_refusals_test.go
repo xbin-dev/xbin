@@ -62,8 +62,9 @@ func TestWsEvalStartRefusedByTaint(t *testing.T) {
 }
 
 // Scenario R2 — a message to a tile agent its person switched to a mode
-// that doesn't ask, and one that begins with "/": refused, said once, and
-// the model stops.
+// that doesn't ask: no longer a dead end (D250) — the message is filed for
+// their approval, the whole text, and nothing reaches the session until
+// they allow it. One that begins with "/" is refused, said once.
 func TestWsEvalMessageRefusedByModeAndCommand(t *testing.T) {
 	fx := newWsFix(t)
 	s := fx.main(t)
@@ -73,17 +74,20 @@ func TestWsEvalMessageRefusedByModeAndCommand(t *testing.T) {
 	fx.x.modeOff = map[string]bool{sess: true}
 	fx.x.mu.Unlock()
 	f.on(forRun(s.Run, lastUser("tell it to add tests")), callTools(tc("m1", "tile_agent_message", `{"agent":"#1","text":"Please add tests for the export."}`))).once()
-	f.on(forRun(s.Run, lastTool("tile_agent_message")), say("The Orders agent takes no more messages from me: you switched it to a mode that doesn't ask. Switch it back, or tell it yourself.")).once()
+	f.on(forRun(s.Run, lastTool("tile_agent_message")), say("Orders' agent acts without asking now, so the message waits for your approval.")).once()
 	calls := len(f.callsFor(s.Run))
 	fx.say(t, s, "tell it to add tests")
 	fx.idle(t, s)
-	if got := fx.toolResult(t, s, "tile_agent_message"); !strings.Contains(got, "doesn't ask before it acts") || !strings.Contains(got, "only they can drive it now") || !strings.Contains(got, "Don't send it again") {
+	if got := fx.toolResult(t, s, "tile_agent_message"); !strings.Contains(got, "acts without asking now, so your person approves this message first") || !strings.Contains(got, "Pending — request 1") {
 		t.Fatalf("the message's answer: %s", got)
 	}
 	if n := len(f.callsFor(s.Run)) - calls; n != 2 || fx.x.count("AgentSay refused") != 1 || len(fx.x.said[sess]) != 0 {
 		t.Fatalf("after a mode refusal: %d model calls, %v", n, fx.x.calls)
 	}
-
+	if req := fx.x.pending(t); req.Kind != "message" || string(req.call.Body) != `{"text":"Please add tests for the export."}` {
+		t.Fatalf("the message's request: %s %s", req.Kind, req.call.Body)
+	}
+	_ = row
 	fx.x.mu.Lock()
 	fx.x.modeOff = nil
 	fx.x.mu.Unlock()
@@ -103,7 +107,7 @@ func TestWsEvalMessageRefusedByModeAndCommand(t *testing.T) {
 	for _, r := range fx.ag.db.wsRefusals(s.Run) {
 		kinds = append(kinds, r.Kind)
 	}
-	if strings.Join(kinds, " ") != "command mode" {
+	if strings.Join(kinds, " ") != "command" { // (a session that acts without asking is no refusal any more: its message is an approval, D250)
 		t.Fatalf("the cards: %v", kinds)
 	}
 	_ = row

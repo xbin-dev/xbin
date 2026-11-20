@@ -21,7 +21,9 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
+	"time"
 
 	xbin "github.com/xbin-dev/xbin/sdk"
 )
@@ -51,17 +53,23 @@ func wsAgentTools() []coordTool {
 			}))}},
 			Run: wsTool(wsBriefTool)},
 		{Write: true, Spec: toolSpec{Type: "function", Function: funcDef{Name: "tile_agent_start",
-			Description: "Start a tile agent from a brief (or continue one that stopped, with resume). Your person is asked, unless their preference lets tile agents start without asking (then Start on the brief's card is their go-ahead): xbin shows them the brief exactly as it will be sent, and the coding agent and mode it will run in. This tool answers \"pending\" at once; the session, or their refusal, reaches you as a workspace update. " +
-				"What they approve is what xbin sends the session first: they may have edited the brief. You choose neither the coding agent nor its mode: those are your person's preferences and the tile's rules. " +
-				"Once started the session is theirs to see and to answer; you are told when it ends a turn, fails, or asks them a question (not for a permission it asks them: tile_agent_result says when it waits).",
+			Description: "Start a tile agent from a brief (or continue one that stopped, with resume). Your person is asked (unless their preference lets it start unasked: then Start on the brief's card is their go-ahead): xbin shows the brief exactly as sent, and they pick the coding agent, model and mode there — their pick runs. It answers \"pending\"; what ran, or their refusal, reaches you as a workspace update. " +
+				"If a tile agent this conversation started is idle on that tile, the brief goes to IT as a follow-up — one session — unless you pass new: true with a reason they see. A follow-up to a working session is tile_agent_message. " +
+				"Pass harness, model or mode only when your person named one: their own choice for the tile and their preference come first (the brief's answer says them), and a mode that acts without asking is never picked by you. " +
+				"The session is theirs to see and answer; you are told when it ends a turn, fails, or asks them a question.",
 			Parameters: obj(nil, map[string]any{
 				"brief":   coordIntProp("the brief's number (from tile_agent_brief)"),
 				"resume":  strProp("instead of a brief: the number of a tile agent that stopped or failed (#3), to continue it where it was"),
+				"harness": strProp("only when your person named one: the coding agent they asked for (an id: claude, codex, opencode, …) — a suggestion they see; their pick on the approval wins"),
+				"model":   strProp("only when your person named one: the model they asked for — a suggestion"),
+				"mode":    strProp("only when your person named one: the mode they asked for — a suggestion; one that acts without asking is never picked for them"),
+				"new":     map[string]any{"type": "boolean", "description": "true: a new session even where one you started is idle on the tile (say why in reason)"},
+				"reason":  strProp("with new: why a new session rather than the one there — shown to your person"),
 				"dry_run": wsDryProp(),
 			})}},
 			Run: wsTool(wsStartTool)},
 		{Write: true, Spec: toolSpec{Type: "function", Function: funcDef{Name: "tile_agent_message",
-			Description: "Send a message to a tile agent you started: a correction, an answer to something it reported, the next piece of work. It takes it at its next step, or as its next turn. Your person approved the brief, not each message: keep within what the brief was for — a tile agent you start runs in an ask or plan mode, which asks them before it acts; one they switched to a mode that doesn't takes no more of your messages. " +
+			Description: "Send a message to a tile agent you started: a correction, an answer to something it reported, the next piece of work — the way to follow up in the session that is there. It takes it at its next step, or as its next turn. Your person approved the brief, not each message: keep within what the brief was for — a tile agent in a mode that asks takes your messages as they are; one in a mode that acts without asking takes them only by your person's approval, which this tool asks for (the whole text shown; pending, like a start). " +
 				"If the session waits for your person (a permission request, a question of its own), your message is held until they answered: you never answer for them, and nothing you send counts as their answer. Not for a session you didn't start.",
 			Parameters: obj([]string{"agent", "text"}, map[string]any{
 				"agent":   agent,
@@ -86,8 +94,8 @@ func wsAgentTools() []coordTool {
 			Parameters: obj([]string{"agent"}, map[string]any{"agent": agent, "dry_run": wsDryProp()})}},
 			Run: wsTool(wsAgentCancelTool)},
 		{Spec: toolSpec{Type: "function", Function: funcDef{Name: "tile_agents",
-			Description: "The tile agents this session started and where each stands, with the briefs that have not been started. A read.",
-			Parameters:  obj(nil, map[string]any{})}},
+			Description: "The tile agents this session started and where each stands — working, idle since when, waiting for your person; coding agent, model, mode; its brief in a line — the briefs not started yet, and the sessions your person runs themselves on those tiles (theirs: not yours to drive). With tile, the sessions on that tile. A read: look before you start another.",
+			Parameters:  obj(nil, map[string]any{"tile": strProp("a tile: the sessions on it (optional)")})}},
 			Run: wsTool(wsAgentsTool)},
 	}
 }
@@ -188,7 +196,7 @@ func wsBriefTool(ctx context.Context, ag *Agent, s *wsSession, c coordCall) (str
 	ag.wsChanged(s.Run, "brief")
 	on := ""
 	if w := ag.wsRunsOn(ctx, s, t.Path, ""); w != "" {
-		on = " It would run on " + w + " (your person's preferences and the tile's rules; they can pick another the tile allows)."
+		on = " It would run on " + w + " — your person picks on the approval among what the tile allows; pass harness, model or mode to tile_agent_start only when they named one."
 	}
 	return fmt.Sprintf("Brief %d for %s is in front of your person, who can edit it. Nothing has started.%s "+
 		"Next: tile_agent_start {\"brief\": %d} — xbin shows them the brief as it will be sent and asks them to allow the start. "+
@@ -226,12 +234,27 @@ func (ag *Agent) wsRunsOn(ctx context.Context, s *wsSession, tile, picked string
 	if err := ag.wsWith(ctx, s, func(sid string) (err error) { d, err = wsX.StartDefaults(ctx, sid, tile); return }); err != nil {
 		return ""
 	}
-	id := orStr(picked, d.Harness)
+	id, asks, model, from := orStr(picked, d.Harness), false, "", ""
 	if id == "" {
 		return ""
 	}
 	h, _ := d.of(id)
-	on := orStr(h.Name, id) + ", " + map[bool]string{true: "asks before acting", false: "acts without asking"}[h.Asks]
+	asks = h.Asks
+	if c := d.Chosen; c != nil && picked == "" { // what the approval preselects: the person's own choice first (D250)
+		id, asks, model = c.Harness, c.Asks, c.Model
+		h, _ = d.of(id)
+		switch c.From["harness"] {
+		case "tile":
+			from = " (your person's own choice for this tile)"
+		case "preference":
+			from = " (your person's preference)"
+		}
+	}
+	on := orStr(h.Name, id) + from
+	if model != "" {
+		on += ", model " + model
+	}
+	on += ", " + map[bool]string{true: "asks before acting", false: "acts without asking"}[asks]
 	if h.NoSignIn {
 		on += ", on the workspace's model with no sign-in"
 	}
@@ -252,7 +275,8 @@ func wsStartTool(ctx context.Context, ag *Agent, s *wsSession, c0 coordCall) (st
 	args := c0.Args
 	var start wsAgentStart
 	var brief *wsBrief
-	var title string
+	var title, newWhy string
+	var cont *wsAgentRow // the idle tile agent the start continues (D250)
 	if name := strings.TrimSpace(fmt.Sprint(orAny(args["resume"], ""))); name != "" {
 		old, err := ag.db.wsAgentOf(s.Run, name)
 		if err != nil {
@@ -284,8 +308,21 @@ func wsStartTool(ctx context.Context, ag *Agent, s *wsSession, c0 coordCall) (st
 		if r := ag.wsPlanCovers(s.Run, "", b.Tile); r != nil && args["dry_run"] != true {
 			return wsPlanWaits(r), nil
 		}
+		// the agent's suggestion, where its person named one (D250): xbin's approval preselects it below their own choices
+		start.Harness = orStr(strings.TrimSpace(str(args["harness"])), start.Harness)
+		start.Model, start.Mode = strings.TrimSpace(str(args["model"])), strings.TrimSpace(str(args["mode"]))
+		// the session that is there: this conversation's own idle tile agent on the tile takes the brief as a
+		// follow-up — unless a new one is asked for, with a reason the person sees
+		if args["new"] != true {
+			if there := ag.wsIdleAgentOn(s.Run, b.Tile); there != nil {
+				start.Continue, cont = there.Session, there
+				title = fmt.Sprintf("continue tile agent #%d in %s with a follow-up", there.ID, b.Tile)
+			}
+		} else if why := strings.TrimSpace(str(args["reason"])); why != "" {
+			newWhy = clip(why, 200)
+		}
 	}
-	if n := ag.db.wsOne(`SELECT count(*) FROM ws_agents WHERE run_id=? AND status IN ('starting','running','idle')`, s.Run); n >= wsAgentsLive {
+	if n := ag.db.wsOne(`SELECT count(*) FROM ws_agents WHERE run_id=? AND status IN ('starting','running','idle')`, s.Run); n >= wsAgentsLive && cont == nil {
 		return "", fmt.Errorf("this session already has %d tile agents open (at most %d): let one finish, or message one of them", n, wsAgentsLive)
 	}
 	var dry *wsDry
@@ -307,8 +344,12 @@ func wsStartTool(ctx context.Context, ag *Agent, s *wsSession, c0 coordCall) (st
 	req := &wsReq{Kind: wsReqSession, Tile: start.Tile, Title: title, Method: "POST", Path: "/api/xbin/term/sessions", Body: body}
 	var ask func(string) (wsRequest, error)
 	if dry.NeedsApproval {
+		summary := wsStartSummary(start, brief)
+		if newWhy != "" {
+			summary = clip("A new session: "+newWhy+"\n"+summary, 600)
+		}
 		ask = func(sid string) (wsRequest, error) {
-			return wsX.AskAgentStart(ctx, sid, start, wsStartSummary(start, brief))
+			return wsX.AskAgentStart(ctx, sid, start, summary)
 		}
 	} else if brief != nil {
 		// their preferences let a tile agent start without xbin asking: the
@@ -331,7 +372,98 @@ func wsStartTool(ctx context.Context, ag *Agent, s *wsSession, c0 coordCall) (st
 		go ag.wsDecideByID(req.ID)
 	}
 	ag.wsChanged(s.Run, "request")
+	if cont != nil {
+		out += fmt.Sprintf(" It continues tile agent #%d (%s), which is idle there: the brief goes to it as a follow-up and no new session opens — unless your person starts a new one on the approval.", cont.ID, wsAgentWords(cont))
+	}
+	if there := ag.wsSessionsOn(ctx, s, start.Tile, cont); there != "" {
+		out += " " + there
+	}
 	return out, nil
+}
+
+// wsIdleAgentOn is this conversation's own live tile agent on tile that is
+// idle — what a follow-up continues (D250) — nil when there is none.
+func (ag *Agent) wsIdleAgentOn(run int64, tile string) *wsAgentRow {
+	for _, row := range ag.db.wsAgents(`WHERE run_id=? AND tile=? AND status='idle' ORDER BY id DESC`, run, tile) {
+		if !row.Waits {
+			return row
+		}
+	}
+	return nil
+}
+
+// wsAgentWords is a tile agent in a clause: its coding agent, model and
+// mode, and where it stands ("OpenCode, model big, acts without asking,
+// idle since 10:52 UTC; brief: a tic tac toe game").
+func wsAgentWords(a *wsAgentRow) string {
+	parts := []string{orStr(a.Harness, "a coding agent")}
+	if a.Model != "" {
+		parts = append(parts, "model "+a.Model)
+	}
+	if a.Mode != "" {
+		parts = append(parts, map[bool]string{true: "asks before acting", false: "acts without asking"}[a.Asks])
+	}
+	switch {
+	case a.Waits && a.live():
+		parts = append(parts, "waiting for your person")
+	case a.Status == "idle":
+		parts = append(parts, "idle since "+time.UnixMilli(a.Updated).UTC().Format("15:04 UTC"))
+	default:
+		parts = append(parts, a.Status)
+	}
+	out := strings.Join(parts, ", ")
+	if a.BriefLine != "" {
+		out += "; brief: " + a.BriefLine
+	}
+	return out
+}
+
+// wsSessionsOn says the live coding-agent sessions on tile that this
+// conversation didn't start (except), as xbind's one read of the tile gives
+// them: the person's own — theirs, never the agent's to drive — and another
+// conversation's. "" when there are none, or xbind doesn't say.
+func (ag *Agent) wsSessionsOn(ctx context.Context, s *wsSession, tile string, except *wsAgentRow) string {
+	var st wsTileView
+	if err := ag.wsWith(ctx, s, func(sid string) (err error) { st, err = wsX.TileStanding(ctx, sid, tile); return }); err != nil {
+		return ""
+	}
+	var mine, theirs []string
+	for _, se := range st.Sessions {
+		if se.Status == "ended" || se.Status == "exited" {
+			continue
+		}
+		w := orStr(se.Provider, "a coding agent")
+		if se.Model != "" {
+			w += ", model " + se.Model
+		}
+		if se.Mode != "" {
+			w += ", " + map[bool]string{true: "asks before acting", false: "acts without asking"}[se.Asks]
+		}
+		w += ", " + orStr(se.Status, "open")
+		switch se.By {
+		case "this agent":
+			rows := ag.db.wsAgents(`WHERE session=?`, se.ID)
+			if len(rows) > 0 && rows[0].Run == s.Run {
+				if except == nil || rows[0].ID != except.ID {
+					mine = append(mine, fmt.Sprintf("tile agent #%d (%s)", rows[0].ID, wsAgentWords(rows[0])))
+				}
+				continue
+			}
+			theirs = append(theirs, "one another conversation of yours started ("+w+")")
+		case "another agent":
+			theirs = append(theirs, "one another agent started ("+w+")")
+		default:
+			theirs = append(theirs, "your person's own session ("+w+") — not yours to drive")
+		}
+	}
+	var out []string
+	if len(mine) > 0 {
+		out = append(out, "Also yours on "+tile+": "+strings.Join(mine, "; ")+" — follow up there with tile_agent_message.")
+	}
+	if len(theirs) > 0 {
+		out = append(out, "Open on "+tile+" and not yours: "+strings.Join(theirs, "; ")+".")
+	}
+	return strings.Join(out, " ")
 }
 
 func orAny(v, def any) any {
@@ -417,7 +549,12 @@ func wsMessageTool(ctx context.Context, ag *Agent, s *wsSession, c coordCall) (s
 		return fmt.Sprintf("Held, not delivered: tile agent #%d %s Your message goes in after they answered — it is not their answer, and you can't give one. Tell your person it waits for them.", row.ID, wsWaitsWords(row)), nil
 	}
 	var outcome string
-	if err := ag.wsWith(ctx, s, func(sid string) (err error) { outcome, err = wsX.AgentSay(ctx, sid, row.Session, text); return }); err != nil {
+	err = ag.wsWith(ctx, s, func(sid string) (err error) { outcome, err = wsX.AgentSay(ctx, sid, row.Session, text); return })
+	if errors.Is(err, xbin.ErrSessionMode) {
+		// it acts without asking, in a mode its person didn't approve it in: the message is theirs to approve (D250)
+		return ag.wsAskMessage(ctx, s, row, text)
+	}
+	if err != nil {
 		return "", err
 	}
 	switch outcome {
@@ -427,6 +564,22 @@ func wsMessageTool(ctx context.Context, ag *Agent, s *wsSession, c coordCall) (s
 		return fmt.Sprintf("Tile agent #%d is in the middle of a turn: your message goes in when that turn ends.", row.ID), nil
 	}
 	return fmt.Sprintf("Delivered to tile agent #%d: it starts a turn on it. You are told when it ends.", row.ID), nil
+}
+
+// wsAskMessage files a message to row's session for its person's approval:
+// the session acts without asking, so what it is told is an act of theirs
+// to approve — the whole text, once (D250).
+func (ag *Agent) wsAskMessage(ctx context.Context, s *wsSession, row *wsAgentRow, text string) (string, error) {
+	c := messageCall(row.Session, text)
+	req := &wsReq{Kind: wsReqMessage, Tile: row.Tile, Title: fmt.Sprintf("send a message to tile agent #%d in %s (it acts without asking)", row.ID, row.Tile),
+		Method: c.Method, Path: c.Path, Body: []byte(text)}
+	out, err := wsFile(ctx, ag, s, req, func(sid string) (wsRequest, error) {
+		return wsX.AskMessage(ctx, sid, row.Session, text, clip(text, 500))
+	})
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("Tile agent #%d is in a mode that acts without asking now, so your person approves this message first: xbin shows them the whole text, and their approval sends exactly it, once. ", row.ID) + out, nil
 }
 
 // wsAgentNow is where a tile agent stands now, with the messages of this
@@ -521,13 +674,45 @@ func wsAgentCancelTool(ctx context.Context, ag *Agent, s *wsSession, c coordCall
 
 func wsAgentsTool(ctx context.Context, ag *Agent, s *wsSession, c coordCall) (string, error) {
 	ag.wsReconcileSession(ctx, s, false)
+	only := ""
+	if t := strings.TrimSpace(str(c.Args["tile"])); t != "" {
+		tl, err := wsFindTile(ctx, ag, s, t)
+		if err != nil {
+			return "", err
+		}
+		only = tl.Path
+	}
 	rows := ag.db.wsAgents(`WHERE run_id=? ORDER BY id`, s.Run)
 	var b strings.Builder
-	if len(rows) == 0 {
-		b.WriteString("This session has started no tile agent.")
-	}
+	tiles := []string{}
+	n := 0
 	for _, a := range rows {
-		b.WriteString(wsStatusWords(a) + "\n")
+		if only != "" && a.Tile != only {
+			continue
+		}
+		n++
+		b.WriteString(wsStatusWords(a))
+		if a.live() {
+			b.WriteString(" Now: " + wsAgentWords(a) + ".")
+		}
+		b.WriteString("\n")
+		if a.live() && !slices.Contains(tiles, a.Tile) {
+			tiles = append(tiles, a.Tile)
+		}
+	}
+	if n == 0 {
+		b.WriteString("This session has started no tile agent" + map[bool]string{true: " on " + only, false: ""}[only != ""] + ".\n")
+	}
+	if only != "" && !slices.Contains(tiles, only) {
+		tiles = append(tiles, only)
+	}
+	for i, t := range tiles {
+		if i == 4 {
+			break
+		}
+		if there := ag.wsSessionsOn(ctx, s, t, nil); there != "" {
+			b.WriteString(there + "\n")
+		}
 	}
 	for _, br := range ag.db.wsBriefs(s.Run) {
 		if br.State == "draft" || br.State == "asked" {
@@ -535,7 +720,8 @@ func wsAgentsTool(ctx context.Context, ag *Agent, s *wsSession, c coordCall) (st
 			if br.State == "asked" {
 				note = "waits for your person's decision"
 			}
-			fmt.Fprintf(&b, "\n%s\n(%s%s)", wsBriefWords(br), note, map[bool]string{true: "; your person edited it", false: ""}[br.Edited])
+			// edited: its TEXT, by the person on the card — never a coding agent picked (D250)
+			fmt.Fprintf(&b, "\n%s\n(%s%s)", wsBriefWords(br), note, map[bool]string{true: "; your person edited its text", false: ""}[br.Edited])
 		}
 	}
 	return strings.TrimSpace(b.String()), nil

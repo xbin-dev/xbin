@@ -431,12 +431,14 @@ type wsRequestWire struct {
 	Preview map[string]any `json:"preview"`
 	Expires json.RawMessage
 	Decided json.RawMessage
-	Via     string `json:"decidedVia"`
+	Via     string     `json:"decidedVia"`
+	Chosen  *wsChosen  `json:"chosen"`
+	Failure *wsFailure `json:"failure"`
 }
 
 func (w wsRequestWire) request() wsRequest {
 	return wsRequest{ID: w.ID, Kind: w.Kind, State: w.State, Grant: w.Grant, Tile: w.Tile, Preview: w.Preview, Expires: wireUnix(w.Expires),
-		Decided: wireUnix(w.Decided), Via: w.Via}
+		Decided: wireUnix(w.Decided), Via: w.Via, Chosen: w.Chosen, Failure: w.Failure}
 }
 
 // Standing lists the person's standing approvals.
@@ -489,8 +491,17 @@ func (wsHTTP) startCall(a wsAgentStart) wsCall {
 		if a.Name != "" {
 			in["name"] = a.Name
 		}
-		if a.Harness != "" {
+		if a.Harness != "" { // the agent's suggestion (D250): the person picks on the approval
 			in["provider"] = a.Harness
+		}
+		if a.Model != "" {
+			in["model"] = a.Model
+		}
+		if a.Mode != "" {
+			in["mode"] = a.Mode
+		}
+		if a.Continue != "" {
+			in["continue"] = a.Continue
 		}
 	}
 	body, _ := json.Marshal(in)
@@ -628,6 +639,8 @@ func (h wsHTTP) TileCreate(ctx context.Context, sid string, t wsTileCreate, tick
 // took so far and the last line it wrote since its last prompt.
 type wsSessionWire struct {
 	ID, Cwd, Kind, Provider, Mode, Status, Origin, Name string
+	Model                                               string
+	Continued                                           bool // a start its person chose to continue this session with (D250)
 	Pending, Questions, Turn                            int
 	Last                                                string
 	// for an id no longer live (the compact read with ids): status "ended",
@@ -648,7 +661,7 @@ func (w wsSessionWire) endedBy() string {
 // mode asks are not the row's to say: named reads them from xbind.
 func (w wsSessionWire) agent() wsAgent {
 	a := wsAgent{ID: w.ID, Tile: w.Cwd, Provider: w.Provider, Mode: w.Mode, Status: wsAgentStatus(w.Status), Pending: w.Pending, Questions: w.Questions,
-		Turn: w.Turn, Last: w.Last, Origin: w.Origin, Mine: w.Origin == "agent", EndedBy: w.endedBy()}
+		Turn: w.Turn, Last: w.Last, Origin: w.Origin, Mine: w.Origin == "agent", EndedBy: w.endedBy(), Model: w.Model, Continued: w.Continued}
 	if w.Status == "waiting_permission" && !a.waits() {
 		a.Pending = 1
 	}
@@ -733,6 +746,31 @@ func (h wsHTTP) Agent(ctx context.Context, sid, id string) (wsAgent, error) {
 		a.Waiting = "permission: " + out.Permissions[0].ToolCall.Title
 	}
 	return a, nil
+}
+
+// messageCall is a message to session id as a request binds it and its
+// ticket's call sends it: the same bytes (D250).
+func messageCall(id, text string) wsCall {
+	body, _ := json.Marshal(map[string]any{"text": text})
+	return wsCall{Method: http.MethodPost, Path: "/api/xbin/term/sessions/" + url.PathEscape(id) + "/queue", Body: body, ContentType: "application/json"}
+}
+
+func (h wsHTTP) AskMessage(ctx context.Context, sid, id, text, summary string) (wsRequest, error) {
+	return h.Ask(ctx, sid, messageCall(id, text), summary)
+}
+
+func (h wsHTTP) AgentSayTicket(ctx context.Context, sid, id, text, ticket string) (string, error) {
+	c := messageCall(id, text)
+	c.Ticket = ticket
+	ans, err := h.Call(ctx, sid, c)
+	if err != nil {
+		return "", err
+	}
+	var out struct {
+		Outcome string `json:"outcome"`
+	}
+	_ = json.Unmarshal(ans.Body, &out)
+	return out.Outcome, nil
 }
 
 func (h wsHTTP) AgentSay(ctx context.Context, sid, id, text string) (string, error) {

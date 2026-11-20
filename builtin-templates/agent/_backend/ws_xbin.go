@@ -101,6 +101,12 @@ type wsXbin interface {
 	Agents(ctx context.Context, sid string) ([]wsAgent, error)
 	Agent(ctx context.Context, sid, id string) (wsAgent, error)
 	AgentSay(ctx context.Context, sid, id, text string) (outcome string, err error)
+	// AskMessage files a message to session id for the person's approval
+	// (D250: a session whose mode doesn't ask takes the agent's messages
+	// only so); AgentSayTicket sends it under the approved request — the
+	// same bytes. errWsUnavailable from an xbind before it.
+	AskMessage(ctx context.Context, sid, id, text, summary string) (wsRequest, error)
+	AgentSayTicket(ctx context.Context, sid, id, text, ticket string) (outcome string, err error)
 	AgentCancel(ctx context.Context, sid, id string) error
 	AgentReport(ctx context.Context, sid, id string) (wsAgentReport, error)
 	Templates(ctx context.Context, sid string) ([]wsTemplate, error)
@@ -487,6 +493,27 @@ type wsRequest struct {
 	Expires int64          `json:"expires,omitempty"` // unix seconds
 	Decided int64          `json:"decided,omitempty"` // unix seconds
 	Via     string         `json:"via,omitempty"`     // what decided it: session | app | device
+	// Chosen is what the person picked on a start's approval (D250): the
+	// coding agent, model and mode it opens with, and the session it
+	// continues ("" a new one). nil: what the preview showed.
+	Chosen *wsChosen `json:"chosen,omitempty"`
+	// Failure: an approved start that didn't open (state "failed"): xbind's
+	// words, and whether the person may try it again from the card.
+	Failure *wsFailure `json:"failure,omitempty"`
+}
+
+// wsChosen is a start's approval as the person picked it.
+type wsChosen struct {
+	Provider string `json:"provider"`
+	Model    string `json:"model,omitempty"`
+	Mode     string `json:"mode,omitempty"`
+	Continue string `json:"continue,omitempty"`
+}
+
+// wsFailure is why an approved start didn't open.
+type wsFailure struct {
+	Why   string `json:"why"`
+	Retry bool   `json:"retry,omitempty"`
 }
 
 func (r wsRequest) decided() bool { return r.State != "pending" && r.State != "approved" }
@@ -525,6 +552,11 @@ type wsAgent struct {
 	// EndedBy is "restart" for a session an xbind restart ended (it did not
 	// finish: its history can be resumed); "" otherwise.
 	EndedBy string `json:"endedBy,omitempty"`
+	// Model is the model it runs on, as xbind last read it ("" its default).
+	Model string `json:"model,omitempty"`
+	// Continued: a start its person chose to continue this session with
+	// (D250): the brief went to it as a follow-up, nothing new opened.
+	Continued bool `json:"continued,omitempty"`
 }
 
 // waits: the session waits for its person (a permission, a question).
@@ -541,9 +573,18 @@ func (a wsAgent) live() bool { return a.Status != "ended" && a.Status != "failed
 // it, as it always resolves the mode and the network, from the person's
 // preferences and the tile's org's rules. Nothing here is the model's.
 type wsAgentStart struct {
-	Tile    string `json:"tile"`
+	Tile string `json:"tile"`
+	// Harness, Model and Mode are the agent's suggestion (D250): xbin's
+	// approval preselects them below the person's own choices for the tile
+	// and their preferences — never a mode that doesn't ask — and the person
+	// picks what runs. Set only where the person named one.
 	Harness string `json:"harness,omitempty"`
-	Prompt  string `json:"prompt,omitempty"`
+	Model   string `json:"model,omitempty"`
+	Mode    string `json:"mode,omitempty"`
+	// Continue: this conversation's own idle session on the tile, which the
+	// start continues with its brief unless the person starts a new one.
+	Continue string `json:"continue,omitempty"`
+	Prompt   string `json:"prompt,omitempty"`
 	// Brief names a brief xbind writes ("update": its update brief for the
 	// tile), in Prompt's place: sent as {"brief": {"template": …}}
 	Brief  string `json:"brief,omitempty"`
@@ -583,10 +624,23 @@ type wsStartDefaults struct {
 	Harness   string      `json:"harness"`
 	Harnesses []wsHarness `json:"harnesses"`
 	Why       string      `json:"why,omitempty"`
-	Mode      string      `json:"mode,omitempty"`
-	Asks      bool        `json:"asks"`
-	Net       string      `json:"net,omitempty"`
-	Ticket    bool        `json:"ticket"`
+	// Chosen is what xbin's approval would preselect now, and where each
+	// part came from (D250: tile | preference | agent | default): the
+	// person's own choice the agent reads, so it stops asking.
+	Chosen *wsChosenNow `json:"chosen,omitempty"`
+	Mode   string       `json:"mode,omitempty"`
+	Asks   bool         `json:"asks"`
+	Net    string       `json:"net,omitempty"`
+	Ticket bool         `json:"ticket"`
+}
+
+// wsChosenNow is start-defaults' chosen.
+type wsChosenNow struct {
+	Harness string            `json:"harness"`
+	Model   string            `json:"model"`
+	Mode    string            `json:"mode"`
+	Asks    bool              `json:"asks"`
+	From    map[string]string `json:"from"`
 }
 
 // of is the harness id among the allowed ones (ok false: it isn't one).

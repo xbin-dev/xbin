@@ -81,6 +81,11 @@ type wsTileView struct {
 		Waits    int    `json:"waits"`
 		Turn     int    `json:"turn"`
 		Last     string `json:"last"`
+		// D250: its model, whether its mode asks, when it started and last did something
+		Model   string `json:"model"`
+		Asks    bool   `json:"asks"`
+		Started string `json:"started"`
+		Since   string `json:"since"`
 	} `json:"sessions"`
 }
 
