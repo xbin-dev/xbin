@@ -9,9 +9,33 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/xbin-dev/xbin/internal/agent"
 	"github.com/xbin-dev/xbin/internal/delegation"
 )
+
+// briefTurnOver waits until the brief's own turn has ended and the session
+// is idle: xbind hands it the brief once the session is up, so an idle
+// read can come before that turn began (a text sent then meets "a turn is
+// running").
+func briefTurnOver(t *testing.T, w *dWorld, id string) {
+	t.Helper()
+	for deadline := time.Now().Add(20 * time.Second); ; time.Sleep(50 * time.Millisecond) {
+		page, _ := w.s.Term.AgentPage(id, 0, 200)
+		ended := false
+		for _, e := range page.Events {
+			ended = ended || e.Type == agent.EvTurnEnd
+		}
+		if info, ok := w.s.Term.Info(id); ended && ok && info.Status == "idle" {
+			return
+		}
+		if time.Now().After(deadline) {
+			info, _ := w.s.Term.Info(id)
+			t.Fatalf("the brief's turn never ended: %+v", info)
+		}
+	}
+}
 
 // The default is the coding agent's work mode, and the start one plain
 // approval; the session then takes none of the agent's texts unapproved:
@@ -29,7 +53,7 @@ func TestAStartActsWithoutAskingAndEveryTextToItIsApproved(t *testing.T) {
 	if rec := w.do(w.full, "POST", "/api/xbin/term/sessions", body, alice, header(HeaderTicket, req.ID)); rec.Code != 200 || json.Unmarshal(rec.Body.Bytes(), &a) != nil {
 		t.Fatalf("the start: %d %s", rec.Code, rec.Body.String())
 	}
-	waitIdle(t, w, a.ID)
+	briefTurnOver(t, w, a.ID)
 	if info, _ := w.s.Term.Info(a.ID); info.Mode != "auto" {
 		t.Fatalf("it opened in %q, not its work mode", info.Mode)
 	}
@@ -103,7 +127,7 @@ func TestAContinueIsHeldToTheSessionShown(t *testing.T) {
 	next := startBody("apps/x", "Goal: add a computer player.", "continue", a.ID)
 	var r2 delegation.Request
 	for i := 0; ; i++ {
-		waitIdle(t, w, a.ID)
+		briefTurnOver(t, w, a.ID)
 		if r2 = w.ask(alice, "POST", "/api/xbin/term/sessions", next); sessOf(r2)["continue"] != nil {
 			break
 		}
