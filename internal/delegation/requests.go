@@ -181,6 +181,11 @@ type Request struct {
 	Failure *Failure `json:"failure,omitempty"`
 	// Retries counts the person's Try again on a failed start.
 	Retries int `json:"retries,omitempty"`
+	// Knows is what the agent's backend that filed it said it understands
+	// of D250's answers: "retry" — a start that fails for a reason not the
+	// agent's is Failed, and its person may try it again (an older backend
+	// gets the open's answer, as before).
+	Knows []string `json:"knows,omitempty"`
 }
 
 // StartChoice is a person's pick on a tile agent start's approval (D250):

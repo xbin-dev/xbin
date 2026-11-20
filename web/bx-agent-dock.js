@@ -57,7 +57,7 @@ const PREF = '/prefs/agent-dock'; // {w}: the person's width for the dock
 export class BxAgentDock extends LitElement {
   static properties = {
     open: { type: Boolean, reflect: true }, full: { type: Boolean, reflect: true }, context: { attribute: false }, page: { attribute: false },
-    _w: { state: true }, _view: { state: true }, _tray: { state: true }, _menu: { state: true }, _sheet: { state: true }, _frame: { state: true }, _narrow: { state: true }, _err: { state: true },
+    _note: { state: true }, _w: { state: true }, _view: { state: true }, _tray: { state: true }, _menu: { state: true }, _sheet: { state: true }, _frame: { state: true }, _narrow: { state: true }, _err: { state: true },
     _handoff: { state: true }, // {tile, draft}: a new session the shell couldn't open — the plain link instead
     _signinFor: { state: true }, // a coding agent's id: the sign-in card the page asked for (D230)
   };
@@ -172,7 +172,15 @@ export class BxAgentDock extends LitElement {
       return;
     }
     const req = await this.store.request(id);
-    if (!req) return;
+    if (!req || (req.state !== 'pending' && !(req.state === 'failed' && position))) {
+      // in a Review all: one that went meanwhile (withdrawn, decided elsewhere) is said, and the walk goes on (D250 review L3)
+      if (position && this._queue) {
+        this._gone = (this._gone || 0) + 1;
+        this._note = `${this._gone} request${this._gone === 1 ? ' was' : 's were'} withdrawn or decided meanwhile`;
+        if (this._nextQueued()) return;
+      }
+      if (!req) return;
+    }
     const pending = this.store.requests.filter((r) => r.state === 'pending');
     const i = pending.findIndex((r) => r.id === req.id);
     this._sheet = { req, position: position || (pending.length > 1 && i >= 0 ? `${i + 1} of ${pending.length}` : '') };
@@ -182,6 +190,7 @@ export class BxAgentDock extends LitElement {
   reviewAll(items) {
     const list = (items || []).filter((x) => x && (x.kind === 'request' || x.kind === 'changeset') && x.id);
     if (!list.length) return;
+    this._gone = 0; this._note = '';
     this._queue = { items: list.slice(1), total: list.length };
     this.review(list[0].kind, list[0].id, `1 of ${list.length}`);
   }
@@ -353,6 +362,7 @@ export class BxAgentDock extends LitElement {
         @bx-agent-back=${() => { this._view = 'chat'; }}>
         ${this._tray ? html`<div class="tray" @keydown=${this._key}><bx-agent-needs></bx-agent-needs></div>` : nothing}
         ${this._err ? html`<div class="banner bad" role="alert"><bx-icon name="error"></bx-icon><span>${this._err}</span></div>` : nothing}
+        ${this._note ? html`<div class="banner" role="status" data-walk-note><bx-icon name="info"></bx-icon><span>${this._note}</span></div>` : nothing}
         ${this._handoffView()}
         ${this._signinFor ? html`<div class="banner" data-signin role="group" aria-label="Sign in to a coding agent"><span>
           <bx-agent-signin harness=${this._signinFor} @bx-signins-changed=${() => this._signinsChanged()}></bx-agent-signin>

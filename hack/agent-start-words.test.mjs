@@ -158,3 +158,9 @@ test('the sheet\'s basis: the sign-in offered and the network of the coding agen
   pick = S.choose(pick, req, 'harness', 'gemini');
   assert.deepEqual(S.pickBody(req, pick).seen, { signInId: 'si_1', net: 'internet' }, 'the picked coding agent\'s own');
 });
+
+test('Try again: the earlier picks preselected — never the sign-in tick (D250 review L3)', () => {
+  const req = { ...start(), state: 'failed', failure: { why: 'the sandbox didn\'t start', retry: true }, chosen: { provider: 'gemini', model: 'm-agent', mode: 'default' } };
+  const pick = S.pickOf(req);
+  assert.deepEqual([pick.harness, pick.model, pick.mode, pick.remember, pick.cont], ['gemini', 'm-agent', 'default', false, false]);
+});

@@ -62,15 +62,6 @@ export class BxAgentNeeds extends StoreView {
   /** rearm(): every permission card waits again (something brought the tray into view — a page's message may). */
   rearm() { for (const p of this.renderRoot.querySelectorAll('bx-agent-permits')) p.rearm(); }
 
-  // Try again on a start that failed to open: the person's own click
-  async _retry(e, id) {
-    if (!e.isTrusted || this._busy) return;
-    this._busy = id; this._err = '';
-    const r = await this.store.retry(id);
-    this._busy = '';
-    if (!r.ok) this._err = r.error;
-  }
-
   _act(r) {
     if (r.kind === 'session') return this.fire('bx-agent-open-session', { tile: r.tile, session: r.id });
     return this.fire('bx-agent-review', { kind: r.kind === 'retry' ? 'request' : r.kind, id: r.id });
@@ -87,7 +78,7 @@ export class BxAgentNeeds extends StoreView {
           ${r.chips.length ? html`<span class="chips" data-chips>${r.chips.map((c) => html`<span class="chip">${c}</span>`)}</span>` : nothing}
           ${r.parts.length ? html`<span class="parts small muted" data-parts>${r.parts.map((p) => html`<span>${p}</span>`)}</span>` : nothing}
           ${r.permits ? html`<bx-agent-permits data-permits .session=${r.id} .agentName=${r.agentName} @bx-agent-permitted=${() => this.store.readSessions()}></bx-agent-permits>` : nothing}</span>
-        ${r.kind === 'retry' ? html`<button data-retry ?disabled=${this._busy === r.id} @click=${(e) => this._retry(e, r.id)}>${r.action}</button>`
+        ${r.kind === 'retry' ? html`<button data-retry @click=${() => this.fire('bx-agent-review', { kind: 'request', id: r.id })}>${r.action}</button>`
           : html`<button data-act @click=${() => this._act(r)}>${r.action}</button>`}</li>`)}</ul>`
         : html`<div class="empty" data-empty>Nothing waits for you</div>`}
       ${this._err ? html`<div class="banner bad" role="alert"><bx-icon name="error"></bx-icon><span>${this._err}</span></div>` : nothing}`;

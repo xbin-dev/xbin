@@ -119,10 +119,10 @@ func TestFailedStartRetry(t *testing.T) {
 	s.now = func() time.Time { return clock }
 	body := []byte(`{"cwd":"apps/eui","kind":"agent","prompt":"go"}`)
 	r, _ := s.NewRequest(Request{User: "ada", Agent: "xbin/wsagent", Kind: KindSession, Method: "POST", Target: "/api/xbin/term/sessions", Tile: "apps/eui", ContentType: "application/json"}, body)
-	if _, err := s.Retry("ada", r.ID); !errors.Is(err, ErrNotRetryable) {
+	if _, err := s.Retry("ada", r.ID, RetryDecision{}); !errors.Is(err, ErrNotRetryable) {
 		t.Fatalf("a pending request tried again: %v", err)
 	}
-	if _, _, err := s.Decide("ada", r.ID, GrantOnce, "", "session"); err != nil {
+	if _, _, err := s.DecideAs("ada", r.ID, Decision{Grant: GrantOnce, Via: "session", UseSignin: true}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.MarkFailed("ada", r.ID, "x", true); err == nil {
@@ -140,9 +140,12 @@ func TestFailedStartRetry(t *testing.T) {
 	if !errors.As(err, &re) || re.Reason != ReasonFailed || !strings.Contains(re.Msg, "the person can try it again") || !strings.Contains(re.Msg, "exit status 1") {
 		t.Fatalf("a failed start used again by the agent: %v", err)
 	}
-	again, err := s.Retry("ada", r.ID)
+	again, err := s.Retry("ada", r.ID, RetryDecision{})
 	if err != nil || again.State != Approved || again.Retries != 1 || !again.Expires.Equal(clock.Add(TicketTTL)) {
 		t.Fatalf("Try again: %+v %v", again, err)
+	}
+	if again.UseSignin { // (D250 review L3: the sign-in tick is the Try again's own, never the earlier one carried over)
+		t.Fatal("the earlier approval's sign-in tick carried over to Try again")
 	}
 	if _, err := s.Redeem("ada", r.ID, "POST", "/api/xbin/term/sessions", "", "application/json", body); err != nil {
 		t.Fatalf("the ticket again: %v", err)
@@ -151,7 +154,7 @@ func TestFailedStartRetry(t *testing.T) {
 	if _, err := s.MarkFailed("ada", r.ID, "refused", false); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.Retry("ada", r.ID); !errors.Is(err, ErrNotRetryable) {
+	if _, err := s.Retry("ada", r.ID, RetryDecision{}); !errors.Is(err, ErrNotRetryable) {
 		t.Fatalf("a refusal tried again: %v", err)
 	}
 	r2, _ := s.NewRequest(Request{User: "ada", Agent: "xbin/wsagent", Kind: KindSession, Method: "POST", Target: "/api/xbin/term/sessions", Tile: "apps/eui", ContentType: "application/json"}, body)
@@ -160,7 +163,7 @@ func TestFailedStartRetry(t *testing.T) {
 	_, _ = s.Redeem("ada", r2.ID, "POST", "/api/xbin/term/sessions", "", "application/json", body)
 	_, _ = s.MarkFailed("ada", r2.ID, "the sandbox didn't start", true)
 	clock = clock.Add(2 * time.Hour)
-	if _, err := s.Retry("ada", r2.ID); !errors.Is(err, ErrNotRetryable) {
+	if _, err := s.Retry("ada", r2.ID, RetryDecision{}); !errors.Is(err, ErrNotRetryable) {
 		t.Fatalf("tried again 25 h after it was asked: %v", err)
 	}
 }

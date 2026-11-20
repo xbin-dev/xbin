@@ -414,6 +414,11 @@ func (h wsHTTP) Ask(ctx context.Context, sid string, c wsCall, summary string) (
 	if c.ContentType != "" {
 		in["contentType"] = c.ContentType
 	}
+	if c.Path == "/api/xbin/term/sessions" {
+		// this backend knows a start that failed for a reason not the agent's: it waits for its person's Try
+		// again, and makes the same start when told (D250 review L3) — an older one gets the open's answer
+		in["knows"] = []string{"retry"}
+	}
 	var raw wsRequestWire
 	if err := h.json(ctx, sid, http.MethodPost, "/api/xbin/delegate/requests", in, &raw); err != nil {
 		return wsRequest{}, err

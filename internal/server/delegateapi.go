@@ -487,9 +487,11 @@ func (s *Server) apiDelegateRequestNew(w http.ResponseWriter, r *http.Request) {
 		// bound like the body. Absent with a body: application/json.
 		ContentType *string `json:"contentType"`
 		Summary     string  `json:"summary"`
+		// Knows: what the backend understands of D250's answers ("retry": a failed start, tried again by its person)
+		Knows []string `json:"knows"`
 	}
 	if err := DecodeJSON(r, &in); err != nil || in.Method == "" || in.Path == "" {
-		WriteError(w, http.StatusBadRequest, "need {method, path, body? | bodyBase64?, contentType?, summary?}", delegationDocs)
+		WriteError(w, http.StatusBadRequest, "need {method, path, body? | bodyBase64?, contentType?, summary?, knows?}", delegationDocs)
 		return
 	}
 	body := []byte(in.Body)
@@ -632,6 +634,9 @@ func (s *Server) apiDelegateRequestNew(w http.ResponseWriter, r *http.Request) {
 		preview["body"] = map[string]any{"binary": true, "size": len(body), "sha256": delegation.BodyHash(body)}
 	}
 	req.Preview = preview
+	if slices.Contains(in.Knows, "retry") {
+		req.Knows = []string{"retry"}
+	}
 	out, err := s.Delegation.NewRequest(req, body)
 	switch {
 	case errors.Is(err, delegation.ErrTooMany):

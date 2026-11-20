@@ -12,7 +12,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/xbin-dev/xbin/internal/agent"
 	"github.com/xbin-dev/xbin/internal/agentpolicy"
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/term"
@@ -138,8 +137,7 @@ func harnessCommand(text string) string {
 // does), so what the person approved names no behaviour: each message is
 // theirs to approve.
 func modeRefusal(info term.SessionInfo, started, user string) string {
-	prov, ok := agent.Lookup(info.Provider)
-	if ok && prov.Asks(info.Mode) || started != "" && info.Mode == started && ok && prov.AskingMode() != "" {
+	if term.MessageModeOK(info.Provider, info.Mode, started) { // (the one predicate: the held queue's delivery uses it too)
 		return ""
 	}
 	return "this session is now in the mode " + strconv.Quote(info.Mode) + ", which doesn't ask before it acts, and " + user + " didn't approve it in that mode: it takes no messages from their agent until they switch it back (or they send them)"
@@ -270,6 +268,9 @@ type sessionAsk struct {
 	// Continue: the agent's own idle session on the tile, which the start
 	// continues unless its person starts a new one (D250) — always asked
 	Continue string
+	// Kind and Signin: what the body says it is, and a saved sign-in it
+	// names — neither is a workspace agent's to get wrong or to pick
+	Kind, Signin string
 	// planned: the tile is one an earlier line of the same plan makes
 	// (previewStart): it isn't there yet, by design. Never read from a body.
 	planned bool

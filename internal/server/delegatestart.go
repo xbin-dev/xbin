@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/xbin-dev/xbin/internal/auth"
@@ -62,6 +63,13 @@ func ticketStart(r delegation.Request) (*term.DelegateStart, string) {
 // continue ended, moved, or is no longer as they saw it. code is the
 // refusal; reason the ticket's.
 func (s *Server) startStill(p auth.Principal, r delegation.Request, st *term.DelegateStart, asked sessionAsk) (code, reason, why string) {
+	// the agent's own call, wrong whatever its person approved: refused before the ticket is spent (D250 review L3)
+	switch {
+	case asked.Kind != term.KindAgent:
+		return "ticket", delegation.ReasonBound, "a tile agent's start is {cwd, kind: \"agent\", …}: this one isn't — file it again as one"
+	case asked.Signin != "":
+		return "ticket", delegation.ReasonBound, "a workspace agent doesn't pick a saved sign-in: its person ticks one on the approval — file the start again without it"
+	}
 	tile := asked.Cwd
 	if shown, _ := r.Preview["session"].(map[string]any); shown != nil {
 		if t, _ := shown["tile"].(string); t != "" {
@@ -131,7 +139,11 @@ func (s *Server) unaskedStart(p auth.Principal, asked sessionAsk) (provider, mod
 // 409) without a new request from the agent — and the agent is told it
 // was that, never a lapse or a refusal of its own.
 func (s *Server) startOutcome(w http.ResponseWriter, user, ticket string, dw *delegateWriter) {
-	if dw.status < 400 {
+	req, _ := s.Delegation.Request(user, ticket)
+	notAgents := dw.status >= 500 || dw.status == http.StatusConflict || dw.status == http.StatusTooManyRequests
+	if dw.status < 400 || !notAgents || !slices.Contains(req.Knows, "retry") {
+		// it opened; or the open refused the call for a reason in it (the agent's: its answer says which); or a
+		// backend that doesn't know Failed — the open's own answer, the request used, as before D250 (review L3)
 		w.WriteHeader(dw.status)
 		_, _ = w.Write(dw.hold.Bytes())
 		return
@@ -141,7 +153,7 @@ func (s *Server) startOutcome(w http.ResponseWriter, user, ticket string, dw *de
 	}
 	_ = json.Unmarshal(dw.hold.Bytes(), &e)
 	why := cmp.Or(strings.TrimSpace(e.Error), strings.TrimSpace(dw.hold.String()), http.StatusText(dw.status))
-	retry := dw.status >= 500 || dw.status == http.StatusConflict
+	retry := true // (not the agent's doing: the sandbox or the coding agent didn't start, or a limit that may clear)
 	if _, err := s.Delegation.MarkFailed(user, ticket, why, retry); err == nil {
 		s.delegateEvent(user, "request", ticket)
 	}
@@ -281,6 +293,18 @@ func (s *Server) apiDelegateRequestRetry(w http.ResponseWriter, r *http.Request)
 	if !ok {
 		return
 	}
+	// the person's Try again is a decision like an approval (D250 review L3): the picks they made on the sheet
+	// that reopened it, validated as theirs by hand; their own sign-in tick, never the earlier one carried over
+	var body struct {
+		signinTickBody
+		Harness, Model, Mode *string
+		Knows                []string
+		Seen                 *seenBasis
+	}
+	if r.ContentLength != 0 && DecodeJSON(r, &body) != nil {
+		WriteError(w, http.StatusBadRequest, `need {harness?, model?, mode?, signin?: true, trust?: true, shown?, knows?, seen?}`, delegationDocs)
+		return
+	}
 	cur, found := s.Delegation.Request(a.user, r.PathValue("id"))
 	if !found {
 		WriteError(w, http.StatusNotFound, delegation.ErrNoRequest.Error(), delegationDocs)
@@ -290,14 +314,36 @@ func (s *Server) apiDelegateRequestRetry(w http.ResponseWriter, r *http.Request)
 		refuseDecision(w, refusal, msg)
 		return
 	}
-	req, err := s.Delegation.Retry(a.user, cur.ID)
+	if cur.State != delegation.Failed || cur.Failure == nil || !cur.Failure.Retry {
+		WriteError(w, http.StatusConflict, delegation.ErrNotRetryable.Error(), delegationDocs)
+		return
+	}
+	var chosen *delegation.StartChoice
+	var redrawn map[string]any
+	if pb := (pickBody{Harness: body.Harness, Model: body.Model, Mode: body.Mode, Knows: body.Knows, Seen: body.Seen, Signin: body.Signin}); pb.picks() {
+		var status int
+		var why string
+		if chosen, redrawn, status, why = s.startPickFor(a, cur, pb); why != "" {
+			WriteError(w, status, why, delegationDocs)
+			return
+		}
+	}
+	basis, ok := s.approveTicksOn(w, a.user, cur.ID, redrawn, body.Signin, body.Trust, body.Shown)
+	if !ok {
+		return
+	}
+	req, err := s.Delegation.Retry(a.user, cur.ID, delegation.RetryDecision{Chosen: chosen, Preview: redrawn, UseSignin: body.Signin})
 	if err != nil {
 		WriteError(w, http.StatusConflict, err.Error(), delegationDocs)
 		return
 	}
 	s.delegateAudit(delegation.Call{User: a.user, Agent: req.Agent, Method: req.Method, Path: req.Path(), Tile: req.Tile,
 		Class: "decision:retry", Effect: true, Status: http.StatusOK, Ticket: req.ID, Under: "once"})
+	out := map[string]any{"request": req}
+	if body.Trust {
+		s.approvalTrust(out, a.user, req, basis) // the trust line, ticked (signinstrust.go)
+	}
 	s.delegateEvent(a.user, "request", req.ID)
 	s.notifyAt(req.Expires, a.user, req.ID, req.Agent)
-	WriteJSON(w, http.StatusOK, map[string]any{"request": req})
+	WriteJSON(w, http.StatusOK, out)
 }

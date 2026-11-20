@@ -40,6 +40,10 @@ const sess = (req) => (req && req.preview && req.preview.session) || {};
  */
 export function pickOf(req) {
   const s = sess(req);
+  const ch = req && req.state === 'failed' && req.chosen;
+  if (ch) { // Try again (D250 review L3): the picks that were approved, preselected — never the sign-in tick
+    return { harness: String(ch.provider || s.provider || ''), model: String(ch.model || ''), mode: String(ch.mode ?? ''), remember: false, cont: !!ch.continue, changed: [] };
+  }
   const c = s.continue && s.continue.session ? s.continue : null;
   // a start that would continue the agent's own idle session there: continuing it is the first choice — that session's coding agent
   return { harness: String((c && c.provider) || s.provider || ''), model: String(s.model || ''), mode: String(s.mode ?? ''), remember: false, cont: !!c, changed: [] };

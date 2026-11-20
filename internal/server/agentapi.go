@@ -218,7 +218,8 @@ func (s *Server) continueSession(w http.ResponseWriter, r *http.Request, id, pro
 		apiErr(w, http.StatusConflict, "the session your person chose to continue ended before the follow-up reached it")
 		return
 	}
-	res, err := s.Term.AgentQueue(r.Context(), id, agent.Prompt{Text: prompt}, false)
+	// (a follow-up its person approved: held behind a turn that began meanwhile, it goes in as approved)
+	res, err := s.Term.AgentQueue(term.QueuedBy(r.Context(), auth.PrincipalOf(r).Agent, true), id, agent.Prompt{Text: prompt}, false)
 	if err != nil {
 		apiErr(w, agentStatus(err), "the follow-up couldn't be handed to the session: "+err.Error())
 		return
@@ -522,7 +523,13 @@ func (s *Server) apiAgentQueue(w http.ResponseWriter, r *http.Request) {
 	if !s.delegateSends(w, r, id, p.Text) {
 		return
 	}
-	res, err := s.Term.AgentQueue(r.Context(), id, p, interrupt)
+	ctx := r.Context()
+	if pr := auth.PrincipalOf(r); pr.Agent != "" {
+		// a person's workspace agent's message: one held behind a running turn is judged again when it goes in
+		// (D250 review L4) — unless its person approved it (a message ticket)
+		ctx = term.QueuedBy(ctx, pr.Agent, messageApproved(r, id))
+	}
+	res, err := s.Term.AgentQueue(ctx, id, p, interrupt)
 	if err != nil {
 		apiErr(w, agentStatus(err), err.Error())
 		return

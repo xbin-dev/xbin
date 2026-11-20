@@ -308,6 +308,23 @@ func pickRefusal(pick startPick, c delegation.StartChoice, tile string) string {
 	return ""
 }
 
+// bodyOfPreview is a start's body as its card shows it — for a request
+// whose body xbind no longer keeps (used: its hash is what the ticket binds)
+// — with the agent's suggestion where the card says what it was.
+func bodyOfPreview(shown map[string]any) []byte {
+	m := map[string]any{"cwd": shown["tile"], "kind": term.KindAgent, "prompt": shown["prompt"]}
+	for _, k := range []string{"net", "api", "vm", "gpu", "name"} {
+		if v, ok := shown[k]; ok && v != "" && v != nil {
+			m[k] = v
+		}
+	}
+	if sg, _ := shown["suggested"].(map[string]any); sg != nil {
+		m["provider"], m["model"], m["mode"] = sg["harness"], sg["model"], sg["mode"]
+	}
+	b, _ := json.Marshal(m)
+	return b
+}
+
 // ownFields is what of pick c the person changed on the sheet that showed
 // them shown: a coding agent other than the one shown, and a model or mode
 // other than what came with it — the one shown, or for a coding agent they
@@ -487,6 +504,15 @@ func (s *Server) startPickOf(a delegateActor, id string, b pickBody) (*delegatio
 		}
 		return nil, nil, 0, ""
 	}
+	return s.startPickFor(a, req, b)
+}
+
+// startPickFor is startPickOf for request req as it stands (a pending one;
+// a failed one its person tries again, D250 review L3).
+func (s *Server) startPickFor(a delegateActor, req delegation.Request, b pickBody) (*delegation.StartChoice, map[string]any, int, string) {
+	if req.Kind != delegation.KindSession {
+		return nil, nil, http.StatusBadRequest, "harness, model, mode and remember are a tile agent start's"
+	}
 	shown, _ := req.Preview["session"].(map[string]any)
 	offered, _ := shown["continue"].(map[string]any)
 	knows := slices.Contains(b.Knows, "continue")
@@ -508,7 +534,11 @@ func (s *Server) startPickOf(a delegateActor, id string, b pickBody) (*delegatio
 		Cwd, Provider, Mode, Model string
 		Options                    map[string]string
 	}
-	_ = json.Unmarshal([]byte(req.Body), &body)
+	raw := []byte(req.Body)
+	if len(raw) == 0 { // a used request keeps its body's hash only (a failed start its person tries again): from its card
+		raw = bodyOfPreview(shown)
+	}
+	_ = json.Unmarshal(raw, &body)
 	sug := startSuggestion{Harness: body.Provider, Model: cmp.Or(body.Model, body.Options["model"]), Mode: body.Mode}
 	tile := strings.Trim(body.Cwd, "/")
 	now, why := s.startPick(pp, tile, sug, nil) // what may be picked now, by the rules as they stand
@@ -562,7 +592,7 @@ func (s *Server) startPickOf(a delegateActor, id string, b pickBody) (*delegatio
 		return nil, nil, http.StatusBadRequest, why
 	}
 	c.Own = ownFields(shown, now.Harnesses, c)
-	redrawn, why := s.sessionPreviewFor(pp, []byte(req.Body), &c)
+	redrawn, why := s.sessionPreviewFor(pp, raw, &c)
 	if why != "" {
 		return nil, nil, http.StatusConflict, "this start can't open as you picked it: " + why
 	}

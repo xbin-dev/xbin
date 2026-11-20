@@ -163,10 +163,11 @@ class AgentStore {
   }
 
   /** retry(id): the person's Try again on a start that failed to open — a ticket again, the agent files nothing new (D250). */
-  async retry(id) {
-    const r = await call(`/delegate/requests/${encodeURIComponent(id)}/retry`, { method: 'POST', body: {} });
+  async retry(id, body = {}) {
+    const r = await call(`/delegate/requests/${encodeURIComponent(id)}/retry`, { method: 'POST', body });
     this.readState(); this.readRequests();
     if (r.ok) return { ok: true };
+    if (r.status === 409 && r.data && r.data.reload) return { ok: false, changed: r.data.changed || true, error: say(r, 'It changed since your sheet showed it') };
     return { ok: false, stopped: stopOf(r), error: say(r, "It couldn't be tried again") };
   }
 

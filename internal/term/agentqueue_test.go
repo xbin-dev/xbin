@@ -328,3 +328,38 @@ func TestAgentPermissionOptionExplicit(t *testing.T) {
 	}
 	r.until(t, agentSays("plan approved: exit-plan-clear-auto"))
 }
+
+// A message a person's workspace agent sent while a turn ran is judged
+// again when it is delivered, not only when it was held (D250 review L4):
+// the person switched the session to a mode that acts without asking
+// meanwhile, so it is not delivered — it goes back to the agent with the
+// reason (the queue event's returned and reason, and a notice); the
+// person's own held message goes in as ever.
+func TestAgentMessageHeldIsJudgedAtDelivery(t *testing.T) {
+	r := newAgentRig(t)
+	m := r.m
+	id := openFake(t, r, "--auto-mode")
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	if _, err := m.AgentPrompt(ctx, id, "slow"); err != nil {
+		t.Fatal(err)
+	}
+	r.until(t, isStatus(agent.StatusRunning))
+	byAgent, err := m.AgentQueue(QueuedBy(ctx, "xbin/wsagent", false), id, agent.Prompt{Text: "Fix the stray O."}, false)
+	if err != nil || byAgent.Outcome != QueueHeld {
+		t.Fatalf("the agent's message: %+v %v", byAgent, err)
+	}
+	mine, _ := m.AgentQueue(ctx, id, agent.Prompt{Text: "and mine"}, false)
+	if err := m.AgentSetOption(ctx, id, "mode", "auto"); err != nil {
+		t.Fatalf("the person's switch: %v", err)
+	}
+	back := queueOf(r.until(t, func(e SessionEvent) bool { return e.Type == EvQueue && len(queueOf(e).Returned) > 0 }))
+	if len(back.Returned) != 1 || back.Returned[0] != byAgent.ID || !strings.Contains(back.Reason, "acts without asking") {
+		t.Fatalf("the agent's held message after the switch: %+v", back)
+	}
+	sent := queueOf(r.until(t, func(e SessionEvent) bool { return e.Type == EvQueue && len(queueOf(e).Sent) > 0 }))
+	if len(sent.Sent) != 1 || sent.Sent[0] != mine.ID {
+		t.Fatalf("the person's own held message: %+v", sent)
+	}
+	r.until(t, agentSays("echo: and mine"))
+}

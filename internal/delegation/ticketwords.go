@@ -215,10 +215,19 @@ func (s *Store) MarkFailed(user, id, why string, retry bool) (Request, error) {
 	return out, s.saveRequests(p, user, doc)
 }
 
+// RetryDecision is the person's Try again: what they picked on it (nil:
+// as before) and the preview redrawn for it, and whether they ticked the
+// sign-in line on it.
+type RetryDecision struct {
+	Chosen    *StartChoice
+	Preview   map[string]any
+	UseSignin bool
+}
+
 // Retry makes user's failed start id a ticket again, for TicketTTL: the
 // person's own Try again. Only while its 24 hours from when it was asked
 // last; ErrNotRetryable otherwise.
-func (s *Store) Retry(user, id string) (Request, error) {
+func (s *Store) Retry(user, id string, d RetryDecision) (Request, error) {
 	if s == nil {
 		return Request{}, ErrNoStore
 	}
@@ -239,6 +248,15 @@ func (s *Store) Retry(user, id string) (Request, error) {
 	}
 	r.State, r.Expires, r.ApprovedAt, r.Decided = Approved, now.Add(TicketTTL), now, now
 	r.Retries++
+	// the person's Try again is a decision of its own (D250 review L3): their picks on it, and their own sign-in
+	// tick — never the earlier one's carried over
+	if d.Chosen != nil {
+		r.Chosen = d.Chosen
+	}
+	if d.Preview != nil {
+		r.Preview = d.Preview
+	}
+	r.UseSignin = d.UseSignin
 	out := *r
 	return out, s.saveRequests(p, user, doc)
 }

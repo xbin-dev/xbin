@@ -73,10 +73,41 @@ type QueueResult struct {
 	ID      string `json:"id,omitempty"`   // queued: the held message (DELETE …/queue/{id} takes it back)
 }
 
-// queueItem is a held message and its prompt.
+// queueItem is a held message and its prompt — and, for one a person's
+// workspace agent sent, whose it is (judged again when it is delivered).
 type queueItem struct {
-	q Queued
-	p agent.Prompt
+	q  Queued
+	p  agent.Prompt
+	by queuedBy
+}
+
+// queuedBy is who sent a held message: a person's workspace agent (holder
+// agent, "" the person), and whether the person approved that message (a
+// message ticket; a follow-up they approved).
+type queuedBy struct {
+	agent    string
+	approved bool
+}
+
+type queuedByKey struct{}
+
+// QueuedBy marks a message given to AgentQueue as a person's workspace
+// agent's (holder agent) — approved: its person approved this message.
+// One held behind a running turn is judged again when it is delivered
+// (MessageModeOK; D250 review L4).
+func QueuedBy(ctx context.Context, agent string, approved bool) context.Context {
+	return context.WithValue(ctx, queuedByKey{}, queuedBy{agent: agent, approved: approved})
+}
+
+// MessageModeOK reports whether a session of provider in mode takes a
+// message from its person's workspace agent unapproved: the mode asks
+// before every edit and command — or it is the mode the person approved
+// the session in (started), of a coding agent with a mode that asks at all
+// (D250; review M2: OpenCode has none). The one predicate: xbind's send
+// gate (delegatesend.go) and the held queue's delivery.
+func MessageModeOK(provider, mode, started string) bool {
+	prov, ok := agent.Lookup(provider)
+	return ok && prov.Asks(mode) || started != "" && mode == started && ok && prov.AskingMode() != ""
 }
 
 // queueData is EvQueue's payload.
@@ -84,7 +115,11 @@ type queueData struct {
 	Items   []Queued `json:"items"`
 	Sent    []string `json:"sent,omitempty"`    // ids that just went in as a prompt
 	Dropped int      `json:"dropped,omitempty"` // held messages the session's end dropped
-	Reason  string   `json:"reason,omitempty"`
+	// Returned: held messages of the person's workspace agent not delivered —
+	// the session no longer takes the agent's messages unapproved (Reason
+	// says why; D250 review L4)
+	Returned []string `json:"returned,omitempty"`
+	Reason   string   `json:"reason,omitempty"`
 }
 
 // busyLocked: a turn runs (or waits for an answer, or is being cancelled).
@@ -174,7 +209,8 @@ func (m *Manager) AgentQueue(ctx context.Context, id string, p agent.Prompt, int
 			return QueueResult{}, err // refused (its files, the session's end): not held either
 		}
 	}
-	item, err := s.hold(m, p)
+	by, _ := ctx.Value(queuedByKey{}).(queuedBy)
+	item, err := s.hold(m, p, by)
 	if err != nil {
 		return QueueResult{}, err
 	}
@@ -193,7 +229,7 @@ func (m *Manager) AgentQueue(ctx context.Context, id string, p agent.Prompt, int
 }
 
 // hold appends p to the session's queue and logs the queue.
-func (s *Session) hold(m *Manager, p agent.Prompt) (Queued, error) {
+func (s *Session) hold(m *Manager, p agent.Prompt, by queuedBy) (Queued, error) {
 	st := s.agent
 	q := Queued{ID: util.RandomToken(6), Text: p.Text, At: time.Now().UnixMilli()}
 	for _, a := range p.Attachments {
@@ -212,7 +248,7 @@ func (s *Session) hold(m *Manager, p agent.Prompt) (Queued, error) {
 		st.mu.Unlock()
 		return Queued{}, fmt.Errorf("%w: the waiting messages' files would come to more than %d MiB — take one back or wait", agent.ErrAttachmentTooLarge, maxQueuedBytes>>20)
 	}
-	st.queue = append(st.queue, queueItem{q: q, p: p})
+	st.queue = append(st.queue, queueItem{q: q, p: p, by: by})
 	items := st.queuedLocked()
 	st.mu.Unlock()
 	s.logEvent(m, agent.New(EvQueue, queueData{Items: items}))
@@ -331,6 +367,33 @@ func (m *Manager) flushQueue(s *Session) {
 	if st.killed.Load() || !st.queueStateLocked().Flush() { // sdk/acp: the turn is over, no turn of the agent's own runs, no prompt is on its way
 		st.mu.Unlock()
 		return
+	}
+	// a message of the person's workspace agent is judged again here, when it goes in (D250 review L4): the person
+	// may have switched the session to a mode that acts without asking while it waited — then it isn't delivered;
+	// it goes back to the agent with the reason (the queue event's returned), and the rest go on
+	var returned []string
+	if !MessageModeOK(st.provider.ID, st.mode, s.originMode) {
+		kept := st.queue[:0:0]
+		for _, it := range st.queue {
+			if it.by.agent != "" && !it.by.approved {
+				returned = append(returned, it.q.ID)
+				continue
+			}
+			kept = append(kept, it)
+		}
+		st.queue = kept
+	}
+	if len(returned) > 0 {
+		why := fmt.Sprintf("this session is now in the mode %q, which acts without asking, and its person didn't approve it in that mode: a message from their workspace agent goes in only with their approval of that message", st.mode)
+		items := st.queuedLocked()
+		st.mu.Unlock()
+		s.logEvent(m, agent.New(EvQueue, queueData{Items: items, Returned: returned, Reason: why}))
+		s.logEvent(m, agent.New(EvNotice, noticeData{Text: fmt.Sprintf("%d message%s from the workspace agent not sent: %s", len(returned), map[bool]string{true: "", false: "s"}[len(returned) == 1], why)}))
+		st.mu.Lock()
+		if st.killed.Load() || len(st.queue) == 0 || !st.queueStateLocked().Flush() {
+			st.mu.Unlock()
+			return
+		}
 	}
 	st.flushing = true
 	n := batchLen(st.queue)

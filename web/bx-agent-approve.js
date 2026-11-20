@@ -231,7 +231,8 @@ export class BxAgentApprove extends LitElement {
     if (this._pick && startView(req, this._pick).needsTick && !this._ticks.signin) return; // a follow-up with a sign-in: only once ticked
     this._busy = true; this._err = '';
     const body = { ...approveBody(picked(req, this._pick || {}), this._choice, this._duration || CHOICES.duration[this._choice], this._ticks), ...(this._pick ? pickBody(req, this._pick) : {}) };
-    const r = await this.store.approve(req.id, body);
+    if (req.state === 'failed') { delete body.grant; delete body.scope; delete body.unseen; delete body.continue; delete body.remember; }
+    const r = req.state === 'failed' ? await this.store.retry(req.id, body) : await this.store.approve(req.id, body);
     this._busy = false;
     // stopped meanwhile: say why where Allow was — never send it again
     if (r.ok) this._done('allow'); else if (r.stopped) this._stopAt(r.stopped); else if (r.changed) this._reload(r.error); else if (r.gone) this._done('gone'); else { this._err = r.error; this._arm(); }
@@ -269,9 +270,13 @@ export class BxAgentApprove extends LitElement {
   render() {
     const req = this.request;
     if (!req) return nothing;
-    const pending = req.state === 'pending';
+    // a start that failed for a reason not the agent's: its person's Try again is decided here, like an approval —
+    // its earlier picks preselected, the sign-in unticked, Allow armed late (D250 review L3)
+    const retrying = req.state === 'failed' && !!(req.failure && req.failure.retry);
+    const pending = req.state === 'pending' || retrying;
     const v = req.kind === 'session' && this._pick ? startView(req, this._pick) : null;
-    const h = req.kind === 'message' ? messageView(req).heading : v && v.continuing ? { before: 'Continue the session in ', strong: heading(req).strong, after: '?' } : heading(req);
+    const h = req.kind === 'message' ? messageView(req).heading : v && v.continuing ? { before: 'Continue the session in ', strong: heading(req).strong, after: '?' }
+      : retrying ? { before: 'Try again to start a tile agent in ', strong: heading(req).strong, after: '?' } : heading(req);
     return html`<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="h" aria-roledescription="xbin approval" data-kind=${req.kind} data-step=${this._step} @keydown=${this._key}>
       <div class="xbar"><bx-icon name="shield"></bx-icon><span>xbin</span><span>approval</span>${this.position ? html`<span data-position>${this.position}</span>` : nothing}
         ${this.person ? html`<span class="who">asking ${this.person}</span>` : nothing}</div>
@@ -464,7 +469,7 @@ export class BxAgentApprove extends LitElement {
     const danger = req.kind === 'session' && !(v ? v.asks : req.preview && req.preview.session && req.preview.session.asks === true);
     const on = this._armed && !this._busy && !(v && v.needsTick && !this._ticks.signin); // (a follow-up with a sign-in: only once ticked)
     const when = req.kind === 'call' || req.kind === 'mcp' ? askedParts(req) : ['asked every time', ...(req.kind === 'session' ? ['change in Preferences'] : [])];
-    const label = v ? v.label : req.kind === 'message' ? messageView(req).label : allowLabel(req, this._choice);
+    const label = req.state === 'failed' ? 'Try again' : v ? v.label : req.kind === 'message' ? messageView(req).label : allowLabel(req, this._choice);
     return html`<div class="foot">
       <span class="when small muted">${when.map((x) => html`<span>${x}</span>`)}</span>
       ${/* the quiet one — filled only where nothing can be allowed and it is the sheet's one button (as the app's) */ ''}<button data-deny class=${this.stopped ? 'primary' : ''} ?disabled=${this._busy} @click=${this._deny}>Deny</button>

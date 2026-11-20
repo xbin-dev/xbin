@@ -272,7 +272,7 @@ func TestFailedStartRetryRoute(t *testing.T) {
 	w := delegateWorld(t)
 	alice, person := delegateCred("d-alice"), w.cookie("alice")
 	body := startBody("apps/x", "go")
-	req := w.ask(alice, "POST", "/api/xbin/term/sessions", body)
+	req := w.askKnows(alice, "POST", "/api/xbin/term/sessions", body, "retry") // (a backend that knows Failed: D250 review L3)
 	w.approve(person, req.ID, "")
 	rec := w.do(w.full, "POST", "/api/xbin/term/sessions", body, alice, header(HeaderTicket, req.ID))
 	if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), `"refusal":"start-failed"`) || !strings.Contains(rec.Body.String(), `"retry":true`) ||

@@ -5,6 +5,7 @@ package server
 
 import (
 	"encoding/json"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -278,5 +279,101 @@ func TestApprovalHoldsToWhatTheSheetShowed(t *testing.T) {
 	sid, _ := s["signInId"].(string)
 	if rec := w.do(w.full, "POST", "/api/xbin/delegate/requests/"+req.ID+"/approve", `{"knows":["continue"],"seen":{"signInId":"`+sid+`","net":"`+net+`"}}`, person); rec.Code != 200 {
 		t.Fatalf("an approval of what the sheet showed: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+// askKnows files a request as a backend that says what it knows does.
+func (w *dWorld) askKnows(agent cred, method, path, body string, knows ...string) delegation.Request {
+	w.t.Helper()
+	in, _ := json.Marshal(map[string]any{"method": method, "path": path, "body": body, "summary": "the agent's words", "knows": knows})
+	rec := w.do(w.full, "POST", "/api/xbin/delegate/requests", string(in), agent)
+	if rec.Code != 200 {
+		w.t.Fatalf("ask %s %s: %d %s", method, path, rec.Code, rec.Body.String())
+	}
+	return decode[delegation.Request](w.t, rec)
+}
+
+// A start that fails is classified by its cause (D250 review L3): one the
+// agent's own call causes is refused before its ticket is spent, as a
+// ticket refusal with its reason; one that isn't the agent's is "failed",
+// with Try again — only for a backend that says it knows ("retry"): an older
+// one gets the open's answer as before, the request used; and the person's
+// Try again is a decision like an approval — its picks validated, its
+// sign-in tick its own, never the earlier one carried over.
+func TestStartFailuresByCause(t *testing.T) {
+	w := delegateWorld(t)
+	alice, person := delegateCred("d-alice"), w.cookie("alice")
+	// the agent's own call: a start body that isn't a tile agent's start — refused before the ticket is spent
+	bad := startBody("apps/x", "go", "kind", "shell")
+	req := w.askKnows(alice, "POST", "/api/xbin/term/sessions", bad, "retry")
+	w.approve(person, req.ID, "")
+	if rec := w.do(w.full, "POST", "/api/xbin/term/sessions", bad, alice, header(HeaderTicket, req.ID)); rec.Code != 403 || !strings.Contains(rec.Body.String(), `"reason":"bound"`) {
+		t.Fatalf("an agent's own bad start: %d %s", rec.Code, rec.Body.String())
+	}
+	if got, _ := w.store.Request("alice", req.ID); got.State != delegation.Approved {
+		t.Fatalf("the agent's bad start spent the ticket: %s", got.State)
+	}
+	// not the agent's doing (no bx here: 503), from an older backend: the open's answer, the request used
+	body := startBody("apps/x", "go")
+	req = w.ask(alice, "POST", "/api/xbin/term/sessions", body)
+	w.approve(person, req.ID, "")
+	if rec := w.do(w.full, "POST", "/api/xbin/term/sessions", body, alice, header(HeaderTicket, req.ID)); rec.Code != http.StatusServiceUnavailable || strings.Contains(rec.Body.String(), "start-failed") {
+		t.Fatalf("a failed start for an older backend: %d %s", rec.Code, rec.Body.String())
+	}
+	if got, _ := w.store.Request("alice", req.ID); got.State != delegation.Used {
+		t.Fatalf("a failed start for an older backend: %s", got.State)
+	}
+	// …from a backend that knows: failed, and the person's Try again — validated as an approval
+	req = w.askKnows(alice, "POST", "/api/xbin/term/sessions", body, "retry")
+	w.approve(person, req.ID, "")
+	if rec := w.do(w.full, "POST", "/api/xbin/term/sessions", body, alice, header(HeaderTicket, req.ID)); !strings.Contains(rec.Body.String(), `"refusal":"start-failed"`) {
+		t.Fatalf("a failed start: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := w.do(w.full, "POST", "/api/xbin/delegate/requests/"+req.ID+"/retry", `{"signin":true,"knows":["continue"]}`, person); rec.Code != 400 {
+		t.Fatalf("Try again ticking a sign-in nobody offered: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := w.do(w.full, "POST", "/api/xbin/delegate/requests/"+req.ID+"/retry", `{"harness":"codex","mode":"read-only","knows":["continue"]}`, person); rec.Code != 200 {
+		t.Fatalf("Try again on another coding agent: %d %s", rec.Code, rec.Body.String())
+	}
+	if got, _ := w.store.Request("alice", req.ID); got.State != delegation.Approved || got.Chosen == nil || got.Chosen.Provider != "codex" || got.UseSignin {
+		t.Fatalf("tried again: %s %+v (use sign-in %v)", got.State, got.Chosen, got.UseSignin)
+	}
+}
+
+// Through the route: a message the person's agent queues behind a running
+// turn is marked as the agent's, so the person's switch to a mode that acts
+// without asking keeps it from going in (D250 review L4).
+func TestAgentQueuedMessageIsMarkedAsTheAgents(t *testing.T) {
+	w := realDelegateWorld(t, "--auto-mode")
+	alice, person := delegateCred("d-alice"), w.cookie("alice")
+	body := startBody("apps/x", "Goal: a game.", "provider", "fake")
+	req := w.ask(alice, "POST", "/api/xbin/term/sessions", body)
+	w.approve(person, req.ID, "")
+	var a struct{ ID string }
+	if rec := w.do(w.full, "POST", "/api/xbin/term/sessions", body, alice, header(HeaderTicket, req.ID)); rec.Code != 200 || json.Unmarshal(rec.Body.Bytes(), &a) != nil {
+		t.Fatalf("the start: %d %s", rec.Code, rec.Body.String())
+	}
+	waitIdle(t, w, a.ID)
+	if rec := w.do(w.full, "POST", "/api/xbin/term/sessions/"+a.ID+"/prompt", `{"text":"slow"}`, person); rec.Code != 200 {
+		t.Fatalf("the person's slow turn: %d %s", rec.Code, rec.Body.String())
+	}
+	rec := w.do(w.full, "POST", "/api/xbin/term/sessions/"+a.ID+"/queue", `{"text":"Fix the stray O."}`, alice)
+	var held term.QueueResult
+	if rec.Code != 200 || json.Unmarshal(rec.Body.Bytes(), &held) != nil || held.Outcome != term.QueueHeld {
+		t.Fatalf("the agent's message behind the turn: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := w.do(w.full, "POST", "/api/xbin/term/sessions/"+a.ID+"/options", `{"id":"mode","value":"auto"}`, person); rec.Code != 200 {
+		t.Fatalf("the person's switch: %d %s", rec.Code, rec.Body.String())
+	}
+	for deadline := time.Now().Add(20 * time.Second); ; time.Sleep(50 * time.Millisecond) {
+		page, _ := w.s.Term.AgentPage(a.ID, 0, 200)
+		for _, e := range page.Events {
+			if e.Type == term.EvQueue && strings.Contains(string(e.Data), `"returned":["`+held.ID+`"]`) {
+				return
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the agent's held message went in after the switch (events: %d)", len(page.Events))
+		}
 	}
 }
