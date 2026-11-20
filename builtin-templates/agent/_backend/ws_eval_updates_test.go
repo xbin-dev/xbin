@@ -21,8 +21,8 @@ var updFixBrief = &wsUpdateBrief{
 	DoneWhen:   "`git log -1` in this tile shows the merge of the template's main, `git status --short` shows nothing uncommitted, the tile's backend (if it has one) builds and answers, and you reported what the template changed and how each conflict was resolved.",
 	LeaveAlone: "this tile's own changes, unless one conflicts with the template's; the manifest's \"partition\" and \"template\" keys; everything outside this tile; and don't push anywhere.",
 	CheckBy:    "`bx status`, a call to the tile's own API, `bx logs $XBIN_COMPONENT` for a build error.",
-	Known:      "This tile was made from xbin's template \"agent\", which xbin serves. Run, in this tile's directory: (1) `git -c core.fsmonitor= -c core.hooksPath=/dev/null -c protocol.ext.allow=never status --short`; (2) `git -c core.fsmonitor= -c core.hooksPath=/dev/null -c protocol.ext.allow=never fetch 'http://xbin/api/xbin/templates/agent.git' main`; (3) `git -c core.fsmonitor= -c core.hooksPath=/dev/null -c protocol.ext.allow=never log --oneline HEAD..FETCH_HEAD`; (4) `git -c core.fsmonitor= -c core.hooksPath=/dev/null -c protocol.ext.allow=never merge --no-edit FETCH_HEAD`.",
-	Commands:   []string{"git -c core.fsmonitor= -c core.hooksPath=/dev/null -c protocol.ext.allow=never status --short", "git -c core.fsmonitor= -c core.hooksPath=/dev/null -c protocol.ext.allow=never fetch 'http://xbin/api/xbin/templates/agent.git' main", "git -c core.fsmonitor= -c core.hooksPath=/dev/null -c protocol.ext.allow=never log --oneline HEAD..FETCH_HEAD", "git -c core.fsmonitor= -c core.hooksPath=/dev/null -c protocol.ext.allow=never merge --no-edit FETCH_HEAD", "bx status"},
+	Known:      "This tile was made from xbin's template \"agent\", which xbin serves. Run, in this tile's directory: (1) `git -c core.fsmonitor= -c core.hooksPath=/dev/null -c protocol.ext.allow=never status --short`; (2) `git -c core.fsmonitor= -c core.hooksPath=/dev/null -c protocol.ext.allow=never fetch 'http://xbin/api/xbin/templates/agent.git' main`; (3) `git -c core.fsmonitor= -c core.hooksPath=/dev/null -c protocol.ext.allow=never log --oneline HEAD..0123456789abcdef0123456789abcdef01234567`; (4) `git -c core.fsmonitor= -c core.hooksPath=/dev/null -c protocol.ext.allow=never merge --no-edit 0123456789abcdef0123456789abcdef01234567`.",
+	Commands:   []string{"git -c core.fsmonitor= -c core.hooksPath=/dev/null -c protocol.ext.allow=never status --short", "git -c core.fsmonitor= -c core.hooksPath=/dev/null -c protocol.ext.allow=never fetch 'http://xbin/api/xbin/templates/agent.git' main", "git -c core.fsmonitor= -c core.hooksPath=/dev/null -c protocol.ext.allow=never log --oneline HEAD..0123456789abcdef0123456789abcdef01234567", "git -c core.fsmonitor= -c core.hooksPath=/dev/null -c protocol.ext.allow=never merge --no-edit 0123456789abcdef0123456789abcdef01234567", "bx status"},
 }
 
 // updFix gives the fake xbind a docs page, a builtin tile, a template
@@ -66,7 +66,7 @@ func TestWsEvalWhatNeedsUpdating(t *testing.T) {
 		"- scaffold:tiles/manager — the workspace's own page tiles/manager: 1 file(s) changed upstream. NEXT: by hand — tiles/manager's agent level is off",
 		`- apps/crm — made from the template "agent": 3 commit(s) behind it; 2 commit(s) of its own. NEXT: start a tile agent on apps/crm — tile_agent_brief {"tile": "apps/crm", "template": "update"}, then tile_agent_start`,
 		`xbin's brief for apps/crm — what tile_agent_brief {"tile": "apps/crm", "template": "update"} writes, word for word`,
-		"merge --no-edit FETCH_HEAD",
+		"merge --no-edit 0123456789abcdef0123456789abcdef01234567",
 		wsUpdateRule,
 	} {
 		if !strings.Contains(got, want) {

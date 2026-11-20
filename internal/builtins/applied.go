@@ -28,6 +28,11 @@ import (
 // until it holds the change. pending names those files; the version moves
 // only when there are none.
 func (u *Updater) RecordApplied(id, toHash string) (pending []string, err error) {
+	unlock, err := u.lockUnit(id)
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
 	def, ok := u.defByID(id)
 	if !ok {
 		return nil, noSuchUnit(id)

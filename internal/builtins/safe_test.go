@@ -381,11 +381,14 @@ func TestApplySafeAppliesOnlyWhatWasApproved(t *testing.T) {
 	})
 	t.Run("busy", func(t *testing.T) {
 		_, u := safeFixture(t, v2FS())
-		safeSem <- struct{}{}
-		defer func() { <-safeSem }()
-		old := safeWait
-		safeWait = 50 * time.Millisecond
-		defer func() { safeWait = old }()
+		unlock, err := u.lockUnit("scaffold:app")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer unlock()
+		old := unitWait
+		unitWait = 50 * time.Millisecond
+		defer func() { unitWait = old }()
 		if _, _, err := u.ApplySafe("scaffold:app", ""); !errors.Is(err, ErrBusy) {
 			t.Fatalf("held: %v", err)
 		}
@@ -443,5 +446,58 @@ func TestKeptNoteNeverRepeatsAnUnknownValue(t *testing.T) {
 	said := strings.Join(a.Notes, "\n")
 	if !strings.Contains(said, "an unrecognized value") || strings.Contains(said, "SYSTEM") {
 		t.Fatalf("the note: %s", said)
+	}
+}
+
+// covers the D248 re-review, P2a — one update of a unit at a time, every
+// mode: while the unit's lock is held, replace, merge, a proposal, a
+// proposal's recording and a pin each wait and answer ErrBusy, doing
+// nothing; another unit's update goes ahead. And the safe pin holds the
+// recorded base: a recording in between (another mode's) makes an
+// approved pin stale.
+func TestOneUpdateOfAUnitAtATime(t *testing.T) {
+	root, u := safeFixture(t, v2FS())
+	before := snapshot(t, filepath.Join(root, "app"))
+	unlock, err := u.lockUnit("scaffold:app")
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := unitWait
+	unitWait = 50 * time.Millisecond
+	defer func() { unitWait = old }()
+	for name, run := range map[string]func() error{
+		"replace": func() error { _, err := u.ApplyReplace("scaffold:app"); return err },
+		"merge":   func() error { _, err := u.ApplyMerge("scaffold:app"); return err },
+		"propose": func() error { _, err := u.Propose("scaffold:app"); return err },
+		"record":  func() error { _, err := u.RecordApplied("scaffold:app", "sha256:x"); return err },
+		"pin":     func() error { return u.Pin("scaffold:app", true) },
+	} {
+		if err := run(); !errors.Is(err, ErrBusy) {
+			t.Errorf("%s while another update runs: %v", name, err)
+		}
+	}
+	if fmt.Sprint(snapshot(t, filepath.Join(root, "app"))) != fmt.Sprint(before) {
+		t.Fatal("something was written while the unit was held")
+	}
+	unlock()
+
+	sp, err := u.SafePlan("scaffold:app")
+	if err != nil || sp.Mode != SafeMerge {
+		t.Fatalf("plan: %+v %v", sp, err)
+	}
+	// the record moves (another mode recorded), the files don't
+	state := u.load().Units["scaffold:app"]
+	def, _ := u.defByID("scaffold:app")
+	files := map[string][]byte{}
+	for rel := range state.Files {
+		b, _ := os.ReadFile(filepath.Join(u.snapDir("scaffold:app"), rel))
+		files[rel] = b
+	}
+	files["a.txt"] = []byte("a recorded elsewhere\n")
+	if err := u.recordAs(def, state.InstallPath, files, state.Version); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := u.ApplySafe("scaffold:app", sp.Pin); !errors.Is(err, ErrStale) {
+		t.Fatalf("an approved pin after a recording: %v", err)
 	}
 }

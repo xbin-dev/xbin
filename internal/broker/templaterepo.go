@@ -313,8 +313,8 @@ func (b *Broker) TemplateUpdateRows(p auth.Principal, keep func(tile string) boo
 		if !keep(r.Path) {
 			continue
 		}
-		row := server.TemplateUpdateRow{Tile: r.Path, Template: r.Template, Legacy: r.Legacy, Behind: -1, Local: -1}
 		info := infos[r.Template]
+		row := server.TemplateUpdateRow{Tile: r.Path, Template: r.Template, Head: info.head, Legacy: r.Legacy, Behind: -1, Local: -1}
 		if info.commits == nil {
 			info.commits = map[string]bool{}
 			if list, err := runGitIn(filepath.Join(templateReposDir(b.Reg.Root), r.Template), "rev-list", "--max-count="+strconv.Itoa(maxCountedCommits), "main"); err == nil {

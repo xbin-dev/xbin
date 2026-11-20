@@ -63,6 +63,7 @@ type BuiltinUpdateRow struct {
 // commit (-1 each: not counted — a history past the bound).
 type TemplateUpdateRow struct {
 	Tile, Template string
+	Head           string // the template's main as xbind serves it: the commit the brief verifies and merges
 	Behind, Local  int
 	Legacy         bool
 }
@@ -221,7 +222,9 @@ func (s *Server) delegateUpdates(p auth.Principal, only string) (updatesRead, er
 		if v.Agent == registry.AgentOff {
 			v.Next, v.Why = updateNextByHand, row.Tile+"'s agent level is off: a workspace agent starts no tile agent there — whoever has terminal access to it merges the template in a terminal there"
 		} else {
-			v.Next, v.Why, v.Brief = s.tileAgentNext(person, row.Tile, func() UpdateBrief { return TemplateUpdateBrief(row.Tile, row.Template, row.Behind, row.Legacy) })
+			v.Next, v.Why, v.Brief = s.tileAgentNext(person, row.Tile, func() UpdateBrief {
+				return TemplateUpdateBrief(row.Tile, row.Template, row.Head, row.Behind, row.Legacy)
+			})
 		}
 		instances = append(instances, v)
 	}
@@ -386,17 +389,27 @@ func briefPathOK(tile string) bool {
 // gateway: its own credential, D17).
 func templateURL(name string) string { return "http://xbin/api/xbin/templates/" + name + ".git" }
 
+// templateFetchGit is briefGit for the template's fetch: no credential
+// helper, no ssh command, and no transport but http(s) — a remote the
+// tile's own config redirects the URL to (url.*.insteadOf, which no -c
+// can take away) gets none of them, and what it serves is caught by the
+// hash check that follows.
+const templateFetchGit = briefGit + " -c credential.helper= -c core.sshCommand=false -c protocol.allow=never -c protocol.http.allow=always -c protocol.https.allow=always"
+
 // TemplateUpdateBrief is xbind's brief for merging tile's template — the
-// builtin template named template, behind commits ahead of it (legacy: an
-// instance whose history shares nothing with the template's). Built from
-// those names alone. It never relies on the tile's remote of that name
-// (the tile's writers can point it anywhere): it fetches xbind's own URL
-// into FETCH_HEAD. The commands are what a session in the tile runs, in
-// its directory; TestTemplateUpdateInATileSession runs exactly them.
-func TemplateUpdateBrief(tile, template string, behind int, legacy bool) UpdateBrief {
-	merge := briefGit + " merge --no-edit FETCH_HEAD"
+// builtin template named template, whose main is head as xbind serves it,
+// behind commits ahead of it (legacy: an instance whose history shares
+// nothing with the template's). Built from those names alone. It never
+// relies on the tile's git config: it fetches xbind's URL into FETCH_HEAD
+// (whatever the tile's remotes say), checks that what came is head — the
+// tile's config can still redirect the URL, and a commit's hash is its
+// content — and merges head itself, nothing else (D248 re-review, P2b).
+// The commands are what a session in the tile runs, in its directory;
+// TestTemplateUpdateInATileSession runs exactly them.
+func TemplateUpdateBrief(tile, template, head string, behind int, legacy bool) UpdateBrief {
+	merge := briefGit + " merge --no-edit " + head
 	if legacy {
-		merge = briefGit + " merge --no-edit --allow-unrelated-histories FETCH_HEAD"
+		merge = briefGit + " merge --no-edit --allow-unrelated-histories " + head
 	}
 	commits := "commits"
 	switch {
@@ -405,28 +418,33 @@ func TemplateUpdateBrief(tile, template string, behind int, legacy bool) UpdateB
 	case behind > 1:
 		commits = fmt.Sprintf("%d commits", behind)
 	}
+	short := head
+	if len(short) > 12 {
+		short = short[:12]
+	}
 	cmds := []string{
 		briefGit + " status --short",
-		briefGit + " fetch " + shq(templateURL(template)) + " main",
-		briefGit + " log --oneline HEAD..FETCH_HEAD",
+		templateFetchGit + " fetch " + shq(templateURL(template)) + " main",
+		`test "$(` + briefGit + ` rev-parse FETCH_HEAD)" = ` + head + ` && echo "verified: xbin's template ` + short + `" || echo "STOP: what was fetched is not xbin's template — merge nothing, report it"`,
+		briefGit + " log --oneline HEAD.." + head,
 		merge,
 		"bx status",
 		`curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $XBIN_TOKEN" "$XBIN_URL/api/$XBIN_COMPONENT/"`,
 	}
-	known := fmt.Sprintf("This tile was made from xbin's template %q, which xbin serves; this session's git reaches it with the session's own credential. Run the commands exactly as written — they fetch xbin's own copy by its URL, not whatever this tile's remotes name, and keep this tile's git hooks out. "+
-		"Run, in this tile's directory: (1) `%s` — if anything is uncommitted, commit it first and say so; (2) `%s`; (3) `%s` — what the template changed; (4) `%s`. "+
+	known := fmt.Sprintf("This tile was made from xbin's template %q, which xbin serves; its newest version is the commit %s. This session's git reaches it with the session's own credential. Run the commands exactly as written — they fetch xbin's own copy by its URL, not whatever this tile's remotes name, keep this tile's git hooks out, and merge that exact commit. "+
+		"Run, in this tile's directory: (1) `%s` — if anything is uncommitted, commit it first and say so; (2) `%s`; (3) `%s` — it must say \"verified\": if it says STOP, stop there, merge nothing and report it; (4) `%s` — what the template changed; (5) `%s`. "+
 		"xbin.json merges by keys (git runs `bx template merge-manifest` for it): what stays in conflict there is a value both sides changed. "+
 		"On a conflict you can't resolve with confidence: `"+briefGit+" merge --abort`, and report which files and why — don't guess. "+
-		"xbin builds and restarts the backend by itself after the merge: (5) `%s` says where it stands, and (6) a call to the tile's own API — `%s` — starts it; a build error is in `bx logs $XBIN_COMPONENT`.",
-		template, cmds[0], cmds[1], cmds[2], cmds[3], cmds[4], cmds[5])
+		"xbin builds and restarts the backend by itself after the merge: (6) `%s` says where it stands, and (7) a call to the tile's own API — `%s` — starts it; a build error is in `bx logs $XBIN_COMPONENT`.",
+		template, head, cmds[0], cmds[1], cmds[2], cmds[3], cmds[4], cmds[5], cmds[6])
 	if legacy {
-		known += " This tile was made before xbin seeded instances from their template, so its history shares nothing with the template's: the first merge needs --allow-unrelated-histories (in step 4 already) and conflicts wherever both have a file — keep this tile's version where you can't tell."
+		known += " This tile was made before xbin seeded instances from their template, so its history shares nothing with the template's: the first merge needs --allow-unrelated-histories (in step 5 already) and conflicts wherever both have a file — keep this tile's version where you can't tell."
 	}
 	return UpdateBrief{
 		Goal:       fmt.Sprintf("Bring this tile up to date with its template %q: merge the template's newest version (%s this tile doesn't have) into this tile, keeping this tile's own changes.", template, commits),
-		DoneWhen:   "`git log -1` in this tile shows the merge of the template's main, `git status --short` shows nothing uncommitted, the tile's backend (if it has one) builds and answers, and you reported what the template changed and how each conflict was resolved.",
+		DoneWhen:   "`git log -1` in this tile shows the merge of the template's commit " + short + ", `git status --short` shows nothing uncommitted, the tile's backend (if it has one) builds and answers, and you reported what the template changed and how each conflict was resolved.",
 		LeaveAlone: "this tile's own changes, unless one conflicts with the template's — then keep this tile's version unless the template's change needs it; the manifest's \"partition\" and \"template\" keys; everything outside this tile; and don't push anywhere.",
-		CheckBy:    "`bx status`, the call to the tile's own API in step 6, `bx logs $XBIN_COMPONENT` for a build error, and the tile's own tests if it has any (`go test ./...` where its go.mod is).",
+		CheckBy:    "`bx status`, the call to the tile's own API in step 7, `bx logs $XBIN_COMPONENT` for a build error, and the tile's own tests if it has any (`go test ./...` where its go.mod is).",
 		Known:      known,
 		Commands:   cmds,
 	}

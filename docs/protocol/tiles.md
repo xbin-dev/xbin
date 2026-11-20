@@ -225,8 +225,11 @@ POST   /builtins/update             xbin:writer. body {id, mode:
                                    no longer holds writes nothing (409); a
                                    file changed while it is written stops it
                                    there (409, naming what was written
-                                   before); another safe update being
-                                   written past 30 s: 503. A pinned unit,
+                                   before). One update of a unit at a time,
+                                   every mode (safe, replace, merge, pr, the
+                                   proposal's recording, pin): another
+                                   holding it past 30 s is 503. The pin
+                                   holds the recorded base too. A pinned unit,
                                    one with no update, one not installed: 400
                                    with why. A workspace agent's
                                    builtin.update line applies this mode

@@ -109,7 +109,31 @@ func TestTemplateUpdateInATileSession(t *testing.T) {
 		t.Fatalf("the person's listing: %d %s", r.Status, r)
 	}
 
-	brief := server.TemplateUpdateBrief(tile, "starter", 1, false)
+	head := strings.TrimSpace(tmGitMust(t, repo, "rev-parse", "main"))
+	brief := server.TemplateUpdateBrief(tile, "starter", head, 1, false)
+
+	// the tile's own config redirects xbind's URL to another history (here
+	// the agent template, served by the same xbind): the fetch goes there —
+	// no -c takes url.*.insteadOf away — and the check says STOP before
+	// anything is merged (D248 re-review, P2b)
+	redirect := `url."$XBIN_URL/api/xbin/templates/agent.git".insteadOf`
+	if out, rc := sess.run(t, `git config `+redirect+` http://xbin/api/xbin/templates/starter.git`, time.Minute); rc != 0 {
+		t.Fatalf("the redirect: %d %s", rc, out)
+	}
+	for _, cmd := range brief.Commands[1:3] {
+		out, rc := sess.run(t, cmd, 5*time.Minute)
+		t.Logf("$ %s → %d\n%s", cmd, rc, out)
+		if strings.Contains(cmd, " fetch ") && (rc != 0 || !strings.Contains(out, "/templates/agent")) {
+			t.Fatalf("the tile's redirect wasn't taken (the check below would prove nothing): %d %q", rc, out)
+		}
+		if strings.HasPrefix(cmd, "test ") && !strings.Contains(out, "STOP") {
+			t.Fatalf("a redirected fetch passed the check: %q", out)
+		}
+	}
+	if out, rc := sess.run(t, `git config --unset `+redirect, time.Minute); rc != 0 {
+		t.Fatalf("unset the redirect: %d %s", rc, out)
+	}
+
 	outs := map[int]string{}
 	for i, cmd := range brief.Commands {
 		if strings.HasPrefix(cmd, "curl ") {
@@ -125,8 +149,11 @@ func TestTemplateUpdateInATileSession(t *testing.T) {
 	if outs[0] != "" {
 		t.Errorf("git status --short: %q", outs[0])
 	}
-	if !strings.Contains(outs[2], "template snapshot") {
-		t.Errorf("what the template changed: %q", outs[2])
+	if !strings.Contains(outs[2], "verified: xbin's template "+head[:12]) {
+		t.Errorf("the check: %q", outs[2])
+	}
+	if !strings.Contains(outs[3], "template snapshot") {
+		t.Errorf("what the template changed: %q", outs[3])
 	}
 	// merged: both parents, nothing uncommitted, the template's files and ours
 	if out, _ := sess.run(t, "git log -1 --format=%P", time.Minute); len(strings.Fields(out)) != 2 {

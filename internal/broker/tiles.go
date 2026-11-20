@@ -207,7 +207,7 @@ func (b *Broker) apiBuiltinsUpdate(w http.ResponseWriter, r *http.Request) {
 		m, notes, perr := b.ProposeBuiltinPR(body.ID, auth.PrincipalOf(r))
 		switch {
 		case perr != nil:
-			server.WriteError(w, http.StatusBadRequest, perr.Error())
+			server.WriteError(w, updateErrStatus(perr), perr.Error())
 		case m == nil: // nothing to propose (PD-52: upstream changed only a partition; or every file left is a link, a FIFO, a nested tile's): recorded as far as the tile holds it, the notes say what stays offered
 			out := map[string]any{"files": []string{}}
 			if len(notes) > 0 {
@@ -237,7 +237,7 @@ func (b *Broker) apiBuiltinsUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		server.WriteError(w, http.StatusBadRequest, err.Error())
+		server.WriteError(w, updateErrStatus(err), err.Error())
 		return
 	}
 	// A scaffold/tile update can add or change a Go backend — reconcile deps and
@@ -275,7 +275,7 @@ func (b *Broker) applySafe(w http.ResponseWriter, id, pin string, p auth.Princip
 		m, notes, perr := b.ProposeBuiltinPR(id, p)
 		switch {
 		case perr != nil:
-			server.WriteError(w, http.StatusBadRequest, perr.Error())
+			server.WriteError(w, updateErrStatus(perr), perr.Error())
 		case m == nil:
 			out := map[string]any{"applied": "updated", "files": []string{}}
 			if len(notes) > 0 {
@@ -315,6 +315,15 @@ func (b *Broker) applySafe(w http.ResponseWriter, id, pin string, p auth.Princip
 		out["notes"] = applied.Notes
 	}
 	server.WriteJSON(w, http.StatusOK, out)
+}
+
+// updateErrStatus is a builtin update's refusal as a status: 503 while
+// another update of the unit holds it (any mode; unitlock.go), else 400.
+func updateErrStatus(err error) int {
+	if errors.Is(err, builtins.ErrBusy) {
+		return http.StatusServiceUnavailable
+	}
+	return http.StatusBadRequest
 }
 
 // afterUpdate makes a builtin update's written files live, as replace and

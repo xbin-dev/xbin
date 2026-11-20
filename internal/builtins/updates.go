@@ -636,6 +636,11 @@ func (u *Updater) applyMerge(id string, notes *[]string) ([]string, error) {
 
 // Pin/unpin stop/resume offering updates for a unit.
 func (u *Updater) Pin(id string, pinned bool) error {
+	unlock, err := u.lockUnit(id)
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	o := u.load()
 	if o.Units[id] == nil {
 		return fmt.Errorf("%s is not tracked (nothing to pin)", id)

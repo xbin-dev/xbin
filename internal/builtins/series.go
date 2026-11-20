@@ -35,6 +35,11 @@ type Proposal struct {
 // Propose renders a unit's pending update as a Proposal. Errors when the
 // unit is unknown or already up to date.
 func (u *Updater) Propose(id string) (*Proposal, error) {
+	unlock, err := u.lockUnit(id)
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
 	def, ok := u.defByID(id)
 	if !ok {
 		return nil, noSuchUnit(id)

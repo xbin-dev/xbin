@@ -344,7 +344,7 @@ func TestUpdateBriefHoldsNothingTileAuthored(t *testing.T) {
 			t.Errorf("the brief carries the tile's words %q: %s", bad, raw)
 		}
 	}
-	want := server.TemplateUpdateBrief("apps/inst", "starter", 1, false)
+	want := server.TemplateUpdateBrief("apps/inst", "starter", starterHead(t, w), 1, false)
 	if r.Brief.Goal != want.Goal || !slices.Equal(r.Brief.Commands, want.Commands) {
 		t.Errorf("the brief isn't TemplateUpdateBrief's: %+v", r.Brief)
 	}
@@ -787,12 +787,14 @@ func TestUpdatesTrustNoForgedTemplateRemote(t *testing.T) {
 		t.Fatalf("xbind's own remote: %+v", got.Instances)
 	}
 	cmds := strings.Join(got.Instances[0].Brief.Commands, "\n")
-	for _, want := range []string{"fetch 'http://xbin/api/xbin/templates/starter.git' main", "merge --no-edit FETCH_HEAD", "-c core.hooksPath=/dev/null", "-c protocol.ext.allow=never", "-c core.fsmonitor="} {
+	head := starterHead(t, w)
+	for _, want := range []string{"fetch 'http://xbin/api/xbin/templates/starter.git' main", `test "$(`, `rev-parse FETCH_HEAD)" = ` + head, "merge --no-edit " + head,
+		"-c core.hooksPath=/dev/null", "-c protocol.ext.allow=never", "-c core.fsmonitor=", "-c credential.helper= -c core.sshCommand=false -c protocol.allow=never -c protocol.http.allow=always"} {
 		if !strings.Contains(cmds, want) {
 			t.Errorf("the brief lacks %q:\n%s", want, cmds)
 		}
 	}
-	if strings.Contains(cmds, "fetch template") || strings.Contains(cmds, "template/main") {
+	if strings.Contains(cmds, "fetch template") || strings.Contains(cmds, "template/main") || strings.Contains(cmds, "merge --no-edit FETCH_HEAD") {
 		t.Errorf("the brief relies on the remote's name:\n%s", cmds)
 	}
 }
@@ -981,7 +983,7 @@ func briefWorld(t *testing.T) (*csWorld, *[]string) {
 // tile agent applies gets no brief at all.
 func TestUpdateBriefIsXbindsAndSaysSo(t *testing.T) {
 	w, sent := briefWorld(t)
-	want := server.TemplateUpdateBrief("apps/inst", "starter", 1, false)
+	want := server.TemplateUpdateBrief("apps/inst", "starter", starterHead(t, w), 1, false)
 	shownOf := func(it delegation.ChangeItem) (by, prompt string) {
 		var s struct{ BriefBy, Prompt string }
 		_ = json.Unmarshal(it.Start, &s)
@@ -1030,4 +1032,10 @@ func TestUpdateBriefIsXbindsAndSaysSo(t *testing.T) {
 			t.Errorf("%s: %d %s", args, code, body)
 		}
 	}
+}
+
+// starterHead is the starter template's main as xbind serves it.
+func starterHead(t *testing.T, w *csWorld) string {
+	t.Helper()
+	return strings.TrimSpace(gitIn(t, filepath.Join(templateReposDir(w.root), "starter"), "rev-parse", "main"))
 }

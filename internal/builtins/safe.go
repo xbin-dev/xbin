@@ -31,7 +31,6 @@ import (
 	"os"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/xbin-dev/xbin/internal/fsutil"
 )
@@ -52,9 +51,9 @@ var (
 	// ErrStale: the update is no longer what was approved (a file or the
 	// decision changed since): nothing was written.
 	ErrStale = errors.New("the update is no longer what was approved — a file there or the decision changed since: nothing was written; look at it again")
-	// ErrBusy: another update was being written for longer than ApplySafe
-	// waits: nothing was written.
-	ErrBusy = errors.New("another builtin update is being written: nothing was written; try again in a moment")
+	// ErrBusy: another update of the unit (any mode) held it past
+	// unitWait: nothing was done.
+	ErrBusy = errors.New("another update of this builtin is under way: nothing was done; try again in a moment")
 )
 
 // SafePlanned is what a safe update of one unit would do now.
@@ -76,13 +75,6 @@ type SafePlanned struct {
 	Notes []string
 	merge *mergePlan // SafeMerge: what ApplySafe writes
 }
-
-// safeSem holds one safe update at a time — its decision and its write are
-// one step — and a caller waits for it at most safeWait.
-var safeSem = make(chan struct{}, 1)
-
-// safeWait bounds how long ApplySafe waits for another safe update.
-var safeWait = 30 * time.Second
 
 // SafePlan decides a safe update of id (an exact id: ResolveID first),
 // writing nothing.
@@ -204,12 +196,11 @@ func (e *ConflictError) Error() string {
 // update there (*ChangedError), naming what was written before — the next
 // listing shows what is left.
 func (u *Updater) ApplySafe(id, pin string) (Applied, string, error) {
-	select {
-	case safeSem <- struct{}{}:
-	case <-time.After(safeWait):
-		return Applied{}, "", ErrBusy
+	unlock, err := u.lockUnit(id) // the unit's lock, every mode's (unitlock.go): its decision and its write are one step
+	if err != nil {
+		return Applied{}, "", err
 	}
-	defer func() { <-safeSem }()
+	defer unlock()
 	sp, err := u.SafePlan(id)
 	if err != nil {
 		return Applied{}, "", err
@@ -324,7 +315,8 @@ func (u *Updater) safePin(sp *SafePlanned, theirs map[string][]byte, base map[st
 	}
 	sort.Strings(keys)
 	h := sha256.New()
-	fmt.Fprintf(h, "%s\x00%s\x00%d\x00%d\x00", sp.ID, sp.Mode, sp.From, sp.To)
+	// the recorded base too: a recording in between (another mode's) makes it stale (re-review, P2a)
+	fmt.Fprintf(h, "%s\x00%s\x00%d\x00%d\x00%s\x00", sp.ID, sp.Mode, sp.From, sp.To, rollup(base))
 	for _, rel := range keys {
 		ours := readTile(u.root, sp.InstallPath, rel).stamp()
 		th := "-"

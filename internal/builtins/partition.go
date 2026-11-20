@@ -105,7 +105,11 @@ type Applied struct {
 // keeping its installed "partition".
 func (u *Updater) ApplyReplace(id string) (Applied, error) {
 	var a Applied
-	var err error
+	unlock, err := u.lockUnit(id)
+	if err != nil {
+		return a, err
+	}
+	defer unlock()
 	a.Files, err = u.applyReplace(id, &a.Notes)
 	return a, err
 }
@@ -114,7 +118,11 @@ func (u *Updater) ApplyReplace(id string) (Applied, error) {
 // upstream's change to a manifest's "partition".
 func (u *Updater) ApplyMerge(id string) (Applied, error) {
 	var a Applied
-	var err error
+	unlock, err := u.lockUnit(id)
+	if err != nil {
+		return a, err
+	}
+	defer unlock()
 	a.Files, err = u.applyMerge(id, &a.Notes)
 	return a, err
 }
