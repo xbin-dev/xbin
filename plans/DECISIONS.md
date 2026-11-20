@@ -6254,3 +6254,27 @@ here: cut from the old end, never reword.
   - **Not done (later stages):** a per-upstream ceiling, the workspace
     agent's control, harness configs (Codex's catalog, OpenCode's variants),
     request patches, numeric values.
+  - **After review (same day).** *The vendored table applies only on the
+    maker's own API*: each family names its maker's API hosts, compared
+    exactly with the upstream's base-URL host (no suffix match); elsewhere
+    — a router, a local server, a gateway: the same id may take other
+    levels — a table match is a suggestion (`xbin_effort_suggestion`, *Use
+    these* on `/xbin/llm`) and the model stays undescribed, so an upgrade
+    rewrites nothing on a non-maker upstream (proved against golden bytes
+    recorded on master). A list's explicit levels still apply anywhere; a
+    list never says "no reasoning" (only an admin, the host or the maker's
+    table); `none` passes where `can_disable` is unknown. Qwen left the
+    table: Model Studio's hosts are per workspace. *Remembering a refusal*
+    needs the refusal to name the field and the call without it to work;
+    the agent keeps it per conversation (never process-wide, never for
+    opaque blocks; a later refusal brings it back once), the connector per
+    upstream + model in memory, shown with a Reset. *A replay names its
+    model*: the connector names the model it called (`X-XBin-LLM-Model`) and
+    refuses a request that expects another (`X-XBin-LLM-Expect-Model`, 409
+    `xbin_llm_model_moved`) — the agent's model list is cached a minute and
+    an alias can move inside it. The call path never fetches a list for
+    effort (an upstream with a configured list is mapped by entries and the
+    maker's table until models are listed). One mapping rule, one set of
+    test vectors read by Go and JS. Compaction's estimate counts the
+    reasoning that goes back. The Responses wire asks for no summary it
+    didn't before when no level is set.

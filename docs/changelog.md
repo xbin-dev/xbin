@@ -19,46 +19,66 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   [changes/2026-11-20-reasoning-effort.md](/docs/changes/2026-11-20-reasoning-effort.md).
   What changes on the wire, exactly:
   - the connector, for a model it can describe — an admin's or the host's
-    `upstreams.<name>.reasoning` entry, the upstream's own `/models` (DeepSeek's
-    `effort`, OpenRouter's `reasoning`), or xbind's table (DeepSeek's API,
-    xAI Grok 4.5–4.7, Gemini 4's thinking models, Kimi K3, GLM-5.2/5.3,
-    MiniMax M3.1-Flash, Qwen4-Max and Qwen3.8, Mistral Small 4, Medium 3.5,
-    Large 4): chat's `reasoning_effort` (and an OpenRouter-style
-    `reasoning.effort`) and Responses' `reasoning.effort` are rewritten to a
-    level the model takes — its own alias, else the highest it has at or
-    below, else its lowest; `none` is its lowest where it can't be turned
-    off — and removed (named in `X-XBin-LLM-Dropped`) for a model that has
-    no reasoning. Nothing else of the body changes; a model nothing describes
-    gets its request byte for byte as before. The answer says what was sent:
-    **`X-XBin-LLM-Effort`** (`high`, `high; asked=medium`, `none;
-    asked=high; can't`).
+    `upstreams.<name>.reasoning` entry; the levels the upstream's own
+    `/models` lists (DeepSeek's `effort`, OpenRouter's `reasoning`); or
+    xbind's table, **only on the model's maker's own API** (the upstream's
+    base-URL host one of the maker's: `api.deepseek.com`, `api.x.ai`,
+    `generativelanguage.googleapis.com`, `api.moonshot.ai`, `api.z.ai`,
+    `api.minimax.io`, `api.mistral.ai`): chat's `reasoning_effort` (and an
+    OpenRouter-style `reasoning.effort`) and Responses' `reasoning.effort`
+    are rewritten to a level the model takes — its own alias, else the
+    highest it has at or below, else its lowest; `none` is its lowest where
+    it can't be turned off — and removed (named in `X-XBin-LLM-Dropped`)
+    for a model whose admin, host or maker says it has no reasoning.
+    Nothing else of the body changes. **On any other upstream** (a router,
+    a local server, a gateway) **nothing changes on upgrade** until an
+    admin describes its models or its own list gives their levels: every
+    request is relayed byte for byte as before. The answer says what was
+    sent: **`X-XBin-LLM-Effort`** (`high`, `high; asked=medium`, `none;
+    asked=high; can't`), and names the model called:
+    **`X-XBin-LLM-Model`**.
   - `GET /api/xbin/llm/v1/models`: each described model carries **`effort`**
     (`supported_levels`, `default_level`, `can_disable`, …, `source`); it
-    replaces an upstream's own member of that name, keeping its values;
-    aliases carry their target's.
+    replaces an upstream's own member of that name, keeping its valid
+    values — one that is no record is removed; aliases carry their
+    target's. A model xbind's table knows, on another than its maker's API,
+    carries **`xbin_effort_suggestion`** instead: `/xbin/llm` offers *Use
+    these*, `bx llm models` the `--reasoning` that adopts it.
   - the Responses → chat translation (D244): a reasoning item it made of an
     answer (its id now `rs_<tag>_…`, the tag naming the upstream and model)
     goes back as `reasoning_content` on the assistant message after it, to
-    that model only; any other reasoning item — dropped before without a
-    word — is named (`input.reasoning`); an upstream that answers `400` to a
-    request carrying it gets the request once more without it.
+    that model only — for every model, described or not; any other
+    reasoning item — dropped before without a word — is named
+    (`input.reasoning`); an upstream that answers `400` to a request
+    carrying it gets the request once more without it, and one whose
+    refusal named `reasoning_content` is remembered (in memory, per
+    upstream and model; `/xbin/llm` shows it with a Reset;
+    `POST /api/xbin/llm/upstreams/<name>/replay-reset`, `bx llm upstream
+    replay-reset`).
+  - a request that sends a model's reasoning back may name that model
+    (`X-XBin-LLM-Expect-Model`): when its model name now leads to another
+    (an alias pointed elsewhere) it is `409 xbin_llm_model_moved` before any
+    upstream call.
   - the agent template sends a model's plain reasoning back on later turns —
     `reasoning_content`, `reasoning`, or a leading `<think>` block in the
-    content, as it came — only to the provider and model that produced it;
-    a provider that 400s on it gets the call once more without it (then no
-    more, until the agent restarts; the conversation says so). Its
-    `reasoningEffort` default goes only to a model that reasons by its
-    record (a model whose record says none gets no `reasoning_effort` and no
-    Responses `reasoning` block; one with no record, as before).
+    content, as it came — only to the provider and model that produced it
+    (the one the connector says answered); a provider that 400s on it gets
+    the call once more without it, and a conversation whose provider's
+    refusal named the field stops sending it (the conversation says so; a
+    later refusal without it brings it back, once). Its `reasoningEffort`
+    default goes only to a model that reasons by its record (a model whose
+    record says none gets no `reasoning_effort` and no Responses
+    `reasoning` block; one with no record, as before).
   - new: `PATCH /runs/{id} {effort}`, `POST /ask {effort}`, a class's
     `effort`, `config.effort`; `GET /models` `effort`, `defaultModel`,
     `defaultEffort`; the composer's effort chip beside the model (a notched
     track over the model's levels; hidden for a model nobody describes), the
     app's Effort picker, the Config tab's default, the thinking fold's
     reasoning tokens; on `/xbin/llm` each provider's *reasoning…* (the line
-    per model, and *describe…*: tick the levels a model takes); `bx llm
-    upstream set … --reasoning '<model>=<preset>|<levels>'`, and `bx llm
-    models` prints each model's reasoning line.
+    per model, *describe…*: tick the levels a model takes, *Use these*);
+    `bx llm upstream set … --reasoning '<model>=<preset>|<levels>'`, `bx llm
+    upstream replay-reset`, and `bx llm models` prints each model's
+    reasoning line.
   - the Go SDK: `llm.Request.SetMember(name, raw)` replaces (or, `nil`,
     removes) one member of a relayed request.
   - [llm.md §Reasoning effort](/docs/llm.md#reasoning-effort). The workspace

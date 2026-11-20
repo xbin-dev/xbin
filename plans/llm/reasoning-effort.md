@@ -5,7 +5,11 @@
 > are planned below, not built. The research behind it (the product and
 > harness surveys) was trimmed from this copy; the provider table and the
 > sources the vendored table (`internal/llm/effort_table.json`) was written
-> from are kept.
+> from are kept. After review (D249's last bullet): the vendored table
+> applies only on each family's maker's own API host — elsewhere it is a
+> suggestion an admin adopts; remembered refusals are per conversation (the
+> agent) and per upstream + model with a Reset (the connector); a replay
+> names its model (`X-XBin-LLM-Expect-Model`).
 
 ## What was decided
 
@@ -161,7 +165,7 @@ The shape is deliberately an *import* target: DeepSeek's `effort`, OpenRouter's 
 
 1. **The host's file**, then **the admin's entry**: `upstreams.<name>.reasoning` — a table keyed exactly like `prices` (exact id → id after the last `/` → longest `prefix*`), so `"deepseek*": {...}` covers a family. Edited on `/xbin/llm` ("Describe…") and `bx llm`. The only place a `send` patch can come from.
 2. **The upstream's own listing** (`GET /models`, already fetched and cached a minute, `models.go:262-280`): DeepSeek's `effort`, OpenRouter's `reasoning`/`supported_parameters`, and any listing that already uses this shape (another xbind). Untrusted data: only ladder words, ≤ 16 known keys, numbers in range are accepted; never a `send` patch.
-3. **A vendored table** embedded in xbind (`internal/llm/effort_table.json`, a few dozen pattern entries), written from the providers' docs and cross-checked at release time against models.dev (MIT) and LiteLLM's map (MIT) — it is the floor for air-gapped installs. A newer xbind refreshes it; nothing is fetched at run time.
+3. **A vendored table** embedded in xbind (`internal/llm/effort_table.json`, a few dozen pattern entries), written from the providers' docs and cross-checked at release time against models.dev (MIT) and LiteLLM's map (MIT) — it is the floor for air-gapped installs. A newer xbind refreshes it; nothing is fetched at run time. **As built:** each family names its maker's API hosts and applies only to an upstream at one of them (exact host); on any other upstream a match is a suggestion (`xbin_effort_suggestion`) an admin may adopt — the model stays undescribed.
 4. **Unknown**: no record → no control, nothing added, callers' own fields untouched.
 
 Why admin over upstream over table: the same model id behaves differently per serving stack (§3) and the admin is the only one who knows which stack an upstream is; the upstream's own words are the next most specific; a shared table is a guess about someone else's deployment.

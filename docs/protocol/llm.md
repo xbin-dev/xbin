@@ -97,7 +97,15 @@ POST   /llm/v1/chat/completions    a caller (above). OpenAI's Chat Completions
                                    was mapped, none; asked=<level>; can't
                                    when the model has no reasoning (only on
                                    a call that carried an effort, streamed
-                                   or not, on either wire)
+                                   or not, on either wire); X-XBin-LLM-Model:
+                                   <upstream>/<model> the connector called
+                                   (an alias's target). Request header
+                                   X-XBin-LLM-Expect-Model:
+                                   <upstream>/<model> — the model whose
+                                   reasoning the request sends back: when
+                                   the request's model now resolves to
+                                   another, 409 xbin_llm_model_moved before
+                                   any upstream call (D249)
 POST   /llm/v1/responses           a caller. OpenAI's Responses request,
                                    relayed the same way; only model (and a
                                    described model's reasoning.effort, as
@@ -122,10 +130,17 @@ POST   /llm/v1/responses           a caller. OpenAI's Responses request,
                                    back as reasoning_content on the
                                    assistant message after it, to that
                                    model only; any other reasoning item is
-                                   left out and named (input.reasoning). An
+                                   left out and named (input.reasoning) —
+                                   for every model, described or not. An
                                    upstream that refuses (400) a request
                                    carrying it gets it once more without
-                                   it, named the same way
+                                   it, named the same way; a refusal that
+                                   named reasoning_content, the request
+                                   without it then working, is remembered
+                                   in memory per upstream and model (later
+                                   calls send none; the view's replayOff;
+                                   POST …/replay-reset or a restart
+                                   forgets it)
 GET    /llm/v1/models              a caller. {object: "list", data: [{id,
                                    object, owned_by, alias_of?, effort?,
                                    …}],
@@ -138,9 +153,11 @@ GET    /llm/v1/models              a caller. {object: "list", data: [{id,
                                    xbin/default, xbin/<role> with alias_of.
                                    effort: what the connector knows of the
                                    model's reasoning (D249; an alias: its
-                                   target's) — {supported_levels: [ladder
+                                   target's) — {supported_levels?: [ladder
                                    words, cheapest first; [] = no
-                                   reasoning], default_level?, can_disable?,
+                                   reasoning, said only by an admin, the
+                                   host or xbind's table on the maker's
+                                   API], default_level?, can_disable?,
                                    thinks_by_default?, reasons? (the
                                    upstream's list says it reasons, its
                                    levels unknown), aliases?, replay?:
@@ -149,7 +166,12 @@ GET    /llm/v1/models              a caller. {object: "list", data: [{id,
                                    member of that name, whose valid values
                                    it keeps. Absent: nobody describes the
                                    model (an upstream's own member that is
-                                   no record passes as it came).
+                                   no record is removed).
+                                   xbin_effort_suggestion: on a model
+                                   xbind's table knows, on an upstream that
+                                   is not its maker's API (the model is
+                                   undescribed there): the maker's record,
+                                   for an admin to adopt.
                                    upstream_errors: {<upstream>: why} for a
                                    list that couldn't be read (detail for
                                    admins only)
@@ -309,8 +331,9 @@ GET    /llm/config                 admin. The configuration in force, the
                                    enabled, people, upstreams: [{name, kind,
                                    baseURL, key: {set, source?: vault|host,
                                    hint?}, models, private, prices?,
-                                   reasoning?, source: admin|host, locked,
-                                   reason?}], defaults:
+                                   reasoning?, replayOff?: {<model>:
+                                   {since, field}}, source: admin|host,
+                                   locked, reason?}], defaults:
                                    {model?, roles}, aliases, quotas,
                                    sessions: {agents, terminals, openaiEnv},
                                    locks, concurrency, host: {active,
@@ -368,8 +391,9 @@ PUT    /llm/upstreams/<name>       admin. Add or change an upstream: {baseURL?,
                                    null} (by model, keyed like prices: the
                                    entries named are set, null removes one,
                                    the rest stay; a record says its
-                                   supported_levels and carries no send
-                                   patch — 400 otherwise; llm.md §Reasoning
+                                   supported_levels — or is only {replay:
+                                   "never"} — and carries no send patch —
+                                   400 otherwise; llm.md §Reasoning
                                    effort),
                                    responsesVia?: "auto" | "upstream" |
                                    "chat" (how its Responses calls are
@@ -395,6 +419,14 @@ PUT    /llm/upstreams/<name>       admin. Add or change an upstream: {baseURL?,
                                    host's upstream, or any new one when the
                                    host locks all; 409 when a key is given
                                    and the vault is sealed or not set up
+POST   /llm/upstreams/<name>/replay-reset
+                                   admin. {model?} — what the connector
+                                   remembers of the model (no model: every
+                                   model of the upstream) refusing the
+                                   reasoning a translated call sends back
+                                   (the view's replayOff) is forgotten: its
+                                   reasoning is sent back again. → the
+                                   view. 404 when nothing was remembered
 DELETE /llm/upstreams/<name>       admin. The upstream and its key go; metered
                                    usage under its name stays. → the view.
                                    404 unknown; 409 {locked} for a host's
