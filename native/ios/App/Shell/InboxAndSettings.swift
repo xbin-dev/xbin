@@ -38,10 +38,8 @@ struct InboxView: View {
                                     row {
                                         VStack(alignment: .leading, spacing: 2) {
                                             Text(verbatim: n.title).foregroundStyle(XbinColor.text).multilineTextAlignment(.leading)
-                                            if !n.note.isEmpty {
-                                                Text(verbatim: n.note).font(.caption.monospacedDigit()).foregroundStyle(XbinColor.muted)
-                                                    .multilineTextAlignment(.leading)
-                                            }
+                                            // each fact its own element (D250: never joined with "·")
+                                            if !n.parts.isEmpty { AgentFacts(parts: n.parts) }
                                         }
                                         .frame(maxWidth: .infinity, alignment: .leading)
                                         Text("Review…").font(.callout.weight(.semibold)).foregroundStyle(XbinColor.accentText)

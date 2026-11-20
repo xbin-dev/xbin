@@ -135,12 +135,19 @@ public enum DelegationWords {
         return "\(h / 24) days"
     }
 
-    /// "asked 10:14 · expires in 23 h 58 min" (what of it is known).
+    /// "asked 10:14, expires in 23 h 58 min" (what of it is known) — the
+    /// facts of `askedList` in one line.
     public static func asked(created: Date?, expires: Date?, now: Date = Date(), zone: TimeZone = .current) -> String {
+        askedList(created: created, expires: expires, now: now, zone: zone).joined(separator: ", ")
+    }
+
+    /// ["asked 10:14", "expires in 23 h 58 min"]: each fact its own element
+    /// (D250: never joined with "·").
+    public static func askedList(created: Date?, expires: Date?, now: Date = Date(), zone: TimeZone = .current) -> [String] {
         var parts: [String] = []
         if let created { parts.append("asked \(clock(created, zone: zone))") }
         if let expires { parts.append(expires > now ? "expires in \(left(expires.timeIntervalSince(now)))" : "expired") }
-        return parts.joined(separator: " · ")
+        return parts
     }
 
     /// "48 bytes", "14 KiB", "3.2 MiB".
@@ -237,17 +244,20 @@ public enum DelegationWords {
     /// What the call carries: the body as text with how much of it is
     /// shown — "shown in full" only when it is — or, for bytes nobody can
     /// read, no text and its size and hash.
-    public static func sends(_ r: DelegateRequest, all: Bool = false) -> (text: String, note: String, binary: Bool, clipped: Bool) {
+    /// `parts`: its size and how much is shown, each its own element (D250).
+    public static func sends(_ r: DelegateRequest, all: Bool = false) -> (text: String, note: String, parts: [String], binary: Bool, clipped: Bool) {
         let pb = r.preview["body"]
         if r.bodyBinary || pb?["binary"]?.boolValue == true {
             let sha = pb?["sha256"]?.stringValue ?? r.bodySha256
             let size = Int(pb?["size"]?.intValue ?? 0)
-            return ("", "not text — \(bytes(size > 0 ? size : r.bodySize))\(sha.isEmpty ? "" : ", sha256 \(sha)")", true, false)
+            let note = "not text — \(bytes(size > 0 ? size : r.bodySize))\(sha.isEmpty ? "" : ", sha256 \(sha)")"
+            return ("", note, [note], true, false)
         }
-        if r.bodySize == 0, r.body.isEmpty { return ("", "nothing: the call has no body", false, false) }
+        if r.bodySize == 0, r.body.isEmpty { return ("", "nothing: the call has no body", ["nothing: the call has no body"], false, false) }
         // (xbind's bodyShown is a boolean: `body` is the whole body, as text)
         let c = clipText(r.body, all: all)
-        return (c.text, "\(bytes(r.bodySize)) · \(c.clipped ? clipNote(c) : "shown in full")", false, c.clipped)
+        let parts = [bytes(r.bodySize), c.clipped ? clipNote(c) : "shown in full"]
+        return (c.text, parts.joined(separator: ", "), parts, false, c.clipped)
     }
 
     // MARK: The agent's text, as a sheet shows it
@@ -375,7 +385,9 @@ public enum DelegationWords {
     }
 
     /// A tile agent's start as the sheet's rows: the mode leads; one that
-    /// never asks is the danger wording, and Deny becomes the primary button.
+    /// never asks is the danger wording in the body, and Allow is coloured
+    /// as the danger it is, in its place — Deny is never made the primary
+    /// button (D250).
     public struct SessionRows: Sendable, Equatable {
         public var agent: String
         public var modeTag: String
@@ -406,7 +418,16 @@ public enum DelegationWords {
         /// change it (the web's words). "" where nothing is offered.
         public var signInTrustWhose: String = ""
         public var signInTrust: String = ""
+        /// Where xbind offers the person a pick of coding agent, model and
+        /// mode on the approval (D250's `choices`): the app approves xbind's
+        /// preselection, and says where the pick is. "" where none is offered.
+        public var picks: String = ""
     }
+
+    /// What the app says of a start whose coding agent, model and mode the
+    /// person may pick on the web's sheet (D250).
+    public static let picksOnWeb = "The coding agent, model and mode are as xbin preselected them. To pick others, review this start on the web."
+
 
     /// Whose tile it is and who else can change it — the web's
     /// `trustWords(...).whose`, from xbind's trust question.
@@ -436,7 +457,7 @@ public enum DelegationWords {
         let asks = s["asks"]?.boolValue == true
         let who = nonEmpty(s["providerName"]?.stringValue) ?? nonEmpty(s["provider"]?.stringValue) ?? "A coding agent"
         let modelName = s["model"]?.stringValue ?? ""
-        let model = modelName.isEmpty ? "" : " · model \(modelName)"
+        let model = modelName.isEmpty ? "" : ", model \(modelName)" // (never joined with "·": D250)
         let credentials = s["credentials"]?.stringValue ?? ""
         let signIn = s["signIn"]?.stringValue ?? ""
         let offered = !(s["signInId"]?.stringValue ?? "").isEmpty
@@ -468,7 +489,8 @@ public enum DelegationWords {
             network: net.isEmpty || net == "none" ? "Its model only. No internet." : "Network: \(net)",
             others: s["api"]?.boolValue == false ? "It can call no other tile." : "It can call the tile APIs this tile is granted.",
             brief: brief,
-            danger: asks ? "" : "Your workspace agent asked for a mode that never asks. You will not get a chance to stop a single edit or command.",
+            // (the agent can't pick a mode that never asks — D250: only the person can)
+            danger: asks ? "" : "\(who) in this mode acts without asking: it edits files and runs commands in \(t) without asking you. You will not get a chance to stop a single edit or command.",
             comes: "Its questions and permission requests come to you, in \(t) and in Needs you. Your workspace agent can't answer them.",
             briefBy: brief.isEmpty ? "" : s["briefBy"]?.stringValue == "xbin" ? briefByXbin : briefByAgent,
             signIn: offer ? runs : saved ? "Uses your saved \(who) sign-in"
@@ -476,14 +498,15 @@ public enum DelegationWords {
             signInHolds: saved ? "The tile's coding agent will hold that sign-in: it, and anything it runs in \(t), can read it." : "",
             signInTrustWhose: whose,
             signInTrust: offer ? "To use your saved \(who) sign-in for this session, allow it on the web: it is a line you tick there"
-                + (whose.isEmpty ? "." : ", with the tile's trust line under it.") + " Allowed here, the session has no saved sign-in." : "")
+                + (whose.isEmpty ? "." : ", with the tile's trust line under it.") + " Allowed here, the session has no saved sign-in." : "",
+            picks: s["choices"]?.objectValue != nil ? picksOnWeb : "")
     }
 
     private static func nonEmpty(_ s: String?) -> String? { (s ?? "").isEmpty ? nil : s }
 
     /// A decided request in a few words.
     public static func settled(_ r: DelegateRequest, zone: TimeZone = .current) -> String {
-        let at = r.decided.map { " · \(clock($0, zone: zone))" } ?? ""
+        let at = r.decided.map { " at \(clock($0, zone: zone))" } ?? "" // (a sentence, never joined with "·": D250)
         switch r.state {
         case .approved: return "Allowed\(r.grant == "once" || r.grant.isEmpty ? " once" : "") by you\(at)"
         case .used: return "Allowed by you, and used\(at)"
@@ -551,15 +574,18 @@ public enum DelegationWords {
         public var waits: Bool
         /// "Review…" while it waits, "" after.
         public var button: String
+        /// The quiet line's facts, each its own element (D250); `line` is
+        /// them joined, for a reader of one line.
+        public var parts: [String] = []
     }
 
     public static func requestCard(_ r: DelegateRequest, now: Date = Date(), zone: TimeZone = .current) -> RequestCard {
         let what = needTitle(r)
         switch r.kind == .unknown ? .unknown : r.state { // a kind this app doesn't know is never one to decide
         case .pending:
-            return RequestCard(head: "Waiting for your approval", what: what,
-                               line: asked(created: r.created, expires: r.expires, now: now, zone: zone),
-                               glyph: "shield", tone: "warn", waits: true, button: "Review…")
+            let parts = askedList(created: r.created, expires: r.expires, now: now, zone: zone)
+            return RequestCard(head: "Waiting for your approval", what: what, line: parts.joined(separator: ", "),
+                               glyph: "shield", tone: "warn", waits: true, button: "Review…", parts: parts)
         case .approved:
             return RequestCard(head: settled(r, zone: zone), what: what, line: "running now…", glyph: "clock", tone: "", waits: false, button: "")
         case .used:
@@ -580,8 +606,9 @@ public enum DelegationWords {
         switch c.state {
         case .proposed:
             let exp = c.expires.map { $0 > now ? "expires in \(left($0.timeIntervalSince(now)))" : "expired" } ?? ""
-            return RequestCard(head: w.title, what: "", line: [w.note, exp].filter { !$0.isEmpty }.joined(separator: " · "),
-                               glyph: "shield", tone: "warn", waits: true, button: "Review…")
+            let parts = (w.notes + [exp]).filter { !$0.isEmpty }
+            return RequestCard(head: w.title, what: "", line: parts.joined(separator: ", "),
+                               glyph: "shield", tone: "warn", waits: true, button: "Review…", parts: parts)
         case .applying: return RequestCard(head: w.title, what: "", line: "applying now…", glyph: "clock", tone: "", waits: false, button: "")
         case .applied, .partial:
             return RequestCard(head: resultsWords(c).title, what: "", line: "", glyph: c.state == .applied ? "check" : "warning",
@@ -659,15 +686,19 @@ public enum DelegationWords {
         c.items.filter { tickable($0) && !(AgentChoices.warnedStartUnticked && !$0.warnings.isEmpty) }.map(\.n)
     }
 
-    public static func reviewWords(_ c: AdminChangeSet, ticked: Int) -> (heading: String, intro: String, footer: String, apply: String) {
+    /// How ticked changes are applied — the review footer's note beside the
+    /// count, its own element (D250; the web's APPLY_ORDER).
+    public static let applyOrder = "Applied in order as you. If one fails, later ones are skipped and earlier ones stay."
+
+    public static func reviewWords(_ c: AdminChangeSet, ticked: Int) -> (heading: String, intro: String, footer: String, footerNote: String, apply: String) {
         let total = c.items.count
         return ("Your agent proposes \(plural(total, "admin change"))",
                 "Each line, its before and after and its warnings are written by xbin from the change itself. Nothing has been applied.",
-                "\(ticked) of \(total) ticked · applied in order as you. If one fails, later ones are skipped and earlier ones stay.",
+                "\(ticked) of \(total) ticked", applyOrder,
                 ticked > 0 ? "Apply \(plural(ticked, "change"))…" : "Apply none")
     }
 
-    public static func needChangeTitle(_ c: AdminChangeSet) -> (title: String, note: String) {
+    public static func needChangeTitle(_ c: AdminChangeSet) -> (title: String, note: String, notes: [String]) {
         let w = c.items.filter { !$0.warnings.isEmpty }.count
         let b = c.items.filter { !$0.blocked.isEmpty }.count
         let na = c.items.filter { $0.needsAdmin && $0.result.isEmpty }.count
@@ -676,7 +707,7 @@ public enum DelegationWords {
         // a plan, or another person's request to an admin, says which it is
         let title = !c.from.isEmpty ? "\(c.from) asks for \(plural(c.items.count, "admin change"))"
             : c.plan ? "A plan of \(plural(c.items.count, "change"))" : "\(plural(c.items.count, "admin change")) proposed"
-        return (title, note.joined(separator: " · "))
+        return (title, note.joined(separator: ", "), note) // (each fact its own element where shown: D250)
     }
 
     /// An item's result: a word, an icon, a tone, and a sentence where one
@@ -1064,20 +1095,23 @@ public struct AgentNeed: Sendable, Equatable, Identifiable {
     public var kind: Kind
     public var id: String
     public var title: String
+    /// `parts` joined, for a reader of one line.
     public var note: String
     public var at: Date?
+    /// The row's facts, each its own element (D250: never joined with "·").
+    public var parts: [String] = []
 
     public static func rows(requests: [DelegateRequest], changesets: [AdminChangeSet], now: Date = Date(), zone: TimeZone = .current) -> [AgentNeed] {
         var rows: [AgentNeed] = []
         for r in requests where r.isPending {
-            rows.append(AgentNeed(kind: .request, id: r.id, title: DelegationWords.needTitle(r),
-                                  note: DelegationWords.asked(created: r.created, expires: r.expires, now: now, zone: zone), at: r.created))
+            let parts = DelegationWords.askedList(created: r.created, expires: r.expires, now: now, zone: zone)
+            rows.append(AgentNeed(kind: .request, id: r.id, title: DelegationWords.needTitle(r), note: parts.joined(separator: ", "), at: r.created, parts: parts))
         }
         for c in changesets where c.isProposed {
             let w = DelegationWords.needChangeTitle(c)
             let exp = c.expires.flatMap { $0 > now ? "expires in \(DelegationWords.left($0.timeIntervalSince(now)))" : nil } ?? ""
-            rows.append(AgentNeed(kind: .changeset, id: c.id, title: w.title, note: [w.note, exp].filter { !$0.isEmpty }.joined(separator: " · "),
-                                  at: c.created))
+            let parts = (w.notes + [exp]).filter { !$0.isEmpty }
+            rows.append(AgentNeed(kind: .changeset, id: c.id, title: w.title, note: parts.joined(separator: ", "), at: c.created, parts: parts))
         }
         return rows.sorted { ($0.at ?? .distantPast) < ($1.at ?? .distantPast) }
     }

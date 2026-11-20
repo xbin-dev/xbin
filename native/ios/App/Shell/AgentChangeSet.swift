@@ -66,7 +66,7 @@ struct AgentChangeSetSheet: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            AgentTrustedBar(title: set?.plan == true ? PlanWords.planWords(set!, ticks: []).bar.uppercased() : "XBIN · ADMIN CHANGES",
+            AgentTrustedBar(title: set?.plan == true ? PlanWords.planWords(set!, ticks: []).bar : ["xbin", "admin changes"],
                             asking: workspace.userLabel) { scene.agentReview = nil }
             if let s = set {
                 if let kind = stepUp {
@@ -123,7 +123,7 @@ struct AgentChangeSetSheet: View {
                     Label { Text(verbatim: problem) } icon: { Image(systemName: "exclamationmark.octagon") }
                         .font(.callout).foregroundStyle(XbinColor.danger)
                 }
-                Text(verbatim: plan?.footer ?? w.footer).font(.caption).foregroundStyle(XbinColor.muted)
+                AgentFacts(parts: [plan?.footer ?? w.footer, plan?.footerNote ?? w.footerNote], font: .caption)
             }
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -224,7 +224,7 @@ struct AgentChangeSetSheet: View {
                     .font(.callout).foregroundStyle(XbinColor.warn)
             }
             let needs = [notes.needs, notes.neededBy].filter { !$0.isEmpty }
-            if !needs.isEmpty { Text(verbatim: needs.joined(separator: " · ")).font(.caption).foregroundStyle(XbinColor.muted) }
+            if !needs.isEmpty { AgentFacts(parts: needs, font: .caption) }
             if !item.why.isEmpty {
                 AgentHiddenNote(text: item.why)
                 Text(AgentReveal.attributed("Agent's reason: “\(item.why)”", font: .caption.italic())).foregroundStyle(XbinColor.muted)

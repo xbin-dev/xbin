@@ -17,6 +17,7 @@ import Testing
     }
 
     private func s(_ j: JSONValue?, _ k: String) -> String { j?[k]?.stringValue ?? "" }
+    private func strs(_ j: JSONValue?) -> [String] { (j?.arrayValue ?? []).compactMap(\.stringValue) }
 
     @Test func requests() throws {
         let cases = try #require(v["requests"]?.arrayValue)
@@ -34,7 +35,7 @@ import Testing
             #expect(h.before == s(c["heading"], "before") && h.strong == s(c["heading"], "strong") && h.after == s(c["heading"], "after"), "\(id)")
             let sends = DelegationWords.sends(r)
             #expect(sends.text == s(c["sends"], "text"), "\(id)")
-            #expect(sends.note == s(c["sends"], "note"), "\(id)")
+            #expect(sends.note == s(c["sends"], "note") && sends.parts == strs(c["sends"]?["parts"]), "\(id)")
             #expect(sends.binary == c["sends"]?["binary"]?.boolValue, "\(id)")
             #expect(sends.clipped == (c["sends"]?["clipped"]?.boolValue ?? false), "\(id)")
             let all = DelegationWords.sends(r, all: true)
@@ -124,10 +125,10 @@ import Testing
             #expect(ticks.map { JSONValue.int(Int64($0)) } == c["ticks"]?.arrayValue, "\(cs.id)")
             let review = DelegationWords.reviewWords(cs, ticked: ticks.count)
             #expect(review.heading == s(c["review"], "heading") && review.intro == s(c["review"], "intro")
-                && review.footer == s(c["review"], "footer") && review.apply == s(c["review"], "apply"), "\(cs.id)")
+                && review.footer == s(c["review"], "footer") && review.footerNote == s(c["review"], "footerNote") && review.apply == s(c["review"], "apply"), "\(cs.id)")
             #expect(DelegationWords.reviewWords(cs, ticked: 0).apply == "Apply none")
             let need = DelegationWords.needChangeTitle(cs)
-            #expect(need.title == s(c["need"], "title") && need.note == s(c["need"], "note"), "\(cs.id)")
+            #expect(need.title == s(c["need"], "title") && need.note == s(c["need"], "note") && need.notes == strs(c["need"]?["notes"]), "\(cs.id)")
             if cs.state == .unknown {
                 #expect(s(c, "ended") == v["small"]?["unknown"]?["page"]?.stringValue && !cs.isProposed, "\(cs.id)")
                 #expect(DelegationWords.endedWords(cs) == v["small"]?["unknown"]?["app"]?.stringValue, "\(cs.id)")
@@ -308,7 +309,7 @@ import Testing
         let want = small["needs"]?.arrayValue ?? []
         #expect(rows.count == want.count)
         for (a, b) in zip(rows, want) {
-            #expect(a.kind.rawValue == s(b, "kind") && a.id == s(b, "id") && a.title == s(b, "title") && a.note == s(b, "note"))
+            #expect(a.kind.rawValue == s(b, "kind") && a.id == s(b, "id") && a.title == s(b, "title") && a.note == s(b, "note") && a.parts == strs(b["parts"]))
         }
     }
 
@@ -318,6 +319,8 @@ import Testing
     @Test func cards() throws {
         func same(_ card: DelegationWords.RequestCard, _ w: JSONValue?, _ id: String) {
             #expect(card.head == s(w, "head") && card.what == s(w, "what") && card.line == s(w, "line"), "\(id): \(card)")
+            #expect(card.parts.isEmpty || card.parts == strs(w?["parts"]), "\(id): each fact its own element (D250): \(card)")
+            #expect(!card.line.contains("·") && !card.head.contains("·"), "\(id): no \"·\" (D250)")
             #expect(card.glyph == s(w, "glyph") && card.tone == s(w, "tone") && card.waits == w?["waits"]?.boolValue && card.button == s(w, "button"), "\(id): \(card)")
         }
         let requests = try #require(v["requests"]?.arrayValue)

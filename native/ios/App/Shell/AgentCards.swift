@@ -74,7 +74,9 @@ struct AgentRequestCard: View {
                             Image(systemName: AgentTone.symbol(card.glyph)).foregroundStyle(AgentTone.color(card.tone))
                         }
                         if !card.what.isEmpty { Text(verbatim: card.what).font(.callout) }
-                        if !card.line.isEmpty {
+                        if !card.parts.isEmpty {
+                            AgentFacts(parts: card.parts) // each fact its own element (D250)
+                        } else if !card.line.isEmpty {
                             Text(verbatim: card.line).font(.caption.monospacedDigit()).foregroundStyle(XbinColor.muted)
                         }
                         if !card.button.isEmpty {

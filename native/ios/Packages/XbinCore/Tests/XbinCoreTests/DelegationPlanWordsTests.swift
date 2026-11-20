@@ -14,6 +14,7 @@ import Testing
     init() throws { v = try Resources.json("delegation-words.json") }
 
     private func s(_ j: JSONValue?, _ k: String) -> String { j?[k]?.stringValue ?? "" }
+    private func strs(_ j: JSONValue?) -> [String] { (j?.arrayValue ?? []).compactMap(\.stringValue) }
     private func ints(_ j: JSONValue?) -> [Int] { (j?.arrayValue ?? []).compactMap { $0.intValue.map { Int($0) } } }
 
     @Test func plans() throws {
@@ -24,7 +25,7 @@ import Testing
             let id = cs.id
             #expect(cs.plan)
             let need = DelegationWords.needChangeTitle(cs)
-            #expect(need.title == s(c["need"], "title") && need.note == s(c["need"], "note"), "\(id)")
+            #expect(need.title == s(c["need"], "title") && need.note == s(c["need"], "note") && need.notes == strs(c["need"]?["notes"]), "\(id)")
             #expect(PlanWords.askedWords(cs) == s(c, "askedWords"), "\(id)")
             #expect(PlanWords.waitingWords(cs) == s(c, "waitingWords"), "\(id): what waits for xbin")
             let wantItems = c["items"]?.arrayValue ?? []
@@ -50,8 +51,9 @@ import Testing
             #expect(ticks == ints(c["ticks"]), "\(who): ticks")
             let w = PlanWords.planWords(cs, ticks: ticks)
             let ww = c["words"]
-            #expect(w.bar == s(ww, "bar") && w.heading == s(ww, "heading") && w.intro == s(ww, "intro"), "\(who)")
-            #expect(w.footer == s(ww, "footer") && w.apply == s(ww, "apply") && w.reject == s(ww, "reject"), "\(who)")
+            // each of the bar's and the footer's facts its own element (D250)
+            #expect(w.bar == strs(ww?["bar"]) && w.bar.count == 2 && w.heading == s(ww, "heading") && w.intro == s(ww, "intro"), "\(who)")
+            #expect(w.footer == s(ww, "footer") && w.footerNote == s(ww, "footerNote") && w.apply == s(ww, "apply") && w.reject == s(ww, "reject"), "\(who)")
             #expect(PlanWords.planWords(cs, ticks: []).apply == s(c, "none"), "\(who)")
             #expect(ww?["optIn"] == nil, "\(who): the review offers no switch")
             #expect((w.ask == nil) == (ww?["ask"]?.objectValue == nil), "\(who): ask an admin")
