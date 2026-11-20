@@ -40,7 +40,7 @@ async function planChecks({ page, S, check, refresh, sentTo, armed, text, shot, 
   await review(page, 'pl1');
   await page.waitForSelector(`${DLG} [role="dialog"][data-view="review"] .item[data-n="5"]`);
   const dl = await text(`${DLG} [role="dialog"]`);
-  check(/xbin · plan/i.test(dl) && /Your agent proposes 5 changes/.test(dl) && /<b>NOW<\/b>/.test(dl) && !/\[object Object\]/.test(dl) && /Before\s*not bound/i.test(dl) && /After\s*apps\/dice/i.test(dl),
+  check(/xbin\s*plan/i.test(dl) && /Your agent proposes 5 changes/.test(dl) && /<b>NOW<\/b>/.test(dl) && !/\[object Object\]/.test(dl) && /Before\s*not bound/i.test(dl) && /After\s*apps\/dice/i.test(dl),
     `[${width}] a plan's review: xbin's bar and heading, the agent's title quoted as text, a binding's before and after in words`);
   check((await ticks()) === '1+ 2+ 3- 4+ 5+' && !(await page.$eval(`${DLG} .item[data-n="3"] input`, (e) => e.disabled)) && (await page.getAttribute(`${DLG} .item[data-n="3"]`, 'data-line')) === 'ok'
     && !(await page.$(`${DLG} [data-optin]`)) && !/Let my agent propose admin changes/.test(dl),
@@ -182,7 +182,7 @@ async function planChecks({ page, S, check, refresh, sentTo, armed, text, shot, 
   await review(page, 'pl4');
   await page.waitForSelector(`${DLG} [role="dialog"][data-view="review"] .item[data-n="1"]`);
   const fr = await text(`${DLG} [role="dialog"]`);
-  check(/xbin · request from bob/i.test(fr) && /bob asks for 1 admin change/.test(fr) && /Their agent's title — not checked by xbin/i.test(fr) && /bob asks for 1 admin change/.test(row) && (await ticks()) === '1-'
+  check(/xbin\s*request from bob/i.test(fr) && /bob asks for 1 admin change/.test(fr) && /Their agent's title — not checked by xbin/i.test(fr) && /bob asks for 1 admin change/.test(row) && (await ticks()) === '1-'
     && !(await page.$(`${DLG} [data-stopped]`)) && (await text(`${DLG} [data-reject]`)) === 'Decline',
   `[${width}] a request from another person: who asks, their agent's words quoted, a warned line unticked, Decline (${row})`);
   await shot(page, `agent-plan-request${tag}`, { fullPage: false });

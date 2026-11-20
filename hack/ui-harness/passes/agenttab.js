@@ -650,11 +650,11 @@ async function agentTab(browser) {
   check(/Answer Name first/.test(kit.form.missing) && kit.form.sentEarly === 0, `Submit without a required answer says which, and sends nothing (${kit.form.missing})`);
   check(JSON.stringify(kit.form.answer) === '["answer","e-form",{"action":"accept","content":{"db":"sqlite","port":8080,"name":"ledger"}}]', `a form answers its defaults and what was typed (${JSON.stringify(kit.form.answer)})`);
   check(kit.form.viewer.buttons === 0 && kit.form.viewer.note && kit.form.viewer.disabled, `a viewer sees the form without its buttons (${JSON.stringify(kit.form.viewer)})`);
-  check(kit.perm.owner.join(' ') === 'once* bypass! no', `an option that stops the agent asking is drawn as a caution, never the primary one (${kit.perm.owner})`);
+  check(kit.perm.owner.join(' ') === 'no bypass! once*', `an option that stops the agent asking is drawn as a caution, never the primary one; the rejection left, the primary right (D250) (${kit.perm.owner})`);
   check(kit.perm.refused.length === 1 && kit.perm.refused[0][0] === 'confirm' && /Yes, and stop asking: Fable then stops asking/.test(kit.perm.refused[0][1]), `choosing it asks first — refused, nothing is sent (${JSON.stringify(kit.perm.refused)})`);
   check(kit.perm.confirmed.length === 2 && kit.perm.confirmed[1][0] === 'permit' && kit.perm.confirmed[1][2].optionId === 'bypass' && kit.perm.confirmed[1][2].verdict === 'allow', `confirmed, it is sent (${JSON.stringify(kit.perm.confirmed)})`);
   check(kit.perm.plain.length === 1 && kit.perm.plain[0][0] === 'permit' && kit.perm.plain[0][2].optionId === 'once', 'an ordinary option is sent without a question');
-  check(kit.perm.participant.buttons.join(' ') === 'once no' && /One option that would stop Fable asking/.test(kit.perm.participant.note), `a participant is not offered it, and is told one is hidden (${JSON.stringify(kit.perm.participant)})`);
+  check(kit.perm.participant.buttons.join(' ') === 'no once' && /One option that would stop Fable asking/.test(kit.perm.participant.note), `a participant is not offered it, and is told one is hidden (${JSON.stringify(kit.perm.participant)})`);
   check(kit.perm.viewer.buttons === 0 && kit.perm.viewer.note, 'a viewer sees the request without its answers');
   check(!Object.values(kit.kinds).some((k) => k.error), `every kind draws (${JSON.stringify(Object.fromEntries(Object.entries(kit.kinds).filter(([, v]) => v.error)))})`);
   check(/bxc-draft/.test(kit.kinds.d1.cls) && /Writing now/.test(kit.kinds.d1.text), `a draft is a message being written (${JSON.stringify(kit.kinds.d1)})`);

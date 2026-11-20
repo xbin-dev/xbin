@@ -213,7 +213,8 @@ async function agentChrome(browser) {
     await page.click(`${DOCK} bx-agent-needs li[data-id="r1"] button`);
     await page.waitForSelector(`${SHEET} [role="dialog"]`);
     const sheet = await text(`${SHEET} [role="dialog"]`);
-    check(/xbin · approval/i.test(sheet) && /Your agent wants to change something in Crawler/.test(sheet) && /POST \/api\/apps\/crawler\/links\/rebuild\?all=1/.test(sheet) && /35 bytes · shown in full/.test(sheet)
+    // (each fact its own element, D250: the bar's words and the body's size and "shown in full" are separate)
+    check(/xbin\s*approval/i.test(sheet) && /Your agent wants to change something in Crawler/.test(sheet) && /POST \/api\/apps\/crawler\/links\/rebuild\?all=1/.test(sheet) && /35 bytes\s*shown in full/.test(sheet) && !sheet.includes('·')
       && /you can write here/.test(sheet) && /xbin can't undo this/.test(sheet) && /1 of 3/.test(sheet), `[${width}] the sheet: xbin's reading of the call (${sheet.slice(0, 160)})`);
     check(/The agent's own words — not checked by xbin/i.test(sheet) && !(await page.$(`${SHEET} img`)) && !(await page.$(`${SHEET} a`)) && /<img src=x/.test(sheet),
       `[${width}] the agent's sentence is quoted as text: no image, no link`);
@@ -246,8 +247,8 @@ async function agentChrome(browser) {
     await page.click(`${SHEET} button[data-allow]`);
     await page.waitForSelector(`${SHEET} [data-step="wider"]`);
     check(sentTo(/r2\/approve$/).length === 0 && /Allow every change to Crawler\?/.test(await text(`${SHEET} [role="dialog"]`))
-      && await page.$eval(`${SHEET} [data-back]`, (b) => b.classList.contains('primary')) && await page.$eval(`${SHEET} button[data-allow="tile"]`, (b) => b.classList.contains('danger')),
-    `[${width}] the wider grant asks again: Go back is the primary button, nothing sent yet`);
+      && await page.$eval(`${SHEET} [data-back]`, (b) => !b.classList.contains('primary')) && await page.$eval(`${SHEET} button[data-allow="tile"]`, (b) => b.classList.contains('primary') && b.classList.contains('danger')),
+    `[${width}] the wider grant asks again: Go back quiet on the left, Allow every change primary in the danger colour (D250), nothing sent yet`);
     await shot(page, `agent-chrome-wider${tag}`, { fullPage: false });
     await page.click(`${SHEET} [data-back]`);
     await page.waitForSelector(`${SHEET} [data-step="main"]`);
@@ -260,9 +261,9 @@ async function agentChrome(browser) {
     await page.waitForFunction(() => document.querySelector('bx-agent-dock').shadowRoot.querySelector('bx-agent-approve')?.request?.id === 's1');
     check(JSON.stringify(sentTo(/r2\/approve$/).map((c) => c.body)) === '[{"grant":"hour","scope":"tile"}]', `[${width}] "Allow every change" sends {grant: hour, scope: tile} (${JSON.stringify(sentTo(/r2\/approve$/).map((c) => c.body))})`);
 
-    // ---- a session start that asks: denied; one that never asks: Deny is primary ----
+    // ---- a session start that asks: denied; one that never asks: the danger, Allow in its place (D250) ----
     const st = await text(`${SHEET} [role="dialog"]`);
-    check(/Start a tile agent in Crawler\?/.test(st) && /asks before it edits or runs anything/i.test(st) && /Claude Code · model sonnet/.test(st) && /Fix the export test\./.test(st) && /sent exactly like this/.test(st) && !(await page.$(`${SHEET} [data-choice]`)),
+    check(/Start a tile agent in Crawler\?/.test(st) && /asks before it edits or runs anything/i.test(st) && /Claude Code, model sonnet/.test(st) && /Fix the export test\./.test(st) && /sent exactly like this/.test(st) && !(await page.$(`${SHEET} [data-choice]`)),
       `[${width}] a tile agent start: the mode, the coding agent, the brief; no standing choice`);
     await page.click(`${SHEET} button[data-deny]`);
     await page.waitForFunction(() => !document.querySelector('bx-agent-dock').shadowRoot.querySelector('bx-agent-approve'));
@@ -271,9 +272,9 @@ async function agentChrome(browser) {
     await refresh();
     await page.evaluate(() => document.querySelector('bx-agent-dock').review('request', 's2'));
     await page.waitForSelector(`${SHEET} [role="dialog"][data-kind="session"]`);
-    check(/acts without asking/i.test(await text(`${SHEET} [data-row="mode"]`)) && /a mode that never asks/.test(await text(`${SHEET} .banner.bad`))
-      && await page.$eval(`${SHEET} button[data-deny]`, (b) => b.classList.contains('primary')) && (await text(`${SHEET} button[data-allow]`)) === 'Start without asking'
-      && await page.$eval(`${SHEET} button[data-allow]`, (b) => b.classList.contains('danger')), `[${width}] a mode that never asks: the danger wording, Deny is the primary button`);
+    check(/acts without asking/i.test(await text(`${SHEET} [data-row="mode"]`)) && /in this mode acts without asking/.test(await text(`${SHEET} .banner.bad`))
+      && await page.$eval(`${SHEET} button[data-deny]`, (b) => !b.classList.contains('primary')) && (await text(`${SHEET} button[data-allow]`)) === 'Start without asking'
+      && await page.$eval(`${SHEET} button[data-allow]`, (b) => b.classList.contains('primary') && b.classList.contains('danger')), `[${width}] a mode that never asks: the danger wording; Allow keeps its place, primary in the danger colour, and Deny stays quiet (D250)`);
     await shot(page, `agent-chrome-session-danger${tag}`, { fullPage: false });
     await armed(['bx-agent-dock', 'bx-agent-approve', 'button[data-allow]']);
     await page.click(`${SHEET} button[data-allow]`);
@@ -301,7 +302,7 @@ async function agentChrome(browser) {
     const ticks = await page.$$eval(`${DLG} .item`, (els) => els.map((e) => `${e.dataset.n}${e.querySelector('input').checked ? '+' : '-'}${e.querySelector('input').disabled ? 'x' : ''}`));
     check(ticks.join(' ') === '1+ 2- 3-x 4+', `[${width}] a warned item starts unticked, a blocked one can't be ticked (${ticks.join(' ')})`);
     const dl = await text(`${DLG} [role="dialog"]`);
-    check(/xbin · admin changes/i.test(dl) && /Your agent proposes 4 admin changes/.test(dl) && /The agent's title — not checked by xbin/i.test(dl) && /<b>NOW<\/b>/.test(dl) && /PUBLIC/.test(dl) && /Can't be applied\./.test(dl)
+    check(/xbin\s*admin changes/i.test(dl) && /Your agent proposes 4 admin changes/.test(dl) && /The agent's title — not checked by xbin/i.test(dl) && /<b>NOW<\/b>/.test(dl) && /PUBLIC/.test(dl) && /Can't be applied\./.test(dl)
       && /2 of 4 ticked/.test(dl) && (await text(`${DLG} [data-apply]`)) === 'Apply 2 changes…', `[${width}] the review: xbin's lines, the warning, the blocked item, the count on the button`);
     await shot(page, `agent-chrome-changes${tag}`, { fullPage: false });
     await page.check(`${DLG} .item[data-n="2"] input`);
@@ -642,12 +643,12 @@ async function realHolderRun(browser, check, skip) {
   check((await count()) === '1' && /^\(1\) /.test(await page.title()), `[real] Needs you counts it without a reload — xbind's delegate event (${await page.title()})`);
   check((await note()).includes(`writes=${w0}`), '[real] nothing ran: the note is as it was');
   await f.waitForSelector(`.wsc-req[data-ref="${id1}"][data-state="pending"]`);
-  await f.click(`.wsc-req[data-ref="${id1}"] button.primary`);
+  await f.click(`.wsc-req[data-ref="${id1}"] [data-marker]`); // (the card's one control: the marker that opens it, D250)
   await page.waitForSelector(`${SHEET} [role="dialog"]`);
   const sheet = await text(`${SHEET} [role="dialog"]`);
-  check((await sheetId()) === id1 && /xbin · approval/i.test(sheet) && /Your agent wants to change something in Wsnote/.test(sheet) && sheet.includes(`PUT /api/${R.NOTE}/note`) && sheet.includes(`"${body1}"`),
+  check((await sheetId()) === id1 && /xbin\s*approval/i.test(sheet) && /Your agent wants to change something in Wsnote/.test(sheet) && sheet.includes(`PUT /api/${R.NOTE}/note`) && sheet.includes(`"${body1}"`),
     `[real] the page's Review… (xbin:agent-open-request {id}) opens the sheet, drawn from xbind's reading (${sheet.slice(0, 150)})`);
-  check(sheet.includes(`${p1[0] ? p1[0].bodySize : '?'} bytes · shown in full`) && /you can write here/.test(sheet) && /xbin can't undo this/.test(sheet), `[real] …the body in full, the person's level in words (${(/Sends.*?Undo/.exec(sheet) || [''])[0].slice(0, 90)})`);
+  check(sheet.includes(`${p1[0] ? p1[0].bodySize : '?'} bytesshown in full`) && /you can write here/.test(sheet) && /xbin can't undo this/.test(sheet), `[real] …the body in full, the person's level in words (${(/Sends.*?Undo/.exec(sheet) || [''])[0].slice(0, 90)})`);
   check(/The agent's own words — not checked by xbin/i.test(sheet) && sheet.includes(`set the note ${stamp}`) && /Always, this exact action/.test(sheet) && /EVERY write to apps\/wsnote's API/.test(sheet),
     '[real] …the agent\'s sentence quoted as the agent\'s; the standing choices in xbind\'s own words');
   await shot(page, 'agent-chrome-real-approve', { fullPage: false });
@@ -778,11 +779,11 @@ async function realHolderRun(browser, check, skip) {
   log(`agentChrome: the change set: ${JSON.stringify(sets[0] || null).slice(0, 600)}`);
   check(/^Done: Change set /.test(turn6) && sets.length === 1 && sets[0].items.length === 1 && !!sets[0].items[0].line && !(await grants()), `[real] admin_propose filed a change set at xbind, in xbind's own words; nothing applied (${sets[0] && sets[0].items[0].line})`);
   await f.waitForSelector(`.wsc-req[data-kind="changeset"][data-ref="${cid}"]`);
-  await f.click(`.wsc-req[data-ref="${cid}"] button.primary`);
+  await f.click(`.wsc-req[data-ref="${cid}"] [data-marker]`);
   await page.waitForSelector(`${DLG} [role="dialog"][data-view="review"]`);
   const dl = await text(`${DLG} [role="dialog"]`);
   const ticks = await page.$$eval(`${DLG} .item`, (els) => els.map((e) => `${e.dataset.n}${e.querySelector('input').checked ? '+' : '-'}${e.querySelector('input').disabled ? 'x' : ''}`));
-  check((await page.evaluate(() => document.querySelector('bx-agent-changes').set.id)) === cid && /xbin · admin changes/i.test(dl) && /Your agent proposes 1 admin change/.test(dl) && dl.includes(sets[0].items[0].line)
+  check((await page.evaluate(() => document.querySelector('bx-agent-changes').set.id)) === cid && /xbin\s*admin changes/i.test(dl) && /Your agent proposes 1 admin change/.test(dl) && dl.includes(sets[0].items[0].line)
     && /The agent's title — not checked by xbin/i.test(dl) && dl.includes(`Let welcome read the note ${stamp}`) && /Agent's reason — not checked by xbin/i.test(dl) && /welcome shows the note/.test(dl),
   `[real] the page's Review… (xbin:agent-open-changeset {id}) opens xbin's dialog over the page: xbind's line, the agent's title and reason quoted (${dl.slice(0, 140)}; ${ticks.join(' ')})`);
   await shot(page, 'agent-chrome-real-changes', { fullPage: false });

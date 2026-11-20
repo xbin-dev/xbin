@@ -54,6 +54,21 @@ func TestNoDefaultModeStartsOnItsTicket(t *testing.T) {
 	if s := sessOf(req); s["provider"] != "fake" || s["mode"] != "ask" || s["asks"] != true {
 		t.Fatalf("the card of a start of a coding agent with no default mode: %v", s)
 	}
+	// start-defaults says so too: what the agent's backend reads to know a session in that mode asks (the
+	// approvalsUx pass: its tile agent was said to "act without asking" in its asking mode)
+	sd := w.do(w.full, "GET", "/api/xbin/delegate/start-defaults?tile=apps/x", "", alice)
+	var d struct {
+		Harnesses []struct {
+			ID, Mode string
+			Asks     bool
+		}
+	}
+	_ = json.Unmarshal(sd.Body.Bytes(), &d)
+	for _, h := range d.Harnesses {
+		if h.ID == "fake" && (h.Mode != "ask" || !h.Asks) {
+			t.Fatalf("start-defaults of a coding agent with no default mode: %+v", h)
+		}
+	}
 	w.approve(person, req.ID, "")
 	rec := w.do(w.full, "POST", "/api/xbin/term/sessions", body, alice, header(HeaderTicket, req.ID))
 	if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), "bx binary") {
@@ -332,6 +347,21 @@ func realDelegateWorld(t *testing.T, fakeArgs ...string) *dWorld {
 }
 
 // waitIdle waits for a session to end its turn.
+// waitMode waits for session id to run in mode — a switch the person makes
+// is the coding agent's to take, and xbind's record follows it.
+func waitMode(t *testing.T, w *dWorld, id, mode string) {
+	t.Helper()
+	deadline := time.Now().Add(20 * time.Second)
+	for time.Now().Before(deadline) {
+		if info, ok := w.s.Term.Info(id); ok && info.Mode == mode {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	info, _ := w.s.Term.Info(id)
+	t.Fatalf("session %s never in mode %s: %+v", id, mode, info)
+}
+
 func waitIdle(t *testing.T, w *dWorld, id string) {
 	t.Helper()
 	deadline := time.Now().Add(20 * time.Second)
@@ -392,6 +422,7 @@ func TestMessageApproval(t *testing.T) {
 	if rec := w.do(w.full, "POST", "/api/xbin/term/sessions/"+info.ID+"/options", `{"id":"mode","value":"auto"}`, person); rec.Code != 200 {
 		t.Fatalf("the person's mode switch: %d %s", rec.Code, rec.Body.String())
 	}
+	waitMode(t, w, info.ID, "auto")
 	path := "/api/xbin/term/sessions/" + info.ID + "/queue"
 	msg := `{"text":"Fix the stray O after a Reset."}`
 	// unapproved: refused, as ever
@@ -423,12 +454,14 @@ func TestMessageApproval(t *testing.T) {
 	if rec := w.do(w.full, "POST", "/api/xbin/term/sessions/"+info.ID+"/options", `{"id":"mode","value":"yolo"}`, person); rec.Code != 200 {
 		t.Fatalf("the person's mode switch: %d %s", rec.Code, rec.Body.String())
 	}
+	waitMode(t, w, info.ID, "yolo")
 	if rec := w.do(w.full, "POST", path, msg, alice, header(HeaderTicket, m2.ID)); rec.Code != 403 || !strings.Contains(rec.Body.String(), `"reason":"session"`) || !strings.Contains(rec.Body.String(), `not fake in mode \"auto\" as approved`) {
 		t.Fatalf("a message approved before the mode changed: %d %s", rec.Code, rec.Body.String())
 	}
 	// a session that asks needs no approval: the request is refused
 	in2, _ := json.Marshal(map[string]string{"method": "POST", "path": path, "body": msg})
 	w.do(w.full, "POST", "/api/xbin/term/sessions/"+info.ID+"/options", `{"id":"mode","value":"ask"}`, person)
+	waitMode(t, w, info.ID, "ask")
 	if rec := w.do(w.full, "POST", "/api/xbin/delegate/requests", string(in2), alice); rec.Code != 400 || !strings.Contains(rec.Body.String(), "needs no approval") {
 		t.Fatalf("a message request to a session that asks: %d %s", rec.Code, rec.Body.String())
 	}
@@ -482,9 +515,22 @@ func TestContinueOnlyOwnSessionSameTile(t *testing.T) {
 		t.Fatalf("a second session of the agent's opened: %d sessions", n)
 	}
 	// approved, and the session ends before it is used: refused, nothing spent
-	waitIdle(t, w, a.ID)
-	r3 := w.ask(alice, "POST", "/api/xbin/term/sessions", startBody("apps/x", "Goal: polish.", "provider", "fake", "continue", a.ID))
-	w.do(w.full, "POST", "/api/xbin/delegate/requests/"+r3.ID+"/approve", `{"knows":["continue"]}`, person)
+	// (idle again after the follow-up's turn: an idle read can come before the turn began — file until it offers it)
+	var r3 delegation.Request
+	for deadline := time.Now().Add(20 * time.Second); ; time.Sleep(100 * time.Millisecond) {
+		waitIdle(t, w, a.ID)
+		r3 = w.ask(alice, "POST", "/api/xbin/term/sessions", startBody("apps/x", "Goal: polish.", "provider", "fake", "continue", a.ID))
+		if sessOf(r3)["continue"] != nil {
+			break
+		}
+		w.do(w.full, "DELETE", "/api/xbin/delegate/requests/"+r3.ID, "", alice)
+		if time.Now().After(deadline) {
+			t.Fatalf("the idle session never offered to continue: %v", sessOf(r3))
+		}
+	}
+	if rec := w.do(w.full, "POST", "/api/xbin/delegate/requests/"+r3.ID+"/approve", `{"knows":["continue"]}`, person); rec.Code != 200 {
+		t.Fatalf("approve the continue: %d %s", rec.Code, rec.Body.String())
+	}
 	w.s.Term.Kill(a.ID)
 	deadline := time.Now().Add(10 * time.Second)
 	for _, live := w.s.Term.Info(a.ID); live && time.Now().Before(deadline); _, live = w.s.Term.Info(a.ID) {

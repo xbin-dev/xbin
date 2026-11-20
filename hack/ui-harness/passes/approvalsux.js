@@ -34,6 +34,7 @@ const SHEET = `${DOCK} bx-agent-approve`;
 const TILE = 'apps/eui';
 const PERSON = { id: 'ada', name: 'Ada Admin', password: require('crypto').randomBytes(12).toString('base64url') }; // (made per run, never logged)
 const BEFORE = !!process.env.APPROVALS_BEFORE;
+const FAKE = 'fake'; // the scripted coding agent planted in the tile (journey.js boot, XBIN_AGENT_FAKE)
 
 const BRIEF = { tile: TILE, goal: 'Turn the eui page into a playable tic tac toe game: a 3x3 board two people can play on the same screen, X and O alternating, the winner or a draw announced, and a reset button.',
   done_when: 'Opening apps/eui shows a 3x3 board and a reset control. Clicking an empty square places the current player\'s mark, a filled square ignores clicks, and no further moves are taken after a win or draw.',
@@ -65,8 +66,55 @@ function caller(ctx, X) {
   };
 }
 
-// what a lit tree shows, through its shadow roots
-const deep = `(function deep(n) { let t = ''; for (const c of (n.shadowRoot || n).childNodes) t += c.nodeType === 3 ? c.textContent : c.nodeType === 1 ? deep(c) : ''; return t; })`;
+// what a lit tree shows, through its shadow roots (written out in each callback: a page's CSP may refuse eval)
+const textOf = (h) => h.evaluate((el) => { const deep = (n) => { let t = ''; for (const c of (n.shadowRoot || n).childNodes) t += c.nodeType === 3 ? c.textContent : c.nodeType === 1 ? ' ' + deep(c) : ''; return t; }; return deep(el).replace(/\s+/g, ' ').trim(); });
+const until = async (fn, ms = 60000, every = 250) => { const end = Date.now() + ms; for (;;) { const v = await fn(); if (v || Date.now() > end) return v; await sleep(every); } };
+const box = (h) => h.boundingBox();
+
+/** sheetChecks(check, V, label): xbin's sheet for a start, as D250 draws it — the picks, where each came from, one approve, the roles. */
+async function sheetChecks(check, P, label) {
+  const sheet = await P.$(SHEET);
+  const t = await textOf(sheet);
+  for (const id of ['harness', 'model', 'mode']) check(!!(await P.$(`${SHEET} [data-select="${id}"]`)), `${label}: the ${id} select is on xbin's sheet`);
+  const from = await P.$$eval(`${SHEET} [data-from]`, (els) => els.map((e) => `${e.dataset.from}: ${e.textContent.trim()}`));
+  check(from.length === 3, `${label}: each pick says where it came from (${JSON.stringify(from)})`);
+  const before = await P.$eval(`${SHEET} [data-select="mode"]`, (e) => e.value);
+  // the person switches the coding agent — the owner's switch to OpenCode: the scripted agent here, which names no default mode
+  const opts = await P.$$eval(`${SHEET} [data-select="harness"] option`, (os) => os.map((o) => o.value));
+  check(opts.includes(FAKE), `${label}: the coding agents the tile allows, ${FAKE} among them (${JSON.stringify(opts)})`);
+  await P.selectOption(`${SHEET} [data-select="harness"]`, FAKE);
+  await sleep(300);
+  const mode = await P.$eval(`${SHEET} [data-select="mode"]`, (e) => e.value);
+  const from2 = await P.$$eval(`${SHEET} [data-from]`, (els) => Object.fromEntries(els.map((e) => [e.dataset.from, e.textContent.trim()])));
+  check(mode === 'ask' && before !== '', `${label}: picking a coding agent with no default mode (OpenCode's case) preselects its asking mode (${before} → ${mode})`);
+  check(/your pick/.test(from2.harness || ''), `${label}: the coding agent is the person's pick (${JSON.stringify(from2)})`);
+  check(!(await P.$(`${SHEET} [data-danger]`)), `${label}: an asking mode: no danger`);
+  const allows = await P.$$(`${SHEET} button[data-allow]`), denies = await P.$$(`${SHEET} button[data-deny]`);
+  check(allows.length === 1 && denies.length === 1, `${label}: one Allow and one Deny (${allows.length}, ${denies.length})`);
+  if (allows.length === 1 && denies.length === 1) {
+    const [ac, dc] = [await allows[0].getAttribute('class'), await denies[0].getAttribute('class')];
+    check(/\bprimary\b/.test(ac) && !/\bdanger\b/.test(ac) && !/\bprimary\b/.test(dc || ''), `${label}: plain — Allow primary, Deny quiet (${ac} / ${dc})`);
+    const [a, d] = [await box(allows[0]), await box(denies[0])];
+    check(a && d && (d.x < a.x || d.y < a.y), `${label}: Deny left of (or above) Allow (${JSON.stringify([d, a])})`);
+  }
+  check(!t.includes('·'), `${label}: no "·" in the sheet`);
+  const call = await P.$eval(`${SHEET} [data-details]`, (e) => ({ open: e.open, call: e.textContent })).catch(() => null);
+  check(call && !call.open && /POST \/api\/xbin\/term\/sessions/.test(call.call), `${label}: the call is in the closed Details (${JSON.stringify(call)})`);
+  const wide = await P.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1);
+  check(wide, `${label}: no horizontal scroll`);
+  // warned: the person picks the mode that acts without asking — Allow keeps its place, coloured as the danger; Deny isn't promoted
+  await P.selectOption(`${SHEET} [data-select="mode"]`, 'auto');
+  await sleep(800);
+  const [wa, wd] = [await P.$(`${SHEET} button[data-allow]`), await P.$(`${SHEET} button[data-deny]`)];
+  const [wac, wdc] = [await wa.getAttribute('class'), await wd.getAttribute('class')];
+  check(/\bprimary\b/.test(wac) && /\bdanger\b/.test(wac) && !/\bprimary\b/.test(wdc || ''), `${label}: warned — Allow still primary, in the danger colour; Deny still quiet (${wac} / ${wdc})`);
+  const [a2, d2] = [await box(wa), await box(wd)];
+  check(a2 && d2 && (d2.x < a2.x || d2.y < a2.y), `${label}: warned — the same places`);
+  check(!!(await P.$(`${SHEET} [data-danger]`)), `${label}: warned — the danger is said in the body`);
+  await shot(P, `approvals-sheet-warned${label.includes('430') ? '-430' : ''}`, { fullPage: false });
+  await P.selectOption(`${SHEET} [data-select="mode"]`, 'ask');
+  await sleep(800);
+}
 
 async function approvalsUx(browser) {
   const { check, skip, done } = checker('approvals-ux');
@@ -115,11 +163,36 @@ async function approvalsUx(browser) {
       await vf.evaluate(() => document.querySelector('.wsc-brief').scrollIntoView({ block: 'start' }));
       await sleep(300);
       await shot(V.page, `approvals-card${tag(scheme, width)}`, { fullPage: false });
+      const first = !BEFORE && scheme === 'dark';
+      if (first) {
+        const L = `${width} px`;
+        // ONE card and ONE control that opens the approval, for the start of a brief
+        check((await vf.$$('.wsc-brief')).length === 1, `${L}: one brief card`);
+        const startReq = pending.find((r) => r.kind === 'session');
+        check(!!startReq && (await vf.$$(`.wsc-req[data-ref="${startReq && startReq.id}"]`)).length === 0 && (await vf.$$('.wsc-req[data-kind="session"]')).length === 0, `${L}: no second card for the brief's start`);
+        check((await vf.$$('.wsc-brief [data-marker="approval"]')).length === 1, `${L}: one marker on the brief that opens the approval`);
+        const ft = await vf.$eval('.wsc-brief', (e) => e.innerText);
+        check(!/\bApprove\b|\bAllow\b|Review and start/.test(ft), `${L}: the brief's card carries no approve of its own (${ft.slice(0, 160)})`);
+        check(!ft.includes('·'), `${L}: no "·" on the brief's card`);
+        check(!(await vf.$('.wsc-brief select')), `${L}: no coding-agent picker on the brief`);
+      }
       // the batch: the dock's list of what waits
       await V.page.click(`${DOCK} [data-needs]`);
       await V.page.waitForSelector(`${DOCK} bx-agent-needs`);
       await sleep(300);
       await shot(V.page, `approvals-batch${tag(scheme, width)}`, { fullPage: false });
+      if (first) {
+        const L = `${width} px`;
+        const title = await V.page.$eval(`${DOCK} bx-agent-needs [data-batch-title]`, (e) => e.textContent.trim()).catch(() => '');
+        const count = await V.page.$eval(`${DOCK} bx-agent-needs [data-batch-count]`, (e) => e.textContent.trim()).catch(() => '');
+        check(title === 'Waiting for you' && count === '2', `${L}: the batch is a title with a count badge (${title} / ${count})`);
+        const rows = await V.page.$$eval(`${DOCK} bx-agent-needs li[data-id]`, (ls) => ls.map((l) => ({ kind: l.dataset.kind, id: l.dataset.id, acts: l.querySelectorAll('button').length })));
+        const ids = rows.map((r) => r.id);
+        check(rows.length === 2 && new Set(ids).size === 2 && rows.every((r) => r.acts === 1), `${L}: two pending, each once, one action each (${JSON.stringify(rows)})`);
+        check(JSON.stringify(ids) === JSON.stringify(pending.map((r) => r.id)), `${L}: oldest first (${JSON.stringify(ids)} vs ${JSON.stringify(pending.map((r) => r.id))})`);
+        check(!!(await V.page.$(`${DOCK} bx-agent-needs [data-review-all]`)), `${L}: Review all, with two to review`);
+        check(!(await textOf(await V.page.$(`${DOCK} bx-agent-needs`))).includes('·'), `${L}: no "·" in the batch`);
+      }
       await V.page.click(`${DOCK} [data-needs]`);
       // the sheet: the start's review, opened from the conversation
       const opener = BEFORE ? '.wsc-brief .wsc-start' : '.wsc-brief [data-marker="approval"]';
@@ -127,6 +200,7 @@ async function approvalsUx(browser) {
       await V.page.waitForSelector(`${SHEET} [role="dialog"]`);
       await sleep(700); // armed
       await shot(V.page, `approvals-sheet${tag(scheme, width)}`, { fullPage: false });
+      if (first) await sheetChecks(check, V.page, `the sheet at ${width} px`);
       await V.page.keyboard.press('Escape');
       await V.ctx.close();
       contexts.pop();
@@ -136,6 +210,82 @@ async function approvalsUx(browser) {
       skip('APPROVALS_BEFORE=1: the views of the tree before D250, shot; nothing asserted');
       return;
     }
+
+    // ---- the person's pick is the approval: one round, remembered for the tile ----
+    const start = pending.find((r) => r.kind === 'session');
+    let clicks = 0;
+    await page.goto(`${X.url}/xbin/agent`);
+    const pf = await R.agentFrame(page);
+    await pf.waitForSelector('.wsc-brief [data-marker="approval"]', { timeout: 60000 });
+    await pf.click('.wsc-brief [data-marker="approval"]'); clicks++;
+    await page.waitForSelector(`${SHEET} [role="dialog"]`);
+    await page.selectOption(`${SHEET} [data-select="harness"]`, FAKE); clicks++;
+    await page.check(`${SHEET} [data-remember]`); clicks++;
+    await sleep(800); // armed again
+    await page.click(`${SHEET} button[data-allow]`); clicks++;
+    const used = await until(async () => { const r = (await call('GET', `/delegate/requests/${start.id}`)).data; return r && ['used', 'failed'].includes(r.state) ? r : null; }, 120000);
+    check(used && used.state === 'used', `the start opened on the first approval (${used && used.state} ${used && used.failure ? used.failure.why : ''})`);
+    check(used && used.chosen && used.chosen.provider === 'fake' && used.chosen.mode === 'ask' && used.chosen.remember, `the person's pick is recorded as what opened (${JSON.stringify(used && used.chosen)})`);
+    log(`approvalsUx: the first start: ONE round, ${clicks} clicks (the marker, the coding agent, Remember for this tile, Allow)`);
+    // the sheet goes on to what else waits (the call to the tile): left for later
+    await sleep(500);
+    if (await page.$(`${SHEET} [role="dialog"]`)) await page.keyboard.press('Escape');
+    await sleep(300);
+    const sessions = async () => (((await call('GET', '/term/sessions?origin=agent&compact=1')).data) || []).filter((x) => (x.cwd || '').replace(/^\/+|\/+$/g, '') === TILE);
+    // in its asking mode the tile agent asks before it runs a command: its person answers in the one batch,
+    // on a permission card whose buttons sit where every approval's do — the rejection left, the allow right
+    const asking = await until(async () => { const ss = await sessions(); return ss.length === 1 && ss[0].pending > 0 ? ss[0] : null; }, 120000);
+    check(!!asking && asking.provider === 'fake' && asking.mode === 'ask', `one tile agent on ${TILE}, as picked, asking before it runs a command (${JSON.stringify(asking)})`);
+    await page.click(`${DOCK} [data-needs]`);
+    const perm = `${DOCK} bx-agent-needs bx-agent-permits .bxc-perm .bxc-btns`;
+    await page.waitForSelector(`${perm} button`, { timeout: 60000 });
+    const roles = await page.$$eval(`${perm} button`, (bs) => bs.map((b) => `${b.className}:${b.dataset.kind}`));
+    check(roles.length >= 2 && /bxc-deny/.test(roles[0]) && /bxc-primary/.test(roles[roles.length - 1]), `the permission card: the rejection left, the primary allow right (${JSON.stringify(roles)})`);
+    await shot(page, 'approvals-permission', { fullPage: false });
+    await sleep(800); // armed
+    await page.click(`${perm} button.bxc-primary`);
+    await page.click(`${DOCK} [data-needs]`).catch(() => {});
+    const idle = await until(async () => { const ss = await sessions(); return ss.length === 1 && ss[0].status === 'idle' && ss[0].turn >= 1 && !ss[0].pending ? ss[0] : null; }, 120000);
+    check(!!idle, `the tile agent's turn ended, idle (${JSON.stringify(idle || (await sessions()))})`);
+    const told = await until(async () => /Fake agent|fake/.test(await pf.evaluate(() => document.body.innerText)) && (((await cards()).agents || []).length >= 1), 60000);
+    check(!!told, 'the conversation shows the tile agent that ran');
+    await shot(page, 'approvals-started', { fullPage: false });
+
+    // ---- a follow-up: the next start offers to continue the session there; a new one would preselect the remembered pick ----
+    const BRIEF2 = { tile: TILE, goal: 'Add a computer player to the tic tac toe game.', done_when: 'One can play against the computer.', leave_alone: 'Other tiles.', check_by: 'Play a game against it.' };
+    // (the conversation's own record of the tile agent says idle too: what the follow-up continues)
+    check(!!(await until(async () => ((await cards()).agents || []).some((a) => a.tile === TILE && a.status === 'idle' && !a.waits), 60000)), 'the conversation knows its tile agent is idle');
+    const t4 = await R.say(pf, ws('add a computer player', [j('tile_agent_brief', BRIEF2)]), 120000); // (the page's frame since the reload)
+    log(`approvalsUx: the follow-up's brief: ${t4.slice(0, 300)}`);
+    const brief2 = ((await cards()).briefs || []).find((b) => b.tile === TILE && b.id !== brief.id);
+    check(!!brief2, `a second brief for ${TILE} (${brief2 && brief2.id})`);
+    const t5 = await R.say(pf, ws('go ahead', [j('tile_agent_start', { brief: brief2 && brief2.id })]), 120000);
+    log(`approvalsUx: the follow-up's start: ${t5.slice(0, 400)}`);
+    const second = await until(async () => (((await call('GET', '/delegate/requests')).data || {}).requests || []).find((r) => r.state === 'pending' && r.kind === 'session'), 60000);
+    const cont = second && second.preview && second.preview.session && second.preview.session.continue;
+    check(!!cont && cont.session === idle.id, `the follow-up offers to continue the session there (${JSON.stringify(cont)})`);
+    await page.goto(`${X.url}/xbin/agent`);
+    const pf2 = await R.agentFrame(page);
+    await until(async () => (await pf2.$$('.wsc-brief [data-marker="approval"]')).length === 1, 60000);
+    await pf2.click('.wsc-brief [data-marker="approval"]');
+    await page.waitForSelector(`${SHEET} [data-continue]`);
+    const contText = await textOf(await page.$(`${SHEET} [data-continue]`));
+    check(/Continue the Fake agent \(tests\) session from \d\d:\d\d with this follow-up/.test(contText) && /Start a new session instead/.test(contText), `continue first, a new session the other choice (${contText.slice(0, 200)})`);
+    check(await page.$eval(`${SHEET} [data-cont="continue"]`, (e) => e.checked), 'continuing is the preselected choice');
+    await shot(page, 'approvals-continue', { fullPage: false });
+    await page.check(`${SHEET} [data-cont="new"]`);
+    await sleep(300);
+    const from2 = await page.$$eval(`${SHEET} [data-from]`, (els) => Object.fromEntries(els.map((e) => [e.dataset.from, e.textContent.trim()])));
+    check(/remembered for this tile/.test(from2.harness || '') && /remembered for this tile/.test(from2.mode || ''), `a new session would preselect the pick remembered for the tile (${JSON.stringify(from2)})`);
+    await shot(page, 'approvals-remembered', { fullPage: false });
+    await page.check(`${SHEET} [data-cont="continue"]`);
+    await sleep(800);
+    await page.click(`${SHEET} button[data-allow]`);
+    const used2 = await until(async () => { const r = (await call('GET', `/delegate/requests/${second.id}`)).data; return r && ['used', 'failed'].includes(r.state) ? r : null; }, 120000);
+    check(used2 && used2.state === 'used' && used2.chosen && used2.chosen.continue === idle.id, `the follow-up went to the session there (${JSON.stringify(used2 && used2.chosen)})`);
+    check((await sessions()).length === 1, 'and no second session opened on the tile');
+    if (await page.$(`${SHEET} [role="dialog"]`)) await page.keyboard.press('Escape');
+    for (const r of (((await call('GET', '/delegate/requests')).data || {}).requests || []).filter((x) => x.state === 'pending')) await call('POST', `/delegate/requests/${r.id}/deny`, {});
   } finally {
     for (const c of contexts) await c.close().catch(() => {});
     await X.stop();

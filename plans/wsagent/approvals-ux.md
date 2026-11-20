@@ -436,8 +436,9 @@ the body, armed after 600 ms (`/vendor/agent-armed.js`, unchanged).
 
 ## Safety rules, with the tests that hold them
 
-Each was run RED without its rule (the run log is in the commit that adds
-it):
+Each was run RED without its rule, then GREEN with it — the rule taken
+out for each run, and the verdict, are in the message of the commit that
+adds this sentence (20 runs: the 15 below and the backend's 5):
 
 | Rule | Test |
 |---|---|

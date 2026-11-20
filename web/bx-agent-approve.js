@@ -44,7 +44,7 @@
  * act is (a mode that acts without asking, the wider standing grant), never
  * by promoting Deny. A warning is said in the body.
  */
-import { LitElement, html, css, nothing } from '/vendor/lit-all.min.js';
+import { LitElement, html, css, nothing, keyed } from '/vendor/lit-all.min.js';
 import '/vendor/bx-icons.js';
 import { chromeCss } from '/vendor/agent-chrome-css.js';
 import { agentStore } from '/vendor/agent-chrome-store.js';
@@ -347,8 +347,9 @@ export class BxAgentApprove extends LitElement {
       ${r.danger && v && !v.asks ? html`<div class="banner bad" role="alert" data-danger><bx-icon name="error"></bx-icon><span>${v.danger}</span></div>` : nothing}
       <dl class="rows">
         ${v && v.pickers.length ? v.pickers.map((pk) => html`<dt><label for=${`pick-${pk.id}`}>${pk.label}</label></dt><dd class="pick" data-pick=${pk.id}>
-            <select id=${`pick-${pk.id}`} data-select=${pk.id} .value=${pk.value} @change=${(e) => set(pk.id, e.target.value)}>
-              ${pk.options.map((o) => html`<option value=${o.value} ?selected=${o.value === pk.value}>${o.label}</option>`)}</select>
+            ${/* a new select for new options: one whose options are swapped under it keeps the old (dirty) selection, and
+                 showed a blank mode after the coding agent changed (the approvalsUx pass) */ ''}${keyed(`${pk.id}:${pk.options.map((o) => o.value).join('\n')}`, html`<select id=${`pick-${pk.id}`} data-select=${pk.id} .value=${pk.value} @change=${(e) => set(pk.id, e.target.value)}>
+              ${pk.options.map((o) => html`<option value=${o.value} ?selected=${o.value === pk.value}>${o.label}</option>`)}</select>`)}
             ${pk.from ? html`<span class="small from" data-from=${pk.id}>${pk.from}</span>` : nothing}
             ${pk.note ? html`<span class="small muted">${pk.note}</span>` : nothing}
             ${pk.warn ? html`<span class="small err" data-not-taken>${pk.warn}</span>` : nothing}</dd>`)
@@ -356,7 +357,8 @@ export class BxAgentApprove extends LitElement {
         ${v && v.remember.shown ? html`<dt></dt><dd><label class="small"><input type="checkbox" data-remember .checked=${!!this._pick.remember}
             @change=${(e) => { this._pick = { ...this._pick, remember: e.target.checked }; }}> ${v.remember.label}</label>
           <div class="small muted">${v.remember.note}</div></dd>` : nothing}
-        <dt>Mode</dt><dd data-row="mode"><span class="tag ${r.mode.tone}">${r.mode.tag}</span>${r.mode.name ? html` <span class="mono muted">${r.mode.name}</span>` : nothing}<div>${r.mode.text}</div></dd>
+        ${v && (v.pickers.length || v.continuing) ? nothing /* the Mode picker says it (and a continued session's chips): not a second Mode row */
+          : html`<dt>Mode</dt><dd data-row="mode"><span class="tag ${r.mode.tone}">${r.mode.tag}</span>${r.mode.name ? html` <span class="mono muted">${r.mode.name}</span>` : nothing}<div>${r.mode.text}</div></dd>`}
         ${this._tileRow(req)}
         ${v && v.continuing ? nothing : signinRow(r, { ...this._ticks, guard: this._widen, set: (patch) => { this._ticks = { ...this._ticks, ...patch }; } })}
         <dt>Network</dt><dd>${r.network}</dd>

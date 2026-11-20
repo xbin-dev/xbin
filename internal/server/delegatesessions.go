@@ -532,6 +532,13 @@ func (s *Server) startDefaults(p auth.Principal, tile string) startDefaultsView 
 		if m, err := prov.ResolveMode(h.Mode); err == nil { // "" is the harness's own default
 			h.Mode = m
 		}
+		if h.Mode == "" {
+			// a harness with no default mode of its own (OpenCode) opens in its
+			// asking mode, as the approval's default and an unasked start do
+			// (D250, startchoice.go askingMode) — said so here, so what reads
+			// this (the agent's backend) knows a session in it asks
+			h.Mode = askingMode(prov)
+		}
 		if !prov.Asks(h.Mode) {
 			// a mode not known to ask its person (a harness that keeps its
 			// modes to itself, or a preference the catalog no longer

@@ -364,14 +364,15 @@ async function drive(browser, { check, ctx, page, call, stamp }) {
     `a call to the tile left out is xbin's refusal, drawn with the way forward (${JSON.stringify(refusal).slice(0, 160)})`);
   const pend = await f.$$eval('.wsc-req', (els) => els.map((e) => ({ ...e.dataset, row: e.closest('.bxc-row') ? e.closest('.bxc-row').dataset.kind : '', text: e.textContent.replace(/\s+/g, ' ').trim() })));
   check(reqs.length === 1 && pend.length === 1 && pend[0].state === 'pending' && pend[0].ref === reqs[0].id && pend[0].kind === 'call' && pend[0].row === 'tool'
-    && /Waiting for your approval/.test(pend[0].text) && pend[0].text.includes(`PUT /api/${NOTE}/note`) && /expires in 2[34] h/.test(pend[0].text) && /Review…/.test(pend[0].text),
-  `a request card in place of the call that filed it: xbind's id, what, when it expires, Review… (${pend[0] && pend[0].text.slice(0, 120)})`);
+    && /Waiting for your approval/.test(pend[0].text) && pend[0].text.includes(`PUT /api/${NOTE}/note`) && /expires in 2[34] h/.test(pend[0].text) && !/Review…|Allow/.test(pend[0].text)
+    && (await f.$$('.wsc-req[data-state="pending"] button')).length === 1 && !!(await f.$('.wsc-req[data-state="pending"] [data-marker]')),
+  `a request card in place of the call that filed it: xbind's id, what, when it expires, and one control — the marker that opens it (D250) (${pend[0] && pend[0].text.slice(0, 120)})`);
   check(/A request waits for your approval/.test((await api(f)).said), `the page says so once, politely (${(await api(f)).said})`);
   check(!(await text(f, '.wsc-req')).includes(body), 'the card shows the call, not what it sends: that is xbin\'s to show');
   await shot(page, 'wsagent-page-turn', { fullPage: false });
 
   // ---- allowed in xbin's sheet: the card becomes what came of it ----
-  await f.click('.wsc-req[data-state="pending"] button.primary');
+  await f.click('.wsc-req[data-state="pending"] [data-marker]');
   await page.waitForSelector(`${SHEET} [role="dialog"]`);
   const sheet = await page.textContent(`${SHEET} [role="dialog"]`).then((t) => t.replace(/\s+/g, ' '));
   check(sheet.includes(`PUT /api/${NOTE}/note`) && sheet.includes(body) && /set the note for the page/.test(sheet), `Review… opens xbin's sheet by the request's id: the call, what it sends, the agent's words (${sheet.slice(0, 160)})`);

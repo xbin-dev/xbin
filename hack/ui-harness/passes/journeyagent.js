@@ -108,10 +108,10 @@ async function journeyAgent(browser) {
     check(!/mcp-server/.test(JSON.stringify(tpl.data || '')), 'there is no MCP template to stamp: the tool is built');
 
     J.section('the one review');
-    await J.click('the plan\'s card: "Review…"', async () => { await f.locator('.wsc-req[data-kind="changeset"] button.primary').last().click(); await page.waitForSelector(`${DLG} [role="dialog"][data-view="review"]`, { timeout: 20000 }); });
+    await J.click('the plan\'s card: "Review…"', async () => { await f.locator('.wsc-req[data-kind="changeset"] [data-marker]').last().click(); await page.waitForSelector(`${DLG} [role="dialog"][data-view="review"]`, { timeout: 20000 }); });
     const review = await dlg();
     const lines = await page.$$eval(`${DLG} .item .line > span:first-child`, (els) => els.map((e) => e.textContent.trim()));
-    check(/xbin · plan/i.test(review) && /Your agent proposes 5 changes/.test(review) && lines[0] === `Create the tile ${J0.DICE} from the template Starter (starter) — yours`
+    check(/xbin\s*plan/i.test(review) && /Your agent proposes 5 changes/.test(review) && lines[0] === `Create the tile ${J0.DICE} from the template Starter (starter) — yours`
       && /^Start a tile agent in apps\/dice — Fake agent \(tests\), in its mode/.test(lines[1]) && lines[2] === `Create the tile ${ASSISTANT} from the template AI Agent (agent) — yours`
       && lines[3] === `Bind ${ASSISTANT}'s llm to xbin:llm` && lines[4] === `Bind ${ASSISTANT}'s mcp to ${J0.DICE}`,
     `xbin's review of the plan: five lines in xbind's words (${JSON.stringify(lines)})`);
@@ -169,7 +169,7 @@ async function journeyAgent(browser) {
       `the permission is drawn by xbin in the dock, as the tile's window draws it: the command exactly, and its choices (${offered.join(', ')}; ${perm.slice(0, 120)})`);
     check((await f.locator('bx-agent-permits, .bxc-perm').count()) === 0, 'the agent\'s page draws no permission card: it can\'t answer for the person');
     const waitingRow = (await page.locator(`${DOCK} bx-agent-needs li[data-kind="changeset"]`).first().innerText().catch(() => '')).replace(/\s+/g, ' ');
-    check(/Waiting: Bind apps\/assistant's mcp to apps\/dice/.test(waitingRow) && /xbin applies it once apps\/dice provides mcp · lapses in 23 h/.test(waitingRow), `Needs you also lists the line that waits (${waitingRow})`);
+    check(/Waiting: Bind apps\/assistant's mcp to apps\/dice/.test(waitingRow) && /xbin applies it once apps\/dice provides mcp\s+lapses in 23 h/.test(waitingRow) && !waitingRow.includes('·'), `Needs you also lists the line that waits (${waitingRow})`);
     await page.screenshot({ path: path.join(J0.SHOTS, 'plan-permission.png') }).catch(() => {});
     // the card is armed like every control of xbin's that allows something (review finding 3): the agent's page can
     // open the tray when it likes and the coding agent it briefed decides when a request appears, so a click that
