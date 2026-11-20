@@ -107,7 +107,10 @@ func (ag *Agent) assembleContext(ctx context.Context, run *Run, cfg Config) ([]w
 		}
 		if m.Role == "assistant" && len(m.Meta) > 0 {
 			var meta msgMeta
-			if json.Unmarshal(m.Meta, &meta) == nil && len(meta.ReasoningRaw) > 0 {
+			if json.Unmarshal(m.Meta, &meta) == nil && (len(meta.ReasoningRaw) > 0 || meta.ReplayField != "") {
+				// the reasoning it was answered with rides with it (D249): a wire sends it back only to its source
+				// (sameSource); a message compacted away takes its reasoning with it — it is never sent on its own
+				meta.Reasoning = ownTagSafe(meta.Reasoning)
 				wm.Replay = &meta
 			}
 		}

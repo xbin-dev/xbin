@@ -214,6 +214,10 @@ export const modelCatalog = () => api('/models');
 // setRunModel switches a conversation's model from its next turn
 // ('' = back to the agent's default).
 export const setRunModel = (id, model) => api(`/runs/${id}`, jbody({ model }, 'PATCH'));
+// setRunEffort sets a conversation's reasoning effort from its next turn
+// (D249): a ladder word, 'default' (the model's own), '' (its class's or the
+// agent's default)
+export const setRunEffort = (id, effort) => api(`/runs/${id}`, jbody({ effort }, 'PATCH'));
 
 // features: {keys, features} — the switches there are and which are on.
 // setFeature merges one switch into the current config and saves it; it

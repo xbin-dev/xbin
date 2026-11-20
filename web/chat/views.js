@@ -113,6 +113,8 @@ export function draftView(b) {
 }
 
 const took = (ms) => { const s = Math.max(1, Math.round(ms / 1000)); return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`; };
+// thoughtTokens(n) → " · 4.3k tokens": a thought's reasoning tokens after its time ('' for none; D249)
+export const thoughtTokens = (n) => !(n > 0) ? '' : n < 1000 ? ` · ${n} tokens` : ` · ${(n / 1000).toFixed(n < 10000 ? 1 : 0).replace(/\.0$/, '')}k tokens`;
 
 /**
  * thoughtView(b, ctx): the agent thinking — open while it streams (the block
@@ -124,7 +126,7 @@ export function thoughtView(b, ctx) {
   const open = ctx.isOpen(b, 'body', live);
   const toggle = (e) => { if (e.target.open !== ctx.isOpen(b, 'body', live)) ctx.setOpen(b, 'body', e.target.open, live); };
   return html`<div class="bxc-msg"><details class="bxc-thought" ?open=${open} @toggle=${toggle}>
-    <summary><bx-icon class="bxc-cr" name="caret-right"></bx-icon><bx-icon class="bxc-cd" name="caret-down"></bx-icon>${live ? html`<span class="bxc-live">Thinking…</span>` : timed ? `Thought for ${took(b.ms || 0)}` : 'Thought'}</summary>
+    <summary><bx-icon class="bxc-cr" name="caret-right"></bx-icon><bx-icon class="bxc-cd" name="caret-down"></bx-icon>${live ? html`<span class="bxc-live">Thinking…</span>` : `${timed ? `Thought for ${took(b.ms || 0)}` : 'Thought'}${thoughtTokens(b.tokens)}`}</summary>
     ${open ? html`<div class="bxc-md" ${mdLive(b.text, b)}></div>` : nothing}</details></div>`;
 }
 

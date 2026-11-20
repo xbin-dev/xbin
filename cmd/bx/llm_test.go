@@ -17,7 +17,9 @@ import (
 // connector.
 func TestBxLLMRequests(t *testing.T) {
 	const view = `{"configured":true,"enabled":true,"people":"admins","upstreams":[{"name":"main","kind":"openai","baseURL":"https://api.example/v1",
-		"key":{"set":true,"source":"vault","hint":"…cdef"},"models":["gpt-5"],"private":false,"prices":{"gpt-5":{"in":1.25,"out":10}},"source":"admin","locked":false},
+		"key":{"set":true,"source":"vault","hint":"…cdef"},"models":["gpt-5"],"private":false,"prices":{"gpt-5":{"in":1.25,"out":10}},"source":"admin","locked":false,
+		"reasoning":{"gpt-5*":{"supported_levels":["low","medium","high"],"default_level":"medium","can_disable":false,"source":"admin"}},
+		"replayOff":{"strict-thinker":{"since":"2026-11-20T10:00:00Z","field":"reasoning_content","callers":2}}},
 		{"name":"hosted","kind":"openai","baseURL":"https://host.example","key":{"set":true,"source":"host"},"models":[],"private":true,"source":"host","locked":true}],
 		"defaults":{"model":"main/gpt-5","roles":{"agent":"main/gpt-5"}},"aliases":{"fast":"main/gpt-5"},"quotas":{},
 		"locks":{"upstreams.hosted":{"locked":true,"reason":"set by your host"},"people":{"locked":true,"reason":"set by your host"}},
@@ -31,7 +33,12 @@ func TestBxLLMRequests(t *testing.T) {
 			_, _ = io.WriteString(w, `{"configured":true,"enabled":true,"callable":true,"url":"/api/xbin/llm/v1","ref":"xbin:llm","people":"admins","admin":true,"user":"owner",
 				"defaults":{"model":"main/gpt-5"},"quota":{"limits":[{"name":"tokensPerDay","value":1000,"source":"default","action":"stop","used":1200,"resets":"2026-11-15T00:00:00Z","state":"stop"}],"workspace":[],"state":"stop"}}`)
 		case r.URL.Path == "/api/xbin/llm/v1/models":
-			_, _ = io.WriteString(w, `{"object":"list","data":[{"id":"main/gpt-5"},{"id":"fast","alias_of":"main/gpt-5"}],"upstream_errors":{"hosted":"its model list is unavailable"}}`)
+			_, _ = io.WriteString(w, `{"object":"list","data":[{"id":"main/gpt-5"},{"id":"fast","alias_of":"main/gpt-5"},
+				{"id":"main/deepseek-v4.1-flash","effort":{"supported_levels":["low","high","max"],"default_level":"high","can_disable":true,"source":"upstream"}},
+				{"id":"main/plain","effort":{"supported_levels":[],"source":"admin"}},{"id":"main/odd","effort":"junk"},{"id":"main/router","effort":{"reasons":true,"source":"upstream"}},
+				{"id":"main/kimi-k3","xbin_effort_suggestion":{"supported_levels":["low","high","max","turbo"],"default_level":"max","can_disable":false,"aliases":{"medium":"high","xhigh":"ultra"},"source":"xbin"}},
+				{"id":"main/sly","effort":{"supported_levels":["turbo","\u001b[31mred","high"],"default_level":"\u001b[2J","source":"\u001b[0m"}},
+				{"id":"main/junk","effort":{"supported_levels":["turbo"]}}],"upstream_errors":{"hosted":"its model list is unavailable"}}`)
 		case r.URL.Path == "/api/xbin/llm/usage":
 			_, _ = io.WriteString(w, `{"period":"day","from":"2026-11-01","to":"2026-11-14","scope":"all","rows":[{"day":"2026-11-14","user":"bob","component":"apps/agent","model":"main/gpt-5","requests":3,"inputTokens":300,"outputTokens":60,"cost":0.0009,"unpriced":1}],
 				"totals":{"requests":3,"inputTokens":300,"outputTokens":60,"cost":0.0009,"unpriced":1}}`)
@@ -62,6 +69,7 @@ func TestBxLLMRequests(t *testing.T) {
 		{"upstream", "add", "local", "http://127.0.0.1:11434/v1", "--no-key"},
 		{"upstream", "set", "main", "--any-model", "--public", "--no-key"},
 		{"upstream", "test", "main", "gpt-5"},
+		{"upstream", "replay-reset", "main", "strict-thinker"},
 		{"upstream", "rm", "main"},
 		{"models"},
 		{"default", "set", "main/gpt-5"},
@@ -72,6 +80,8 @@ func TestBxLLMRequests(t *testing.T) {
 		{"people", "everyone"},
 		{"concurrency", "8"},
 		{"upstream", "set", "main", "--price", "*=2:4"},
+		{"upstream", "set", "main", "--reasoning", "deepseek*=deepseek", "--reasoning=plain=-", "--reasoning", "z-ai/glm-5.2=xhigh,none,medium,high/high"},
+		{"upstream", "set", "main", "--reasoning", "kimi-k3=maker"},
 		{"off"},
 		{"usage", "--month", "--user", "bob", "--from", "2026-01-01"},
 		{"quota"},
@@ -93,6 +103,7 @@ func TestBxLLMRequests(t *testing.T) {
 		`PUT /api/xbin/llm/upstreams/local {"baseURL":"http://127.0.0.1:11434/v1","key":""}`,
 		`PUT /api/xbin/llm/upstreams/main {"key":"","models":[],"private":false}`,
 		`POST /api/xbin/llm/upstreams/main/test {"model":"gpt-5"}`,
+		`POST /api/xbin/llm/upstreams/main/replay-reset {"model":"strict-thinker"}`,
 		"DELETE /api/xbin/llm/upstreams/main",
 		"GET /api/xbin/llm/v1/models",
 		`PUT /api/xbin/llm/config {"defaults":{"model":"main/gpt-5"}}`,
@@ -104,6 +115,10 @@ func TestBxLLMRequests(t *testing.T) {
 		`PUT /api/xbin/llm/config {"concurrency":8}`,
 		"GET /api/xbin/llm/config",
 		`PUT /api/xbin/llm/upstreams/main {"prices":{"*":{"in":2,"out":4},"gpt-5":{"in":1.25,"out":10}}}`,
+		`PUT /api/xbin/llm/upstreams/main {"reasoning":{"deepseek*":{"preset":"deepseek"},"plain":null,"z-ai/glm-5.2":{"can_disable":true,"default_level":"high","supported_levels":["medium","high","xhigh"]}}}`,
+		// the record /xbin/llm's "Use these" stores for that suggestion (hack/llm-kit.test.mjs, suggestRecord)
+		"GET /api/xbin/llm/v1/models",
+		`PUT /api/xbin/llm/upstreams/main {"reasoning":{"kimi-k3":{"aliases":{"medium":"high"},"can_disable":false,"default_level":"max","supported_levels":["low","high","max"]}}}`,
 		`PUT /api/xbin/llm/config {"enabled":false}`,
 		"GET /api/xbin/llm/usage?from=2026-01-01&period=month&user=bob",
 		"GET /api/xbin/llm/quotas",
@@ -122,6 +137,17 @@ func TestBxLLMRequests(t *testing.T) {
 		"upstream hosted  https://host.example  (key: the host's, private)  [set by your host]",
 		"models: any model (its own list)",
 		"price gpt-5: in $1.25, out $10 per million tokens",
+		"main/deepseek-v4.1-flash  Reasoning: Low · High · Max (default High; can be off) · from the upstream",
+		"main/plain  Reasoning: none (an effort sent is dropped) · from the admin",
+		"main/odd\n",
+		"main/router  Reasoning: yes, its levels not described — no control is offered (bx llm upstream set … --reasoning) · from the upstream",
+		"    gpt-5*: Reasoning: Low · Medium · High (default Medium; always thinks) · from the admin",
+		"    strict-thinker: replay off for 2 callers since ",
+		"the upstream refused reasoning_content (bx llm upstream replay-reset main strict-thinker)",
+		"upstream main: reasoning is sent back again",
+		"main/kimi-k3  Reasoning: not described — xbin knows the maker's levels: Low · High · Max (default Max) — to use them: bx llm upstream set main --reasoning 'kimi-k3=maker'",
+		"main/sly  Reasoning: High · from the connector\n",
+		"main/junk\n",
 		"agent model: main/gpt-5",
 		"alias fast → main/gpt-5",
 		"! alias old: no upstream offers it",
@@ -144,6 +170,9 @@ func TestBxLLMRequests(t *testing.T) {
 	if strings.Contains(out, "sk-from-a-file") {
 		t.Error("the key was printed")
 	}
+	if strings.Contains(out, "\x1b") || strings.Contains(out, "Turbo") {
+		t.Error("words off the ladder from a model list were printed (l2)")
+	}
 
 	// a locked setting, an OpenAI-shaped refusal, a usage error
 	if err := cmdLLM([]string{"upstream", "set", "hosted", "--url", "https://x"}); err == nil || !strings.Contains(err.Error(), "set by your host") || !strings.Contains(err.Error(), "409") {
@@ -158,7 +187,7 @@ func TestBxLLMRequests(t *testing.T) {
 		t.Errorf("--key= on the command line: %v", err)
 	}
 	for _, bad := range [][]string{{"upstream", "add", "x"}, {"quota", "set", "team:x", "tokens/day=5"}, {"quota", "set", "default", "tokens/day=lots"},
-		{"upstream", "add", "x", "http://y", "--no-key", "--price", "gpt-5=cheap"}, {"usage", "--bogus"}, {"nonsense"}} {
+		{"upstream", "add", "x", "http://y", "--no-key", "--price", "gpt-5=cheap"}, {"upstream", "set", "main", "--reasoning", "deepseek"}, {"upstream", "set", "main", "--reasoning", "m=low,turbo"}, {"usage", "--bogus"}, {"nonsense"}} {
 		before := len(got)
 		if err := cmdLLM(bad); err == nil {
 			t.Errorf("bx llm %v: no error", bad)

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -29,6 +30,16 @@ const QuotaHeader = "X-XBin-LLM-Quota"
 // names what of the request was not sent to the chat upstream: advisory
 // fields and hosted tools merely offered, comma-separated and sorted.
 const DroppedHeader = "X-XBin-LLM-Dropped"
+
+// ModelHeader, on an answer, names the model the connector called for the
+// request: "<upstream>/<model>" (an alias's target). ExpectModelHeader, on
+// a request, names the one its caller expects — one whose reasoning the
+// request sends back: when the request's model now resolves to another,
+// the call is refused (409 xbin_llm_model_moved) before any upstream call.
+const (
+	ModelHeader       = "X-XBin-LLM-Model"
+	ExpectModelHeader = "X-XBin-LLM-Expect-Model"
+)
 
 // usageSink picks the usage reader of an OpenAI-wire answer.
 func usageSink(stream bool) sdkllm.UsageSink {
@@ -99,17 +110,38 @@ func (s *Service) apiCall(path string) http.HandlerFunc {
 				return
 			}
 		}
+		// the model the request names now resolves to this one (an alias's target may have changed): a caller
+		// whose request carries reasoning of the one it expected says so, and is refused before any upstream
+		// call when it is another — reasoning goes back only to the model that produced it (D249)
+		answer.Set(ModelHeader, publicName(u, model))
+		if exp := r.Header.Get(ExpectModelHeader); exp != "" && exp != publicName(u, model) {
+			refuse(http.StatusConflict, "xbin_llm_model_moved", clip(req.Model)+" is served by "+publicName(u, model)+" now, not "+clip(exp)+
+				": send the request without the reasoning of that model").write(w)
+			return
+		}
 		t, err := s.target(u)
 		if err != nil {
 			s.keyRefusal(u, err).write(w)
 			return
+		}
+		name := s.meterName(r.Context(), u, model)
+		// the caller's reasoning effort, mapped onto the model's own levels when something describes it (D249,
+		// effort.go); an undescribed model's request is relayed exactly as it came
+		eff := s.effortFor(u, model)
+		if dropped, said := effortRewrite(eff, path == sdkllm.PathChat, req.Member, req.SetMember); said != "" || len(dropped) > 0 {
+			if said != "" {
+				answer.Set(EffortHeader, said)
+			}
+			if len(dropped) > 0 {
+				sort.Strings(dropped)
+				answer.Set(DroppedHeader, strings.Join(dropped, ","))
+			}
 		}
 		out, err := req.Body(model, path == sdkllm.PathChat) // a chat stream always ends with its usage chunk: metering needs it
 		if err != nil {
 			refuse(http.StatusBadRequest, "xbin_llm_body", "the request body could not be rewritten for the upstream").write(w)
 			return
 		}
-		name := s.meterName(r.Context(), u, model)
 		h := http.Header{}
 		if a := r.Header.Get("Accept"); a != "" {
 			h.Set("Accept", a)
@@ -130,7 +162,16 @@ func (s *Service) apiCall(path string) http.HandlerFunc {
 				}
 				probed = true // nothing was generated and nothing answered: the call is made again, and metered once
 			}
-			res, sent, ok := ResponsesViaChat(r.Context(), s.plane, w, t, body, req.Model, model, h, answer)
+			// what this caller found this upstream's model refusing (replay.go): one caller's requests never
+			// change what another sends
+			tag, who := mintTag(t, model), replayCaller(c)
+			xo := XlateOptions{Effort: eff, NoReplay: s.noReplay.refused(tag, who), Refused: func(field string) {
+				// only a refusal that named the field, with the call then working without it
+				s.noReplay.remember(u.Name, model, tag, who, field, s.now())
+				s.log.Info("llm: upstream refused the reasoning sent back to this model; this caller's translated calls send none until reset",
+					"upstream", u.Name, "model", model, "field", field, "user", c.User, "component", c.Component)
+			}}
+			res, sent, ok := ResponsesViaChatWith(r.Context(), s.plane, w, t, body, req.Model, model, h, answer, xo)
 			if d := w.Header().Get(DroppedHeader); d != "" {
 				// what a client's Responses calls lose on this upstream, in the log once per kind of loss
 				if _, said := s.droppedSaid.LoadOrStore(u.Name+"\x00"+d, true); !said && s.droppedKinds.Add(1) <= 64 {

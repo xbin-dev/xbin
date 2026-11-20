@@ -114,6 +114,13 @@ var goldenChatStreams = map[string]string{
 	"frame-empty":          "",
 	// a delta whose content is a parts array (Mistral's thinking chunks) says nothing here
 	"content-parts-delta": dataLines(`{"choices":[{"delta":{"content":[{"type":"thinking","thinking":[{"type":"text","text":"hm"}]}]}}]}`, `{"choices":[{"delta":{"content":"said"}}]}`),
+	// D249: where plain reasoning came is where it goes back — vLLM's "reasoning", DeepSeek's "reasoning_content",
+	// a <think> block with the whitespace around it, one that never closed (not sent back)
+	"reasoning-field-only": dataLines(`{"choices":[{"delta":{"reasoning":"Weigh "}}]}`, `{"choices":[{"delta":{"reasoning":"it."}}]}`, `{"choices":[{"delta":{"content":"Done."},"finish_reason":"stop"}]}`),
+	"reasoning-content-tools": dataLines(`{"choices":[{"delta":{"reasoning_content":"Call it."}}]}`,
+		`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c1","function":{"name":"note","arguments":"{}"}}]},"finish_reason":"tool_calls"}]}`),
+	"think-tags-edges":    dataLines(`{"choices":[{"delta":{"content":"\n <think>"}}]}`, `{"choices":[{"delta":{"content":" a\nb </think>"}}]}`, `{"choices":[{"delta":{"content":"\n\n"}}]}`, `{"choices":[{"delta":{"content":"Out."}}]}`),
+	"think-tags-unclosed": dataLines(`{"choices":[{"delta":{"content":"<think>never done"}}]}`),
 }
 
 var goldenChatBodies = map[string]string{
@@ -221,6 +228,43 @@ func goldenTools() []toolSpec {
 	}
 }
 
+// goldenReplayMsgs is a conversation whose answers carry plain reasoning
+// (D249): in each field it comes in, from this provider and model or not.
+func goldenReplayMsgs() []wireMsg {
+	call := toolCall{ID: "call_9", Type: "function"}
+	call.Function.Name, call.Function.Arguments = "note", `{}`
+	here := "apps/llm|deepseek-v4.1-flash"
+	return []wireMsg{
+		{Role: "system", Content: "sys"},
+		{Role: "user", Content: "q1"},
+		{Role: "assistant", Content: "", ToolCalls: []toolCall{call},
+			Replay: &msgMeta{Wire: "chat", Model: "deepseek-v4.1-flash", Via: here, Reasoning: "R1 <tool>", ReplayField: "reasoning_content"}},
+		{Role: "tool", ToolCallID: "call_9", Content: "noted"},
+		{Role: "assistant", Content: "A2",
+			Replay: &msgMeta{Wire: "chat", Model: "deepseek-v4.1-flash", Via: here, Reasoning: "R2", ReplayField: "reasoning"}},
+		{Role: "user", Content: "q2"},
+		{Role: "assistant", Content: "A3",
+			Replay: &msgMeta{Wire: "chat", Model: "deepseek-v4.1-flash", Via: here, Reasoning: "R3", ReplayField: "think", ThinkEdge: &thinkEdge{Lead: "\n", Gap: "\n\n"}}},
+		{Role: "assistant", Content: "A4", // another provider's model of the same id: never
+			Replay: &msgMeta{Wire: "chat", Model: "deepseek-v4.1-flash", Via: "apps/other|deepseek-v4.1-flash", Reasoning: "R4", ReplayField: "reasoning_content"}},
+		{Role: "assistant", Content: "A5", // stored before Via: its plain reasoning has no named source, so stays home
+			Replay: &msgMeta{Wire: "chat", Model: "deepseek-v4.1-flash", Reasoning: "R5", ReplayField: "reasoning_content"}},
+		{Role: "user", Content: "q3"},
+	}
+}
+
+var goldenReplayRequests = map[string]LLMRequest{
+	"chat-replay":               {Model: "deepseek-v4.1-flash", Via: "apps/llm|deepseek-v4.1-flash", Stream: true, ReasoningEffort: "max", Reasons: reasonsYes},
+	"chat-replay-no-tools":      {Model: "deepseek-v4.1-flash", Via: "apps/llm|deepseek-v4.1-flash"},
+	"chat-replay-model-switch":  {Model: "kimi-k3", Via: "apps/llm|kimi-k3"},
+	"chat-replay-other-target":  {Model: "deepseek-v4.1-flash", Via: "apps/llm|deepseek-v4-pro"},
+	"chat-replay-refused":       {Model: "deepseek-v4.1-flash", Via: "apps/llm|deepseek-v4.1-flash", PlainOff: "*"},
+	"chat-no-reasoning":         {Model: "plain", ReasoningEffort: "high", Reasons: reasonsNo},
+	"responses-reasons-yes":     {Model: "deepseek-v4.1-flash", ReasoningEffort: "high", Reasons: reasonsYes},
+	"responses-reasons-default": {Model: "deepseek-v4.1-flash", Reasons: reasonsYes},
+	"responses-reasons-no":      {Model: "gpt-5", ReasoningEffort: "high", Reasons: reasonsNo},
+}
+
 var goldenRequests = map[string]LLMRequest{
 	"chat":                {Model: "kimi-k3", Stream: true, ReasoningEffort: "high"},
 	"chat-other-model":    {Model: "gpt-4.1"},
@@ -283,6 +327,21 @@ func goldenRun(t *testing.T) map[string]any {
 		}
 		req.Msgs = goldenMsgs()
 		if name != "chat-no-tools" {
+			req.Tools = goldenTools()
+		}
+		b, err := c.encode(req)
+		if err != nil {
+			t.Fatalf("encode %s: %v", name, err)
+		}
+		out["request/"+name] = string(b)
+	}
+	for name, req := range goldenReplayRequests {
+		var c wireCodec = chatCodec{}
+		if strings.HasPrefix(name, "responses") {
+			c = responsesCodec{}
+		}
+		req.Msgs = goldenReplayMsgs()
+		if name != "chat-replay-no-tools" {
 			req.Tools = goldenTools()
 		}
 		b, err := c.encode(req)

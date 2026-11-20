@@ -115,6 +115,10 @@ export function STUB(seed) {
         const why = bindRun(+m[1], b);
         if (why) return json({ error: why }, 403);
       }
+      if ('effort' in b && window.__views[+m[1]]) { // the conversation's reasoning effort (D249), in its config as the backend keeps it
+        const v = window.__views[+m[1]];
+        v.config = { ...(v.config || {}), effort: b.effort };
+      }
       if ('pinned' in b) r.pinnedAt = b.pinned ? Date.now() : 0;
       if ('archived' in b) r.archivedAt = b.archived ? Date.now() : 0;
       if (b.title) r.title = b.title;
@@ -122,6 +126,8 @@ export function STUB(seed) {
       return json({ access: 'owner', mine: true, origin: 'chat', activityMs: r.id * 1000, ...r });
     }],
     ['POST', /\/runs\/(\d+)\/read$/, () => json({ readMs: Date.now() })],
+    // the bound providers' models (seed.models: GET /models' answer; D249's effort on them)
+    ['GET', /\/models$/, () => json(seed.models || { object: 'list', data: [], providers: [] })],
     ['GET', /\/needs$/, () => json({ items: seed.needs || [] })],
     // automations (D83)
     ['GET', /\/automations\?summary=1$/, () => json({ count: (seed.automations || []).length,

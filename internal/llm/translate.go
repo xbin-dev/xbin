@@ -142,36 +142,82 @@ func routeMissing(status int, body []byte) bool {
 // the request could not be translated — w then holds the refusal and
 // nothing was sent.
 func ResponsesViaChat(ctx context.Context, plane Connector, w http.ResponseWriter, t Target, body []byte, asked, upstreamModel string, h, answer http.Header) (res Outcome, sent int, ok bool) {
-	chat, x, ref := responsesToChat(body, asked, upstreamModel)
+	return ResponsesViaChatWith(ctx, plane, w, t, body, asked, upstreamModel, h, answer, XlateOptions{})
+}
+
+// ResponsesViaChatWith is ResponsesViaChat with what is known of the model
+// (its reasoning record: the effort is mapped onto its levels, and its
+// reasoning goes back to it unless the record says never). When the
+// upstream refuses (400, and not for the context's size) a request that
+// carries reasoning sent back, the request is made once more without it,
+// and the answer names that (input.reasoning in X-XBin-LLM-Dropped): an
+// upstream that takes no such field keeps working. Only when the refusal
+// named the field and the request without it worked is opt.Refused told (a
+// refusal is something a caller can provoke: one that names no such field
+// is never remembered).
+func ResponsesViaChatWith(ctx context.Context, plane Connector, w http.ResponseWriter, t Target, body []byte, asked, upstreamModel string, h, answer http.Header, opt XlateOptions) (res Outcome, sent int, ok bool) {
+	chat, x, ref := responsesToChat(body, asked, upstreamModel, mintTag(t, upstreamModel), opt)
 	if ref != nil {
 		ref.write(w)
 		return Outcome{Status: ref.status}, 0, false
 	}
-	if len(x.dropped) > 0 { // nothing is left out silently
-		answer = answer.Clone()
-		if answer == nil {
-			answer = http.Header{}
-		}
-		sort.Strings(x.dropped)
-		answer.Set(DroppedHeader, strings.Join(x.dropped, ","))
+	answer = answer.Clone()
+	if answer == nil {
+		answer = http.Header{}
 	}
+	said := func() { // nothing is left out silently
+		answer.Del(DroppedHeader)
+		if len(x.dropped) > 0 {
+			sort.Strings(x.dropped)
+			answer.Set(DroppedHeader, strings.Join(x.dropped, ","))
+		}
+		answer.Del(EffortHeader)
+		if x.effort != "" {
+			answer.Set(EffortHeader, x.effort)
+		}
+	}
+	said()
 	call := Call{Target: t, Path: sdkllm.PathChat, Body: chat, Header: h, Sink: usageSink, Answer: answer}
 	var over string
-	if x.truncate { // the caller asked for truncation, which chat completions has none of: an overflow is said as that
-		call.Withhold = func(status int, body []byte) bool {
+	refused, named := false, false // the upstream refused the reasoning sent back; its refusal named the field
+	withhold := func(replay bool) func(int, []byte) bool {
+		if !x.truncate && !replay {
+			return nil
+		}
+		return func(status int, body []byte) bool {
 			over = contextOverflow(status, body)
-			return over != ""
+			switch {
+			case over != "":
+				return x.truncate // the caller asked for truncation, which chat completions has none of: an overflow is said as that
+			case replay && status == http.StatusBadRequest:
+				refused, named = true, namesField(body, replayField)
+				return true
+			}
+			return false
 		}
 	}
+	call.Withhold = withhold(x.withoutReplay != nil)
 	tw := newRespWriter(w, x)
 	res = plane.Relay(ctx, tw, call)
+	sent = len(chat)
+	if res.Withheld && refused { // once more, without what this upstream may not take: nothing was generated, it is metered once
+		x.drop("input.reasoning")
+		said()
+		call.Body, call.Withhold = x.withoutReplay(), withhold(false)
+		tw = newRespWriter(w, x)
+		res = plane.Relay(ctx, tw, call)
+		sent = len(call.Body)
+		if named && opt.Refused != nil && !res.Withheld && res.Status >= 200 && res.Status < 300 {
+			opt.Refused(replayField)
+		}
+	}
 	if res.Withheld {
 		copyHeader(w.Header(), answer)
 		xlateRefuse("truncation: \"auto\" is not applied here, and the request is over the model's context (the upstream: %s) — send less input", over).write(w)
-		return res, len(chat), true
+		return res, sent, true
 	}
 	tw.done(res)
-	return res, len(chat), true
+	return res, sent, true
 }
 
 // contextOverflow is the upstream's own sentence when its refusal (status,
@@ -543,7 +589,11 @@ func (t *respWriter) delta(d *chatDelta) {
 	}
 	if think != nil && *think != "" {
 		if t.think == nil {
-			t.think = t.add("reasoning", "rs")
+			prefix := "rs" // tagged with the model it came from: a later request's copy of it goes back to it alone (mintTag)
+			if t.x.mint != "" {
+				prefix += "_" + t.x.mint
+			}
+			t.think = t.add("reasoning", prefix)
 			t.added(t.think)
 			if t.stream {
 				t.emit("response.reasoning_summary_part.added", map[string]any{"item_id": t.think.id, "output_index": t.think.index, "summary_index": 0,

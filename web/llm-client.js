@@ -56,6 +56,8 @@ export function llmClient(fetcher) {
     deleteUpstream: (name) => call('DELETE', `/upstreams/${q(name)}`),
     // → {ok, model?, models?, status?, ms, tokens?, error?}
     testUpstream: (name, model) => call('POST', `/upstreams/${q(name)}/test`, model ? { model } : {}),
+    // a model's remembered "refused the reasoning sent back" forgotten (no model: all of the upstream's) → the view
+    replayReset: (name, model) => call('POST', `/upstreams/${q(name)}/replay-reset`, model ? { model } : {}),
     // {period?, from?, to?, user?, component?, model?} → {rows, totals, scope}
     usage: (filter) => call('GET', `/usage${query(filter)}`),
     // → {quotas, locks, effective?}

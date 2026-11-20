@@ -10,6 +10,7 @@ import { html, render, nothing } from '/vendor/lit-all.min.js';
 import * as C from './model/classes.js';
 import * as actions from './model/actions.js';
 import * as rules from './model/rules.js';
+import { LADDER as EFFORT_LADDER, word as effortWord } from './model/effort.js';
 
 // hasIcon: the glyphs /vendor/bx-icons.js draws (D184); an xbind from before
 // them serves none, and a class's emoji then shows as its admin typed it.
@@ -208,6 +209,9 @@ function formTpl(st, app, draw) {
     <div class="field"><label>Model</label><select id="clf-model" @change=${set('model')}>
       ${models.map((o) => html`<option value=${o.value} ?selected=${o.value === f.model}>${o.value ? o.label : '— none: the person\'s pick or the agent\'s default —'}</option>`)}</select>
       <div class="hint">Used when the person picked no model for the conversation.</div></div>
+    <div class="field"><label for="clf-effort">Reasoning effort</label><select id="clf-effort" @change=${set('effort')}>
+      ${['', 'default', ...EFFORT_LADDER].map((w) => html`<option value=${w} ?selected=${w === (f.effort || '')}>${!w ? '— none: the agent\'s default —' : w === 'default' ? 'the model\'s own default' : effortWord(w)}</option>`)}</select>
+      <div class="hint">Used when the person picked no effort for the conversation; sent only to a model that reasons, mapped onto its levels.</div></div>
     <div class="field"><label>System addendum</label><textarea id="clf-system" rows="3" .value=${f.system} @input=${set('system')}></textarea>
       <div class="hint">Added to the agent's system prompt when a conversation of this class starts without instructions of its own.</div></div>
     ${st.err ? html`<div class="err">${st.err}</div>` : nothing}

@@ -96,6 +96,8 @@ optionally:
   for the cost counters and cost quotas. `"gpt-5*"` prices a family. A
   provider that reports the cost of a call itself (OpenRouter) is believed
   when no price is set.
+- `reasoning` — `{<model>: {preset} | record}`: how its models' reasoning
+  effort works, keyed like `prices` (§Reasoning effort).
 
 Upstream URLs come only from this configuration, never from a request, and
 a provider's redirect is never followed. A key is only ever sent to the
@@ -139,7 +141,8 @@ know which wire a provider has.
 
   | of the request | what happens |
   |---|---|
-  | `instructions`, `input` (messages with text; images in user messages; function and custom tool calls and their outputs), function tools, `tool_choice` (`auto`, `none`, `required`, one function, `allowed_tools` — only those tools are offered), `parallel_tool_calls`, `max_output_tokens`, `temperature`, `top_p`, `seed`, `user`, `top_logprobs` (with `logprobs`), `reasoning.effort`, `text.format` (JSON object or schema) | translated |
+  | `instructions`, `input` (messages with text; images in user messages; function and custom tool calls and their outputs), function tools, `tool_choice` (`auto`, `none`, `required`, one function, `allowed_tools` — only those tools are offered), `parallel_tool_calls`, `max_output_tokens`, `temperature`, `top_p`, `seed`, `user`, `top_logprobs` (with `logprobs`), `text.format` (JSON object or schema) | translated |
+  | `reasoning.effort` | `reasoning_effort`, mapped onto the model's own levels when something describes it (§Reasoning effort); dropped, named, for a model without reasoning; as it came for any other |
   | a `custom` (free-form) tool | a function tool with one string argument, `input`; its call comes back as a `custom_tool_call` |
   | an image in a tool's output | follows the tool messages in a user message that names the call (a chat tool message carries text only) |
   | `previous_response_id`, `conversation`, `prompt` (stored prompt) | **refused** — OpenAI's own service: send the conversation in `input` |
@@ -148,7 +151,8 @@ know which wire a provider has.
   | `truncation: "auto"` | not applied (dropped, named); when the request then is over the model's context the refusal is `400 xbin_llm_translate` and says so, with the upstream's sentence |
   | hosted tools merely offered (`web_search`, `file_search`, `local_shell`, `mcp`, `image_generation`, the code interpreter …) | dropped, named `tools.<type>` |
   | `metadata`, `include`, `store: true`, `reasoning.summary`, `text.verbosity`, `prompt_cache_key`, `service_tier`, `max_tool_calls`, `safety_identifier`, `stream_options`, and any field this table doesn't list | dropped, named |
-  | a provider's opaque `reasoning` items in `input` | dropped (not this upstream's to read) |
+  | a `reasoning` item in `input` that this translation made of the same upstream's same model's answer (its id `rs_<tag>_…`, a summary and nothing else) | sent back: `reasoning_content` on the assistant message after it (D249) — unless the model's record says `"replay": "never"` |
+  | any other `reasoning` item — a provider's own (encrypted), another model's, another upstream's (the same model id elsewhere is not the same model) | dropped, named `input.reasoning` |
 
   A refusal is `400 xbin_llm_translate`, names the field, says "this
   upstream has chat completions only", and is made before anything is
@@ -157,6 +161,35 @@ know which wire a provider has.
   tools.web_search`); no header, nothing dropped. (A name that is no
   plain field name, and any past the first 24, reads `other`. xbind's log
   says once per upstream what its translated calls leave out.)
+- **Reasoning goes back to its model.** The reasoning item an answer
+  carries (the chat completion's `reasoning_content` or `reasoning`, as a
+  summary) is tagged with the upstream and model that produced it; sent
+  again in a later request's `input` — Codex does — it rides back to that
+  model on its assistant message, as DeepSeek, Kimi K3, GLM and MiniMax
+  ask when tools are in play (DeepSeek's API refuses, `400`, a tool call's
+  follow-up without it). This holds for every model, described or not
+  (§Reasoning effort). An upstream that refuses the field (a `400` that
+  isn't about the context's size) gets the request once more without it,
+  and the answer names `input.reasoning`. Only when its refusal named the
+  field (`reasoning_content`) and the request without it worked is that
+  remembered — in memory, for **that caller** (the calling tile and the
+  person it acts for, or the person calling directly), that upstream (at
+  its address) and that model: that caller's later calls send none (and
+  name `input.reasoning`); the model's row on `/xbin/llm` says *replay off
+  for N callers since …: the upstream refused reasoning_content* with a
+  **Reset** (`POST …/upstreams/<name>/replay-reset`, `bx llm upstream
+  replay-reset`), and a restart or any change of the upstream forgets it
+  (at most 1024 entries; the least recently used goes first). "Named" is
+  read from the provider's parsed error alone — its `param`, its `code`,
+  or its message naming the field outside any quoted text (a quoted span
+  counts only when it is the field alone) — never from the raw body, so
+  request text a provider echoes back is no evidence. **What one caller can
+  and cannot cause**: a caller can switch replay off for its own calls (say
+  by sending reasoning items that make the upstream refuse) — never for
+  another caller's, which keep sending their reasoning; it cannot make the
+  connector remember a refusal that didn't name the field, nor one whose
+  retry failed. An entry that says only `{"replay": "never"}` stops it for
+  every caller, and changes nothing else.
 - **Of the answer**: streamed text, reasoning text (as a reasoning
   summary), tool calls — several in one answer, also from a provider that
   numbers every call `0` and tells them apart by id — a refusal
@@ -216,6 +249,135 @@ rows your usage has.
 
 `GET /api/xbin/llm/v1/models` lists every upstream's models, the aliases
 and `xbin/default`, `xbin/<role>`.
+
+### Reasoning effort
+
+How hard a model thinks before it answers is one word on one ladder —
+OpenAI's: `none · minimal · low · medium · high · xhigh · max`, cheapest
+first (D249). Callers say it as they always have: chat's
+`reasoning_effort`, Responses' `reasoning.effort`. Models take a subset of
+it, with a default of their own; some can't be turned off; some have no
+reasoning at all. What the connector knows of an upstream's model is its
+**record**, on the model in `GET /v1/models` as `effort`:
+
+```jsonc
+"effort": {
+  "supported_levels": ["low", "high", "max"],  // the levels it takes, cheapest first ([] = no reasoning)
+  "default_level": "high",                     // what it does when nothing is sent
+  "can_disable": true,                         // "none" turns its reasoning off
+  "thinks_by_default": true,
+  "aliases": {"minimal": "low", "medium": "high", "xhigh": "high"},  // the provider's own mapping
+  "source": "upstream"                         // upstream | xbin | admin | host — shown, never sent
+}
+```
+
+**Where a record comes from**, the first that has one:
+
+1. **the host's file or the admin's entry** — the upstream's `reasoning`,
+   keyed like `prices` (an exact id, the id after its last `/`, the longest
+   `prefix*`): an entry is the whole truth for its models. An admin
+   describes a model on `/xbin/llm` (*reasoning…* on a provider, then
+   *describe…*): the levels it takes, ticked; whether it can be turned off;
+   its default — a preset pre-ticks them: OpenAI-style (low · medium ·
+   high, default medium), on / off, DeepSeek-style (low · high · max,
+   default high, medium → high), no reasoning. The same with `bx llm
+   upstream set <name> --reasoning '<model>=<preset>'` (`openai`,
+   `toggle`, `deepseek`, `none`) or `--reasoning
+   'z-ai/glm-5.2=none,medium,high,xhigh/high'` (the levels; `none` among
+   them: it can be turned off; `/high`: its default); `-` forgets the entry.
+   A router can take a model's levels differently from its maker's own API
+   — one served `glm-5.2` refusing `low`, which GLM's own API takes — and
+   only an entry here says so. An entry of only `{"replay": "never"}`
+   turns replay off and says nothing of levels. The host's file may write
+   records whole, locked with its upstream;
+2. **the upstream's own model list** — DeepSeek's `effort`, OpenRouter's
+   `reasoning`: the levels it lists apply on any upstream (they are that
+   upstream's own words). It is the provider's data, so only ladder words,
+   booleans and a short alias map are read from it — never more, and a
+   member that is no record is removed from the list. A list says a model
+   **reasons** (a router that names `reasoning` among a model's
+   `supported_features`: `"reasons": true`, its levels unknown — no
+   control), never that it has none: an empty or `none`-only level list,
+   like a list's silence, is unknown (a router can leave
+   `reasoning_effort` out of a model that takes it);
+3. **xbind's table** (`internal/llm/effort_table.json`), written from the
+   providers' own pages and refreshed by releases — **on the maker's own
+   API only**: each family names its maker's API hosts (`api.deepseek.com`,
+   `api.x.ai`, `generativelanguage.googleapis.com`, `api.moonshot.ai`,
+   `api.z.ai`, `api.minimax.io`, `api.mistral.ai`), compared exactly with
+   the upstream's base URL. DeepSeek's API, xAI Grok 4.5–4.7, Gemini 4's
+   two thinking models, Kimi K3, GLM-5.2 and 5.3, MiniMax M3.1-Flash,
+   Mistral Small 4, Medium 3.5 and Large 4. A family whose levels its
+   provider's page doesn't state is not in it (OpenAI's — its guide gives
+   defaults, not each model's levels — Gemini 2.5 and 3), nor one whose API
+   host can't be named (Qwen's Model Studio hosts are per workspace). The
+   upstream's own words are laid over it member by member.
+
+   On **any other upstream** — a router, a local server, a company's
+   gateway — the same model id may take other levels, so a table match is
+   only a **suggestion**: the model stays undescribed (no control, its
+   requests relayed as they came), and its model object carries
+   `xbin_effort_suggestion` (the maker's record). `/xbin/llm` says *not
+   described — xbin knows the maker's levels: Low · High · Max* with
+   **Use these** (an admin's entry, made of them: levels, default, aliases)
+   and *describe…*; `bx llm upstream set <name> --reasoning
+   '<model>=maker'` stores the same record.
+
+The record a call is mapped by is the one the model list gives: for an
+upstream that passes names through, its list is read for the call's
+metering anyway, so its levels apply from the first call; for one with a
+`models` list, the upstream's own list is read when models are listed
+(`GET /v1/models` — `/xbin/llm`, a tile's model picker) and, until then,
+calls are mapped by entries and the maker's table alone. A call never makes
+a request of its own for it.
+
+**A model nothing describes is relayed exactly as before**: no member
+added, none rewritten, no header — byte for byte what xbind sent before
+(the translation's own reasoning items aside: they go back to their model
+whatever describes it, §Responses on a chat-only upstream). For a described
+model:
+
+- a level the model takes passes;
+- else the provider's own alias for it (`medium` on DeepSeek is `high`);
+- else the highest level the model has at or below it; else its lowest —
+  never off;
+- `none` turns reasoning off where the model can be, passes as it came
+  where that isn't known, and is its lowest level where it can't;
+- a word that isn't on the ladder (`ultra`) passes untouched;
+- a model whose record says it has **no reasoning** gets no effort: the
+  caller's is left out (strict providers refuse it) and named in
+  `X-XBin-LLM-Dropped`.
+
+The same rule draws the agent template's effort control (one set of test
+vectors, `internal/llm/testdata/effort_mapping.json`, holds both to it).
+
+The answer says what was sent — **`X-XBin-LLM-Effort`**: `high`, `high;
+asked=medium` when the level was mapped, `none; asked=high; can't` for a
+model without reasoning — on both wires, streamed or not, translated or
+not; only on a call that carried an effort. Reasoning tokens are output
+tokens: metered and priced as they always were.
+
+A record's `scale`, `budget` and `send` members (a numeric knob, a token
+budget, a request patch for a model whose wire isn't OpenAI's) are read
+from the host's file and kept, but not acted on yet: a model that needs
+one of them to be usable is treated as undescribed. The admin's API takes
+no `send` patch.
+
+**Thinking stays in context.** A model's reasoning goes back to it on later
+turns — the agent template does it for every model that returned any, on
+the field it came in, and the translation for its own reasoning items
+(§Responses on a chat-only upstream) — only ever to the same upstream and
+model that produced it: never across a model switch. Every answer names the
+model the connector called (**`X-XBin-LLM-Model`**: `<upstream>/<model>`,
+an alias's target); a request that sends a model's reasoning back may name
+it (**`X-XBin-LLM-Expect-Model`**), and when the request's model now leads
+to another (an alias was pointed elsewhere) it is refused, `409
+xbin_llm_model_moved`, before any upstream call — the agent template then
+sends it once more without the reasoning. Reasoning is input: it counts
+toward a conversation's context and its compaction, and is billed as input
+by the provider. A record may say `"replay": "never"` for a model whose
+endpoint refuses the field — the escape hatch for an endpoint that 400s on
+it.
 
 ### Who may call
 
@@ -796,6 +958,9 @@ bring its own models and hold quotas the workspace's admins can't lift.
 - The connector doesn't retry: a provider's `429` or `5xx` passes with its
   `Retry-After`, and the client's own retry applies.
 - Responses calls run in the background (`background: true`) are refused.
+- Reasoning effort is mapped onto a model's levels; there is no ceiling per
+  upstream yet, no token-budget or numeric (1–100) knob, and no request
+  patch for a model whose wire isn't OpenAI's (§Reasoning effort).
 - Claude Code and Gemini CLI can't run on the connector yet (their wires
   aren't relayed), and a session with no network can't reach it.
 - A person is told about their quota on `/xbin/llm` and in their calls'

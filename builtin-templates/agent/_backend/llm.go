@@ -84,10 +84,14 @@ type Config struct {
 	MaxTurnSteps    int `json:"maxTurnSteps,omitempty"`
 	SubagentTimeout int `json:"subagentTimeout,omitempty"`
 	// Wire picks the model API: "auto" (Responses for gpt-5*/o-series, else
-	// Chat Completions), "chat" or "responses". ReasoningEffort is passed to
-	// reasoning models ("" = the provider's default).
+	// Chat Completions), "chat" or "responses". ReasoningEffort is the tile's
+	// default effort, copied into each run ("" = the model's default); Effort
+	// is the conversation's pick over it (PATCH /runs/{id} {effort}: a ladder
+	// word, or "default" for the model's own) — read every turn. Either is
+	// sent only to a model that reasons (llm_effort.go, D249).
 	Wire            string `json:"wire,omitempty"`
 	ReasoningEffort string `json:"reasoningEffort,omitempty"`
+	Effort          string `json:"effort,omitempty"`
 	Subagents       bool   `json:"subagents"` // expose spawn_subagent
 	Approve         bool   `json:"approve"`   // require approval before side-effecting tools
 	// Toolset is the run's IMMUTABLE capability lane — the exfiltration
@@ -571,7 +575,32 @@ type LLMRequest struct {
 	Tools           []toolSpec
 	Stream          bool
 	Wire            string
-	ReasoningEffort string // "" = provider default; minimal|low|medium|high
+	ReasoningEffort string // "" = provider default; a word of the ladder (llm_effort.go)
+	// Reasons is what the model's record says (reasonsYes/No; 0: nothing
+	// does — the effort goes as before). NoReplay: no reasoning goes back on
+	// this call (the record says never).
+	Reasons  int8
+	NoReplay bool
+	// PlainOff: the plain reasoning (reasoning_content, reasoning, a <think>
+	// block) not sent back on this call — "*" none of it (the call made
+	// again after a refusal), or the one field the provider's refusal named,
+	// remembered for the run (llm_effort.go). Opaque blocks
+	// (reasoning_details, encrypted items) still go. Reenable: the run's
+	// PlainOff may be lifted once, when a call without it is refused too.
+	PlainOff string
+	Reenable bool
+	// ReplayMemo is the run's memory of refusals, by Via (Engine.replayOf):
+	// the LLM sets PlainOff and Reenable from the entry of the Via the call
+	// goes to — only the model that refused is affected.
+	ReplayMemo map[string]replayState `json:"-"`
+	// Expect: the model (the LLM connector's name) whose reasoning the call
+	// sends back — set by the LLM; the connector refuses the call when the
+	// model's name now leads to another (llm_gateway.go send).
+	Expect string
+	// Via names where the call goes: the provider and the model as served
+	// (an alias's target) — set by the LLM; reasoning goes back only to the
+	// Via that produced it.
+	Via string
 }
 
 // LLMEvent is live progress from a streaming call. Text-like events carry the
@@ -598,6 +627,28 @@ type LLMReply struct {
 	Finish       string
 	Wire         string // the wire actually used
 	Model        string
+	// ReplayField is where a chat answer's plain reasoning came:
+	// reasoning_content, reasoning, or "think" (a leading <think> block;
+	// ThinkEdge then keeps the whitespace around it) — where it goes back.
+	ReplayField string    `json:",omitempty"`
+	ThinkEdge   thinkEdge `json:",omitzero"`
+	// Via: as LLMRequest.Via. Effort: what the connector said it sent
+	// (X-XBin-LLM-Effort). ReplayRefused: the field of plain reasoning the
+	// provider refused, by name, the call made without it then working —
+	// what the run remembers. ReplayBack: the run's PlainOff was lifted (a
+	// call without it was refused, and the call with it worked).
+	Via           string `json:",omitempty"`
+	Served        string `json:",omitempty"` // the model that answered, as the connector named it (X-XBin-LLM-Model)
+	Effort        string `json:",omitempty"`
+	ReplayRefused string `json:",omitempty"`
+	ReplayBack    bool   `json:",omitempty"`
+}
+
+// thinkEdge is the whitespace a leading <think> block came with: before it,
+// and between it and the answer.
+type thinkEdge struct {
+	Lead string `json:"lead,omitempty"`
+	Gap  string `json:"gap,omitempty"`
 }
 
 // msgMeta is the additive messages.meta column: per assistant message, what the
@@ -610,6 +661,12 @@ type msgMeta struct {
 	Model        string          `json:"model,omitempty"`
 	Usage        *usageBlock     `json:"usage,omitempty"`
 	Finish       string          `json:"finish,omitempty"`
+	// Where its plain reasoning goes back, and through what (D249,
+	// LLMReply): reasoning_content | reasoning | think, the provider and model
+	// that produced it. Reasoning is the text.
+	ReplayField string     `json:"replayField,omitempty"`
+	ThinkEdge   *thinkEdge `json:"thinkEdge,omitempty"`
+	Via         string     `json:"via,omitempty"`
 	// On user messages (D83): who sent it, and what delivered it when it
 	// wasn't a person typing (a schedule, a channel, a trigger). The model
 	// never sees these fields; the transcript text carries what it needs.

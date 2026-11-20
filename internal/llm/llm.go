@@ -111,14 +111,16 @@ type Service struct {
 	host  *hostWatch
 	// llmKeys is the store this Service made (nil when Options.Keys is
 	// someone else's).
-	llmKeys      *Keys
-	keySource    KeySource
-	stopSweep    chan struct{} // ends the key store's sweeper (Close)
-	closeOnce    sync.Once
-	watch        keyWatch // minters told of their keys' refused calls (keywatch.go)
-	models       modelCache
-	wires        wireMemo // upstreams found to have no Responses API (translate.go)
-	droppedSaid  sync.Map // upstream + what a translated call left out → logged once (serve.go)
+	llmKeys     *Keys
+	keySource   KeySource
+	stopSweep   chan struct{} // ends the key store's sweeper (Close)
+	closeOnce   sync.Once
+	watch       keyWatch // minters told of their keys' refused calls (keywatch.go)
+	models      modelCache
+	wires       wireMemo // upstreams found to have no Responses API (translate.go)
+	droppedSaid sync.Map // upstream + what a translated call left out → logged once (serve.go)
+	// noReplay: the upstreams' models found to refuse the reasoning a translated call sends back (translate.go)
+	noReplay     replayMemo
 	droppedKinds atomic.Int32
 
 	flightMu sync.Mutex
@@ -201,6 +203,11 @@ func (s *Service) rebuild() {
 	}
 	s.snap.Store(snap)
 	s.models.drop()
+	// a refusal is remembered of an upstream as it was: one removed, or now at another address, forgets it
+	s.noReplay.retain(func(e *replayEntry) bool {
+		u, ok := snap.upstreams[e.upstream]
+		return ok && mintTag(Target{Name: u.Name, BaseURL: u.BaseURL}, e.model) == e.tag
+	})
 }
 
 // current is the configuration in force, the host's file looked at again

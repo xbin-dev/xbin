@@ -82,6 +82,7 @@ export const IMPLEMENTS = {
   'composer.sandbox': 'native/sandboxes.js sandboxPickerTpl — the Sandbox picker in the chat and home toolbars, beside the model (a row you may not use is marked, and picking it says why; New sandbox… and Manage… push the Sandboxes screens)',
   'composer.agent': 'native/harness-start.js — the Who answers picker at the top of the new chat screen (homeSetupTpl — a phone\'s bar there holds the class, model and sandbox pickers; an unavailable one is marked; picking it says why); native/classes.js and native/home.js hide the Class and Model pickers',
   'composer.model': 'native/chat.js modelPickerTpl — the Model picker in the chat and home toolbars (the app\'s composer holds buttons only)',
+  'composer.effort': 'native/chat.js effortPickerTpl — an Effort picker beside Model in the conversation\'s toolbar (folded into ⋯ on a phone); no slider in the vocabulary: a menu of Default and the model\'s levels',
   'composer.attach': 'native/chat.js — composer upload (the app picks and uploads)',
   'composer.heldAsk': 'native/chat.js — at home the composer uploads into the new ask\'s draft (app.uploadTarget: PUT /ask/upload?draft=); model/app.js — send sends the draft (POST /ask {draft, files})',
   'composer.attach.limit': 'native/chat.js — uploaded(): a refused file is a marked chip',

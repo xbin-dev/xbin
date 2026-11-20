@@ -247,9 +247,9 @@ async function llm(browser) {
     await A.page.unroute('**/api/xbin/llm/config', found);
     check(/^Responses: translated — detected \d{1,2}[:.]\d{2}/i.test((await badge.innerText()).trim()), `a detected chat-only provider's row says "Responses: translated — detected <time>" (${(await badge.innerText()).trim()})`);
     await shotEl(A.page, `bx-llm-upstreams tr[data-upstream=${UP}]`, `llm-provider-translated-${THEME}`);
-    const reset = A.page.waitForRequest((r) => r.url().endsWith(`/api/xbin/llm/upstreams/${UP}`) && r.method() === 'PUT');
+    const redetect = A.page.waitForRequest((r) => r.url().endsWith(`/api/xbin/llm/upstreams/${UP}`) && r.method() === 'PUT');
     await row.locator('[data-redetect]').click();
-    const sent = (await reset).postDataJSON();
+    const sent = (await redetect).postDataJSON();
     check(sent.responsesVia === 'auto' && Object.keys(sent).length === 1, `reset sends responsesVia: auto and nothing else (${JSON.stringify(sent)})`);
     await until(async () => await row.locator('[data-translating]').count() === 0, 'after the reset the row no longer says translated');
     await admin.locator('form[data-concurrency] input').fill('8');

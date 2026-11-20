@@ -94,6 +94,14 @@ await ctx.addInitScript(() => {
   window.__route('GET', /\/runs\/1\/file\?path=q3\.html$/, () => window.__json({ path: 'q3.html', version: 2,
     content: '<h1>Q3 plan</h1><img src="https://evil.example/beacon.png"><meta http-equiv="refresh" content="0;url=https://evil.example/x">' }));
 });
+// D249, last (a reload with this flag): a thinking model whose record the Effort picker reads, conversation 1 on it
+await ctx.addInitScript(() => {
+  if (!localStorage.getItem('effort-check')) return;
+  window.__views[1].config = { pick: 'fake-think' };
+  window.__route('GET', /\/models$/, () => window.__json({ object: 'list', providers: [{ path: 'xbin:llm', ok: true }], data: [
+    { id: 'fake-think', ref: 'fake-think', provider: 'xbin:llm', effort: { supported_levels: ['low', 'high', 'max'], default_level: 'high', can_disable: true } },
+    { id: 'plain', ref: 'plain', provider: 'xbin:llm' }] }));
+});
 const escaped = [];
 await ctx.route('**/*evil.example*/**', (r) => { escaped.push(r.request().url()); return r.abort(); });
 const page = await ctx.newPage();
@@ -109,7 +117,7 @@ const shown = (sel) => view.locator(sel).first().waitFor({ state: 'visible', tim
 // the list its primary column, the stack the detail's nav, pushed over the
 // list while open — collapsed at a phone's width), else the one nav (the
 // root, or the first node of a root fragment: a sheet laid over it)
-await page.evaluate(() => {
+const helpers = () => page.evaluate(() => {
   window.stackOf = () => {
     const r = window.xbnPreview.tree().root;
     const kids = r.t === 'fragment' ? r.c : [r];
@@ -119,6 +127,7 @@ await page.evaluate(() => {
   };
   window.topTitle = () => { const st = window.stackOf(); return st[st.length - 1].p.title; };
 });
+await helpers();
 const topTitle = () => page.evaluate(() => window.topTitle());
 const titled = (t) => page.waitForFunction((x) => window.topTitle() === x, t).then(() => true, () => false);
 
@@ -228,5 +237,31 @@ ok('no page errors', errors.length === 0, errors.join(' | '));
 ok('no runtime errors', (await page.evaluate(() => window.xbnPreview.errors)).length === 0, JSON.stringify(await page.evaluate(() => window.xbnPreview.errors)));
 const diags = await page.evaluate(() => window.xbnPreview.diagnostics.filter((d) => d.level !== 'info'));
 ok('no diagnostics', diags.length === 0, JSON.stringify(diags));
+
+// the reasoning effort (D249): an Effort picker beside Model (folded into ⋯ on a phone's narrow bar) — Default named
+// after the model's own, Off where it can be turned off, the model's levels; a pick is the conversation's
+await page.evaluate(() => { localStorage.setItem('effort-check', '1'); location.hash = 'c=1'; });
+await page.reload();
+await page.waitForFunction(() => window.xbnPreview && window.xbnPreview.ready);
+await helpers();
+ok('a conversation on a thinking model opens', await titled('plan the quarter'), await topTitle());
+const effort = view.locator('select[aria-label="Effort"]');
+ok('Effort beside Model', await effort.first().waitFor({ state: 'attached', timeout: 5000 }).then(() => true, () => false)
+  && await view.locator('select[aria-label="Model"]').count().then((n) => n > 0));
+const levels = await effort.first().locator('option').allTextContents();
+ok('its choices: Default · High, Off, then the model\'s levels', JSON.stringify(levels.map((t) => t.trim())) === JSON.stringify(['Default · High', 'Off', 'Low', 'High', 'Max']), JSON.stringify(levels));
+await effort.first().selectOption({ label: 'Max' });
+ok('a pick is the conversation\'s from its next turn', await page.waitForFunction(() => window.__calls.some((c) => c.method === 'PATCH' && c.url.endsWith('/runs/1')
+  && JSON.parse(c.body).effort === 'max')).then(() => true, () => false));
+const effortValue = () => page.evaluate(() => {
+  const find = (n) => (n && n.t === 'picker' && n.p && n.p.label === 'Effort' ? n : (n && n.c || []).map(find).find(Boolean));
+  return (find(window.xbnPreview.tree().root) || { p: {} }).p.value;
+});
+ok('…and the picker follows', await page.waitForFunction(() => {
+  const find = (n) => (n && n.t === 'picker' && n.p && n.p.label === 'Effort' ? n : (n && n.c || []).map(find).find(Boolean));
+  return (find(window.xbnPreview.tree().root) || { p: {} }).p.value === 'max';
+}, null, { timeout: 5000 }).then(() => true, () => false), String(await effortValue()));
+ok('no page errors after it', errors.length === 0, errors.join(' | '));
+await page.evaluate(() => localStorage.removeItem('effort-check'));
 await browser.close();
 done('native');

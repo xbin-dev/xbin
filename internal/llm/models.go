@@ -2,6 +2,7 @@ package llm
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"maps"
 	"net/http"
@@ -317,6 +318,37 @@ func (s *Service) meterName(ctx context.Context, u effUpstream, model string) st
 	return publicName(u, unknownModel)
 }
 
+// effortFor is what is known of model's reasoning on u for a call (D249,
+// effort.go): the configuration's entry, else the upstream's own list as
+// cached, over xbind's table where u is the model's maker's API. nil:
+// nothing. It never asks the upstream (l1): a pass-through upstream's list
+// was fetched for this call already (meterName, bounded) — its record is
+// always the list's; an upstream with a configured model list is read when
+// models are listed (GET /v1/models: the admin page, a tile's model
+// picker), and until then its calls are mapped by configuration and the
+// maker's table alone. A call makes no request it didn't make before.
+func (s *Service) effortFor(u effUpstream, model string) *EffortRecord {
+	if e, ok := lookupModel(u.Reasoning, model); ok && e.Levels != nil {
+		return effortOf(u, model, nil)
+	}
+	var extra map[string]json.RawMessage
+	if t, err := s.target(u); err == nil {
+		e, _, _ := s.models.peek(u.Name, t.BaseURL+"|"+hint(t.Key), s.now())
+		for _, m := range e.models {
+			if m.ID == model {
+				extra = m.Extra
+				break
+			}
+		}
+	}
+	return effortOf(u, model, extra)
+}
+
+// effortSuggestion is the member of a model in GET /v1/models naming what
+// xbind's table says of it on its maker's own API, where this upstream is
+// not that API (the model is undescribed here: an admin may adopt it).
+const effortSuggestion = "xbin_effort_suggestion"
+
 // listModels is GET /v1/models for snap: every upstream's models as
 // "<upstream>/<model>" (the upstream's own model object kept, so context
 // sizes and the like pass through), then the aliases and the default
@@ -341,7 +373,8 @@ func (s *Service) listModels(ctx context.Context, snap *snapshot, c Caller) (sdk
 	list := sdkllm.ModelList{Object: "list", Data: []sdkllm.Model{}}
 	errs := map[string]string{}
 	listing := c
-	listing.Listing = true // the policy is asked what to show, not whether a call runs (Caller.Listing)
+	listing.Listing = true                  // the policy is asked what to show, not whether a call runs (Caller.Listing)
+	efforts := map[string]json.RawMessage{} // a listed model's effort, by its public name: its aliases carry it too
 	for i, name := range names {
 		u := snap.upstreams[name]
 		if results[i].err != "" {
@@ -350,6 +383,25 @@ func (s *Service) listModels(ctx context.Context, snap *snapshot, c Caller) (sdk
 		for _, m := range results[i].models {
 			if m.ID == "" || s.refusedByPolicy(listing, u, m.ID) {
 				continue
+			}
+			// what the connector knows of its reasoning (D249): the upstream's own effort member is replaced by
+			// the record made of it, the configuration's and xbind's table — or removed when nothing of it is
+			// a record (callers read only the connector's); a table match on another than the maker's API is a
+			// suggestion, apart
+			rec, suggest := effortInfo(u, m.ID, m.Extra)
+			if _, raw := m.Extra["effort"]; rec != nil || suggest != nil || raw || m.Extra[effortSuggestion] != nil {
+				extra := make(map[string]json.RawMessage, len(m.Extra)+2)
+				maps.Copy(extra, m.Extra)
+				delete(extra, "effort")
+				delete(extra, effortSuggestion)
+				if rec != nil {
+					extra["effort"] = rec.listing()
+					efforts[publicName(u, m.ID)] = extra["effort"]
+				}
+				if suggest != nil {
+					extra[effortSuggestion] = suggest.listing()
+				}
+				m.Extra = extra
 			}
 			m.ID = publicName(u, m.ID)
 			if m.Object == "" {
@@ -366,7 +418,13 @@ func (s *Service) listModels(ctx context.Context, snap *snapshot, c Caller) (sdk
 		if err != nil || s.refusedByPolicy(listing, u, m) {
 			return
 		}
-		list.Data = append(list.Data, sdkllm.Model{ID: id, Object: "model", OwnedBy: "alias", AliasOf: publicName(u, m)})
+		a := sdkllm.Model{ID: id, Object: "model", OwnedBy: "alias", AliasOf: publicName(u, m)}
+		if e, ok := efforts[a.AliasOf]; ok {
+			a.Extra = map[string]json.RawMessage{"effort": e}
+		} else if rec := effortOf(u, m, nil); rec != nil { // a model its upstream doesn't list: what configuration and the table say
+			a.Extra = map[string]json.RawMessage{"effort": rec.listing()}
+		}
+		list.Data = append(list.Data, a)
 	}
 	for _, a := range slices.Sorted(maps.Keys(snap.aliases)) {
 		if a != AliasAny {

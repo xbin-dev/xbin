@@ -42,9 +42,17 @@ type UpstreamView struct {
 	// TranslatingSince: when that was first found (RFC 3339); setting
 	// responsesVia again forgets it.
 	TranslatingSince string `json:"translatingSince,omitempty"`
-	Source           string `json:"source"` // admin | host
-	Locked           bool   `json:"locked"`
-	Reason           string `json:"reason,omitempty"`
+	// Reasoning is the upstream's own description of its models' reasoning
+	// (upstreams.<name>.reasoning, D249), keyed like prices. What a listed
+	// model's record is — this, the upstream's own list, xbind's table — is
+	// on each model of GET /v1/models (effort).
+	Reasoning map[string]EffortRecord `json:"reasoning,omitempty"`
+	// ReplayOff: its models found to refuse the reasoning a translated call
+	// sends back (in memory until reset — POST …/replay-reset — or a restart).
+	ReplayOff map[string]ReplayOff `json:"replayOff,omitempty"`
+	Source    string               `json:"source"` // admin | host
+	Locked    bool                 `json:"locked"`
+	Reason    string               `json:"reason,omitempty"`
 }
 
 // HostView says whether a deployment file is in force.
@@ -86,6 +94,23 @@ type ConfigView struct {
 	Notices []string `json:"notices,omitempty"`
 	Set     int64    `json:"set,omitempty"`
 	By      string   `json:"by,omitempty"`
+	// ReasoningPresets are the descriptions an admin can give a model in one
+	// pick (PUT /llm/upstreams/<name> {reasoning: {<model>: {preset}}}).
+	ReasoningPresets []ReasoningPreset `json:"reasoningPresets"`
+}
+
+// ReasoningPreset is one of them: its name and what it says.
+type ReasoningPreset struct {
+	Name   string       `json:"name"`
+	Effort EffortRecord `json:"effort"`
+}
+
+func reasoningPresets() []ReasoningPreset {
+	out := make([]ReasoningPreset, 0, len(EffortPresetNames))
+	for _, n := range EffortPresetNames {
+		out = append(out, ReasoningPreset{Name: n, Effort: effortPresets[n].clone()})
+	}
+	return out
 }
 
 func lockOf() Lock { return Lock{Locked: true, Reason: LockReason} }
@@ -104,6 +129,18 @@ func locksView(snap *snapshot) map[string]Lock {
 func (s *Service) upstreamView(snap *snapshot, u effUpstream) UpstreamView {
 	v := UpstreamView{Name: u.Name, Kind: KindOpenAI, BaseURL: u.BaseURL, Models: slices.Clone(u.Models), Private: u.Private,
 		Prices: u.Prices, Source: "admin", ResponsesVia: u.ResponsesVia}
+	for m, rec := range u.Reasoning {
+		if v.Reasoning == nil {
+			v.Reasoning = map[string]EffortRecord{}
+		}
+		rec = rec.clone()
+		rec.Source, rec.Send = EffortFromAdmin, nil // a send patch is server-side configuration: not shown
+		if u.Host {
+			rec.Source = EffortFromHost
+		}
+		v.Reasoning[m] = rec
+	}
+	v.ReplayOff = s.noReplay.of(u.Name)
 	if v.Models == nil {
 		v.Models = []string{}
 	}
@@ -137,7 +174,7 @@ func (s *Service) configView() ConfigView {
 	v := ConfigView{Configured: snap.configured(), Enabled: snap.enabled, People: snap.people, Upstreams: []UpstreamView{},
 		Defaults: Defaults{Model: snap.defaults.Model, Roles: maps.Clone(snap.defaults.Roles)}, Aliases: maps.Clone(snap.aliases),
 		Quotas: snap.quotas.clone(), Sessions: snap.sessions, Locks: locksView(snap), Host: HostView{Active: snap.host, LockAll: snap.lockAll, Error: snap.hostErr},
-		Vault: s.keys.state(), Problems: snap.problems(), Set: set, By: by, Concurrency: snap.concurrency}
+		Vault: s.keys.state(), Problems: snap.problems(), Set: set, By: by, Concurrency: snap.concurrency, ReasoningPresets: reasoningPresets()}
 	if v.Problems == nil {
 		v.Problems = []string{}
 	}

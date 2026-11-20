@@ -564,3 +564,109 @@ export const setupAlert = (alerts) => (alerts ?? []).find((a) => a?.kind === 'll
 // isLLMAlert(a): one of the connector's (its setup card, a quota reached,
 // cost quotas that miss unpriced calls).
 export const isLLMAlert = (a) => a?.kind === 'llm-setup' || a?.kind === 'llm-quota' || a?.kind === 'llm';
+
+// ---- reasoning effort (D249) ----
+
+// REASONING_PRESETS are the descriptions an admin gives a model in one pick
+// (PUT /llm/upstreams/<name> {reasoning: {<model>: {preset}}}; internal/llm
+// effortPresets) — '' forgets the admin's description.
+export const REASONING_PRESETS = Object.freeze([
+  { id: '', label: 'not described here (the upstream\'s or xbin\'s, if any)' },
+  { id: 'openai', label: 'OpenAI-style levels (low · medium · high)' },
+  { id: 'toggle', label: 'on / off' },
+  { id: 'deepseek', label: 'DeepSeek-style low · high · max' },
+  { id: 'none', label: 'no reasoning' },
+]);
+
+const EFFORT_WORDS = { none: 'Off', minimal: 'Minimal', low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extra high', max: 'Max' };
+// effortWord('xhigh') → "Extra high": a ladder word as a person reads it.
+export const effortWord = (w) => EFFORT_WORDS[w] ?? String(w ?? '');
+
+const EFFORT_FROM = { upstream: 'from the upstream', xbin: 'from xbin', admin: 'from the admin', host: 'set by your host' };
+
+// effortLine(e) → "Reasoning: Low · High · Max (default High; can be off) ·
+// from the upstream": a model's effort record (GET /v1/models effort) as
+// /xbin/llm and bx llm say it.
+export function effortLine(e) {
+  const from = EFFORT_FROM[e?.source] ?? (e?.source ? `from ${e.source}` : '');
+  const tail = e?.replay === 'never' ? ' · its reasoning is not sent back' : '';
+  if (e && !Array.isArray(e.supported_levels) && e.reasons === true) return `Reasoning: yes, its levels not described — no control is offered${from ? ` · ${from}` : ''}${tail}`;
+  if (!e || !Array.isArray(e.supported_levels)) return `Reasoning: not described — no control is offered${tail}`;
+  if (!e.supported_levels.length) return `Reasoning: none (an effort sent is dropped)${from ? ` · ${from}` : ''}${tail}`;
+  const notes = [e.default_level ? `default ${effortWord(e.default_level)}` : '', e.can_disable === true ? 'can be off' : e.can_disable === false ? 'always thinks' : ''].filter(Boolean);
+  return `Reasoning: ${e.supported_levels.map(effortWord).join(' · ')}${notes.length ? ` (${notes.join('; ')})` : ''}${from ? ` · ${from}` : ''}${tail}`;
+}
+
+// presetOf(e) → the preset an admin's entry is ('' when it is none of them,
+// or not the admin's): what the picker shows as chosen.
+export function presetOf(e, presets) {
+  if (!e || (e.source !== 'admin' && e.source !== 'host')) return '';
+  const key = (r) => JSON.stringify([r?.supported_levels ?? null, r?.default_level ?? '', !!r?.can_disable]);
+  return (presets ?? []).find((p) => key(p.effort) === key(e))?.name ?? '';
+}
+
+// upstreamModels(list, name) → GET /v1/models' models of one upstream
+// (not the aliases), each {id: its own name, effort, suggest}: suggest is
+// what xbin's table says of the model on its maker's own API, where this
+// upstream is not that API (the model is undescribed here).
+export function upstreamModels(list, name) {
+  const pre = `${name}/`;
+  const rec = (e) => (e && typeof e === 'object' && !Array.isArray(e) ? e : null);
+  return (list?.data ?? []).filter((m) => m?.owned_by !== 'alias' && String(m?.id ?? '').startsWith(pre))
+    .map((m) => ({ id: String(m.id).slice(pre.length), effort: rec(m.effort), suggest: rec(m.xbin_effort_suggestion) }));
+}
+
+// suggestLine(s) → "Reasoning: not described — xbin knows the maker's
+// levels: Low · High · Max (default High)"; '' when s holds no levels.
+export function suggestLine(s) {
+  const ls = (Array.isArray(s?.supported_levels) ? s.supported_levels : []).filter((w) => EFFORT_LEVELS.includes(w));
+  if (!ls.length) return '';
+  const def = EFFORT_LEVELS.includes(s.default_level) ? ` (default ${effortWord(s.default_level)})` : '';
+  return `Reasoning: not described — xbin knows the maker's levels: ${ls.map(effortWord).join(' · ')}${def}`;
+}
+
+// suggestRecord(s) → the admin's entry "Use these" stores: the maker's
+// levels, default, whether it can be off, its aliases — ladder words only.
+export function suggestRecord(s) {
+  const ls = (Array.isArray(s?.supported_levels) ? s.supported_levels : []).filter((w) => EFFORT_LEVELS.includes(w));
+  const rec = { supported_levels: ls };
+  if (typeof s?.can_disable === 'boolean') rec.can_disable = s.can_disable;
+  if (ls.includes(s?.default_level) || (s?.default_level === 'none' && rec.can_disable)) rec.default_level = s.default_level;
+  const al = Object.entries(s?.aliases ?? {}).filter(([k, v]) => EFFORT_LEVELS.includes(k) && ls.includes(v));
+  if (al.length) rec.aliases = Object.fromEntries(al);
+  return rec;
+}
+
+// replayLine(r) → "replay off for 2 callers since 2026-11-20 10:00: the
+// upstream refused reasoning_content" (an upstream's replayOff entry: the
+// callers whose translated calls no longer send it; local time).
+export function replayLine(r) {
+  const d = new Date(r?.since ?? '');
+  const at = Number.isNaN(d.getTime()) ? '' : ` since ${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  const n = Number.isInteger(r?.callers) && r.callers > 0 ? r.callers : 1;
+  return `replay off for ${n} caller${n === 1 ? '' : 's'}${at}: the upstream refused ${String(r?.field ?? 'the reasoning sent back')}`;
+}
+
+// EFFORT_LEVELS are the ladder's words a model may take ("none" is "can be
+// turned off"), cheapest first.
+export const EFFORT_LEVELS = Object.freeze(['minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
+
+// effortDraft(e) → the Describe form's fields for a record (or none):
+// {levels: {<word>: bool}, off: bool, def: '' | <word>}.
+export function effortDraft(e) {
+  const on = new Set(Array.isArray(e?.supported_levels) ? e.supported_levels : []);
+  return { levels: Object.fromEntries(EFFORT_LEVELS.map((w) => [w, on.has(w)])), off: e?.can_disable === true, def: e?.default_level ?? '' };
+}
+
+// effortRecord(d) → the record the form describes (PUT /llm/upstreams/<name>
+// {reasoning: {<model>: record}}): no level ticked and not off is "no
+// reasoning"; the default is kept only when ticked (or "none" while off).
+export function effortRecord(d) {
+  const levels = EFFORT_LEVELS.filter((w) => d?.levels?.[w]);
+  const rec = { supported_levels: levels, can_disable: !!d?.off && levels.length > 0 };
+  if (d?.def && (levels.includes(d.def) || (d.def === 'none' && rec.can_disable))) rec.default_level = d.def;
+  return rec;
+}
+
+// effortDraftWords(d) → what the form will say of the model, before it is saved.
+export const effortDraftWords = (d) => effortLine({ ...effortRecord(d), source: 'admin' });

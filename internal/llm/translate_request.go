@@ -1,6 +1,8 @@
 package llm
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -24,6 +26,26 @@ type xlate struct {
 	parallel bool            // its parallel_tool_calls
 	truncate bool            // it asked for truncation: "auto"
 	dropped  []string        // what of it was not sent
+	// mint tags the reasoning items the answer is translated into, so a later
+	// request's can be told from any other's: this upstream's, this model's
+	// (mintTag). effort is X-XBin-LLM-Effort's value ("" none).
+	mint   string
+	effort string
+	// replayed: how many assistant messages carry reasoning sent back
+	// (reasoning_content); withoutReplay is the request without it — what
+	// is sent once more when the upstream refuses the field (400).
+	replayed      int
+	withoutReplay func() []byte
+}
+
+// XlateOptions is what a translation knows of the model beyond its name:
+// its reasoning record (nil: undescribed); NoReplay, that its upstream was
+// found to refuse the reasoning sent back (replay.go); Refused, told the
+// field when an upstream refused it and the request without it worked.
+type XlateOptions struct {
+	Effort   *EffortRecord
+	NoReplay bool
+	Refused  func(field string)
 }
 
 // drop notes that what — a field, or tools.<type> — was not sent. The
@@ -50,6 +72,49 @@ type chatMsg struct {
 	Content    any            `json:"content"`
 	ToolCalls  []chatToolCall `json:"tool_calls,omitempty"`
 	ToolCallID string         `json:"tool_call_id,omitempty"`
+	// ReasoningContent is what the model reasoned before this answer, sent
+	// back (D249): from a reasoning item this translation made of its own
+	// answer, for the same upstream and model (mintTag).
+	ReasoningContent string `json:"reasoning_content,omitempty"`
+}
+
+// mintTag names an upstream's model in the ids of the reasoning items the
+// translation makes ("rs_<tag>_…"): a later request's item with this tag
+// was this model's reasoning, and goes back to it; one without (another
+// model's, another upstream's — the same model id elsewhere is not the
+// same model — or a provider's own) is not this upstream's to read.
+func mintTag(t Target, model string) string {
+	h := sha256.Sum256([]byte(t.Name + "\x00" + t.BaseURL + "\x00" + model))
+	return "x" + hex.EncodeToString(h[:5])
+}
+
+// mintedReasoning is the text of a reasoning input item the translation
+// made of an answer of the model tagged tag: id rs_<tag>_…, summary text
+// only, no encrypted content, no other content. ok is false for any other.
+func mintedReasoning(it map[string]json.RawMessage, tag string) (string, bool) {
+	var id string
+	if json.Unmarshal(it["id"], &id) != nil || !strings.HasPrefix(id, "rs_"+tag+"_") {
+		return "", false
+	}
+	if rawSet(it["encrypted_content"]) && string(it["encrypted_content"]) != `""` {
+		return "", false
+	}
+	if c := strings.TrimSpace(string(it["content"])); c != "" && c != "null" && c != "[]" {
+		return "", false
+	}
+	var parts []map[string]json.RawMessage
+	if rawSet(it["summary"]) && json.Unmarshal(it["summary"], &parts) != nil {
+		return "", false
+	}
+	var b strings.Builder
+	for _, p := range parts {
+		var typ, text string
+		if json.Unmarshal(p["type"], &typ) != nil || typ != "summary_text" || json.Unmarshal(p["text"], &text) != nil {
+			return "", false
+		}
+		b.WriteString(text)
+	}
+	return b.String(), true
 }
 
 type chatToolCall struct {
@@ -78,8 +143,10 @@ var xlateSent = map[string]bool{"model": true, "input": true, "instructions": tr
 	"top_logprobs": true, "reasoning": true, "text": true, "truncation": true, "store": true, "background": true}
 
 // responsesToChat rewrites a Responses request as a chat completion for
-// upstreamModel. asked is the model as the caller named it.
-func responsesToChat(body []byte, asked, upstreamModel string) ([]byte, *xlate, *refusal) {
+// upstreamModel. asked is the model as the caller named it; mint is the
+// model's tag (mintTag): reasoning items made of its earlier answers go back
+// to it as reasoning_content.
+func responsesToChat(body []byte, asked, upstreamModel, mint string, opt XlateOptions) ([]byte, *xlate, *refusal) {
 	var in map[string]json.RawMessage
 	if err := json.Unmarshal(body, &in); err != nil {
 		return nil, nil, refuse(http.StatusBadRequest, "xbin_llm_body", "the request body is not a JSON object")
@@ -91,7 +158,7 @@ func responsesToChat(body []byte, asked, upstreamModel string) ([]byte, *xlate, 
 	if isSet("prompt") {
 		return nil, nil, xlateRefuse("prompt (a stored prompt template) is OpenAI's own service: send its text in instructions and input")
 	}
-	x := &xlate{model: asked, custom: map[string]bool{}, tools: []any{}, parallel: true}
+	x := &xlate{model: asked, custom: map[string]bool{}, tools: []any{}, parallel: true, mint: mint}
 	out := map[string]any{"model": upstreamModel}
 	for k := range in {
 		if !xlateSent[k] && isSet(k) {
@@ -123,7 +190,7 @@ func responsesToChat(body []byte, asked, upstreamModel string) ([]byte, *xlate, 
 			msgs = append(msgs, chatMsg{Role: "system", Content: s})
 		}
 	}
-	more, ref := xlateInput(in["input"])
+	more, ref := xlateInput(in["input"], x, opt.Effort.replays() && !opt.NoReplay)
 	if ref != nil {
 		return nil, nil, ref
 	}
@@ -168,7 +235,14 @@ func responsesToChat(body []byte, asked, upstreamModel string) ([]byte, *xlate, 
 			switch {
 			case !rawSet(v):
 			case k == "effort" && json.Unmarshal(v, &effort) == nil && effort != "":
-				out["reasoning_effort"] = effort
+				// mapped onto the model's own levels (effort.go); a model nothing describes gets it as it came
+				m := mapEffort(opt.Effort, effort)
+				x.effort = m.header
+				if m.drop {
+					x.drop("reasoning.effort") // the model has no reasoning
+				} else {
+					out["reasoning_effort"] = m.sent
+				}
 			default:
 				x.drop("reasoning." + k)
 			}
@@ -211,6 +285,18 @@ func responsesToChat(body []byte, asked, upstreamModel string) ([]byte, *xlate, 
 	b, err := json.Marshal(out)
 	if err != nil {
 		return nil, nil, refuse(http.StatusBadRequest, "xbin_llm_body", "the request body could not be rewritten for the upstream")
+	}
+	if x.replayed > 0 {
+		x.withoutReplay = func() []byte {
+			bare := make([]chatMsg, len(msgs))
+			for i, m := range msgs {
+				m.ReasoningContent = ""
+				bare[i] = m
+			}
+			out["messages"] = bare
+			b, _ := json.Marshal(out)
+			return b
+		}
 	}
 	return b, x, nil
 }
@@ -321,8 +407,12 @@ func xlateTools(in map[string]json.RawMessage, x *xlate) (chatTools, *refusal) {
 // chat messages. Function calls that follow one another (and the assistant
 // text before them) become one assistant message, as chat wants them; the
 // images of a tool's output, which a chat tool message can't carry, follow
-// the tool messages in a user message that says whose they are.
-func xlateInput(raw json.RawMessage) ([]chatMsg, *refusal) {
+// the tool messages in a user message that says whose they are. A
+// reasoning item this translation made of the same model's answer (x.mint)
+// goes back on the assistant message that follows it, as reasoning_content
+// (replay: unless the model's record says never); any other reasoning item
+// is not sent, and named (input.reasoning).
+func xlateInput(raw json.RawMessage, x *xlate, replay bool) ([]chatMsg, *refusal) {
 	if !rawSet(raw) {
 		return nil, nil
 	}
@@ -337,6 +427,23 @@ func xlateInput(raw json.RawMessage) ([]chatMsg, *refusal) {
 	var out []chatMsg
 	var open *chatMsg // an assistant message still taking tool calls
 	var shown []any   // the images of the tool outputs just written, waiting for the run of tool messages to end
+	var thought strings.Builder
+	thinking := false              // a reasoning item waits for the assistant message it came before
+	reasoned := func(m *chatMsg) { // the waiting reasoning rides on m, the answer it belongs to
+		if thinking && thought.Len() > 0 {
+			m.ReasoningContent = thought.String()
+			x.replayed++
+		}
+		thinking = false
+		thought.Reset()
+	}
+	orphan := func() { // reasoning followed by no answer of the model's: it goes nowhere
+		if thinking && thought.Len() > 0 {
+			x.drop("input.reasoning")
+		}
+		thinking = false
+		thought.Reset()
+	}
 	flush := func() {
 		if open != nil {
 			out = append(out, *open)
@@ -357,6 +464,7 @@ func xlateInput(raw json.RawMessage) ([]chatMsg, *refusal) {
 	call := func(id, name, args string) {
 		if open == nil {
 			open = &chatMsg{Role: "assistant", Content: nil}
+			reasoned(open)
 		}
 		tc := chatToolCall{ID: id, Type: "function"}
 		tc.Function.Name, tc.Function.Arguments = name, args
@@ -383,7 +491,9 @@ func xlateInput(raw json.RawMessage) ([]chatMsg, *refusal) {
 			flush()
 			if role == "assistant" {
 				open = &chatMsg{Role: role, Content: content}
+				reasoned(open)
 			} else {
+				orphan()
 				out = append(out, chatMsg{Role: role, Content: content})
 			}
 		case "function_call":
@@ -393,6 +503,7 @@ func xlateInput(raw json.RawMessage) ([]chatMsg, *refusal) {
 			call(str1(it, "call_id"), str1(it, "name"), string(args))
 		case "function_call_output", "custom_tool_call_output":
 			flush()
+			orphan()
 			id := str1(it, "call_id")
 			text, images, ref := xlateOutput(it["output"])
 			if ref != nil {
@@ -407,12 +518,24 @@ func xlateInput(raw json.RawMessage) ([]chatMsg, *refusal) {
 			}
 			out = append(out, chatMsg{Role: "tool", ToolCallID: id, Content: text})
 		case "reasoning":
-			// the provider's own, opaque: not this upstream's to read
+			// what this translation made of the same model's answer goes back to it (D249); a provider's own
+			// (opaque, encrypted), another model's, or another upstream's is not this upstream's to read
+			text, mine := mintedReasoning(it, x.mint)
+			switch {
+			case mine && replay:
+				// it begins the next answer (one still open takes calls only: splitting it would orphan them)
+				thinking = true
+				thought.WriteString(text)
+			case mine && text == "":
+			default:
+				x.drop("input.reasoning")
+			}
 		default:
 			return nil, xlateRefuse("an input item of type %q can't be sent as a chat completion", typ)
 		}
 	}
 	flush()
+	orphan()
 	show()
 	return out, nil
 }

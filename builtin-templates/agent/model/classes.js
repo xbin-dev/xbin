@@ -176,12 +176,12 @@ export function formOf(c) {
     orig: c.id, id: c.id, name: c.name || '', icon: c.icon || '', description: c.description || '', toolsets: ts,
     mcpMode: mcp.mode, mcp: mcp.names, managersMode: mgr.mode, managers: mgr.names, harnessesMode: hs.mode, harnesses: hs.names,
     egress: (c.sandboxEgress || []).length ? [...c.sandboxEgress] : ['none'],
-    model: c.model || '', system: c.system || '', who: c.who === 'managers' ? 'managers' : 'everyone', builtin: !!c.builtin,
+    model: c.model || '', effort: c.effort || '', system: c.system || '', who: c.who === 'managers' ? 'managers' : 'everyone', builtin: !!c.builtin,
   };
 }
 export const blankForm = () => ({
   orig: '', id: '', name: '', icon: '', description: '', toolsets: ['files', 'repl', 'subagents', 'skills'],
-  mcpMode: 'all', mcp: '', managersMode: 'all', managers: '', harnessesMode: 'all', harnesses: '', egress: ['none'], model: '', system: '', who: 'everyone', builtin: false,
+  mcpMode: 'all', mcp: '', managersMode: 'all', managers: '', harnessesMode: 'all', harnesses: '', egress: ['none'], model: '', effort: '', system: '', who: 'everyone', builtin: false,
 });
 
 // classOf: the form as PUT /classes takes a class. mcp only with internal,
@@ -193,6 +193,7 @@ export function classOf(f) {
   const toolsets = [...known.filter((t) => f.toolsets.includes(t)), ...f.toolsets.filter((t) => !known.includes(t))];
   const c = { id: f.id.trim(), name: f.name.trim(), icon: f.icon.trim(), description: f.description.trim(), toolsets,
     model: f.model || '', system: f.system || '', who: f.who === 'managers' ? 'managers' : 'everyone' };
+  if (f.effort) c.effort = f.effort; // the class's reasoning effort beside its model (D249); left out: the agent's default
   if (toolsets.includes('internal')) c.mcp = f.mcpMode === 'all' ? 'all' : splitNames(f.mcp);
   if (toolsets.includes('sandbox')) {
     c.managers = f.managersMode === 'all' ? 'all' : splitNames(f.managers);

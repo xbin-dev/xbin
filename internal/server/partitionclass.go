@@ -488,6 +488,9 @@ var partitionClasses = map[string]PartitionClass{
 	"DELETE /push/devices/{user}":            GlobalOnlyRefused,
 	"DELETE /push/devices/{user}/{deviceId}": GlobalOnlyRefused,
 
+	// D249: the remembered refusal of reasoning sent back
+	"POST /llm/upstreams/{name}/replay-reset": GlobalOnlyRefused,
+
 	// ---- tile limits (D203): a person's decisions, never tile code (the
 	// handlers refuse it); a tile reads its own row ----
 	"POST /limits":           GlobalOnlyRefused,

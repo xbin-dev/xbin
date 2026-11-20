@@ -128,6 +128,10 @@ type catalogModel struct {
 	// Private is the provider's mark that the model keeps prompts inside the
 	// organisation (nil: its list doesn't say).
 	Private *bool `json:"private,omitempty"`
+	// Effort is what its provider's list says of its reasoning (the LLM
+	// connector's record, D249; nil: nothing) — the composer's effort chip
+	// and whether a turn sends a level (llm_effort.go).
+	Effort *effortRec `json:"effort,omitempty"`
 }
 
 // UnmarshalJSON reads a model object as llm.Model does — member by member:
@@ -145,6 +149,7 @@ func (m *catalogModel) UnmarshalJSON(b []byte) error {
 	m.Provider, m.Ref = "", ""
 	_ = json.Unmarshal(w.Extra["provider"], &m.Provider)
 	_ = json.Unmarshal(w.Extra["ref"], &m.Ref)
+	m.Effort = parseEffort(w.Extra["effort"])
 	m.Private = nil
 	if raw, ok := w.Extra["private"]; ok {
 		var b bool
@@ -257,6 +262,13 @@ func fullCatalog(ctx context.Context) *catalog {
 	catalogCache = c
 	catalogMu.Unlock()
 	return c
+}
+
+// dropCatalog forgets the cached catalog: the next read asks again.
+func dropCatalog() {
+	catalogMu.Lock()
+	catalogCache = nil
+	catalogMu.Unlock()
 }
 
 // listModels is one provider's GET /v1/models.

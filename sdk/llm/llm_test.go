@@ -486,3 +486,29 @@ func TestWireTypes(t *testing.T) {
 		t.Errorf("error chunk: %+v, %v", c, err)
 	}
 }
+
+// SetMember replaces or removes one member; Body writes what the request
+// then holds, every other member as it was.
+func TestRequestSetMember(t *testing.T) {
+	r, err := OpenRequest([]byte(`{"model":"a","reasoning_effort":"medium","z":[1, 2]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.SetMember("reasoning_effort", []byte(`"high"`))
+	r.SetMember("gone", nil)
+	b, _ := r.Body("b", false)
+	if string(b) != `{"model":"b","reasoning_effort":"high","z":[1,2]}` {
+		t.Fatalf("set: %s", b)
+	}
+	r.SetMember("reasoning_effort", nil)
+	if b, _ := r.Body("", false); string(b) != `{"model":"a","z":[1,2]}` {
+		t.Fatalf("removed: %s", b)
+	}
+	// a zero Request (l7): no panic, and it holds what was set
+	var zero Request
+	zero.SetMember("gone", nil)
+	zero.SetMember("reasoning_effort", []byte(`"low"`))
+	if b, _ := zero.Body("m", false); string(b) != `{"model":"m","reasoning_effort":"low"}` {
+		t.Fatalf("a zero Request: %s", b)
+	}
+}

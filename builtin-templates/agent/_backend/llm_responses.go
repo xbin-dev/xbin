@@ -81,9 +81,12 @@ func respContent(c any) any {
 
 func (responsesCodec) encode(req LLMRequest) ([]byte, error) {
 	b := llm.ResponsesRequest{Model: req.Model, Stream: req.Stream, Input: []any{}}
-	if isReasoningModel(req.Model) || req.ReasoningEffort != "" {
-		// Only a reasoning model accepts these; a non-reasoning model forced
-		// onto this wire would 400 on them.
+	// Only a reasoning model accepts these; a non-reasoning model forced onto
+	// this wire would 400 on them. OpenAI's names and a set effort, as before
+	// D249 — a model whose record says it reasons gets no block it didn't get
+	// then when no effort is set (an older conversation's calls don't change);
+	// one whose record says it has no reasoning gets none.
+	if (isReasoningModel(req.Model) || req.ReasoningEffort != "") && req.Reasons != reasonsNo {
 		b.Reasoning = &llm.Reasoning{Effort: req.ReasoningEffort, Summary: "auto"}
 		b.Include = []string{"reasoning.encrypted_content"}
 	}
@@ -104,7 +107,7 @@ func (responsesCodec) encode(req LLMRequest) ([]byte, error) {
 		case "user":
 			b.Input = append(b.Input, llm.InputMessage{Role: "user", Content: respContent(m.Content)})
 		case "assistant":
-			if r := m.Replay; r != nil && r.Wire == "responses" && r.Model == req.Model && len(r.ReasoningRaw) > 0 {
+			if r := m.Replay; sameSource(r, "responses", req) && len(r.ReasoningRaw) > 0 {
 				var items []json.RawMessage
 				if json.Unmarshal(r.ReasoningRaw, &items) == nil {
 					for _, it := range items {

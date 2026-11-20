@@ -25,15 +25,22 @@ func init() { moreCmds["llm"] = cmdLLM }
 const llmUsage = `  bx llm [status] [--json]              the LLM connector: upstreams, default models, your quota
   bx llm upstream add <name> <base-url> [--key-file <f> | --key-stdin | --no-key]
                  [--models a,b] [--private] [--price <model>=<in>:<out>[:<cached-in>]]…
-                 [--responses-via auto|upstream|chat]
+                 [--responses-via auto|upstream|chat] [--reasoning <model>=<preset>]…
                                         add a provider (the key goes to the vault; it is
                                         asked for when no --key… is given: Enter for none;
                                         never on the command line). --price '*=…' prices
                                         every model the upstream has no price for
   bx llm upstream set <name> [--url <u>] [--key…|--no-key] [--models a,b|--any-model]
                  [--private|--public] [--price …] [--responses-via auto|upstream|chat]
-  bx llm upstream rm <name> | test <name> [<model>]
-  bx llm models [--json]                the models offered (<upstream>/<model>, aliases)
+                 [--reasoning <model>=openai|toggle|deepseek|none|maker|<levels>[/<default>]|-]…
+                                        --reasoning describes a model's reasoning effort (or a
+                                        family: 'deepseek*=deepseek'): a preset, or the levels it
+                                        takes ('none,medium,high,xhigh/high' — none: it can be
+                                        turned off; /high: its default); maker: the levels xbin
+                                        knows of it on its maker's API; - forgets it
+  bx llm upstream rm <name> | test <name> [<model>] | replay-reset <name> [<model>]
+  bx llm models [--json]                the models offered (<upstream>/<model>, aliases),
+                                        each with its reasoning effort when described
   bx llm default [set <model> [--role agent|harness|…] | unset [--role <role>]]
   bx llm alias [set <alias> <model> | rm <alias>]      "*" catches every unknown model name
   bx llm on | off | people admins|everyone|nobody | concurrency <n>
@@ -74,6 +81,10 @@ type llmUpstream struct {
 	ResponsesVia     string `json:"responsesVia"`
 	Translating      bool   `json:"translating"`
 	TranslatingSince string `json:"translatingSince"`
+	// its own description of its models' reasoning effort (D249), keyed like prices; its models found to refuse
+	// the reasoning a translated call sends back
+	Reasoning map[string]llmEffort    `json:"reasoning"`
+	ReplayOff map[string]llmReplayOff `json:"replayOff"`
 }
 
 type llmDefaults struct {
@@ -374,6 +385,11 @@ func printLLMConfig(v llmConfig) {
 		case u.ResponsesVia == "upstream":
 			fmt.Println("    Responses calls: the upstream's own, never translated")
 		}
+		for _, m := range llmKeys(u.Reasoning) {
+			e := u.Reasoning[m]
+			fmt.Printf("    %s: %s\n", m, effortLine(&e))
+		}
+		printReplayOff(u)
 		for _, m := range llmKeys(u.Prices) {
 			p := u.Prices[m]
 			cached := ""
@@ -440,7 +456,7 @@ func llmUpstreamCmd(args []string) error {
 	if len(args) == 0 {
 		return llmStatusCmd(false)
 	}
-	pos, vals, on, err := llmFlags(args[1:], map[string]bool{"--key": true, "--key-file": true, "--url": true, "--models": true, "--price": true, "--responses-via": true},
+	pos, vals, on, err := llmFlags(args[1:], map[string]bool{"--key": true, "--key-file": true, "--url": true, "--models": true, "--price": true, "--responses-via": true, "--reasoning": true},
 		map[string]bool{"--key-stdin": true, "--no-key": true, "--private": true, "--public": true, "--any-model": true})
 	if err != nil {
 		return err
@@ -524,6 +540,22 @@ func llmUpstreamCmd(args []string) error {
 			}
 			body["prices"] = prices
 		}
+		if len(vals["--reasoning"]) > 0 { // by model: the rest of the upstream's table stays (the API merges)
+			reasoning := map[string]any{}
+			for _, spec := range vals["--reasoning"] {
+				model, preset, ok := strings.Cut(spec, "=")
+				if !ok || model == "" || preset == "" {
+					return fmt.Errorf("--reasoning %q: want <model>=<preset> (openai, toggle, deepseek, none) or <model>=- to forget it", spec)
+				}
+				switch r, err := reasoningValue(pos[0], model, preset); {
+				case err != nil:
+					return fmt.Errorf("--reasoning %q: %v", spec, err)
+				default:
+					reasoning[model] = r
+				}
+			}
+			body["reasoning"] = reasoning
+		}
 		var v llmConfig
 		if err := llmCall("PUT", "/api/xbin/llm/upstreams/"+url.PathEscape(pos[0]), body, &v, nil); err != nil {
 			return err
@@ -540,6 +572,8 @@ func llmUpstreamCmd(args []string) error {
 		}
 		fmt.Printf("removed upstream %s\n", pos[0])
 		return nil
+	case "replay-reset":
+		return llmReplayReset(pos, usage)
 	case "test":
 		if len(pos) < 1 || len(pos) > 2 {
 			return usage
@@ -594,36 +628,6 @@ func parseLLMPrice(spec string) (string, llmPrice, error) {
 		p.CachedIn = &nums[2]
 	}
 	return model, p, nil
-}
-
-func llmModelsCmd(jsonOut bool) error {
-	var out struct {
-		Data []struct {
-			ID      string `json:"id"`
-			OwnedBy string `json:"owned_by"`
-			AliasOf string `json:"alias_of"`
-		} `json:"data"`
-		Errors map[string]string `json:"upstream_errors"`
-	}
-	var raw []byte
-	if err := llmCall("GET", "/api/xbin/llm/v1/models", nil, &out, &raw); err != nil {
-		return err
-	}
-	if jsonOut {
-		fmt.Println(strings.TrimSpace(string(raw)))
-		return nil
-	}
-	for _, m := range out.Data {
-		if m.AliasOf != "" {
-			fmt.Printf("%s → %s\n", m.ID, m.AliasOf)
-		} else {
-			fmt.Println(m.ID)
-		}
-	}
-	for _, name := range llmKeys(out.Errors) {
-		fmt.Fprintf(os.Stderr, "bx: upstream %s: %s\n", name, out.Errors[name])
-	}
-	return nil
 }
 
 func llmDefaultCmd(args []string) error {

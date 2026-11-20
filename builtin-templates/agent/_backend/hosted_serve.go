@@ -577,6 +577,7 @@ func handleHostedPatch(w http.ResponseWriter, r *http.Request) {
 		Visibility *string         `json:"visibility"`
 		TeamRole   *string         `json:"teamRole"`
 		Model      *string         `json:"model"`
+		Effort     *string         `json:"effort"`
 		Class      *string         `json:"class"`
 		Sandbox    json.RawMessage `json:"sandbox"`
 		Detach     *string         `json:"detach"`
@@ -594,6 +595,9 @@ func handleHostedPatch(w http.ResponseWriter, r *http.Request) {
 		return
 	case body.Model != nil && (lv < lvParticipant || !validPick(*body.Model)):
 		xbin.WriteError(w, 400, "model: a model id from GET /models, by someone who may talk in it")
+		return
+	case body.Effort != nil && (lv < lvParticipant || !validEffort(*body.Effort)):
+		xbin.WriteError(w, 400, effortWords+", by someone who may talk in it")
 		return
 	}
 	if body.Pinned != nil || body.Archived != nil {
@@ -639,12 +643,17 @@ func handleHostedPatch(w http.ResponseWriter, r *http.Request) {
 			}
 			changedACL = true
 		}
-		if body.Model != nil {
+		if body.Model != nil || body.Effort != nil {
 			cfg, err := t.runConfig(root.ID)
 			if err != nil {
 				return err
 			}
-			cfg.Pick = *body.Model
+			if body.Model != nil {
+				cfg.Pick = *body.Model
+			}
+			if body.Effort != nil {
+				cfg.Effort = *body.Effort
+			}
 			raw, _ := json.Marshal(cfg)
 			if _, err := t.q.Exec(`UPDATE runs SET config=? WHERE id=?`, string(raw), root.ID); err != nil {
 				return err

@@ -529,6 +529,12 @@ func handleModels(w http.ResponseWriter, r *http.Request) {
 		models = []catalogModel{}
 	}
 	out := map[string]any{"object": "list", "data": models, "providers": c.Providers}
+	if agent != nil && !agent.noGateway {
+		// what a new conversation runs on and asks for (D249: the composer's effort chip, which reads the
+		// model's effort above): the general tier's model, the agent's default reasoning effort
+		cfg := parseConfig(agent.db.getSetting("config"))
+		out["defaultModel"], out["defaultEffort"] = modelFor(r.Context(), cfg, "general"), cfg.ReasoningEffort
+	}
 	if len(models) == 0 {
 		out["error"] = "no models: bind the agent's llm interface to an LLM provider (e.g. apps/llm-gw) and give it a backend"
 	}
