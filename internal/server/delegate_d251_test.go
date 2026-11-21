@@ -24,18 +24,34 @@ import (
 // running").
 func briefTurnOver(t *testing.T, w *dWorld, id string) {
 	t.Helper()
-	for deadline := time.Now().Add(20 * time.Second); ; time.Sleep(50 * time.Millisecond) {
-		page, _ := w.s.Term.AgentPage(id, 0, 200)
-		ended := false
-		for _, e := range page.Events {
-			ended = ended || e.Type == agent.EvTurnEnd
+	turnOver(t, w, id, 0)
+}
+
+// turnEnds is how many of session id's turns have ended so far.
+func turnEnds(w *dWorld, id string) int {
+	page, _ := w.s.Term.AgentPage(id, 0, 2000)
+	n := 0
+	for _, e := range page.Events {
+		if e.Type == agent.EvTurnEnd {
+			n++
 		}
-		if info, ok := w.s.Term.Info(id); ended && ok && info.Status == "idle" {
+	}
+	return n
+}
+
+// turnOver waits until more than before of session id's turns have ended
+// and it is idle: a text sent to it after before were counted has had its
+// turn — an idle read right after the send can come before that turn
+// began, and the next text would meet "a turn is running".
+func turnOver(t *testing.T, w *dWorld, id string, before int) {
+	t.Helper()
+	for deadline := time.Now().Add(20 * time.Second); ; time.Sleep(50 * time.Millisecond) {
+		if info, ok := w.s.Term.Info(id); turnEnds(w, id) > before && ok && info.Status == "idle" {
 			return
 		}
 		if time.Now().After(deadline) {
 			info, _ := w.s.Term.Info(id)
-			t.Fatalf("the brief's turn never ended: %+v", info)
+			t.Fatalf("turn %d never ended: %+v", before+1, info)
 		}
 	}
 }

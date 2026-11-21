@@ -343,9 +343,12 @@ func TestTheAppDecidesAMessageItShows(t *testing.T) {
 		if got.State != delegation.Approved || got.DecidedVia != c.via {
 			t.Fatalf("the message after the app's Allow: %s via %q, want %s", got.State, got.DecidedVia, c.via)
 		}
-		// (the message is used: the session takes it, and is idle again for the next client's)
+		// (the message is used: the session takes it, and is idle again for the next client's — once its turn ended:
+		// an idle read right after the send can come before that turn began)
+		ends := turnEnds(w, a.ID)
 		if rec := w.do(w.full, "POST", "/api/xbin/term/sessions/"+a.ID+"/prompt", `{"text":`+strconv.Quote(text)+`}`, alice, header(HeaderTicket, m.ID)); rec.Code >= 300 {
 			t.Fatalf("%s: the approved message: %d %s", c.via, rec.Code, rec.Body.String())
 		}
+		turnOver(t, w, a.ID, ends)
 	}
 }
