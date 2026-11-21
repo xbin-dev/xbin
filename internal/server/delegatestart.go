@@ -52,7 +52,10 @@ func ticketStart(r delegation.Request) (*term.DelegateStart, string) {
 	}
 	// every start opens what the card showed or the person picked — a resume too: its coding agent its history's
 	// (term.OpenAgentWith refuses another), its mode the card's, never a bypass one it ran in last (D251 review M2)
-	return &term.DelegateStart{Approved: true, Picked: true, Provider: prov, Mode: mode, Model: model, Net: net, Signin: signin, TrustAsked: shown["signInTrust"] != nil, Continue: cont}, ""
+	// — and is told what the card showed (D252)
+	brief, _ := shown["prompt"].(string)
+	return &term.DelegateStart{Approved: true, Picked: true, Provider: prov, Mode: mode, Model: model, Net: net, Signin: signin, TrustAsked: shown["signInTrust"] != nil, Continue: cont,
+		Brief: &brief}, ""
 }
 
 // startStill is why an approved start can't open as its person approved

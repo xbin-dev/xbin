@@ -20,7 +20,6 @@ package server
 import (
 	"cmp"
 	"context"
-	"encoding/json"
 	"net/http"
 	"strings"
 
@@ -72,10 +71,12 @@ func (s *Server) messagePreview(p auth.Principal, path string, body []byte) (map
 	var b struct {
 		Text string `json:"text"`
 	}
-	dec := json.NewDecoder(strings.NewReader(string(body)))
-	dec.DisallowUnknownFields()
-	if dec.Decode(&b) != nil || strings.TrimSpace(b.Text) == "" {
-		return nil, "", http.StatusBadRequest, "a message for approval is {text}: the whole of what is sent, nothing else"
+	if err := StrictDecode(body, &b); err != nil || strings.TrimSpace(b.Text) == "" { // read one way only (D252)
+		why := "no text"
+		if err != nil {
+			why = err.Error()
+		}
+		return nil, "", http.StatusBadRequest, `a message for approval is {"text"}: the whole of what is sent, nothing else, written once in lower case (` + why + ")"
 	}
 	id := sessionOfPath(path)
 	info, status, why := s.messageTarget(p, id)
@@ -105,15 +106,29 @@ func (s *Server) messagePreview(p auth.Principal, path string, body []byte) (map
 	return out, tile, 0, ""
 }
 
-// messageTicketKey carries, to the handler, the session a message ticket
-// was spent for: delegateSends lets that one message past the mode rule.
+// messageTicketKey carries, to the handler, the message ticket spent for
+// the call (a spentMessage): delegateSends lets that one message past the
+// mode rule, and the text that goes is the one its person was shown.
 type messageTicketKey struct{}
+
+// spentMessage is a spent message ticket: the session it was for and the
+// text its person approved — xbind's own reading of the body when it was
+// filed (preview.message.text), which the session is sent whatever a later
+// reading of the bytes would say (D252).
+type spentMessage struct{ session, text string }
 
 // messageApproved reports that r carries a spent message ticket for
 // session id.
 func messageApproved(r *http.Request, id string) bool {
-	sid, _ := r.Context().Value(messageTicketKey{}).(string)
-	return sid != "" && sid == id
+	_, ok := approvedMessage(r, id)
+	return ok
+}
+
+// approvedMessage is the text r's spent message ticket for session id
+// approved (ok false: none).
+func approvedMessage(r *http.Request, id string) (string, bool) {
+	m, _ := r.Context().Value(messageTicketKey{}).(spentMessage)
+	return m.text, m.session != "" && m.session == id
 }
 
 // messageStill is why an approved message can't go as approved, now —
@@ -138,7 +153,19 @@ func (s *Server) messageStill(p auth.Principal, r delegation.Request, path strin
 
 func asString(v any) string { s, _ := v.(string); return s }
 
-// withMessageTicket is r carrying the spent message ticket of session id.
-func withMessageTicket(r *http.Request, id string) {
-	*r = *r.WithContext(context.WithValue(r.Context(), messageTicketKey{}, id))
+// withMessageTicket is r carrying the spent message ticket req, for
+// session id: the text it approved goes.
+func withMessageTicket(r *http.Request, id string, req delegation.Request) {
+	shown, _ := req.Preview["message"].(map[string]any)
+	*r = *r.WithContext(context.WithValue(r.Context(), messageTicketKey{}, spentMessage{session: id, text: asString(shown["text"])}))
+}
+
+// approvedPrompt is the prompt a message call sends: with a message ticket
+// spent for session id, the text its person approved and nothing else (the
+// body, read again, can't say another — D252); otherwise p as read.
+func approvedPrompt(r *http.Request, id string, p agent.Prompt) agent.Prompt {
+	if text, ok := approvedMessage(r, id); ok {
+		return agent.Prompt{Text: text}
+	}
+	return p
 }

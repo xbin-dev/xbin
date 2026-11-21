@@ -24,7 +24,6 @@ package server
 // listings for every agent level, scope and org rule.
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -274,21 +273,45 @@ const (
 	BriefByAgent = "agent" // text the agent sent — whatever it looks like
 )
 
-// startBrief resolves a start body's {"brief": {"template": "update"}}:
-// the body with xbind's brief as its "prompt" (and no "brief"), and who
-// wrote the prompt — xbind, or the agent for a body that carries its own
-// text. A body with neither is returned as it is, by "". The rewrite is
-// deterministic: the same body and the same update give the same bytes
-// (a ticket binds them).
+// delegatedStart is a delegated start's body as xbind reads it: these keys,
+// each once, written so (StrictDecode, D252) — what POST /term/sessions
+// takes, and a workspace agent's "brief" and "continue".
+type delegatedStart struct {
+	Cwd      string            `json:"cwd"`
+	Kind     string            `json:"kind"`
+	Provider string            `json:"provider"`
+	Mode     string            `json:"mode"`
+	Model    string            `json:"model"`
+	Options  map[string]string `json:"options"`
+	Net      string            `json:"net"`
+	API      *bool             `json:"api"`
+	GPU      string            `json:"gpu"`
+	VM       bool              `json:"vm"`
+	Name     string            `json:"name"`
+	Resume   string            `json:"resume"`
+	Continue string            `json:"continue"`
+	LLM      string            `json:"llm"`
+	Signin   string            `json:"signin"`
+	Prompt   *string           `json:"prompt"`
+	Brief    json.RawMessage   `json:"brief"`
+}
+
+// startBrief reads a delegated start's body strictly (delegatedStart: a body
+// read one way by a sheet and another by xbind is refused — D252) and
+// resolves its {"brief": {"template": "update"}}: the body with xbind's
+// brief as its "prompt" (and no "brief"), and who wrote the prompt — xbind,
+// or the agent for a body that carries its own text. A body with neither
+// is returned as it is, by "". The rewrite is deterministic: the same body
+// and the same update give the same bytes (a ticket binds them).
 func (s *Server) startBrief(p auth.Principal, body []byte) ([]byte, string, string) {
-	var m map[string]json.RawMessage
-	if json.Unmarshal(body, &m) != nil {
-		return body, "", ""
+	var sb delegatedStart
+	if err := StrictDecode(body, &sb); err != nil {
+		return nil, "", "a start's body is read exactly as written — " + err.Error() + `: file it again as {"cwd", "kind": "agent", "prompt" | "brief", …}, each member once, in lower case`
 	}
-	ref, named := m["brief"]
-	if !named {
-		var prompt string
-		if json.Unmarshal(m["prompt"], &prompt) == nil && strings.TrimSpace(prompt) != "" {
+	var m map[string]json.RawMessage
+	_ = json.Unmarshal(body, &m) // (exact keys, each once: the map is the body)
+	if sb.Brief == nil {
+		if sb.Prompt != nil && strings.TrimSpace(*sb.Prompt) != "" {
 			return body, BriefByAgent, ""
 		}
 		return body, "", ""
@@ -296,17 +319,13 @@ func (s *Server) startBrief(p auth.Principal, body []byte) ([]byte, string, stri
 	var r struct {
 		Template string `json:"template"`
 	}
-	dec := json.NewDecoder(bytes.NewReader(ref))
-	dec.DisallowUnknownFields()
-	if dec.Decode(&r) != nil || r.Template != briefTemplateUpdate {
+	if StrictDecode(sb.Brief, &r) != nil || r.Template != briefTemplateUpdate {
 		return nil, "", `a start's brief is {"template": "update"} (xbin's update brief for its tile), or its text as "prompt"`
 	}
-	if _, both := m["prompt"]; both {
+	if sb.Prompt != nil {
 		return nil, "", `a start names its brief or sends its text as "prompt" — not both`
 	}
-	var cwd string
-	_ = json.Unmarshal(m["cwd"], &cwd)
-	tile := strings.Trim(cwd, "/")
+	tile := strings.Trim(sb.Cwd, "/")
 	b, why := s.updateBriefOf(p, tile)
 	if b == nil {
 		return nil, "", `the brief {"template": "update"}: ` + why

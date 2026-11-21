@@ -2,7 +2,6 @@ package broker
 
 import (
 	"cmp"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -179,8 +178,8 @@ func (b *Broker) templateNewCheckFor(p auth.Principal, body templateNewBody, qui
 // it for a dry run and before it puts a request in front of the person).
 func (b *Broker) CreatePreview(p auth.Principal, body []byte) (map[string]any, error) {
 	var in templateNewBody
-	if err := json.Unmarshal(body, &in); err != nil {
-		return nil, errors.New("need {source, path?, owner?, partition?}")
+	if err := server.StrictDecode(body, &in); err != nil { // what the person is shown is read one way only (D252)
+		return nil, errors.New(`need {source, path?, owner?, partition?}, each once, in lower case (` + err.Error() + ")")
 	}
 	plan, why := b.templateNewCheck(p, in)
 	if why != nil {

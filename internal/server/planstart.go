@@ -181,9 +181,7 @@ func (s *Server) previewStart(a planAgent, op delegation.ChangeOp, planned []del
 		Mode     string          `json:"mode"`
 		Brief    string          `json:"-"`
 	}
-	dec := json.NewDecoder(bytes.NewReader(op.Args))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&in); err != nil {
+	if err := StrictDecode(op.Args, &in); err != nil { // one reading of them only (D252)
 		return delegation.ChangePreview{}, fmt.Errorf("its arguments don't parse: %w", err)
 	}
 	in.Tile = strings.Trim(in.Tile, "/")

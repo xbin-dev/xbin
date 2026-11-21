@@ -873,7 +873,7 @@ func (s *Server) delegateApproval(w http.ResponseWriter, r *http.Request, p auth
 		}
 		row.Ticket = req.ID
 		if message {
-			withMessageTicket(r, sessionOfPath(r.URL.Path))
+			withMessageTicket(r, sessionOfPath(r.URL.Path), req)
 		}
 		if session && start == nil {
 			var why string

@@ -94,6 +94,11 @@ type DelegateStart struct {
 	// person chose to continue instead of opening one (D250): the start's
 	// first prompt goes to it.
 	Continue string
+	// Brief is the first prompt the person approved — the text their sheet
+	// showed, xbind's own reading of the body when it was filed — sent
+	// whatever the body says (D252). nil: the body's (a start xbind built
+	// itself, or one its person's preference let go unasked).
+	Brief *string
 }
 
 // EffectiveStart is what a delegate's session start amounts to once the

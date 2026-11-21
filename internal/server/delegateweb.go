@@ -490,10 +490,8 @@ func (s *Server) webRequestPreview(p auth.Principal, body []byte) (map[string]an
 	var in struct {
 		URL string `json:"url"`
 	}
-	dec := json.NewDecoder(strings.NewReader(string(body)))
-	dec.DisallowUnknownFields()
-	if dec.Decode(&in) != nil || strings.TrimSpace(in.URL) == "" {
-		return nil, http.StatusBadRequest, `a fetch's body is {url: "https://…"}, exactly as it will be sent`
+	if StrictDecode(body, &in) != nil || strings.TrimSpace(in.URL) == "" { // read one way only (D252)
+		return nil, http.StatusBadRequest, `a fetch's body is {url: "https://…"}, exactly as it will be sent: "url" once, in lower case, nothing else`
 	}
 	reach := s.webReach(p, h)
 	switch reach.State {

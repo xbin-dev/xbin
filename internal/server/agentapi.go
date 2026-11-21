@@ -184,6 +184,9 @@ func (s *Server) apiAgentCreate(w http.ResponseWriter, r *http.Request) {
 		open.Options["model"] = start.Model
 	}
 	open.Provider = term.DelegateProvider(open) // a delegate's start that names no harness: the one xbind resolved for it
+	if start != nil && start.Brief != nil {
+		body.Prompt = *start.Brief // what its person was shown (D252)
+	}
 	if body.Prompt != "" && start == nil {
 		apiErr(w, http.StatusBadRequest, "prompt is for a workspace agent's start: send a session its first message with POST /term/sessions/<id>/prompt")
 		return
@@ -483,6 +486,7 @@ func (s *Server) apiAgentPrompt(w http.ResponseWriter, r *http.Request) {
 		apiErr(w, code, err.Error())
 		return
 	}
+	p = approvedPrompt(r, id, p)
 	if !s.delegateSends(w, r, id, p.Text) { // what a person's agent may tell a session, and which session
 		s.Term.KickQueue(id)
 		return
@@ -520,6 +524,7 @@ func (s *Server) apiAgentQueue(w http.ResponseWriter, r *http.Request) {
 		apiErr(w, code, err.Error())
 		return
 	}
+	p = approvedPrompt(r, id, p)
 	if !s.delegateSends(w, r, id, p.Text) {
 		return
 	}
