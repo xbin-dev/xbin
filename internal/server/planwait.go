@@ -94,10 +94,17 @@ func (s *Server) personByID(user string) (auth.Principal, bool) {
 // (watchWaits) — not from here: a look at the waiting lines before the
 // write would find the person and nothing of theirs waiting, and drop them.
 func (s *Server) startWaiting(it *delegation.ChangeItem, pv delegation.ChangePreview) {
+	s.startWaitingAs(it, pv, string(pv.Before))
+}
+
+// startWaitingAs is startWaiting with the slot's binding it is held to
+// (Was): the proposal's, for a line whose tile provided before Apply
+// reached it (D251 review M1).
+func (s *Server) startWaitingAs(it *delegation.ChangeItem, pv delegation.ChangePreview, was string) {
 	w := *it.Wait
 	w.Until = time.Now().UTC().Truncate(time.Second).Add(delegation.MaxWait)
 	w.Owners = []string{s.policy().OwnerOf(w.Component), s.policy().OwnerOf(w.Tile)}
-	w.Was, w.Held = string(pv.Before), ""
+	w.Was, w.Held = was, ""
 	if wp, ok := s.ChangeSets.(WaitPreviewer); ok {
 		w.Ids = []string{wp.TileIdentity(w.Component), wp.TileIdentity(w.Tile)}
 	}

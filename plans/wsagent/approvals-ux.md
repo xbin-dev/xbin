@@ -593,6 +593,11 @@ them (S1–S12):
 | 48 | a continue is held to the session shown — its coding agent, mode and sign-in (`seen`) | `internal/server: TestAContinueIsHeldToTheSessionShown`, `TestContinueIntoASessionWithASignInIsThatSession` |
 | 49 | the default is the work mode; a suggestion is a preselection, never a bypass mode | `internal/server: TestAStartActsWithoutAskingAndEveryTextToItIsApproved`, `TestSuggestionNeverPicksABypassModeOrSignin` |
 | 50 | the ticket still binds brief, text and path; `seen` still required | `internal/server: TestApprovedStartBindsTheBrief`, `TestMessageApproval`, `TestPicksNeedWhatTheSheetShowed`, `internal/delegation: TestRedeemSaysWhatDiffered` |
+| 51 | a text is allowed only with all of it on screen: a clipped `seen.textLen` is refused (H1) | `internal/server: TestAllOfTheTextOrNothing`; `hack/agent-start-words.test.mjs`; approvalsUx (no Send before Show all) |
+| 52 | a waiting line provided early is stale where its slot or a warning changed (M1) | `internal/broker: TestWaitingLineProvidedEarlyIsHeldToTheProposal` |
+| 53 | a resume never reopens in a bypass mode unless its person picks it there (M2) | `internal/server: TestDelegateSessionStart` |
+| 54 | a start line is held to its facts and warnings, not its words (L3) | `internal/server: TestStartLineStalenessIsItsFacts` |
+| 55 | a continue's card names the session's saved sign-in; held to it at the redeem, its mode too (L4) | `internal/server: TestAContinueIntoASessionWithItsSignIn`, `TestAContinueIsHeldToTheSessionShown` |
 
 The agent's side: the retro's session replayed as scripted evals
 (`builtin-templates/agent/_backend/ws_eval_approvals_test.go`): the tic

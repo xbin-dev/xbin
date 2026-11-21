@@ -195,6 +195,29 @@ func TestDeferredLineStaleness(t *testing.T) {
 	}
 }
 
+// A start line is held to what it resolves to and to its warnings, not to
+// its words: a plan proposed under v0.3.84 — whose start lines didn't say
+// ", which acts without asking", and whose effects were worded otherwise —
+// applies after the upgrade as it was approved (D251 review L3); another
+// coding agent, mode or network, or a new warning, is still stale.
+func TestStartLineStalenessIsItsFacts(t *testing.T) {
+	shown := delegation.ChangeItem{ChangeOp: delegation.ChangeOp{Kind: delegation.KindAgentStart}, Line: `Start a tile agent in apps/x — Claude Code, in its mode "default", which asks before it edits or runs anything`,
+		Pin: "facts", Basis: "v0.3.84's basis", Effects: []string{"v0.3.84's words"}}
+	for _, c := range []struct {
+		name  string
+		pv    delegation.ChangePreview
+		stale bool
+	}{
+		{"the same facts, worded anew", delegation.ChangePreview{Line: shown.Line + " (reworded)", Pin: "facts", Effects: []string{"D251's words"}}, false},
+		{"other facts (a mode, a network)", delegation.ChangePreview{Line: shown.Line, Pin: "other facts"}, true},
+		{"a warning it never showed", delegation.ChangePreview{Line: shown.Line, Pin: "facts", Warnings: []string{"SPEND: x"}}, true},
+	} {
+		if got := lineStale(shown, c.pv); got != c.stale {
+			t.Errorf("%s: stale %v, want %v", c.name, got, c.stale)
+		}
+	}
+}
+
 // A plan is no way around the scope a person gave a conversation, nor to a
 // tile hidden from it: a start on a tile outside the scope is refused when
 // it is described and — the scope narrowed since — when it is applied; and

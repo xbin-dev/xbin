@@ -225,8 +225,8 @@ func TestDelegateSendsLive(t *testing.T) {
 			t.Error(err)
 		}
 	})
-	if got := w.s.Term.AgentOriginMode(info.ID); got != "ask" || info.Mode != "ask" {
-		t.Fatalf("the session's mode %q, the mode it was started in %q", info.Mode, got)
+	if info.Mode != "ask" {
+		t.Fatalf("the session's mode %q", info.Mode)
 	}
 	// turns waits until n turns have ended and the session is idle: the
 	// events say so, so nothing here depends on how fast the agent answers

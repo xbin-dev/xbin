@@ -1254,16 +1254,23 @@ standing scope would allow from then on — show the one the person is about
 to choose. For a session start `preview.session` is `{tile, provider,
 providerName, mode, asks, options, net, api, vm, gpu, model, name,
 resume}`: the harness and mode the session **will** run in — a resumed
-session's come from its history when the request names none — and every
+session's harness from its history, its mode the history's too unless
+that is a bypass (explicit) one: then the harness's work mode, with
+`resumeModeNotTaken` naming what it was in (D251 review M2) — and every
 option the start carries; `asks: false` means the mode lets the tile agent
 act without asking — the default (D251): say so on the card as a fact,
 not a warning. A new session's start also
 carries what the person may pick (§The person's pick): `choices`,
 `from`, `suggested?`, `modeNotTaken?` and `continue?`. For a message,
 `preview.message` is `{session, provider, providerName, mode, asks: false,
-model, name, status, text, signInId?, signInName?}` — show the whole text:
-approving sends exactly it, once, to that session (the sign-in fields: the
-person's saved sign-in the session carries, a fact to show). A pending request expires after 24
+model, name, status, text, signInId?}` — show the whole text:
+approving sends exactly it, once, to that session (`signInId`: the
+person's saved sign-in the session carries, a fact to show; its label is
+the person's own list's). The approve says how much of the text the
+client had on screen whole, `seen: {textLen}` (UTF-8 bytes): another
+length than the text's is 409 `{changed: "text", reload: true}`, nothing
+decided (D251 review H1); an approve without it (an older client) isn't
+held to it. A pending request expires after 24
 hours; decided and withdrawn ones are kept a day, 200 a person at most.
 
 **What a start leaves out, xbind fills.** A start may name only its tile
@@ -1378,7 +1385,8 @@ from: {harness, model, mode},        // "tile" | "preference" | "agent" | "defau
 suggested?: {harness?, model?, mode?},
 modeNotTaken?: "<mode>",             // suggested, a bypass (explicit) one: not preselected
 continue?: {session, provider, providerName, mode, asks, model, name, started, since,
-            signIn, signInId?, signInName?}
+            signIn, signInId?}
+resumeModeNotTaken?: "<mode>",       // a resume whose last mode was a bypass one: it resumes in the work mode
 ```
 
 - **Preselected by one chain, per field**: this tile's remembered choice
@@ -1410,7 +1418,8 @@ continue?: {session, provider, providerName, mode, asks, model, name, started, s
   session runs — the list is "its default" plus what xbind knows; say so.
 - **The approve call carries the pick** (`harness`, `model`, `mode`,
   `remember`), validated as a by-hand start's: 400 for a field that isn't
-  a start's or a resumed session's, 409 for a pick that can't open
+  a start's (a resume picks its `mode` only — any of its harness's, a
+  bypass one too: the person's own pick, on that approval), 409 for a pick that can't open
   ("this start can't open as you picked it: …"), nothing decided either
   way. `remember: true` keeps for the tile only what the person CHANGED on
   the sheet — not what was preselected from the agent's suggestion: the
@@ -1438,8 +1447,9 @@ continue?: {session, provider, providerName, mode, asks, model, name, started, s
   by its own id), as a message to it is — never on what a new start there
   would run on. **Continuing is one plain approval** (D251): no tick, for
   a session that carries the person's saved sign-in too (`continue.signIn:
-  "saved"`, `signInId`, `signInName` — a fact the sheet shows, "uses your
-  Claude Code sign-in"; they ticked it when the session started). It is
+  "saved"`, `signInId` — a fact the sheet shows, "uses your Claude Code
+  sign-in", its label from the person's own list; they ticked it when the
+  session started). It is
   held to the session shown: the approve's `seen` names its `harness`,
   `mode` and `signInId` as the sheet showed them, and another one now is
   409 `{changed: "session" | "signin", reload: true}`, nothing decided;

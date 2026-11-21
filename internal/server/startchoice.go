@@ -21,6 +21,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"fmt"
 	"maps"
 	"net/http"
 	"slices"
@@ -391,10 +392,11 @@ func (s *Server) continuable(p auth.Principal, sid, tile string) (map[string]any
 	prov, _ := agent.Lookup(info.Provider)
 	out := map[string]any{"session": sid, "provider": info.Provider, "providerName": cmp.Or(prov.Name, info.Provider), "mode": info.Mode, "asks": prov.Asks(info.Mode),
 		"model": info.Model, "name": info.Name, "started": info.Created, "since": info.LastActive, "signIn": ""}
-	if si := info.Signin; si != nil && si.Source == "saved" && si.ID != "" {
+	if id := s.Term.SigninIDOf(sid); id != "" {
 		// it carries the person's saved sign-in: a fact the sheet shows — they ticked it when the session started, and a
-		// follow-up is the same session doing more of what they approved (D251: no tick again)
-		out["signIn"], out["signInId"], out["signInName"] = "saved", si.ID, si.Name
+		// follow-up is the same session doing more of what they approved (D251: no tick again). By id, as a start's
+		// offer is: the label is drawn from the person's own list (the session's view doesn't name it to its agent)
+		out["signIn"], out["signInId"] = "saved", id
 	}
 	return out, ""
 }
@@ -432,6 +434,21 @@ type seenBasis struct {
 	// showed them (D251) — it must still be that session
 	Harness *string `json:"harness,omitempty"`
 	Mode    *string `json:"mode,omitempty"`
+	// TextLen: the length in bytes (UTF-8) of the text the client had on
+	// screen whole — a start's brief, a follow-up's, a message's (D251
+	// review H1). A text is allowed only when all of it was shown: another
+	// length — a clipped text — is refused, nothing decided. Absent (an
+	// older client): not checked.
+	TextLen *int `json:"textLen,omitempty"`
+}
+
+// textSeenRefusal is why seen's text isn't all of text ("" it is, or the
+// client said nothing of it).
+func textSeenRefusal(seen *seenBasis, text string) string {
+	if seen == nil || seen.TextLen == nil || *seen.TextLen == len(text) {
+		return ""
+	}
+	return seenChanged + "text\x00" + fmt.Sprintf("your sheet didn't show all of the text this would send (%d of its %d bytes): show all of it, then allow — nothing was decided", *seen.TextLen, len(text))
 }
 
 // seenChanged is the refusal of an approval whose sheet showed something
@@ -464,6 +481,12 @@ func (b pickBody) picks() bool {
 	return b.Harness != nil || b.Model != nil || b.Mode != nil || b.Remember || b.Seen != nil
 }
 
+// choices: the body picks something of a start's (seen alone isn't a pick:
+// a message's approval carries its text's length in it).
+func (b pickBody) choices() bool {
+	return b.Harness != nil || b.Model != nil || b.Mode != nil || b.Remember
+}
+
 // startPickOf is the person's pick on the approval of their pending start
 // id, validated as theirs by hand, and the request's preview redrawn for
 // it — under the conversation that filed it (its scope, taint, model and
@@ -474,7 +497,7 @@ func (b pickBody) picks() bool {
 func (s *Server) startPickOf(a delegateActor, id string, b pickBody) (*delegation.StartChoice, map[string]any, int, string) {
 	req, found := s.Delegation.Request(a.user, id)
 	if !found || req.State != delegation.Pending || req.Kind != delegation.KindSession {
-		if b.picks() && found && req.Kind != delegation.KindSession {
+		if b.choices() && found && req.Kind != delegation.KindSession {
 			return nil, nil, http.StatusBadRequest, "harness, model, mode and remember are a tile agent start's"
 		}
 		return nil, nil, 0, ""
@@ -499,11 +522,11 @@ func (s *Server) startPickFor(a delegateActor, req delegation.Request, b pickBod
 		// showed of what is resolved again now (D250 re-review item 5) — without it, what is decided isn't held to it
 		return nil, nil, http.StatusBadRequest, `an approval that picks the coding agent, model or mode, or continues a session, says what its sheet showed: seen {signInId, net} — "" for none`
 	}
+	if prompt, _ := shown["prompt"].(string); textSeenRefusal(b.Seen, prompt) != "" {
+		return nil, nil, http.StatusConflict, textSeenRefusal(b.Seen, prompt)
+	}
 	if resume, _ := shown["resume"].(bool); resume {
-		if b.picks() {
-			return nil, nil, http.StatusBadRequest, "a resumed session keeps its coding agent, model and mode: they aren't picked again"
-		}
-		return nil, nil, 0, ""
+		return resumePick(req, shown, b)
 	}
 	pp := a.p
 	pp.Agent, pp.AgentSession = req.Agent, req.Session

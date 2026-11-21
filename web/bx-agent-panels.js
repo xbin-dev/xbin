@@ -62,14 +62,25 @@ export class BxAgentNeeds extends StoreView {
     .list > li .tx { display: flex; flex-direction: column; gap: 2px; } .list > li > button { flex: none; }
     .list > li.inl { flex-wrap: wrap; } .list > li.inl .tx { flex: 1 1 100%; min-width: 0; }
     .list > li.inl .acts { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; flex: 1 1 100%; }
-    pre.body.row { margin: 2px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 40vh; overflow: auto; }`];
+    pre.body.row { margin: 2px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 40vh; overflow: auto; }
+    .opening { margin-top: 4px; }`];
 
-  constructor() { super(); this._err = ''; this._busy = ''; this._all = new Set(); this._shownAt = new WeakMap(); }
+  constructor() { super(); this._err = ''; this._busy = ''; this._all = new Set(); this._shownAt = new WeakMap(); this._order = ''; }
   connectedCallback() { super.connectedCallback(); this.store.readSessions(); }
-  /** rearm(): every permission card, and every row's Send, waits again (something brought the tray into view — a page's message may). */
+  /** rearm(): every permission card, and every row's Send and Deny, waits again (something brought the tray into view — a page's message may). */
   rearm() { for (const p of this.renderRoot.querySelectorAll('bx-agent-permits')) p.rearm(); this._shownAt = new WeakMap(); this.requestUpdate(); }
-  // when each row's Send came into view: it answers as Allow on the sheet does — not before CHOICES.armMs
-  updated() { for (const el of this.renderRoot.querySelectorAll('button[data-send]')) if (!this._shownAt.has(el)) this._shownAt.set(el, performance.now()); }
+  // when each row's Send and Deny came into view: they answer as Allow on the sheet does — not before CHOICES.armMs.
+  // The list changing — a row gone (the agent can withdraw its own request), one come, the order — moves rows under
+  // the pointer: every row's buttons wait again then (D251 review L1)
+  willUpdate() {
+    const order = batch(this.store).map((r) => `${r.kind}:${r.id}`).join(' ');
+    if (order !== this._order) { this._order = order; this._shownAt = new WeakMap(); }
+  }
+  updated() { for (const el of this.renderRoot.querySelectorAll('button[data-send], button[data-deny]')) if (!this._shownAt.has(el)) this._shownAt.set(el, performance.now()); }
+  _armedClick(e) {
+    const el = e.currentTarget, at = this._shownAt.get(el);
+    return e.isTrusted && !this._busy && at != null && performance.now() - at >= CHOICES.armMs && document.hasFocus() && uncovered(el);
+  }
 
   _act(r) {
     if (r.kind === 'session') return this.fire('bx-agent-open-session', { tile: r.tile, session: r.id });
@@ -80,8 +91,7 @@ export class BxAgentNeeds extends StoreView {
   // that has their attention — never Enter, never a script. What the row showed changed since: its sheet shows it as it
   // is now (nothing was decided)
   async _send(e, r) {
-    const el = e.currentTarget, at = this._shownAt.get(el);
-    if (!e.isTrusted || this._busy || at == null || performance.now() - at < CHOICES.armMs || !document.hasFocus() || !uncovered(el)) return;
+    if (!this._armedClick(e) || !rowText(r.inline.text, this._all.has(r.id)).whole) return; // all of it on screen, or no Send (D251 review H1)
     this._busy = r.id; this._err = '';
     const res = await this.store.approve(r.id, r.inline.body);
     this._busy = '';
@@ -91,18 +101,28 @@ export class BxAgentNeeds extends StoreView {
   }
 
   async _deny(e, r) {
-    if (!e.isTrusted || this._busy) return;
+    if (!this._armedClick(e)) return;
     this._busy = r.id; this._err = '';
     const res = await this.store.deny(r.id);
     this._busy = '';
     if (!res.ok && !res.gone) this._err = res.error;
   }
 
+  // the follow-up's text: whole when it fits the row (rowText) or once Show all — the goal first, the brief's
+  // standing first paragraph after it — else its first lines and how long it is
   _inline(r) {
     const t = rowText(r.inline.text, this._all.has(r.id));
-    return html`${hiddenLine(r.inline.text)}<pre class="body row small" data-inline-text tabindex="-1">${shown(t.text)}${t.clipped ? '…' : ''}</pre>
-      ${t.clipped ? html`<span class="small muted" data-inline-note>${t.note} <button class="link" data-inline-all
-        @click=${() => { this._all = new Set([...this._all, r.id]); }}>Show all</button></span>` : nothing}`;
+    return html`${hiddenLine(r.inline.text)}<pre class="body row small" data-inline-text data-whole=${t.whole ? 'yes' : 'no'} tabindex="-1">${shown(t.lead)}${t.whole ? '' : '…'}</pre>
+      ${t.whole && t.opening ? html`<div class="small muted opening" data-inline-opening>It opens with: ${shown(t.opening)}</div>` : nothing}
+      ${t.note ? html`<span class="small muted" data-inline-note>${t.note}</span>` : nothing}`;
+  }
+
+  // Show all: the whole text, in place; Send comes in its place (armed a moment after it shows)
+  async _showAll(e, r) {
+    if (!e.isTrusted) return;
+    this._all = new Set([...this._all, r.id]);
+    await this.updateComplete;
+    this.renderRoot.querySelector(`li[data-id="${r.id}"] [data-inline-text]`)?.focus();
   }
 
   render() {
@@ -119,8 +139,10 @@ export class BxAgentNeeds extends StoreView {
           ${r.parts.length ? html`<span class="parts small muted" data-parts>${r.parts.map((p) => html`<span>${p}</span>`)}</span>` : nothing}
           ${r.permits ? html`<bx-agent-permits data-permits .session=${r.id} .agentName=${r.agentName} @bx-agent-permitted=${() => this.store.readSessions()}></bx-agent-permits>` : nothing}</span>
         ${r.inline ? html`<span class="acts"><button data-act @click=${() => this._act(r)}>Review…</button>
-            <button data-deny ?disabled=${this._busy === r.id} @click=${(e) => this._deny(e, r)}>Deny</button>
-            <button class="primary" data-send ?disabled=${this._busy === r.id} @click=${(e) => this._send(e, r)} @keydown=${(e) => { if (e.key === 'Enter') e.preventDefault(); }}>${r.action}</button></span>`
+            <button data-deny ?disabled=${this._busy === r.id} @click=${(e) => this._deny(e, r)} @keydown=${(e) => { if (e.key === 'Enter') e.preventDefault(); }}>Deny</button>
+            ${rowText(r.inline.text, this._all.has(r.id)).whole
+              ? html`<button class="primary" data-send ?disabled=${this._busy === r.id} @click=${(e) => this._send(e, r)} @keydown=${(e) => { if (e.key === 'Enter') e.preventDefault(); }}>${r.action}</button>`
+              : html`<button class="primary" data-inline-all @click=${(e) => this._showAll(e, r)}>Show all</button>`}</span>`
           : r.kind === 'retry' ? html`<button data-retry @click=${() => this.fire('bx-agent-review', { kind: 'request', id: r.id })}>${r.action}</button>`
           : html`<button data-act @click=${() => this._act(r)}>${r.action}</button>`}</li>`)}</ul>`
         : html`<div class="empty" data-empty>Nothing waits for you</div>`}

@@ -532,15 +532,17 @@ func (w *dWorld) seen(user, id, body string) string {
 func TestPicksNeedWhatTheSheetShowed(t *testing.T) {
 	w := delegateWorld(t)
 	alice, person := delegateCred("d-alice"), w.cookie("alice")
-	req := w.ask(alice, "POST", "/api/xbin/term/sessions", startBody("apps/x", "go"))
+	// each on a request of its own: one decided by an earlier case can't answer for a later one (D251 review L4)
 	for _, body := range []string{`{"harness":"codex"}`, `{"mode":"plan"}`, `{"remember":true,"harness":"claude"}`, `{"continue":false,"harness":"claude"}`, `{"harness":"claude","seen":{"net":""}}`} {
-		if rec := w.do(w.full, "POST", "/api/xbin/delegate/requests/"+req.ID+"/approve", body, person); rec.Code != 400 || !strings.Contains(rec.Body.String(), "says what its sheet showed") {
+		r := w.ask(alice, "POST", "/api/xbin/term/sessions", startBody("apps/x", "go "+body))
+		if rec := w.do(w.full, "POST", "/api/xbin/delegate/requests/"+r.ID+"/approve", body, person); rec.Code != 400 || !strings.Contains(rec.Body.String(), "says what its sheet showed") {
 			t.Errorf("%s without seen: %d %s", body, rec.Code, rec.Body.String())
 		}
+		if got, _ := w.store.Request("alice", r.ID); got.State != delegation.Pending {
+			t.Errorf("%s: refused, and decided: %s", body, got.State)
+		}
 	}
-	if got, _ := w.store.Request("alice", req.ID); got.State != delegation.Pending {
-		t.Fatalf("refused, and decided: %s", got.State)
-	}
+	req := w.ask(alice, "POST", "/api/xbin/term/sessions", startBody("apps/x", "go"))
 	if rec := w.do(w.full, "POST", "/api/xbin/delegate/requests/"+req.ID+"/approve", w.seen("alice", req.ID, `{"harness":"codex"}`), person); rec.Code != 200 {
 		t.Fatalf("with what the sheet showed: %d %s", rec.Code, rec.Body.String())
 	}

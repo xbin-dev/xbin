@@ -328,6 +328,25 @@ func (s *Session) sig() *sessionSignin {
 
 func (ss *sessionSignin) carries() bool { return ss != nil && len(ss.secret) > 0 }
 
+// SigninIDOf is the saved sign-in live session id runs on ("": none, or no
+// such session) — for xbind's own judging and its person's sheet (a
+// continue into it, a message to it: D251); the session's view names it
+// only in a session its person started themselves.
+func (m *Manager) SigninIDOf(id string) string {
+	m.mu.Lock()
+	s := m.sessions[id]
+	m.mu.Unlock()
+	if s == nil {
+		return ""
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if ss := s.sig(); ss.carries() {
+		return ss.id
+	}
+	return ""
+}
+
 // signinMask is what a redacted secret reads as.
 const signinMask = "[saved sign-in]"
 

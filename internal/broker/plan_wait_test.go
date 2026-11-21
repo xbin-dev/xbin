@@ -707,3 +707,53 @@ func TestWaitingLineTheTileAlreadyProvides(t *testing.T) {
 		t.Fatalf("a binding whose tile provided another role early: %s, bound %q", results(got), w2.binding("apps/assistant", "mcp"))
 	}
 }
+
+// …but early is not changed: a line whose tile provided before Apply
+// reached it goes stale where it isn't the line proposed any more — the
+// slot bound to another tile since the review, or a warning it didn't
+// carry — never binding over what changed (D251 review M1).
+func TestWaitingLineProvidedEarlyIsHeldToTheProposal(t *testing.T) {
+	const later = `[
+	{"kind":"tile.create","args":{"template":"blank","path":"apps/dice"},"why":"the tool's tile"},
+	{"kind":"agent.start","args":{"tile":"apps/dice","brief":"Goal: an MCP server with roll_dice.","harness":"claude"},"why":"build it"},
+	{"kind":"binding.set","args":{"component":"apps/assistant","slot":"mcp","provider":"apps/dice"},"why":"the tool"}]`
+	setup := func(t *testing.T, manifest string) (*csWorld, func(*http.Request), delegation.ChangeSet) {
+		t.Helper()
+		w := startingWorld(t)
+		_, bob := w.session("bob")
+		first := w.plan(t, "bob", `[{"kind":"tile.create","args":{"template":"assistant","path":"apps/assistant"},"why":"the assistant"},
+			{"kind":"tile.create","args":{"template":"tool","path":"apps/other"},"why":"another tool"}]`)
+		if done := w.approve(t, first.ID, `{"items":[1,2]}`, bob); results(done) != "applied,applied" {
+			t.Fatalf("the tiles before: %s", results(done))
+		}
+		w.srv.PlanStarter = func(context.Context, auth.Principal, []byte) (string, int, string) {
+			w.write(map[string]string{"apps/dice/xbin.json": manifest, "apps/dice/backend/main.go": diceMain}) // the coding agent, quick
+			w.rescan()
+			return "sess-1", 200, ""
+		}
+		cs := w.plan(t, "bob", later)
+		if l := cs.Items[2]; l.Wait == nil || len(l.Warnings) != 0 {
+			t.Fatalf("the binding as proposed: %+v", l)
+		}
+		return w, bob, cs
+	}
+	// the slot bound to another tile between the review and Apply
+	w, bob, cs := setup(t, diceProvides)
+	if code, body := w.do("POST", "/bindings", `{"component":"apps/assistant","slot":"mcp","provider":"apps/other"}`, bob); code != 200 {
+		t.Fatalf("bob binds the slot by hand: %d %s", code, body)
+	}
+	w.approve(t, cs.ID, `{"items":[1,2,3]}`, bob)
+	w.srv.CheckPlanWaits()
+	if got := w.set(t, "bob", cs.ID); got.Items[2].Result != delegation.ItemStale || w.binding("apps/assistant", "mcp") != "apps/other" {
+		t.Fatalf("a slot rebound since the review: %s (%s), bound %q", results(got), got.Items[2].Error, w.binding("apps/assistant", "mcp"))
+	}
+	// a warning the line didn't carry: the tile came up keeping each person's data apart, as the assistant does
+	w2, bob2, cs2 := setup(t, `{"runtime":"go","partition":["user"],"provides":{"mcp":{"kind":"http","service":"mcp","role":"reader"}}}`)
+	w2.write(map[string]string{"apps/assistant/xbin.json": `{"runtime":"go","partition":["user"],"interfaces":{"mcp":{"kind":"http","service":"mcp","multi":true}}}`})
+	w2.rescan()
+	w2.approve(t, cs2.ID, `{"items":[1,2,3]}`, bob2)
+	w2.srv.CheckPlanWaits()
+	if got := w2.set(t, "bob", cs2.ID); got.Items[2].Result != delegation.ItemStale || w2.binding("apps/assistant", "mcp") != "" {
+		t.Fatalf("a binding that gained a warning: %s (%s), bound %q", results(got), got.Items[2].Error, w2.binding("apps/assistant", "mcp"))
+	}
+}

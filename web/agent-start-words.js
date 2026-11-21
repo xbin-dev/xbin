@@ -125,7 +125,15 @@ export function startView(req, pick) {
   // not what Remember keeps: the server's rule, D250 review M1) and no longer what the first chain said
   const fromWords = (f) => FROM[changed(f) ? 'you' : (pick.defaulted || []).includes(f) ? 'default' : from[f]] || '';
   const pickers = [];
-  if (!continuing && hs.length) {
+  if (s.resume && h) {
+    // a resume keeps its coding agent and model; its mode is picked again — a bypass one it ran in last is never
+    // taken: it resumes in its coding agent's work mode, and says what it was in (D251 review M2)
+    const m = (h.modes || []).find((x) => x.id === pick.mode);
+    pickers.push({ id: 'mode', label: 'Mode', value: pick.mode, from: '',
+      options: (h.modes || []).map((x) => ({ value: x.id, label: `${x.name || x.id || 'its own default'}, ${x.explicit ? 'skips every check' : modeChip(x.asks)}` })),
+      note: m && m.explicit ? `${m.name || m.id} skips every check ${h.name} has of its own, even the ones it keeps in its other modes.` : '',
+      warn: s.resumeModeNotTaken ? `It was in ${s.resumeModeNotTaken}, which skips every check; it resumes in ${s.mode || 'its own default mode'}. Pick it yourself if you want it.` : '' });
+  } else if (!continuing && hs.length) {
     pickers.push({ id: 'harness', label: 'Coding agent', value: pick.harness, from: fromWords('harness'),
       options: hs.map((x) => ({ value: x.id, label: x.id === sug.harness && x.id !== pick.harness ? `${x.name} (suggested by your agent)` : x.name })), warn: '' });
     if (h) {
@@ -151,7 +159,7 @@ export function startView(req, pick) {
     cont: c ? { session: c.session, label: `Continue the ${c.providerName || c.provider} session${c.started ? ` from ${clock(toMs(c.started))}` : ''} with this follow-up`,
       sub: 'Start a new session instead', chips: contChips(c) } : null,
     continuing,
-    remember: rememberWords(continuing, hs, h, pick),
+    remember: s.resume ? { shown: false, label: '', note: '', keepsMode: false } : rememberWords(continuing, hs, h, pick),
     asks,
     modeChip: modeChip(asks),
     fact: asks ? '' : MODE_FACT,
@@ -185,7 +193,12 @@ export function pickBody(req, pick) {
   // seen: what this sheet shows of what xbind resolves again when it is decided — the sign-in it offers, the
   // network — held to it there: a change since is refused, nothing decided, and the sheet looks again (D250 review L2)
   const ps = sess(picked(req, pick));
-  const out = { knows: ['continue'], seen: { signInId: String(ps.signInId || ''), net: String(ps.net || '') } };
+  // textLen: all of what it would be told was on screen (D251 review H1) — the sheet allows only then
+  const out = { knows: ['continue'], seen: { signInId: String(ps.signInId || ''), net: String(ps.net || ''), textLen: textBytes(briefOf(req)) } };
+  if (s.resume) { // a resume picks its mode again, nothing else (D251 review M2)
+    out.mode = pick.mode;
+    return out;
+  }
   const c = s.continue && s.continue.session ? s.continue : null;
   if (c && pick.cont && pick.harness === c.provider) {
     // continuing: the session keeps its own — held to it as shown: its coding agent and mode (D251)
@@ -197,6 +210,15 @@ export function pickBody(req, pick) {
   Object.assign(out, { harness: pick.harness, model: pick.model, mode: pick.mode });
   if (pick.remember) out.remember = true;
   return out;
+}
+
+/** textBytes(text): its length as xbind counts it — UTF-8 bytes (seen.textLen, D251 review H1). */
+export const textBytes = (text) => new TextEncoder().encode(String(text ?? '')).length;
+
+/** briefOf(req): what a start's session is told first, as xbind previews it (its prompt), else as its body says. */
+export function briefOf(req) {
+  const p = sess(req).prompt;
+  return typeof p === 'string' ? p : sessionRows(req).brief;
 }
 
 /**
@@ -235,25 +257,44 @@ export function messageView(req) {
 
 // ---- a follow-up allowed on its batch row (D251) -------------------------------------------------
 
-/** ROW_LINES, ROW_CHARS: what a follow-up's batch row shows of its text before "Show all". */
+/**
+ * ROW_FIT_LINES, ROW_FIT_CHARS: a follow-up shown whole on its batch row —
+ * at most 12 lines and 1,200 characters — so the usual short one is one
+ * click (Send). A longer one shows ROW_LINES lines (at most ROW_CHARS
+ * characters) and Show all; Send comes only once all of it is on screen
+ * (D251 review H1).
+ */
+export const ROW_FIT_LINES = 12;
+export const ROW_FIT_CHARS = 1200;
 export const ROW_LINES = 3;
 export const ROW_CHARS = 280;
 
+// xbin's workspace agent opens every brief with this line: the row leads with what follows (the goal), and shows
+// the line after it, once the text is shown whole
+const BRIEF_OPENING = 'This is a piece of work in this tile, handed to you by ';
+
 /**
  * rowText(text, all): a follow-up's text as its batch row shows it —
- * {text, clipped, note}: its first ROW_LINES lines (at most ROW_CHARS
- * characters) until Show all, and the note that says so ("first 3 of 14
- * lines"); the whole text with all.
+ * {whole, lead, opening, note}. whole: all of it is shown (it fits, or
+ * all) — lead, then opening (a brief's first paragraph, the agent's
+ * standing words, moved after the goal; '' when there is none) — and Send
+ * may be offered; otherwise lead is its first lines and note says how long
+ * the text is.
  */
 export function rowText(text, all = false) {
-  const t = String(text ?? ''), total = [...t].length;
-  if (all) return { text: t, clipped: false, note: '' };
-  const lines = t.split('\n');
-  let head = [...lines.slice(0, ROW_LINES).join('\n')];
+  const t = String(text ?? '');
+  const chars = [...t].length, lines = t.split('\n').length;
+  let lead = t, opening = '';
+  const cut = t.indexOf('\n\n');
+  if (t.startsWith(BRIEF_OPENING) && cut > 0) {
+    opening = t.slice(0, cut);
+    lead = t.slice(cut).replace(/^\n+/, '');
+  }
+  const size = `${lines} ${lines === 1 ? 'line' : 'lines'}, ${chars.toLocaleString('en-US')} characters`;
+  if (all || (lines <= ROW_FIT_LINES && chars <= ROW_FIT_CHARS)) return { whole: true, lead, opening, note: all && (lines > ROW_FIT_LINES || chars > ROW_FIT_CHARS) ? size : '' };
+  let head = [...lead.split('\n').slice(0, ROW_LINES).join('\n')];
   if (head.length > ROW_CHARS) head = head.slice(0, ROW_CHARS);
-  const clipped = head.length < total;
-  return { text: head.join(''), clipped,
-    note: !clipped ? '' : lines.length > ROW_LINES && head.length < ROW_CHARS ? `first ${ROW_LINES} of ${lines.length} lines` : `first ${head.length} of ${total} characters` };
+  return { whole: false, lead: head.join(''), opening: '', note: `${size}: show all of it to send it` };
 }
 
 /**
@@ -261,20 +302,21 @@ export function rowText(text, all = false) {
  * message to a tile agent's session, or a start that continues the agent's
  * own session there (D251 B2): {kind: 'message' | 'continue', title, chips,
  * text, body} — body is what Send sends (POST …/approve), what the sheet
- * sends for it as preselected. null for anything else, and for one the
- * sheet must show: text that holds hidden characters, a conversation that
- * read the web, a start xbind offers no choices for.
+ * sends for it as preselected, with the length of the whole text it showed
+ * (seen.textLen). null for anything else, and for one the sheet must show:
+ * text that holds hidden characters, a conversation that read the web, a
+ * start xbind offers no choices for.
  */
 export function inPlace(req) {
   if (!req || req.state !== 'pending' || (req.preview && req.preview.readWeb)) return null;
   const tile = String(req.tile || '').split('/').filter(Boolean).pop() || 'the tile';
   if (req.kind === 'message') {
     const m = messageView(req);
-    return !m.text || reveal(m.text).hidden ? null : { kind: 'message', title: m.title, chips: m.agent, text: m.text, body: { grant: 'once' } };
+    return !m.text || reveal(m.text).hidden ? null : { kind: 'message', title: m.title, chips: m.agent, text: m.text, body: { grant: 'once', seen: { textLen: textBytes(m.text) } } };
   }
   const s = sess(req), c = s.continue && s.continue.session ? s.continue : null;
   if (req.kind !== 'session' || !c || s.resume || !harnessesOf(s).length) return null;
-  const text = sessionRows(req).brief;
+  const text = briefOf(req);
   if (!text || reveal(text).hidden) return null;
   return { kind: 'continue', title: `Continue the ${c.providerName || c.provider} session in ${tile}`, chips: contChips(c), text,
     body: { grant: 'once', ...pickBody(req, pickOf(req)) } };

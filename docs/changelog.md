@@ -29,13 +29,31 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   no sign-in tick (`seen` now names a continue's `harness` and `mode`: a
   changed session is `409 {changed: "session", reload}`); a continue or a
   message can be sent from its row in Waiting for you. `preview.message`
-  carries the session's `signInId`/`signInName`. A plan's binding line
+  carries the session's `signInId`. A plan's binding line
   that waits for a tile whose agent already provides it when Apply
   reaches the line is judged as a waiting line at once — bound if it is
   exactly what was approved — instead of `stale`; the agent template's
   `plan_propose` passes a `mode` the person named. Nothing to change: a
   person with an asking mode chosen keeps it; one with none now sees "acts
   without asking" on each start.
+- workspace agent, after D251's review: **a text is allowed only once all
+  of it has been on screen.** The batch row shows a follow-up whole when
+  it fits (12 lines, 1,200 characters; the goal first, the brief's opening
+  line after it), else its first lines, its length and **Show all** — and
+  **Send** only after that; the sheet's Allow waits for **Show all** on a
+  text it clips (4,000 characters). The approve carries `seen.textLen`
+  (UTF-8 bytes shown): another length than the text's is `409 {changed:
+  "text", reload}`. v0.3.84's sheet sends none and isn't held to it (it
+  shows up to 4,000 characters with Show all, and could allow without).
+  **A resume never reopens in a bypass mode it ran in last**: it resumes in
+  the work mode (`preview.session.resumeModeNotTaken` says what it was in),
+  and the person may pick its mode on that approval (`mode` only). A
+  continue's card names the session's saved sign-in by id (it never did
+  for a session the agent started), `continue.signInName` is gone. A
+  waiting binding that its tile provided early is stale if the slot or a
+  warning changed since the review. A plan's start line is held to what
+  it resolves to, not to its words (a v0.3.84 plan applies). A batch
+  row's buttons wait a moment again when the list changes.
 - workspace agent: **one approval, one place; a start is the person's
   pick; a follow-up goes to the session that is there** (D250). A tile
   agent's start binds its tile, brief and kind: the person picks the

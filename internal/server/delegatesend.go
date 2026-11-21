@@ -47,9 +47,10 @@ func (s *Server) drivesRefusal(p auth.Principal, id string) string {
 //   - the text doesn't begin with "/": every shipped harness reads that as
 //     one of its own commands (a model change, a sign-out, a project
 //     command that carries its own tool permissions) — the person's to give;
-//   - the session's CURRENT mode asks before it acts, or is the mode its
-//     person approved it in: one they have since switched to a mode that
-//     asks nothing takes no more of the agent's messages;
+//   - the session's CURRENT mode asks before it acts: one in a mode that
+//     doesn't — the default (D251), whatever mode its person approved it
+//     in — takes a text only as its person's approval of that text, once
+//     (a "message" request, delegatemessage.go);
 //   - the session's model source satisfies every org the conversation
 //     holds data of (sendRefusal).
 func (s *Server) delegateSends(w http.ResponseWriter, r *http.Request, id, text string) bool {

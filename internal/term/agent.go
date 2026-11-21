@@ -191,9 +191,6 @@ type AgentOpen struct {
 	// home: a restart — HomeCopy when the session it restarts was on the
 	// tile's copy of the home: it stays on it (home.go)
 	home string
-	// originMode: a restart — the mode the session was first opened in by
-	// its origin carries over too (the restart's own mode is the person's)
-	originMode string
 }
 
 // OpenAgentWith is OpenAgent with the sandbox pickers.
@@ -271,9 +268,6 @@ func (m *Manager) OpenAgentWith(p auth.Principal, a AgentOpen) (SessionInfo, int
 	o := m.openOptsFor(p, tile, cwd, normalizeNet(netMode), a.GPU, !a.NoAPI)
 	o.kind, o.vm = KindAgent, a.VM
 	o.origin = cmp.Or(p.Agent, a.origin) // a delegate's open; a restart keeps its session's (delegate.go)
-	if o.originMode = a.originMode; p.Agent != "" {
-		o.originMode = mode // the mode its person approved, or their preference's
-	}
 	if a.home == HomeCopy || (resumeFrom != nil && resumeFrom.Home == HomeCopy) {
 		// it restarts, or resumes, a session that ran on this tile's copy of
 		// the home: it stays on the copy (its agent's own session files are
@@ -477,9 +471,9 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 		NetNote: o.netNote, Label: o.label, Scopes: o.scopes,
 		cleanup: cleanup, relay: rl, envKey: envKey, homeKey: o.homeKey, token: token,
 		baseOld: m.layerOutdated(envKey), gpu: o.gpu, api: o.api, target: o.target, part: o.part,
-		origin: o.origin, originMode: o.originMode,
-		home: sessionHome{plan: o.home, dir: o.launch.homeCopy},
-		born: time.Now(), hub: termwire.NewHub(0), // no terminal socket: the hub keeps its activity clock
+		origin: o.origin,
+		home:   sessionHome{plan: o.home, dir: o.launch.homeCopy},
+		born:   time.Now(), hub: termwire.NewHub(0), // no terminal socket: the hub keeps its activity clock
 	}
 	st.snap = newSnapper(dir, func(e agent.Event) { s.logEvent(m, e) })
 	// the person's saved sign-in, taken for this session (signin.go): what

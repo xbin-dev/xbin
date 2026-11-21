@@ -232,19 +232,6 @@ func (m *Manager) AgentConnectorModel(id string) string {
 	return st.llm.offer.Model
 }
 
-// AgentOriginMode is the mode live session id was opened in by the sealed
-// component that started it for its person — the mode the person approved
-// on the start's card, or their preference's; "" for a session they opened
-// themselves, and for an unknown id.
-func (m *Manager) AgentOriginMode(id string) string {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if s := m.sessions[id]; s != nil && s.origin != "" {
-		return s.originMode
-	}
-	return ""
-}
-
 // delegateOpen applies the file comment's rules to delegate p's open a on
 // tile rel: the mode and network the session opens with (a.NoAPI is set in
 // place), or why it is refused. resumed is the past session being reopened,

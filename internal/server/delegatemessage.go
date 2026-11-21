@@ -1,15 +1,16 @@
 package server
 
 // delegatemessage.go — a message to a tile agent that acts without asking,
-// as an approval (D250; plans/wsagent/approvals-ux.md §5c).
+// as an approval (D250, D251; plans/wsagent/approvals-ux.md §5c).
 //
 // A session the person's agent started takes the agent's messages freely
-// while its mode asks before every edit and command: the mode is the guard.
-// One whose mode doesn't ask — the person switched it, or approved it so —
-// takes none (delegatesend.go modeRefusal): such a session acts on what it
+// only while its mode asks before every edit and command: the mode is the
+// guard. One whose mode doesn't ask — the default of the sessions it
+// starts (D251), whatever mode its person approved it in — takes none
+// unapproved (delegatesend.go modeRefusal): such a session acts on what it
 // is told, so a message from an agent that can be prompt-injected would be
-// an act nobody approved. That rule stands. What changes is the way
-// forward: the agent asks its person for that one message — a request of
+// an act nobody approved. The way forward: the agent asks its person for
+// that one message — a request of
 // kind "message" for POST /term/sessions/<id>/prompt or …/queue, the whole
 // text shown — and the person's approval sends exactly that text, once, to
 // that session: refused, spending nothing, when the session ended, is no
@@ -85,7 +86,7 @@ func (s *Server) messagePreview(p auth.Principal, path string, body []byte) (map
 		return nil, "", http.StatusForbidden, why
 	}
 	if s.sessionModeRefusal(id, info, p.UserID) == "" {
-		return nil, "", http.StatusBadRequest, "this session asks its person before it acts (or runs in the mode they approved it in): send the message — it needs no approval"
+		return nil, "", http.StatusBadRequest, "this session asks its person before it acts: send the message — it needs no approval"
 	}
 	t := sendTargetOf(info)
 	if t.served == "connector" {
@@ -98,8 +99,8 @@ func (s *Server) messagePreview(p auth.Principal, path string, body []byte) (map
 	prov, _ := agent.Lookup(info.Provider)
 	out := map[string]any{"session": id, "provider": info.Provider, "providerName": cmp.Or(prov.Name, info.Provider), "mode": info.Mode, "asks": false,
 		"model": info.Model, "name": info.Name, "status": info.Status, "text": b.Text}
-	if si := info.Signin; si != nil && si.Source == "saved" && si.ID != "" {
-		out["signInId"], out["signInName"] = si.ID, si.Name // a fact of the session, shown as one (D251), as a continue's
+	if sid := s.Term.SigninIDOf(id); sid != "" {
+		out["signInId"] = sid // a fact of the session, shown as one (D251), as a continue's
 	}
 	return out, tile, 0, ""
 }

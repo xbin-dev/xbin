@@ -50,10 +50,9 @@ func ticketStart(r delegation.Request) (*term.DelegateStart, string) {
 	if r.UseSignin {
 		signin, _ = shown["signInId"].(string)
 	}
-	// a resume opens what its history entry says, and is refused when that is no longer what the card showed
-	// (term.OpenAgentWith); any other start opens what the card showed or the person picked
-	resume, _ := shown["resume"].(bool)
-	return &term.DelegateStart{Approved: true, Picked: !resume, Provider: prov, Mode: mode, Model: model, Net: net, Signin: signin, TrustAsked: shown["signInTrust"] != nil, Continue: cont}, ""
+	// every start opens what the card showed or the person picked — a resume too: its coding agent its history's
+	// (term.OpenAgentWith refuses another), its mode the card's, never a bypass one it ran in last (D251 review M2)
+	return &term.DelegateStart{Approved: true, Picked: true, Provider: prov, Mode: mode, Model: model, Net: net, Signin: signin, TrustAsked: shown["signInTrust"] != nil, Continue: cont}, ""
 }
 
 // startStill is why an approved start can't open as its person approved
@@ -242,6 +241,10 @@ func (s *Server) sessionPreviewFor(p auth.Principal, body []byte, person *delega
 	if err != nil {
 		return nil, err.Error()
 	}
+	resumedIn := "" // a resume whose mode — its history's, or the agent's word — is a bypass one: never taken (D251 review M2)
+	if eff.Resumes && !eff.Provider.Safe(eff.Mode) {
+		resumedIn, eff.Mode = eff.Mode, workMode(eff.Provider)
+	}
 	if err := s.agentPolicy().SessionAllows(delegation.Subject{Holder: p.Agent, User: p.UserID, Tile: eff.Tile, Model: p.AgentModel}, eff.Provider.ID); err != nil {
 		return nil, err.Error()
 	}
@@ -263,6 +266,12 @@ func (s *Server) sessionPreviewFor(p auth.Principal, body []byte, person *delega
 		// time unless the session asks before it acts (D251).
 		"prompt": b.Prompt,
 		"net":    b.Net, "api": b.API == nil || *b.API, "vm": b.VM, "gpu": b.GPU, "model": options["model"], "name": b.Name, "resume": eff.Resumes,
+	}
+	if resumedIn != "" {
+		out["resumeModeNotTaken"] = resumedIn
+	}
+	if b.Resume != "" { // a resume keeps its coding agent and model; its mode is the person's to pick again (D251 review M2)
+		out["choices"] = map[string]any{"harnesses": []harnessChoice{resumeChoice(eff.Provider, options["model"])}}
 	}
 	if b.Resume == "" {
 		// D250: what may be picked, where each part came from, and what the agent suggested

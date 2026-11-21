@@ -55,7 +55,7 @@ import { agentStore } from '/vendor/agent-chrome-store.js';
 import '/vendor/agent-signin.js';
 import { uncovered } from '/vendor/agent-armed.js';
 import { trustWords, offerWords } from '/vendor/agent-signins.js';
-import { pickOf, picked, startView, choose, contChoice, pickBody, messageView, askedParts } from '/vendor/agent-start-words.js';
+import { pickOf, picked, startView, choose, contChoice, pickBody, messageView, askedParts, textBytes } from '/vendor/agent-start-words.js';
 import {
   CHOICES, DURATIONS, heading, tile, levelWords, sends, undoWords, grantChoices, allowLabel, allowSpoken, approveBody, widerWords, sessionRows, settled,
   stopRefusal, stopWords, reveal, HIDDEN_NOTE, clipText, clipNote, ownerWords, webRows, mcpRows, READ_WEB,
@@ -228,12 +228,25 @@ export class BxAgentApprove extends LitElement {
     return !!e && e.isTrusted && this._armed && !this._busy && document.hasFocus() && uncovered(e.currentTarget);
   }
 
+  // a text is allowed only once all of it was on screen (D251 review H1): whether this sheet still clips one
+  _unread(req) {
+    switch (req.kind) {
+      case 'session': return clipText(sessionRows(this._pick ? picked(req, this._pick) : req).brief, this._allBrief).clipped;
+      case 'message': return clipText(messageView(req).text, this._all).clipped;
+      case 'mcp': return clipText(mcpRows(req).arguments, this._all).clipped;
+      case 'call': case 'template': return sends(req, this._all).clipped;
+    }
+    return false;
+  }
+
   async _allow(e) {
     if (!this._may(e) || this.stopped) return;
     const req = this.request;
+    if (this._unread(req)) return; // (its button says so, and isn't armed)
     if (req.kind === 'call' && this._choice === 'tile' && this._step === 'main') { this._step = 'wider'; this._arm(); return; }
     this._busy = true; this._err = '';
     const body = { ...approveBody(picked(req, this._pick || {}), this._choice, this._duration || CHOICES.duration[this._choice], this._ticks), ...(this._pick ? pickBody(req, this._pick) : {}) };
+    if (req.kind === 'message') body.seen = { textLen: textBytes(messageView(req).text) }; // all of it was on screen (D251 review H1)
     if (req.state === 'failed') { delete body.grant; delete body.scope; delete body.unseen; delete body.continue; delete body.remember; }
     const r = req.state === 'failed' ? await this.store.retry(req.id, body) : await this.store.approve(req.id, body);
     this._busy = false;
@@ -375,7 +388,8 @@ export class BxAgentApprove extends LitElement {
             @change=${(e) => { this._pick = { ...this._pick, remember: e.target.checked }; }}> ${v.remember.label}</label>
           <div class="small muted">${v.remember.note}</div></dd>` : nothing}
         ${v && (v.pickers.length || v.continuing) ? nothing /* the Mode picker says it (and a continued session's chips): not a second Mode row */
-          : html`<dt>Mode</dt><dd data-row="mode"><span class="chip" data-mode-chip>${r.mode.tag}</span>${r.mode.name ? html` <span class="mono muted">${r.mode.name}</span>` : nothing}<div class="small" data-mode-fact>${r.mode.text}</div></dd>`}
+          : html`<dt>Mode</dt><dd data-row="mode"><span class="chip" data-mode-chip>${r.mode.tag}</span>${r.mode.name ? html` <span class="mono muted">${r.mode.name}</span>` : nothing}<div class="small" data-mode-fact>${r.mode.text}</div>
+            ${r.resumed ? html`<div class="small err" data-resumed>${r.resumed}</div>` : nothing}</dd>`}
         ${this._tileRow(req)}
         ${v && v.continuing ? nothing : signinRow(r, { ...this._ticks, guard: this._widen, set: (patch) => { this._ticks = { ...this._ticks, ...patch }; } })}
         <dt>Network</dt><dd>${r.network}</dd>
@@ -463,11 +477,12 @@ export class BxAgentApprove extends LitElement {
   // Deny on the left, the quiet secondary; Allow on the right, the ordinary primary — a mode is a fact, not a danger
   // (D251); never by promoting Deny (D250). The when: each fact an element of its own.
   _foot(req, v) {
-    const on = this._armed && !this._busy;
+    const unread = this._unread(req);
+    const on = this._armed && !this._busy && !unread;
     const when = req.kind === 'call' || req.kind === 'mcp' ? askedParts(req) : ['asked every time', ...(req.kind === 'session' ? ['change in Preferences'] : [])];
     const label = req.state === 'failed' ? 'Try again' : v ? v.label : req.kind === 'message' ? messageView(req).label : allowLabel(req, this._choice);
     return html`<div class="foot">
-      <span class="when small muted">${when.map((x) => html`<span>${x}</span>`)}</span>
+      <span class="when small muted">${unread ? html`<span data-unread>Show all of the text to allow it</span>` : when.map((x) => html`<span>${x}</span>`)}</span>
       ${/* the quiet one — filled only where nothing can be allowed and it is the sheet's one button (as the app's) */ ''}<button data-deny class=${this.stopped ? 'primary' : ''} ?disabled=${this._busy} @click=${this._deny}>Deny</button>
       ${this.stopped ? this._stop() : html`<button class="primary arming" data-allow=${this._choice} aria-disabled=${on ? 'false' : 'true'} aria-label=${v || req.kind === 'message' ? label : allowSpoken(req, this._choice)}
         @click=${this._allow}>${shown(label)}</button>`}

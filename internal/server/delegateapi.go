@@ -745,7 +745,7 @@ func (s *Server) apiDelegateRequestDecide(w http.ResponseWriter, r *http.Request
 	}
 	if r.ContentLength != 0 {
 		if err := DecodeJSON(r, &body); err != nil {
-			WriteError(w, http.StatusBadRequest, `need {grant?: "once" | "hour" | "always", scope?: "call" | "tile", unseen?: true, signin?: true, trust?: true, via?: "notification", harness?, model?, mode?, remember?: true, continue?: false, knows?: [..], seen?: {signInId?, net?, harness?, mode?}}`, delegationDocs)
+			WriteError(w, http.StatusBadRequest, `need {grant?: "once" | "hour" | "always", scope?: "call" | "tile", unseen?: true, signin?: true, trust?: true, via?: "notification", harness?, model?, mode?, remember?: true, continue?: false, knows?: [..], seen?: {signInId?, net?, harness?, mode?, textLen?}}`, delegationDocs)
 			return
 		}
 	}
@@ -777,6 +777,13 @@ func (s *Server) apiDelegateRequestDecide(w http.ResponseWriter, r *http.Request
 			}
 			if !ok {
 				WriteJSON(w, http.StatusConflict, map[string]any{"error": "This request needs a look in the app: " + why, "review": true, "docs": delegationDocs})
+				return
+			}
+		}
+		if m, _ := cur.Preview["message"].(map[string]any); found && cur.Kind == delegation.KindMessage { // all of it on screen, or nothing (D251 review H1)
+			if text, _ := m["text"].(string); textSeenRefusal(body.Seen, text) != "" {
+				_, words, _ := strings.Cut(strings.TrimPrefix(textSeenRefusal(body.Seen, text), seenChanged), "\x00")
+				WriteJSON(w, http.StatusConflict, map[string]any{"error": words, "changed": "text", "reload": true, "docs": delegationDocs})
 				return
 			}
 		}

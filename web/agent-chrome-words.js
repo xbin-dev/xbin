@@ -300,6 +300,9 @@ export function sessionRows(req) {
     // who wrote it, as xbind says (D248 review): xbind's update brief is xbin's; any other text the agent's, whatever it says
     briefBy: !brief ? '' : s.briefBy === 'xbin' ? BRIEF_BY_XBIN : BRIEF_BY_AGENT,
     comes: `Its questions and permission requests come to you, in ${t} and in Needs you. Your workspace agent can't answer them.`,
+    // a resume whose last mode was a bypass one resumes in its coding agent's work mode: said (D251 review M2)
+    resumed: typeof s.resumeModeNotTaken === 'string' && s.resumeModeNotTaken
+      ? `It was in ${s.resumeModeNotTaken}, which skips every check; it resumes in ${s.mode || 'its own default mode'}.` : '',
   };
 }
 

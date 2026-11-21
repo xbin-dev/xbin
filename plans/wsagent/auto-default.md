@@ -222,6 +222,40 @@ What the work-mode default changed elsewhere, fixed in this batch:
   (not run live here) set_mode succeeds, so the start isn't refused, and
   the session reads as acting without asking either way.
 
+## The review of 2026-11-21
+
+- **H1 — a text is allowed only once all of it has been on screen.** The
+  batch row shows a follow-up whole when it fits — 12 lines and 1,200
+  characters — so the usual short one stays one click; the goal leads,
+  and the brief's standing opening line ("This is a piece of work in
+  this tile, handed to you by …") comes after it. A longer one shows its
+  first 3 lines, its length and Show all as the row's primary button;
+  Send comes only after it. The sheet's Allow waits for Show all on any
+  text it clips (4,000 characters). Enforced at xbind: the approve says
+  how much it had on screen (`seen.textLen`, UTF-8 bytes) and another
+  length than the text's is refused (409, reload). v0.3.84's clients send
+  none and aren't held to it: its sheet shows up to 4,000 characters with
+  Show all and could allow without.
+- **M1** — a waiting line whose tile provided early is stale where the
+  slot's binding or a warning isn't as proposed; held to the proposal's
+  binding (Was) otherwise.
+- **M2 — a resume never reopens in a bypass mode by itself.** Its mode
+  is its history's unless that is a bypass one: then its work mode, the
+  card says what it was in, and the person may pick its mode (only its
+  mode) on that approval; it opens in the card's mode, never in what the
+  history says at the redeem.
+- **L1** — a row's Send and Deny wait CHOICES.armMs again whenever the
+  list's rows or their order change (rows keyed by request).
+- **L3** — a plan's start line is held to what it resolves to (its Pin)
+  and its warnings, not its sentence: a v0.3.84 plan applies after the
+  upgrade. Its effects and line words compared before; the facts (a
+  pinned mode) didn't change, so stale was wrong there.
+- Found by L4's end-to-end test: a continue's card never named the saved
+  sign-in its session carries (the session's view names none to its
+  agent), so the "uses your … sign-in" chip never showed and the redeem's
+  sign-in check compared nothing. xbind reads it from the session itself
+  now (`term.SigninIDOf`).
+
 ## Nothing breaks for an existing workspace
 
 A person who had picked a mode — asking or not — keeps it: it is their
