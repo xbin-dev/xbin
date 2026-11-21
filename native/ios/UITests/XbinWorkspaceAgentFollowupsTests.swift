@@ -251,6 +251,48 @@ final class XbinWorkspaceAgentFollowupsTests: XCTestCase {
         XCTAssertTrue(e.until(20) { !heading.exists || heading.label != "Try again to start a tile agent in Eui?" }, "tried again")
     }
 
+    /// The whole-text rule at the largest accessibility text size: a long
+    /// message's Send stays unavailable until the end of its text has been
+    /// in view — scrolled to — and is there once it has (where the sheet
+    /// shows all of it at once, its end is above the decision bar).
+    @MainActor
+    func test06LargestTextLongMessage() throws {
+        let e = try launch(["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
+        e.fuOpen("rq_m_lines")
+        let heading = e.element("approval-heading")
+        e.expect(heading, 30, "a long message at the largest text size")
+        let allow = e.app.buttons.matching(identifier: "approval-allow").firstMatch
+        let details = e.app.buttons.matching(identifier: "approval-details").firstMatch
+        if e.until(4, { allow.isEnabled }) {
+            let text = e.element("approval-message")
+            XCTAssertTrue(text.frame.minY >= 0 && text.frame.maxY <= allow.frame.minY + 1, "Send armed with the text's end off screen: \(text.frame) / \(allow.frame)")
+        } else {
+            XCTAssertEqual(e.element("approval-note").label, "Scroll to the end of the text to allow it")
+            e.shot("followups-12-largest-long-top")
+            XCTAssertFalse(e.until(3) { allow.isEnabled }, "still not, with the end out of view")
+            e.fuScrollTo(details)
+            XCTAssertTrue(e.until(15) { allow.isEnabled }, "its end seen: Send arms")
+        }
+        e.shot("followups-13-largest-long-end")
+        e.app.buttons.matching(identifier: "approval-later").firstMatch.tap()
+    }
+
+    /// A message that fits without scrolling: Send waits only for the arming
+    /// delay — its end was in view from the first moment — with no scroll.
+    @MainActor
+    func test07ShortMessageArmsWithoutScrolling() throws {
+        let e = try launch(["-XbinAgentArmSeconds", "4"])
+        e.fuOpen("rq_m")
+        let heading = e.element("approval-heading")
+        e.expect(heading, 30, "a short message")
+        let allow = e.app.buttons.matching(identifier: "approval-allow").firstMatch
+        XCTAssertFalse(allow.isEnabled, "not before the arming delay")
+        XCTAssertTrue(e.until(15) { allow.isEnabled }, "armed, without a scroll: all of the text was on screen from the start")
+        XCTAssertFalse(e.element("approval-note").exists, "nothing holds it back")
+        e.shot("followups-14-short-armed")
+        e.app.buttons.matching(identifier: "approval-later").firstMatch.tap()
+    }
+
     /// The sheets and the rows, light and dark, at the size the device has:
     /// `followups-<light|dark>-NN-<what>.png`.
     @MainActor
@@ -331,13 +373,17 @@ extension E2E {
     /// stay inside the sheet's scrolling part, between its trusted bar and
     /// its decision bar (on an iPad the sheet is a card in the middle).
     func fuScrollTo(_ element: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {
-        let top = self.element("approval-bar"), bottom = app.buttons.matching(identifier: "approval-deny").firstMatch
+        let top = self.element("approval-bar"), deny = app.buttons.matching(identifier: "approval-deny").firstMatch
+        let note = self.element("approval-note")
         let window = app.windows.firstMatch.frame
         var tries = 0
         while element.exists, !element.isHittable, tries < 60 {
             let x = top.exists ? top.frame.midX : window.midX
-            let from = bottom.exists ? bottom.frame.minY - 40 : window.height * 0.7
-            let to = top.exists ? top.frame.maxY + 30 : window.height * 0.2
+            // the decision bar's top: its note (what holds Allow back) when it has one, else Deny
+            let barTop = min(deny.exists ? deny.frame.minY : window.height, note.exists ? note.frame.minY : window.height)
+            var from = barTop < window.height ? barTop - 24 : window.height * 0.7
+            var to = top.exists ? top.frame.maxY + 24 : window.height * 0.2
+            if from - to < 40 { from = window.height * 0.7; to = window.height * 0.2 } // (no room: the old way)
             let origin = app.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0))
             origin.withOffset(CGVector(dx: x, dy: from)).press(forDuration: 0.05, thenDragTo: origin.withOffset(CGVector(dx: x, dy: to)))
             tries += 1

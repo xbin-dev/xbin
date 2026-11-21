@@ -104,6 +104,7 @@ function rememberWords(continuing, hs, h, pick) {
     : 'Your next start here preselects what you changed.';
   return { shown: !continuing && hs.length > 0 && !!h, label: 'Remember for this tile', note, keepsMode: !!(mode && !mode.explicit) };
 }
+const NO_REMEMBER = Object.freeze({ shown: false, label: '', note: '', keepsMode: false });
 
 /** modeChip(asks): a mode as the one fact the sheet, the batch and the app show of it (D251). */
 export const modeChip = (asks) => (asks ? 'asks before acting' : 'acts without asking');
@@ -164,7 +165,8 @@ export function startView(req, pick) {
     cont: c ? { session: c.session, label: `Continue the ${c.providerName || c.provider} session${c.started ? ` from ${clock(toMs(c.started))}` : ''} with this follow-up`,
       sub: 'Start a new session instead', chips: contChips(c), signInId: String(c.signInId || '') } : null,
     continuing,
-    remember: s.resume ? { shown: false, label: '', note: '', keepsMode: false } : rememberWords(continuing, hs, h, pick),
+    // a resume picks its mode only; a Try again remembers nothing (a retry takes no remember: D253)
+    remember: s.resume || req.state === 'failed' ? NO_REMEMBER : rememberWords(continuing, hs, h, pick),
     asks,
     modeChip: modeChip(asks),
     fact: asks ? '' : MODE_FACT,
@@ -188,7 +190,9 @@ export function choose(pick, req, field, value) {
 
 /**
  * pickBody(req, pick): what the approval sends of the pick (POST …/approve):
- * {harness, model, mode, remember?, continue: false?, knows: ['continue']} —
+ * {harness, model, mode, remember?, continue: false?, knows: ['continue']}
+ * — continuing the offered session: {continue: true, seen: {…, harness,
+ * mode}}, nothing picked —
  * only for a start with choices; {} for anything else, and for an older
  * xbind's start (it takes no pick).
  */
@@ -206,9 +210,11 @@ export function pickBody(req, pick) {
   }
   const c = s.continue && s.continue.session ? s.continue : null;
   if (c && pick.cont && pick.harness === c.provider) {
-    // continuing: the session keeps its own — held to it as shown: its coding agent and mode (D251)
+    // continuing: the session keeps its own — held to it as shown: its coding agent and mode (D251); said, not
+    // left to a default (a Try again continues only when told: D253)
     out.seen.harness = String(c.provider || '');
     out.seen.mode = String(c.mode ?? '');
+    out.continue = true;
     return out;
   }
   if (c) out.continue = false;
@@ -239,13 +245,16 @@ export function withSeenText(body, onScreen) {
  * (pickBody: a start's), how much of the text it sends was on screen when
  * its person clicked (withSeenText: a start's brief, a message — onScreen,
  * the part shown), and for a Try again (a start that failed: POST …/retry)
- * only what a retry takes: no grant, no continue, nothing remembered, no
- * text length. The web's sheet and the app's send exactly this (D253).
+ * only what a retry takes: no grant, nothing remembered, no text length —
+ * and continue as its sheet shows it, said either way where the start
+ * offers a session (xbind continues one on a Try again only when told).
+ * The web's sheet and the app's send exactly this (D253).
  */
 export function sheetBody(req, pick, onScreen, base = { grant: 'once' }) {
   const body = { ...base, ...(pick ? pickBody(req, pick) : {}) };
   const out = req.kind === 'message' || (req.kind === 'session' && req.state !== 'failed') ? withSeenText(body, onScreen) : body;
-  if (req.state === 'failed') { delete out.grant; delete out.scope; delete out.unseen; delete out.continue; delete out.remember; }
+  // (a Try again keeps the pick's continue — true or false, as its sheet shows: absent, xbind opens a new session)
+  if (req.state === 'failed') { delete out.grant; delete out.scope; delete out.unseen; delete out.remember; }
   return out;
 }
 
@@ -436,6 +445,8 @@ export const SHEET = Object.freeze({
   messageRow: 'Message',
   details: 'Details',
   opensWith: 'It opens with: ', // (a row: xbin's own brief's opening paragraph, after the goal — rowText)
+  // the app's, where its workspace's xbind is older than what it would have to say (GET /delegate/state takes)
+  olderXbind: "This workspace's xbin is older than this app: what this sheet shows can't be sent as it shows it. Update xbin, or decide this one on the web.",
 });
 
 /**

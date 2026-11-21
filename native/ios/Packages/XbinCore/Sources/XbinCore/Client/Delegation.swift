@@ -58,6 +58,9 @@ public struct DelegateState: Sendable, Equatable {
     }
     public var netWeb: NetReach
     public var netMCP: NetReach
+    /// What an approve and a Try again may carry beyond v0.3.84's (`takes`,
+    /// D253; ``StartWords/currentTakes``): empty from an older xbind.
+    public var takes: Set<String>
 
     public init?(json: JSONValue?) {
         guard let json, json.objectValue != nil else { return nil }
@@ -88,6 +91,7 @@ public struct DelegateState: Sendable, Equatable {
         }
         netWeb = reach(json["net"]?["web"])
         netMCP = reach(json["net"]?["mcp"])
+        takes = Set((json["takes"]?.arrayValue ?? []).compactMap(\.stringValue))
     }
 }
 

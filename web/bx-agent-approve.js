@@ -394,7 +394,7 @@ export class BxAgentApprove extends LitElement {
             ${pk.id === 'mode' ? html`<span class="chips"><span class="chip" data-mode-chip>${v.modeChip}</span></span>${v.fact ? html`<span class="small" data-mode-fact>${v.fact}</span>` : nothing}` : nothing}
             ${pk.note ? html`<span class="small muted">${pk.note}</span>` : nothing}
             ${pk.warn ? html`<span class="small err" data-not-taken>${pk.warn}</span>` : nothing}</dd>`)
-          : html`<dt>Coding agent</dt><dd>${r.agent}</dd>`}
+          : v && v.continuing ? nothing : html`<dt>Coding agent</dt><dd>${r.agent}</dd>`}
         ${v && v.remember.shown ? html`<dt></dt><dd><label class="small"><input type="checkbox" data-remember .checked=${!!this._pick.remember}
             @change=${(e) => { this._pick = { ...this._pick, remember: e.target.checked }; }}> ${v.remember.label}</label>
           <div class="small muted">${v.remember.note}</div></dd>` : nothing}
@@ -403,8 +403,9 @@ export class BxAgentApprove extends LitElement {
             ${r.resumed ? html`<div class="small err" data-resumed>${r.resumed}</div>` : nothing}</dd>`}
         ${this._tileRow(req)}
         ${v && v.continuing ? nothing : signinRow(r, { ...this._ticks, guard: this._widen, set: (patch) => { this._ticks = { ...this._ticks, ...patch }; } })}
-        <dt>Network</dt><dd>${r.network}</dd>
-        <dt>Other tiles</dt><dd>${r.others}</dd>
+        ${/* a new start's network and tile APIs: a continued session keeps its own, which its chips say (D253) */
+          v && v.continuing ? nothing : html`<dt>Network</dt><dd>${r.network}</dd>
+        <dt>Other tiles</dt><dd>${r.others}</dd>`}
         <dt>What it will be told</dt><dd>${r.briefBy ? html`<div class="small" data-row="brief-by">${r.briefBy}</div>` : nothing}${hiddenLine(r.brief)}<pre class="body brief" tabindex="-1" data-row="brief">${r.brief ? html`${shown(brief.text)}${brief.clipped ? '…' : ''}` : '(nothing: it starts without a message)'}</pre>
           <div class="small muted">${brief.clipped ? html`${clipNote(brief)} — <button class="link" data-show-all @click=${() => this._showAll('_allBrief')}>Show all</button> ` : nothing}${SHEET.sent}</div></dd>
       </dl>

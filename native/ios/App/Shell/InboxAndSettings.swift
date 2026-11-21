@@ -21,8 +21,12 @@ struct InboxView: View {
     /// finger — or the app comes back to the front.
     @State private var rowArming = AgentArming()
 
-    /// The rows that wait, in order: what a change of re-arms the rows' Send.
-    private var order: [String] { app.workspaces.flatMap { w in w.agent.needs.map { "\(w.id)/\($0.kind.rawValue):\($0.id)" } } }
+    /// Every row of the list, in order — the agent's and the sessions that
+    /// wait, of every workspace: any of them coming or going moves the rows
+    /// under the finger, so a change re-arms every row's Send.
+    private var order: [String] {
+        app.workspaces.flatMap { w in w.agent.needs.map { "\(w.id)/\($0.kind.rawValue):\($0.id)" } + w.needsYou.map { "\(w.id)/session:\($0.id)" } }
+    }
 
     var body: some View {
         NavigationStack {

@@ -6656,3 +6656,25 @@ here: cut from the old end, never reword.
     by them; this also fixes that. A start without `choices` shows no
     pickers and sends what it did.
   - **Lock-screen Allow once** stays a tile call's only.
+  - **The review of 2026-11-21** (each fixed red first): H1 — Try again
+    continued the offered session after its person had started a new one
+    (the retry took no `continue`, absent meant continue, and the
+    clients dropped it): the retry takes `continue`, continues only on
+    true with the session's `seen`, and both clients say it either way.
+    M1 — the app no longer sends an older xbind a body, takes its 400 and
+    sends it stripped: `GET /delegate/state` says what an approve takes
+    (`takes`), the app builds for that and declines what that xbind
+    couldn't hold to the sheet (a message, a continue, a Try again of a
+    start offering a session) with "update xbin, or decide on the web".
+    Rejected: reading the 400's need-list (a guess at a string, and a
+    current xbind's strict refusal looks the same). L1 — no Remember on a
+    Try again. L2 — a continue hides a new start's Network and Other
+    tiles (and, on the web, Coding agent) rows. L3 — the follow-up
+    fixture said xbin wrote an agent's text; an xbin brief fixture of its
+    own. L4 — the rows re-arm on every row's change, waiting sessions
+    too. L5 — the device rule is every session the app holds (Via device
+    or app: a bearer session; a browser's is "session"); chosen over
+    "seen-text from every client", which would refuse a v0.3.84 web page
+    left open across the upgrade and a person's own scripts for nothing
+    the app's rule doesn't already cover. L6 — the message test fails
+    without the rule (an "app" session's Allow without the word).

@@ -175,7 +175,7 @@ import Testing
         typealias X = StartWords.Sheet
         #expect(X.unread == s(w, "unread") && X.reachEnd == s(w, "reachEnd") && X.sent == s(w, "sent") && X.sentOnce == s(w, "sentOnce"))
         #expect(X.whereItGoes == s(w, "whereItGoes") && X.agentRow == s(w, "agentRow") && X.messageRow == s(w, "messageRow") && X.details == s(w, "details"))
-        #expect(X.opensWith == s(w, "opensWith"))
+        #expect(X.opensWith == s(w, "opensWith") && X.olderXbind == s(w, "olderXbind"))
         #expect(StartWords.from == (w["from"]?.objectValue ?? [:]).mapValues { $0.stringValue ?? "" })
         #expect(DelegationWords.modeFact == s(w, "modeFact") && DelegationWords.failedHead == s(w, "failedHead") && DelegationWords.tryAgain == s(w, "tryAgain"))
         #expect(StartWords.seenText == s(w, "seenText"))
@@ -213,21 +213,47 @@ import Testing
         #expect(DelegateRoute.savedSignInNames(nil).isEmpty && DelegateRoute.signins.path == "/api/xbin/agent/signins")
     }
 
-    /// An xbind before D252 refuses a field it doesn't know (400 "need
-    /// {…}"): the app sends the body once more in the shape it takes — the
-    /// text's length and a continue's session facts left out, nothing else.
-    @Test func anOlderXbindsShape() throws {
-        func answer(_ status: Int, _ error: String) -> APIResponse {
-            APIResponse(status: status, headers: ["Content-Type": "application/json"], body: JSONValue.object(["error": .string(error)]).jsonData)
+    /// What this app sends an xbind is decided BEFORE it sends, by what that
+    /// xbind says it takes (GET /delegate/state `takes`, D253) — never sent,
+    /// refused and sent again stripped. A current xbind gets the web's body;
+    /// v0.3.84 (no takes) only what it reads — no text length, no
+    /// continue's session facts — and the app declines what that xbind
+    /// couldn't hold to what the sheet shows: a message, a continue, a Try
+    /// again of a start that offers a session.
+    @Test func whatAnOlderXbindIsSent() throws {
+        let starts = try #require(v["starts"]?.arrayValue)
+        func req(_ id: String) throws -> DelegateRequest {
+            try #require(DelegateRequest(json: starts.first { $0["json"]?["id"]?.stringValue == id }?["json"]))
         }
-        let need = answer(400, #"need {grant?: "once" | "hour" | "always", scope?: "call" | "tile", unseen?: true, signin?: true, trust?: true, via?: "notification", harness?, model?, mode?, remember?: true, continue?: false, knows?: [..], seen?: {signInId?, net?}}"#)
-        let cont: JSONValue = ["grant": "once", "knows": ["continue", "seen-text"], "seen": ["signInId": "si_9", "net": "", "harness": "claude", "mode": "auto", "textLen": 12]]
-        #expect(StartWords.olderXbindBody(cont, refused: need) == ["grant": "once", "knows": ["continue"], "seen": ["signInId": "si_9", "net": ""]])
-        let start: JSONValue = ["grant": "once", "knows": ["seen-text"], "seen": ["textLen": 12]]
-        #expect(StartWords.olderXbindBody(start, refused: need) == ["grant": "once"], "v0.3.83: no knows, no seen")
-        #expect(StartWords.olderXbindBody(["grant": "once"], refused: need) == nil, "nothing to leave out: the 400 stands")
-        #expect(StartWords.olderXbindBody(start, refused: answer(400, "harness, model, mode and remember are a tile agent start's")) == nil, "another 400 is xbind's answer")
-        #expect(StartWords.olderXbindBody(start, refused: answer(409, "need {")) == nil)
+        let older: Set<String> = []
+        // a new session picked on v0.3.84: the pick and what the sheet showed, no length
+        let st = try req("rq_st")
+        let pick = StartWords.choose(StartWords.pickOf(st), st, field: "mode", value: "default")
+        let old = StartWords.sheetBody(st, pick: pick, onScreen: StartWords.briefOf(st), takes: older)
+        #expect(old == ["grant": "once", "knows": ["continue"], "seen": ["signInId": "si_9", "net": "none"], "harness": "claude", "model": "", "mode": "default", "remember": true])
+        #expect(StartWords.olderRefusal(st, pick: pick, takes: older).isEmpty)
+        let now = StartWords.sheetBody(st, pick: pick, onScreen: StartWords.briefOf(st))
+        #expect(now["seen"]?["textLen"] != nil && now["knows"] == ["continue", "seen-text"], "a current xbind: the web's body")
+        // a continue: declined on v0.3.84 (it can't hold a continue to the session shown), and so off its row
+        let cont = try req("rq_st_cont")
+        #expect(StartWords.olderRefusal(cont, pick: StartWords.pickOf(cont), takes: older) == StartWords.Sheet.olderXbind)
+        #expect(StartWords.olderRefusal(cont, pick: StartWords.contChoice(StartWords.pickOf(cont), cont, false), takes: older).isEmpty, "a new session instead it takes")
+        #expect(StartWords.appInPlace(cont, takes: older) == nil && StartWords.appInPlace(cont) != nil)
+        // a Try again of a start that offers a session: declined (v0.3.84 would continue it by default)
+        let offer = try req("rq_st_failed_offer")
+        #expect(StartWords.olderRefusal(offer, pick: StartWords.pickOf(offer), takes: older) == StartWords.Sheet.olderXbind)
+        #expect(StartWords.olderRefusal(offer, pick: StartWords.pickOf(offer), takes: ["seen-text", "seen-session"]) == StartWords.Sheet.olderXbind, "retry-continue it must say")
+        #expect(StartWords.olderRefusal(offer, pick: StartWords.pickOf(offer), takes: StartWords.currentTakes).isEmpty)
+        // a message: declined on an xbind that can't tell this app from one that doesn't show it
+        let msg = try #require(DelegateRequest(json: v["messages"]?[0]?["json"]))
+        #expect(StartWords.olderRefusal(msg, pick: nil, takes: older) == StartWords.Sheet.olderXbind)
+        #expect(StartWords.olderRefusal(msg, pick: nil, takes: StartWords.currentTakes).isEmpty && StartWords.appInPlace(msg, takes: older) == nil)
+        // a refusal of a current xbind's strict reading is xbind's answer, shown: there is no second send
+        let r400 = APIResponse(status: 400, headers: ["Content-Type": "application/json"], body: JSONValue.object(["error": "need {grant?: …}"]).jsonData)
+        #expect(DelegateOutcome.read(r400) == .failed("need {grant?: …}"))
+        // the state says what it takes; an older xbind's says nothing
+        #expect(DelegateState(json: ["workspace": true, "takes": ["seen-text", "retry-continue"]])?.takes == ["seen-text", "retry-continue"])
+        #expect(DelegateState(json: ["workspace": true])?.takes.isEmpty == true)
     }
 }
 

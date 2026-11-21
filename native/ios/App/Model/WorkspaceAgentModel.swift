@@ -113,7 +113,12 @@ final class WorkspaceAgentModel {
     /// proposals, and the tile agents it started that wait for them.
     var count: Int { needs.count + waitingSessions.count }
 
-    var needs: [AgentNeed] { AgentNeed.rows(requests: requests, changesets: changesets, failed: failed) }
+    var needs: [AgentNeed] { AgentNeed.rows(requests: requests, changesets: changesets, failed: failed, takes: takes) }
+
+    /// What this workspace's xbind takes of an approve beyond v0.3.84's
+    /// (`GET /delegate/state` `takes`, D253): what the sheets and rows send
+    /// it, and what they decline (``StartWords/olderRefusal``).
+    var takes: Set<String> { state?.takes ?? [] }
 
     /// Tile agents the agent started that wait for the person.
     var waitingSessions: [TermDirectoryEntry] { (workspace?.sessions ?? []).filter { $0.startedByAgent && $0.needsYou } }
@@ -324,8 +329,7 @@ final class WorkspaceAgentModel {
 
     /// Approves `id` with a sheet's or a row's own body — a start's pick, a
     /// continue, a message, each with how much of its text was on screen
-    /// (``StartWords/sheetBody``; D253). An older xbind that doesn't know a
-    /// field of it is asked once more in the shape it takes.
+    /// (``StartWords/sheetBody``, built for what this xbind takes; D253).
     func approve(id: String, body: JSONValue) async -> DelegateOutcome {
         let out = await decideBody(body) { DelegateRoute.approve(id, $0) }
         await afterDecision(id, standing: false)
@@ -503,17 +507,10 @@ final class WorkspaceAgentModel {
         return (has, state?.paused ?? false, count, tileAgents.filter(\.isAgentBusy).count)
     }
 
-    /// `make(body)` sent; an older xbind's 400 for a field it doesn't know
-    /// (``StartWords/olderXbindBody(_:refused:)``) sends it once more without.
+    /// `make(body)` sent once: what it says was decided for this xbind
+    /// beforehand (its `takes`) — never sent again stripped after a refusal.
     private func decideBody(_ body: JSONValue, _ make: (JSONValue) -> APIRequest) async -> DelegateOutcome {
-        do {
-            let r = try await send(make(body))
-            if let older = StartWords.olderXbindBody(body, refused: r) { return DelegateOutcome.read(try await send(make(older))) }
-            return DelegateOutcome.read(r)
-        } catch {
-            unreachable = true
-            return .failed("xbin can't be reached")
-        }
+        await decide(make(body))
     }
 
     private func decide(_ req: APIRequest, sentPassword: Bool = false) async -> DelegateOutcome {

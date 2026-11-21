@@ -79,8 +79,8 @@ test('a start that would continue the agent\'s own idle session: continue first,
   assert.match(v.cont.label, /^Continue the OpenCode session from \d\d:\d\d with this follow-up$/);
   assert.deepEqual(v.cont.chips, ['OpenCode', 'model m1', 'acts without asking']);
   assert.deepEqual([v.pickers.length, v.label, v.asks, v.remember.shown, v.needsTick], [0, 'Send', false, false, undefined]);
-  assert.deepEqual(S.pickBody(req, pick), { knows: ['continue'], seen: { signInId: '', net: '', harness: 'opencode', mode: 'build' } },
-    'continuing: the session keeps its own — held to it as shown (D251)');
+  assert.deepEqual(S.pickBody(req, pick), { knows: ['continue'], continue: true, seen: { signInId: '', net: '', harness: 'opencode', mode: 'build' } },
+    'continuing: the session keeps its own — held to it as shown (D251), and said (D253)');
   const anew = S.contChoice(pick, req, false);
   const fresh = S.startView(req, anew);
   assert.deepEqual([anew.harness, fresh.continuing, fresh.pickers.length, fresh.label], ['codex', false, 3, 'Start'], 'a new session: on what xbind preselected for one');
@@ -163,11 +163,11 @@ test('a follow-up on its batch row: whole when it fits, Send at once; a long one
   const msg = { id: 'rq_m', kind: 'message', tile: 'apps/eui', state: 'pending', created: at('10:49:00'), preview: { message: { session: 'ts-1', provider: 'opencode', providerName: 'OpenCode', mode: 'build', text: 'Fix the stray O.' } } };
   const c = S.inPlace(cont), m = S.inPlace(msg);
   assert.deepEqual([c.kind, c.title, c.chips, c.text], ['continue', 'Continue the Claude Code session in eui', ['Claude Code', 'model opus', 'acts without asking', 'uses your Claude Code sign-in'], brief]);
-  assert.deepEqual(c.body, { grant: 'once', knows: ['continue'], seen: { signInId: 'si_9', net: '', harness: 'claude', mode: 'auto' } }, 'what the sheet sends for it');
+  assert.deepEqual(c.body, { grant: 'once', knows: ['continue'], continue: true, seen: { signInId: 'si_9', net: '', harness: 'claude', mode: 'auto' } }, 'what the sheet sends for it');
   assert.deepEqual([m.kind, m.chips, m.body], ['message', ['OpenCode', 'mode build', 'acts without asking'], { grant: 'once' }]);
   assert.equal(c.byXbin, false, 'the agent wrote it: xbind says no other');
   // Send says how much of the text was on screen when the person clicked — all of it, or the part shown (D252)
-  assert.deepEqual(S.withSeenText(c.body, brief), { grant: 'once', knows: ['continue', S.SEEN_TEXT], seen: { signInId: 'si_9', net: '', harness: 'claude', mode: 'auto', textLen: S.textBytes(brief) } });
+  assert.deepEqual(S.withSeenText(c.body, brief), { grant: 'once', knows: ['continue', S.SEEN_TEXT], continue: true, seen: { signInId: 'si_9', net: '', harness: 'claude', mode: 'auto', textLen: S.textBytes(brief) } });
   assert.deepEqual(S.withSeenText(m.body, 'Fix the'), { grant: 'once', knows: ['seen-text'], seen: { textLen: 7 } }, 'a clipped text: its part, which xbind refuses');
   // it fits (12 lines, 1,200 characters): whole, as it is — the opening line moved after the goal only for xbin's own brief
   assert.deepEqual(S.rowText(brief), { whole: true, lead: brief, opening: '', note: '', shown: brief }, 'the agent\'s text that opens like xbin\'s brief: as it is (D252)');
@@ -282,4 +282,28 @@ test('the app\'s row: a follow-up inPlace allows, short enough for a phone\'s li
   assert.ok(S.inPlace(msg('x'.repeat(1000))) && !S.appInPlace(msg('x'.repeat(1000))), 'the web\'s row takes it, the app\'s doesn\'t');
   assert.equal(S.appInPlace(msg('a‮b')), null, 'what inPlace refuses, the app refuses');
   assert.equal(S.appInPlace(start()), null);
+});
+
+test('Try again says what its sheet shows: a new session stays a new session, a continue is said and held to the session (D253, the review\'s H1); it remembers nothing (L1)', () => {
+  const cont = { session: 'ts-1', provider: 'claude', providerName: 'Claude Code', mode: 'auto', asks: false, model: 'opus', signIn: 'saved', signInId: 'si_9' };
+  const hs = [{ id: 'claude', name: 'Claude Code', defaultMode: 'auto', modelsKnown: false, signIn: 'connector', signInId: 'si_9',
+    modes: [{ id: 'default', name: 'Manual', asks: true }, { id: 'auto', name: 'Auto', asks: false }], models: [{ id: '' }] }];
+  // the first approval started a new session in a mode that asks; it failed; the card still offers ts-1
+  const failed = { ...start({ provider: 'claude', providerName: 'Claude Code', mode: 'default', asks: true, continue: cont, choices: { harnesses: hs } }),
+    state: 'failed', failure: { why: 'x', retry: true }, chosen: { provider: 'claude', model: '', mode: 'default' } };
+  let pick = S.pickOf(failed);
+  const v = S.startView(failed, pick);
+  assert.deepEqual([pick.cont, v.continuing, v.label, v.modeChip], [false, false, 'Start', 'asks before acting'], 'the sheet shows a new session');
+  assert.deepEqual(S.sheetBody(failed, pick, 'Goal: tic tac toe'), { knows: ['continue'], continue: false, seen: { signInId: 'si_9', net: '' }, harness: 'claude', model: '', mode: 'default' },
+    'what it sends says so: absent, xbind opened the offered session');
+  assert.equal(v.remember.shown, false, 'no Remember on a Try again: a retry remembers nothing');
+  pick = S.contChoice(pick, failed, true);
+  assert.deepEqual(S.sheetBody(failed, pick, 'Goal: tic tac toe'), { knows: ['continue'], continue: true, seen: { signInId: 'si_9', net: '', harness: 'claude', mode: 'auto' } },
+    'continuing on a Try again: said, with the session as shown');
+  assert.equal(S.sheetBody({ ...failed, preview: { session: { ...failed.preview.session, continue: undefined } } }, S.pickOf(failed), '').continue, undefined, 'nothing offered: nothing to say');
+  // the first approval: a new session instead says continue false — the sheet, the row and Review all all build it here
+  const pending = start({ continue: cont, choices: { harnesses: hs } });
+  assert.equal(S.sheetBody(pending, S.contChoice(S.pickOf(pending), pending, false), 'Goal: tic tac toe').continue, false);
+  assert.equal(S.sheetBody(pending, S.pickOf(pending), 'Goal: tic tac toe').continue, true);
+  assert.match(S.SHEET.olderXbind, /older than this app/);
 });

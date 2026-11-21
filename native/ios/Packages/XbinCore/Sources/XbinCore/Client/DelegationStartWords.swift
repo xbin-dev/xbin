@@ -176,7 +176,18 @@ public enum StartWords {
         public static let details = "Details"
         /// A row's: xbin's own brief's opening paragraph, after the goal (``rowText``).
         public static let opensWith = "It opens with: "
+        /// The app's, where its workspace's xbind is older than what it would
+        /// have to say (``olderRefusal(_:pick:takes:)``).
+        public static let olderXbind = "This workspace's xbin is older than this app: what this sheet shows can't be sent as it shows it. Update xbin, or decide this one on the web."
     }
+
+    /// What an approve and a Try again may carry beyond v0.3.84's, as this
+    /// app's xbind says it (`GET /delegate/state` `takes`, D253): the text's
+    /// length (seen-text), a continue's session (seen-session), a Try
+    /// again's continue (retry-continue), an app's decision of a message
+    /// (device-message). An xbind that says none is older: the app sends it
+    /// only what it takes and declines what it couldn't hold the app to.
+    public static let currentTakes: Set<String> = ["seen-text", "seen-session", "retry-continue", "device-message"]
 
     /// The approve's word that `seen.textLen` says how much of the text was
     /// on screen (D252).
@@ -406,7 +417,9 @@ public enum StartWords {
                          sub: "Start a new session instead", chips: contChips(c), signInId: str(c["signInId"]))
         }
         return StartView(pickers: pickers, cont: cont, continuing: isContinuing,
-                         remember: DelegateRequest.resumes(s) ? .init(shown: false, label: "", note: "", keepsMode: false) : rememberWords(isContinuing, hs, h, pick),
+                         // a resume picks its mode only; a Try again remembers nothing (a retry takes no remember: D253)
+                         remember: DelegateRequest.resumes(s) || r.state == .failed ? .init(shown: false, label: "", note: "", keepsMode: false)
+                             : rememberWords(isContinuing, hs, h, pick),
                          asks: asks, modeChip: modeChip(asks), fact: asks ? "" : DelegationWords.modeFact, label: isContinuing ? "Send" : "Start",
                          details: "\(nonEmpty(r.method) ?? "POST") \(nonEmpty(r.target) ?? "/api/xbin/term/sessions")")
     }
@@ -415,7 +428,7 @@ public enum StartWords {
     /// ["continue"], seen: {signInId, net[, harness, mode]}, harness, model,
     /// mode, remember?, continue: false?}` — only for a start with choices;
     /// `{}` for anything else, and for an older xbind's start (it takes no pick).
-    public static func pickBody(_ r: DelegateRequest, _ pick: StartPick) -> [String: JSONValue] {
+    public static func pickBody(_ r: DelegateRequest, _ pick: StartPick, takes: Set<String> = currentTakes) -> [String: JSONValue] {
         let s = session(r)
         guard r.kind == .session, !harnesses(s).isEmpty else { return [:] }
         // seen: what this sheet shows of what xbind resolves again when it is decided — the sign-in it offers, the
@@ -430,9 +443,12 @@ public enum StartWords {
         }
         if let c = continuing(s, pick) {
             // continuing: the session keeps its own — held to it as shown: its coding agent and mode (D251)
-            seen["harness"] = .string(str(c["provider"]))
-            seen["mode"] = .string(str(c["mode"]))
+            if takes.contains("seen-session") {
+                seen["harness"] = .string(str(c["provider"]))
+                seen["mode"] = .string(str(c["mode"]))
+            }
             out["seen"] = .object(seen)
+            out["continue"] = true // said, not left to a default (a Try again continues only when told: D253)
             return out
         }
         out["seen"] = .object(seen)
@@ -463,15 +479,40 @@ public enum StartWords {
     /// What the sheet's Allow sends: `base` (``DelegationWords/approveBody``'s
     /// `{grant, scope?, unseen?}`) with the pick, how much of the text it
     /// sends was on screen (a start's brief, a message), and for a Try again
-    /// (state failed: `POST …/retry`) only what a retry takes — no grant, no
-    /// continue, nothing remembered, no length. The web's sheet sends the
-    /// same (sheetBody).
-    public static func sheetBody(_ r: DelegateRequest, pick: StartPick?, onScreen: String, base: JSONValue = ["grant": "once"]) -> JSONValue {
+    /// (state failed: `POST …/retry`) only what a retry takes — no grant,
+    /// nothing remembered, no length, and continue as the sheet shows it,
+    /// said either way where the start offers a session. The web's sheet
+    /// sends the same (sheetBody). `takes`: what this app's xbind takes
+    /// (``currentTakes``); an older one gets only what it takes — and what it
+    /// can't be held to is declined beforehand (``olderRefusal``), never sent
+    /// stripped.
+    public static func sheetBody(_ r: DelegateRequest, pick: StartPick?, onScreen: String, base: JSONValue = ["grant": "once"],
+                                 takes: Set<String> = currentTakes) -> JSONValue {
         var body = base.objectValue ?? [:]
-        if let pick { body.merge(pickBody(r, pick)) { _, new in new } }
-        if r.kind == .message || (r.kind == .session && r.state != .failed) { body = withSeenText(body, onScreen: onScreen) }
-        if r.state == .failed { for k in ["grant", "scope", "unseen", "continue", "remember"] { body[k] = nil } }
+        if let pick { body.merge(pickBody(r, pick, takes: takes)) { _, new in new } }
+        // (an xbind before D252 reads an approve strictly: the length goes only to one that takes it)
+        if takes.contains(seenText), r.kind == .message || (r.kind == .session && r.state != .failed) { body = withSeenText(body, onScreen: onScreen) }
+        // a Try again keeps the pick's continue — true or false, as its sheet shows: absent, xbind opens a new session
+        if r.state == .failed { for k in ["grant", "scope", "unseen", "remember"] { body[k] = nil } }
         return .object(body)
+    }
+
+    /// Why this app won't send `r`'s approval to an xbind that takes
+    /// `takes` ("" it will): what the sheet shows couldn't be held to as
+    /// shown there — a message (v0.3.84 can't tell an app that shows it
+    /// from one that doesn't), a continue (nor hold it to the session
+    /// shown), a Try again of a start that offers a session (it would
+    /// continue that one by default). Never sent stripped (D253).
+    public static func olderRefusal(_ r: DelegateRequest, pick: StartPick?, takes: Set<String>) -> String {
+        switch r.kind {
+        case .message where !takes.contains("device-message"): return Sheet.olderXbind
+        case .session:
+            let s = session(r)
+            if let pick, continuing(s, pick) != nil, !takes.contains("seen-session") { return Sheet.olderXbind }
+            if r.state == .failed, contOf(s) != nil, !takes.contains("retry-continue") { return Sheet.olderXbind }
+            return ""
+        default: return ""
+        }
     }
 
     /// The sheet's heading: a message's; a start the person continues
@@ -593,9 +634,10 @@ public enum StartWords {
                        byXbin: str(s["briefBy"]) == "xbin", body: .object(body))
     }
 
-    /// …where the app's row may allow it: its text fits the row (``appRowFits``).
-    public static func appInPlace(_ r: DelegateRequest) -> InPlace? {
-        guard let x = inPlace(r), appRowFits(x.text) else { return nil }
+    /// …where the app's row may allow it: its text fits the row
+    /// (``appRowFits``), and its xbind takes what the row sends.
+    public static func appInPlace(_ r: DelegateRequest, takes: Set<String> = currentTakes) -> InPlace? {
+        guard takes.contains(seenText), olderRefusal(r, pick: pickOf(r), takes: takes).isEmpty, let x = inPlace(r), appRowFits(x.text) else { return nil }
         return x
     }
 
@@ -626,34 +668,6 @@ public enum StartWords {
             let x = a.element.at?.timeIntervalSince1970 ?? 0, y = b.element.at?.timeIntervalSince1970 ?? 0
             return x != y ? x < y : a.offset < b.offset
         }.map(\.element)
-    }
-
-    // MARK: An older xbind
-
-    /// An xbind before D252 (v0.3.84 and older) reads an approve strictly and
-    /// refuses a field it doesn't know — `seen.textLen`, a continue's
-    /// `seen.harness` and `seen.mode` — with 400 "need {…}", nothing
-    /// decided. Its sheet holds Allow back itself; the app's does too. Such
-    /// an answer: the body in the shape that xbind takes, sent once more —
-    /// nil when there is nothing an older xbind wouldn't know (then the 400
-    /// stands).
-    public static func olderXbindBody(_ body: JSONValue, refused: APIResponse) -> JSONValue? {
-        guard refused.status == 400, let error = (try? refused.json())?["error"]?.stringValue, error.hasPrefix("need {"),
-              var o = body.objectValue else { return nil }
-        var changed = false
-        if var seen = o["seen"]?.objectValue {
-            for k in ["textLen", "harness", "mode"] where seen[k] != nil {
-                seen[k] = nil
-                changed = true
-            }
-            o["seen"] = seen.isEmpty ? nil : .object(seen)
-        }
-        if let knows = o["knows"]?.arrayValue, knows.contains(.string(seenText)) {
-            let rest = knows.filter { $0 != .string(seenText) }
-            o["knows"] = rest.isEmpty ? nil : .array(rest)
-            changed = true
-        }
-        return changed ? .object(o) : nil
     }
 
     private static func nonEmpty(_ s: String?) -> String? { (s ?? "").isEmpty ? nil : s }

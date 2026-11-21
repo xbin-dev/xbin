@@ -187,7 +187,8 @@ export const audit = [
   { ts: t('09:39:00'), method: 'POST', path: 'https://mcp.tracker.example', class: 'mcp', server: 'ext:tracker', tool: 'post', status: 502, refused: 'the server refused xbin\'s credentials (401)' },
 ];
 
-const S = (o = {}) => ({ user: 'ana', workspace: true, paused: false, adminChanges: false, canAdminChanges: false, pendingRequests: 2, standingApprovals: 1, openChangeSets: 1, access: true, agent: 'xbin/wsagent', workspaceAt: t('09:12:00'), ...o });
+const S = (o = {}) => ({ user: 'ana', workspace: true, paused: false, adminChanges: false, canAdminChanges: false, pendingRequests: 2, standingApprovals: 1, openChangeSets: 1, access: true, agent: 'xbin/wsagent', workspaceAt: t('09:12:00'),
+  takes: ['seen-text', 'seen-session', 'retry-continue', 'device-message'], ...o }); // (what this xbind's approve takes: D253)
 export const states = [
   { name: 'page', state: S(), llm: { configured: true }, admin: false },
   { name: 'no-state', state: null, llm: null, admin: false },
@@ -300,15 +301,18 @@ const st = (session = {}, o = {}) => ({ id: 'rq_st', user: 'ana', agent: 'xbin/w
 const CONT = { session: 'ts-1', provider: 'claude', providerName: 'Claude Code', mode: 'auto', asks: false, model: 'opus', name: 'claude: game', started: t('09:52:00'), since: t('09:58:00'),
   signIn: 'saved', signInId: 'si_9' };
 const FOLLOW = "This is a piece of work in this tile, handed to you by ana's workspace agent on their behalf.\n\nGoal: add a computer player.\nDone when: one person can play it.";
+const XBIN_BRIEF = "This is a piece of work in this tile, handed to you by ana's workspace agent on their behalf, with xbin's own brief for it.\n\nGoal: merge the template's update.\nDone when: the tile builds and its page loads.";
 // [the case, its steps: ['harness' | 'model' | 'mode', value] a picker; ['cont', bool] continue or a new session; ['remember', bool]]
 export const startCases = [
   [st(), [['model', 'opus'], ['mode', 'default'], ['remember', false], ['harness', 'codex'], ['mode', 'agent-full-access'], ['harness', 'gemini'], ['harness', 'opencode'], ['mode', 'plan']]],
   // the agent's suggestion: a model and coding agent preselected, a bypass mode never (modeNotTaken)
   [st({ provider: 'codex', providerName: 'Codex', mode: 'agent', model: 'xbin/big', signInId: '', from: { harness: 'agent', model: 'agent', mode: 'default' },
     suggested: { harness: 'codex', model: 'xbin/big', mode: 'agent-full-access' }, modeNotTaken: 'agent-full-access' }, { id: 'rq_st_suggested' }), [['mode', 'agent-full-access'], ['harness', 'claude']]],
-  // a follow-up: continuing the agent's own idle session first, a new session the other choice
-  [st({ continue: CONT, prompt: FOLLOW, briefBy: 'xbin', from: { harness: 'preference', model: 'preference', mode: 'default' } }, { id: 'rq_st_cont' }),
+  // a follow-up: continuing the agent's own idle session first, a new session the other choice — the agent's text
+  [st({ continue: CONT, prompt: FOLLOW, briefBy: 'agent', from: { harness: 'preference', model: 'preference', mode: 'default' } }, { id: 'rq_st_cont' }),
     [['cont', false], ['harness', 'gemini'], ['cont', true]]],
+  // …and one that is xbin's own update brief (briefBy, xbind's word: D248)
+  [st({ continue: CONT, prompt: XBIN_BRIEF, briefBy: 'xbin' }, { id: 'rq_st_cont_xbin' }), []],
   [st({ continue: { ...CONT, signIn: 'connector', signInId: '', provider: 'opencode', providerName: 'OpenCode', mode: 'build', model: '' }, prompt: 'Fix the stray O.' }, { id: 'rq_st_cont_oc' }), [['cont', false]]],
   // a resume: its mode only
   [st({ resume: true, mode: 'auto', resumeModeNotTaken: 'bypassPermissions', choices: { harnesses: [HS[0]] }, from: undefined }, { id: 'rq_st_resume' }), [['mode', 'default']]],
@@ -318,6 +322,9 @@ export const startCases = [
   [{ ...st({}, { id: 'rq_st_failed' }), state: 'failed', decided: t('10:03:00'), failure: { at: t('10:03:30'), why: "the coding agent didn't start", retry: true },
     chosen: { provider: 'codex', model: 'xbin/big', mode: 'read-only', remember: true } }, [['harness', 'claude']]],
   [{ ...st({ continue: CONT, prompt: FOLLOW }, { id: 'rq_st_failed_cont' }), state: 'failed', failure: { why: 'xbin was busy', retry: true }, chosen: { provider: 'claude', model: 'opus', mode: 'auto', continue: true } }, []],
+  // the review's H1: a new session was approved instead of the offered one and failed — Try again says new, or continue
+  [{ ...st({ continue: CONT, prompt: FOLLOW, mode: 'default', asks: true }, { id: 'rq_st_failed_offer' }), state: 'failed', failure: { why: "the coding agent didn't start", retry: true },
+    chosen: { provider: 'claude', model: '', mode: 'default' } }, [['cont', true], ['cont', false]]],
   // a long brief: clipped on the sheet until Show all
   [st({ prompt: `Goal: ${'é'.repeat(4100)}` }, { id: 'rq_st_long', body: '{"cwd":"apps/eui","kind":"agent"}' }), []], // (the sheet reads preview.session.prompt, never the body: D252)
 ];
@@ -518,7 +525,7 @@ export const demo = {
   plans: { plan: byId(plans, 'pl_dice'), 'plan-user': byId(plans, 'pl_user'), 'plan-from': byId(plans, 'pl_from') },
   // -XbinAgentDemo followups (D253): a start the person picks on, a follow-up that continues the agent's session, a
   // message short, long and clipped, and a start that failed and may be tried again — with the saved sign-in's name
-  followups: [...startCases.map(([j]) => j), ...messageCases].filter((r) => ['rq_st', 'rq_st_cont', 'rq_m', 'rq_m_signin', 'rq_m_lines', 'rq_m_clip'].includes(r.id)),
+  followups: ['rq_st', 'rq_st_cont', 'rq_m', 'rq_m_signin', 'rq_m_lines', 'rq_m_clip', 'rq_st_cont_xbin'].map((id) => [...startCases.map(([j]) => j), ...messageCases].find((r) => r.id === id)),
   followupsFailed: startCases.map(([j]) => j).filter((r) => r.id === 'rq_st_failed'),
   signins: { harnesses: [{ id: 'claude', name: 'Claude Code', signins: [{ id: 'si_9', harness: 'claude', name: 'Work', kind: 'setup-token' }] }] },
 };

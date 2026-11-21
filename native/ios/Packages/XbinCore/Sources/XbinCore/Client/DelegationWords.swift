@@ -1142,10 +1142,11 @@ public struct AgentNeed: Sendable, Equatable, Identifiable {
         self.signInId = signInId
     }
 
-    public static func rows(requests: [DelegateRequest], changesets: [AdminChangeSet], failed: [DelegateRequest] = [], now: Date = Date(), zone: TimeZone = .current) -> [AgentNeed] {
+    public static func rows(requests: [DelegateRequest], changesets: [AdminChangeSet], failed: [DelegateRequest] = [], now: Date = Date(), zone: TimeZone = .current,
+                            takes: Set<String> = StartWords.currentTakes) -> [AgentNeed] {
         var rows: [AgentNeed] = []
         for r in requests where r.isPending {
-            let inline = StartWords.appInPlace(r)
+            let inline = StartWords.appInPlace(r, takes: takes)
             rows.append(AgentNeed(kind: .request, id: r.id, title: inline?.title ?? DelegationWords.needTitle(r),
                                   note: DelegationWords.asked(created: r.created, expires: r.expires, now: now, zone: zone), at: r.created,
                                   inline: inline, chips: inline?.chips ?? [], parts: StartWords.askedParts(created: r.created, expires: r.expires, now: now, zone: zone),

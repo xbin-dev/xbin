@@ -2804,7 +2804,7 @@
        "signIn": "saved",
        "signInId": "si_9"
       },
-      "briefBy": "xbin"
+      "briefBy": "agent"
      }
     }
    },
@@ -2861,7 +2861,8 @@
        "net": "none",
        "harness": "claude",
        "mode": "auto"
-      }
+      },
+      "continue": true
      },
      "picked": {
       "provider": "claude",
@@ -2891,7 +2892,7 @@
       },
       "network": "Its model only. No internet.",
       "others": "It can call the tile APIs this tile is granted.",
-      "briefBy": "xbin's update brief — written by xbin for this tile's update, not by your agent",
+      "briefBy": "Written by your agent",
       "comes": "Its questions and permission requests come to you, in Eui and in Needs you. Your workspace agent can't answer them.",
       "resumed": "",
       "runs": "Runs on the workspace's model.",
@@ -2910,7 +2911,8 @@
         "harness": "claude",
         "mode": "auto",
         "textLen": 158
-       }
+       },
+       "continue": true
       },
       {
        "grant": "once",
@@ -2924,7 +2926,8 @@
         "harness": "claude",
         "mode": "auto",
         "textLen": 158
-       }
+       },
+       "continue": true
       }
      ]
     },
@@ -3084,7 +3087,7 @@
       },
       "network": "Its model only. No internet.",
       "others": "It can call the tile APIs this tile is granted.",
-      "briefBy": "xbin's update brief — written by xbin for this tile's update, not by your agent",
+      "briefBy": "Written by your agent",
       "comes": "Its questions and permission requests come to you, in Eui and in Needs you. Your workspace agent can't answer them.",
       "resumed": "",
       "runs": "Runs on the workspace's model.",
@@ -3289,7 +3292,7 @@
       },
       "network": "Network: internet",
       "others": "It can call the tile APIs this tile is granted.",
-      "briefBy": "xbin's update brief — written by xbin for this tile's update, not by your agent",
+      "briefBy": "Written by your agent",
       "comes": "Its questions and permission requests come to you, in Eui and in Needs you. Your workspace agent can't answer them.",
       "resumed": "",
       "runs": "Starts signed out: Gemini CLI isn't served by the workspace's model here.",
@@ -3390,7 +3393,341 @@
        "net": "none",
        "harness": "claude",
        "mode": "auto"
+      },
+      "continue": true
+     },
+     "picked": {
+      "provider": "claude",
+      "providerName": "Claude Code",
+      "mode": "auto",
+      "asks": false,
+      "model": "",
+      "net": "none",
+      "signIn": "connector",
+      "signInId": "si_9",
+      "trust": false
+     },
+     "session": {
+      "agent": "Claude Code",
+      "signin": {
+       "offer": true,
+       "id": "si_9",
+       "name": "Claude Code",
+       "without": "connector",
+       "trust": null
+      },
+      "mode": {
+       "tag": "acts without asking",
+       "tone": "",
+       "text": "It edits files and runs commands in this tile's sandbox without asking you. You approve what your agent tells it.",
+       "name": "auto"
+      },
+      "network": "Its model only. No internet.",
+      "others": "It can call the tile APIs this tile is granted.",
+      "briefBy": "Written by your agent",
+      "comes": "Its questions and permission requests come to you, in Eui and in Needs you. Your workspace agent can't answer them.",
+      "resumed": "",
+      "runs": "Runs on the workspace's model.",
+      "trustWhose": ""
+     },
+     "allow": [
+      {
+       "grant": "once",
+       "knows": [
+        "continue",
+        "seen-text"
+       ],
+       "seen": {
+        "signInId": "si_9",
+        "net": "none",
+        "harness": "claude",
+        "mode": "auto",
+        "textLen": 158
+       },
+       "continue": true
+      },
+      {
+       "grant": "once",
+       "knows": [
+        "continue",
+        "seen-text"
+       ],
+       "seen": {
+        "signInId": "si_9",
+        "net": "none",
+        "harness": "claude",
+        "mode": "auto",
+        "textLen": 158
+       },
+       "continue": true
       }
+     ]
+    }
+   ]
+  },
+  {
+   "json": {
+    "id": "rq_st_cont_xbin",
+    "user": "ana",
+    "agent": "xbin/wsagent",
+    "kind": "session",
+    "method": "POST",
+    "target": "/api/xbin/term/sessions",
+    "tile": "apps/eui",
+    "body": "{\"cwd\":\"apps/eui\",\"kind\":\"agent\",\"prompt\":\"This is a piece of work in this tile, handed to you by ana's workspace agent on their behalf, with xbin's own brief for it.\\n\\nGoal: merge the template's update.\\nDone when: the tile builds and its page loads.\"}",
+    "bodyShown": true,
+    "bodySize": 120,
+    "bodySha256": "aa11",
+    "summary": "Start a tile agent on the game.",
+    "state": "pending",
+    "created": "2026-11-16T10:02:00Z",
+    "expires": "2026-11-17T10:02:00Z",
+    "preview": {
+     "class": "act",
+     "session": {
+      "tile": "apps/eui",
+      "provider": "claude",
+      "providerName": "Claude Code",
+      "mode": "auto",
+      "asks": false,
+      "net": "none",
+      "api": true,
+      "model": "",
+      "prompt": "This is a piece of work in this tile, handed to you by ana's workspace agent on their behalf, with xbin's own brief for it.\n\nGoal: merge the template's update.\nDone when: the tile builds and its page loads.",
+      "signIn": "connector",
+      "signInId": "si_9",
+      "choices": {
+       "harnesses": [
+        {
+         "id": "claude",
+         "name": "Claude Code",
+         "defaultMode": "auto",
+         "modelsKnown": false,
+         "signIn": "connector",
+         "signInId": "si_9",
+         "modes": [
+          {
+           "id": "default",
+           "name": "Manual",
+           "asks": true
+          },
+          {
+           "id": "auto",
+           "name": "Auto",
+           "asks": false
+          },
+          {
+           "id": "bypassPermissions",
+           "name": "Bypass permissions",
+           "asks": false,
+           "explicit": true
+          }
+         ],
+         "models": [
+          {
+           "id": ""
+          },
+          {
+           "id": "opus",
+           "from": "preference"
+          },
+          {
+           "id": "sonnet",
+           "from": "agent"
+          }
+         ]
+        },
+        {
+         "id": "codex",
+         "name": "Codex",
+         "defaultMode": "agent",
+         "modelsKnown": true,
+         "noSignIn": true,
+         "signIn": "connector",
+         "net": "none",
+         "modes": [
+          {
+           "id": "read-only",
+           "name": "Ask for approval",
+           "asks": true
+          },
+          {
+           "id": "agent",
+           "name": "Approve for me",
+           "asks": false
+          },
+          {
+           "id": "agent-full-access",
+           "name": "Full access",
+           "asks": false,
+           "explicit": true
+          }
+         ],
+         "models": [
+          {
+           "id": ""
+          },
+          {
+           "id": "xbin/big",
+           "from": "connector"
+          }
+         ]
+        },
+        {
+         "id": "gemini",
+         "name": "Gemini CLI",
+         "defaultMode": "autoEdit",
+         "modelsKnown": false,
+         "signIn": "needed",
+         "signInId": "si_1",
+         "net": "internet",
+         "signInTrust": {
+          "tile": "apps/eui",
+          "basis": "tb_1",
+          "ownerKind": "person",
+          "owner": "bob",
+          "ownerName": "Bob B.",
+          "editors": [
+           "carol"
+          ],
+          "allowed": true
+         },
+         "modes": [
+          {
+           "id": "default",
+           "name": "Ask before acting",
+           "asks": true
+          },
+          {
+           "id": "autoEdit",
+           "name": "Auto edit",
+           "asks": false
+          },
+          {
+           "id": "yolo",
+           "name": "YOLO",
+           "asks": false,
+           "explicit": true
+          }
+         ],
+         "models": [
+          {
+           "id": ""
+          }
+         ]
+        },
+        {
+         "id": "opencode",
+         "name": "OpenCode",
+         "defaultMode": "",
+         "modelsKnown": true,
+         "noSignIn": true,
+         "modes": [
+          {
+           "id": "",
+           "name": "its own default",
+           "asks": false
+          },
+          {
+           "id": "build",
+           "name": "build",
+           "asks": false
+          },
+          {
+           "id": "plan",
+           "name": "plan",
+           "asks": false
+          }
+         ],
+         "models": [
+          {
+           "id": ""
+          },
+          {
+           "id": "xbin/small",
+           "from": "tile"
+          }
+         ]
+        }
+       ]
+      },
+      "from": {
+       "harness": "tile",
+       "model": "default",
+       "mode": "default"
+      },
+      "continue": {
+       "session": "ts-1",
+       "provider": "claude",
+       "providerName": "Claude Code",
+       "mode": "auto",
+       "asks": false,
+       "model": "opus",
+       "name": "claude: game",
+       "started": "2026-11-16T09:52:00Z",
+       "since": "2026-11-16T09:58:00Z",
+       "signIn": "saved",
+       "signInId": "si_9"
+      },
+      "briefBy": "xbin"
+     }
+    }
+   },
+   "states": [
+    {
+     "step": null,
+     "pick": {
+      "harness": "claude",
+      "model": "",
+      "mode": "auto",
+      "remember": false,
+      "cont": true,
+      "changed": [],
+      "defaulted": []
+     },
+     "view": {
+      "pickers": [],
+      "cont": {
+       "session": "ts-1",
+       "label": "Continue the Claude Code session from 09:52 with this follow-up",
+       "sub": "Start a new session instead",
+       "chips": [
+        "Claude Code",
+        "model opus",
+        "acts without asking",
+        "uses your Claude Code sign-in"
+       ],
+       "signInId": "si_9"
+      },
+      "continuing": true,
+      "remember": {
+       "shown": false,
+       "label": "Remember for this tile",
+       "note": "Your next start here preselects what you changed.",
+       "keepsMode": true
+      },
+      "asks": false,
+      "modeChip": "acts without asking",
+      "fact": "It edits files and runs commands in this tile's sandbox without asking you. You approve what your agent tells it.",
+      "label": "Send",
+      "details": "POST /api/xbin/term/sessions"
+     },
+     "heading": {
+      "before": "Continue the session in ",
+      "strong": "Eui",
+      "after": "?"
+     },
+     "body": {
+      "knows": [
+       "continue"
+      ],
+      "seen": {
+       "signInId": "si_9",
+       "net": "none",
+       "harness": "claude",
+       "mode": "auto"
+      },
+      "continue": true
      },
      "picked": {
       "provider": "claude",
@@ -3438,8 +3775,9 @@
         "net": "none",
         "harness": "claude",
         "mode": "auto",
-        "textLen": 158
-       }
+        "textLen": 206
+       },
+       "continue": true
       },
       {
        "grant": "once",
@@ -3452,8 +3790,9 @@
         "net": "none",
         "harness": "claude",
         "mode": "auto",
-        "textLen": 158
-       }
+        "textLen": 206
+       },
+       "continue": true
       }
      ]
     }
@@ -3717,7 +4056,8 @@
        "net": "none",
        "harness": "opencode",
        "mode": "build"
-      }
+      },
+      "continue": true
      },
      "picked": {
       "provider": "claude",
@@ -3760,7 +4100,8 @@
         "harness": "opencode",
         "mode": "build",
         "textLen": 16
-       }
+       },
+       "continue": true
       },
       {
        "grant": "once",
@@ -3774,7 +4115,8 @@
         "harness": "opencode",
         "mode": "build",
         "textLen": 16
-       }
+       },
+       "continue": true
       }
      ]
     },
@@ -4731,10 +5073,10 @@
       "cont": null,
       "continuing": false,
       "remember": {
-       "shown": true,
-       "label": "Remember for this tile",
-       "note": "Your next start here preselects what you changed.",
-       "keepsMode": true
+       "shown": false,
+       "label": "",
+       "note": "",
+       "keepsMode": false
       },
       "asks": true,
       "modeChip": "asks before acting",
@@ -4907,10 +5249,10 @@
       "cont": null,
       "continuing": false,
       "remember": {
-       "shown": true,
-       "label": "Remember for this tile",
-       "note": "Your next start here preselects what you changed.",
-       "keepsMode": true
+       "shown": false,
+       "label": "",
+       "note": "",
+       "keepsMode": false
       },
       "asks": false,
       "modeChip": "acts without asking",
@@ -5245,9 +5587,9 @@
       "continuing": true,
       "remember": {
        "shown": false,
-       "label": "Remember for this tile",
-       "note": "Your next start here preselects what you changed.",
-       "keepsMode": true
+       "label": "",
+       "note": "",
+       "keepsMode": false
       },
       "asks": false,
       "modeChip": "acts without asking",
@@ -5269,7 +5611,8 @@
        "net": "none",
        "harness": "claude",
        "mode": "auto"
-      }
+      },
+      "continue": true
      },
      "picked": {
       "provider": "claude",
@@ -5315,7 +5658,8 @@
         "net": "none",
         "harness": "claude",
         "mode": "auto"
-       }
+       },
+       "continue": true
       },
       {
        "knows": [
@@ -5326,7 +5670,725 @@
         "net": "none",
         "harness": "claude",
         "mode": "auto"
+       },
+       "continue": true
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "json": {
+    "id": "rq_st_failed_offer",
+    "user": "ana",
+    "agent": "xbin/wsagent",
+    "kind": "session",
+    "method": "POST",
+    "target": "/api/xbin/term/sessions",
+    "tile": "apps/eui",
+    "body": "{\"cwd\":\"apps/eui\",\"kind\":\"agent\",\"prompt\":\"This is a piece of work in this tile, handed to you by ana's workspace agent on their behalf.\\n\\nGoal: add a computer player.\\nDone when: one person can play it.\"}",
+    "bodyShown": true,
+    "bodySize": 120,
+    "bodySha256": "aa11",
+    "summary": "Start a tile agent on the game.",
+    "state": "failed",
+    "created": "2026-11-16T10:02:00Z",
+    "expires": "2026-11-17T10:02:00Z",
+    "preview": {
+     "class": "act",
+     "session": {
+      "tile": "apps/eui",
+      "provider": "claude",
+      "providerName": "Claude Code",
+      "mode": "default",
+      "asks": true,
+      "net": "none",
+      "api": true,
+      "model": "",
+      "prompt": "This is a piece of work in this tile, handed to you by ana's workspace agent on their behalf.\n\nGoal: add a computer player.\nDone when: one person can play it.",
+      "signIn": "connector",
+      "signInId": "si_9",
+      "choices": {
+       "harnesses": [
+        {
+         "id": "claude",
+         "name": "Claude Code",
+         "defaultMode": "auto",
+         "modelsKnown": false,
+         "signIn": "connector",
+         "signInId": "si_9",
+         "modes": [
+          {
+           "id": "default",
+           "name": "Manual",
+           "asks": true
+          },
+          {
+           "id": "auto",
+           "name": "Auto",
+           "asks": false
+          },
+          {
+           "id": "bypassPermissions",
+           "name": "Bypass permissions",
+           "asks": false,
+           "explicit": true
+          }
+         ],
+         "models": [
+          {
+           "id": ""
+          },
+          {
+           "id": "opus",
+           "from": "preference"
+          },
+          {
+           "id": "sonnet",
+           "from": "agent"
+          }
+         ]
+        },
+        {
+         "id": "codex",
+         "name": "Codex",
+         "defaultMode": "agent",
+         "modelsKnown": true,
+         "noSignIn": true,
+         "signIn": "connector",
+         "net": "none",
+         "modes": [
+          {
+           "id": "read-only",
+           "name": "Ask for approval",
+           "asks": true
+          },
+          {
+           "id": "agent",
+           "name": "Approve for me",
+           "asks": false
+          },
+          {
+           "id": "agent-full-access",
+           "name": "Full access",
+           "asks": false,
+           "explicit": true
+          }
+         ],
+         "models": [
+          {
+           "id": ""
+          },
+          {
+           "id": "xbin/big",
+           "from": "connector"
+          }
+         ]
+        },
+        {
+         "id": "gemini",
+         "name": "Gemini CLI",
+         "defaultMode": "autoEdit",
+         "modelsKnown": false,
+         "signIn": "needed",
+         "signInId": "si_1",
+         "net": "internet",
+         "signInTrust": {
+          "tile": "apps/eui",
+          "basis": "tb_1",
+          "ownerKind": "person",
+          "owner": "bob",
+          "ownerName": "Bob B.",
+          "editors": [
+           "carol"
+          ],
+          "allowed": true
+         },
+         "modes": [
+          {
+           "id": "default",
+           "name": "Ask before acting",
+           "asks": true
+          },
+          {
+           "id": "autoEdit",
+           "name": "Auto edit",
+           "asks": false
+          },
+          {
+           "id": "yolo",
+           "name": "YOLO",
+           "asks": false,
+           "explicit": true
+          }
+         ],
+         "models": [
+          {
+           "id": ""
+          }
+         ]
+        },
+        {
+         "id": "opencode",
+         "name": "OpenCode",
+         "defaultMode": "",
+         "modelsKnown": true,
+         "noSignIn": true,
+         "modes": [
+          {
+           "id": "",
+           "name": "its own default",
+           "asks": false
+          },
+          {
+           "id": "build",
+           "name": "build",
+           "asks": false
+          },
+          {
+           "id": "plan",
+           "name": "plan",
+           "asks": false
+          }
+         ],
+         "models": [
+          {
+           "id": ""
+          },
+          {
+           "id": "xbin/small",
+           "from": "tile"
+          }
+         ]
+        }
+       ]
+      },
+      "from": {
+       "harness": "tile",
+       "model": "default",
+       "mode": "default"
+      },
+      "continue": {
+       "session": "ts-1",
+       "provider": "claude",
+       "providerName": "Claude Code",
+       "mode": "auto",
+       "asks": false,
+       "model": "opus",
+       "name": "claude: game",
+       "started": "2026-11-16T09:52:00Z",
+       "since": "2026-11-16T09:58:00Z",
+       "signIn": "saved",
+       "signInId": "si_9"
+      }
+     }
+    },
+    "failure": {
+     "why": "the coding agent didn't start",
+     "retry": true
+    },
+    "chosen": {
+     "provider": "claude",
+     "model": "",
+     "mode": "default"
+    }
+   },
+   "states": [
+    {
+     "step": null,
+     "pick": {
+      "harness": "claude",
+      "model": "",
+      "mode": "default",
+      "remember": false,
+      "cont": false,
+      "changed": [],
+      "defaulted": []
+     },
+     "view": {
+      "pickers": [
+       {
+        "id": "harness",
+        "label": "Coding agent",
+        "value": "claude",
+        "from": "remembered for this tile",
+        "options": [
+         {
+          "value": "claude",
+          "label": "Claude Code"
+         },
+         {
+          "value": "codex",
+          "label": "Codex"
+         },
+         {
+          "value": "gemini",
+          "label": "Gemini CLI"
+         },
+         {
+          "value": "opencode",
+          "label": "OpenCode"
+         }
+        ],
+        "warn": ""
+       },
+       {
+        "id": "model",
+        "label": "Model",
+        "value": "",
+        "from": "the default",
+        "options": [
+         {
+          "value": "",
+          "label": "its default"
+         },
+         {
+          "value": "opus",
+          "label": "opus"
+         },
+         {
+          "value": "sonnet",
+          "label": "sonnet (suggested by your agent)"
+         }
+        ],
+        "note": "Claude Code's own list shows in its session once it runs: these are the models xbin knows of it."
+       },
+       {
+        "id": "mode",
+        "label": "Mode",
+        "value": "default",
+        "from": "the default",
+        "options": [
+         {
+          "value": "default",
+          "label": "Manual, asks before acting"
+         },
+         {
+          "value": "auto",
+          "label": "Auto, acts without asking"
+         },
+         {
+          "value": "bypassPermissions",
+          "label": "Bypass permissions, skips every check"
+         }
+        ],
+        "note": "",
+        "warn": ""
        }
+      ],
+      "cont": {
+       "session": "ts-1",
+       "label": "Continue the Claude Code session from 09:52 with this follow-up",
+       "sub": "Start a new session instead",
+       "chips": [
+        "Claude Code",
+        "model opus",
+        "acts without asking",
+        "uses your Claude Code sign-in"
+       ],
+       "signInId": "si_9"
+      },
+      "continuing": false,
+      "remember": {
+       "shown": false,
+       "label": "",
+       "note": "",
+       "keepsMode": false
+      },
+      "asks": true,
+      "modeChip": "asks before acting",
+      "fact": "",
+      "label": "Start",
+      "details": "POST /api/xbin/term/sessions"
+     },
+     "heading": {
+      "before": "Try again to start a tile agent in ",
+      "strong": "Eui",
+      "after": "?"
+     },
+     "body": {
+      "knows": [
+       "continue"
+      ],
+      "seen": {
+       "signInId": "si_9",
+       "net": "none"
+      },
+      "continue": false,
+      "harness": "claude",
+      "model": "",
+      "mode": "default"
+     },
+     "picked": {
+      "provider": "claude",
+      "providerName": "Claude Code",
+      "mode": "default",
+      "asks": true,
+      "model": "",
+      "net": "none",
+      "signIn": "connector",
+      "signInId": "si_9",
+      "trust": false
+     },
+     "session": {
+      "agent": "Claude Code",
+      "signin": {
+       "offer": true,
+       "id": "si_9",
+       "name": "Claude Code",
+       "without": "connector",
+       "trust": null
+      },
+      "mode": {
+       "tag": "asks before acting",
+       "tone": "",
+       "text": "It asks you before it edits a file or runs a command.",
+       "name": "default"
+      },
+      "network": "Its model only. No internet.",
+      "others": "It can call the tile APIs this tile is granted.",
+      "briefBy": "Written by your agent",
+      "comes": "Its questions and permission requests come to you, in Eui and in Needs you. Your workspace agent can't answer them.",
+      "resumed": "",
+      "runs": "Runs on the workspace's model.",
+      "trustWhose": ""
+     },
+     "allow": [
+      {
+       "knows": [
+        "continue"
+       ],
+       "seen": {
+        "signInId": "si_9",
+        "net": "none"
+       },
+       "continue": false,
+       "harness": "claude",
+       "model": "",
+       "mode": "default"
+      },
+      {
+       "knows": [
+        "continue"
+       ],
+       "seen": {
+        "signInId": "si_9",
+        "net": "none"
+       },
+       "continue": false,
+       "harness": "claude",
+       "model": "",
+       "mode": "default"
+      }
+     ]
+    },
+    {
+     "step": [
+      "cont",
+      true
+     ],
+     "pick": {
+      "harness": "claude",
+      "model": "",
+      "mode": "default",
+      "remember": false,
+      "cont": true,
+      "changed": [],
+      "defaulted": []
+     },
+     "view": {
+      "pickers": [],
+      "cont": {
+       "session": "ts-1",
+       "label": "Continue the Claude Code session from 09:52 with this follow-up",
+       "sub": "Start a new session instead",
+       "chips": [
+        "Claude Code",
+        "model opus",
+        "acts without asking",
+        "uses your Claude Code sign-in"
+       ],
+       "signInId": "si_9"
+      },
+      "continuing": true,
+      "remember": {
+       "shown": false,
+       "label": "",
+       "note": "",
+       "keepsMode": false
+      },
+      "asks": false,
+      "modeChip": "acts without asking",
+      "fact": "It edits files and runs commands in this tile's sandbox without asking you. You approve what your agent tells it.",
+      "label": "Send",
+      "details": "POST /api/xbin/term/sessions"
+     },
+     "heading": {
+      "before": "Continue the session in ",
+      "strong": "Eui",
+      "after": "?"
+     },
+     "body": {
+      "knows": [
+       "continue"
+      ],
+      "seen": {
+       "signInId": "si_9",
+       "net": "none",
+       "harness": "claude",
+       "mode": "auto"
+      },
+      "continue": true
+     },
+     "picked": {
+      "provider": "claude",
+      "providerName": "Claude Code",
+      "mode": "default",
+      "asks": true,
+      "model": "",
+      "net": "none",
+      "signIn": "connector",
+      "signInId": "si_9",
+      "trust": false
+     },
+     "session": {
+      "agent": "Claude Code",
+      "signin": {
+       "offer": true,
+       "id": "si_9",
+       "name": "Claude Code",
+       "without": "connector",
+       "trust": null
+      },
+      "mode": {
+       "tag": "asks before acting",
+       "tone": "",
+       "text": "It asks you before it edits a file or runs a command.",
+       "name": "default"
+      },
+      "network": "Its model only. No internet.",
+      "others": "It can call the tile APIs this tile is granted.",
+      "briefBy": "Written by your agent",
+      "comes": "Its questions and permission requests come to you, in Eui and in Needs you. Your workspace agent can't answer them.",
+      "resumed": "",
+      "runs": "Runs on the workspace's model.",
+      "trustWhose": ""
+     },
+     "allow": [
+      {
+       "knows": [
+        "continue"
+       ],
+       "seen": {
+        "signInId": "si_9",
+        "net": "none",
+        "harness": "claude",
+        "mode": "auto"
+       },
+       "continue": true
+      },
+      {
+       "knows": [
+        "continue"
+       ],
+       "seen": {
+        "signInId": "si_9",
+        "net": "none",
+        "harness": "claude",
+        "mode": "auto"
+       },
+       "continue": true
+      }
+     ]
+    },
+    {
+     "step": [
+      "cont",
+      false
+     ],
+     "pick": {
+      "harness": "claude",
+      "model": "",
+      "mode": "default",
+      "remember": false,
+      "cont": false,
+      "changed": [],
+      "defaulted": []
+     },
+     "view": {
+      "pickers": [
+       {
+        "id": "harness",
+        "label": "Coding agent",
+        "value": "claude",
+        "from": "remembered for this tile",
+        "options": [
+         {
+          "value": "claude",
+          "label": "Claude Code"
+         },
+         {
+          "value": "codex",
+          "label": "Codex"
+         },
+         {
+          "value": "gemini",
+          "label": "Gemini CLI"
+         },
+         {
+          "value": "opencode",
+          "label": "OpenCode"
+         }
+        ],
+        "warn": ""
+       },
+       {
+        "id": "model",
+        "label": "Model",
+        "value": "",
+        "from": "the default",
+        "options": [
+         {
+          "value": "",
+          "label": "its default"
+         },
+         {
+          "value": "opus",
+          "label": "opus"
+         },
+         {
+          "value": "sonnet",
+          "label": "sonnet (suggested by your agent)"
+         }
+        ],
+        "note": "Claude Code's own list shows in its session once it runs: these are the models xbin knows of it."
+       },
+       {
+        "id": "mode",
+        "label": "Mode",
+        "value": "default",
+        "from": "the default",
+        "options": [
+         {
+          "value": "default",
+          "label": "Manual, asks before acting"
+         },
+         {
+          "value": "auto",
+          "label": "Auto, acts without asking"
+         },
+         {
+          "value": "bypassPermissions",
+          "label": "Bypass permissions, skips every check"
+         }
+        ],
+        "note": "",
+        "warn": ""
+       }
+      ],
+      "cont": {
+       "session": "ts-1",
+       "label": "Continue the Claude Code session from 09:52 with this follow-up",
+       "sub": "Start a new session instead",
+       "chips": [
+        "Claude Code",
+        "model opus",
+        "acts without asking",
+        "uses your Claude Code sign-in"
+       ],
+       "signInId": "si_9"
+      },
+      "continuing": false,
+      "remember": {
+       "shown": false,
+       "label": "",
+       "note": "",
+       "keepsMode": false
+      },
+      "asks": true,
+      "modeChip": "asks before acting",
+      "fact": "",
+      "label": "Start",
+      "details": "POST /api/xbin/term/sessions"
+     },
+     "heading": {
+      "before": "Try again to start a tile agent in ",
+      "strong": "Eui",
+      "after": "?"
+     },
+     "body": {
+      "knows": [
+       "continue"
+      ],
+      "seen": {
+       "signInId": "si_9",
+       "net": "none"
+      },
+      "continue": false,
+      "harness": "claude",
+      "model": "",
+      "mode": "default"
+     },
+     "picked": {
+      "provider": "claude",
+      "providerName": "Claude Code",
+      "mode": "default",
+      "asks": true,
+      "model": "",
+      "net": "none",
+      "signIn": "connector",
+      "signInId": "si_9",
+      "trust": false
+     },
+     "session": {
+      "agent": "Claude Code",
+      "signin": {
+       "offer": true,
+       "id": "si_9",
+       "name": "Claude Code",
+       "without": "connector",
+       "trust": null
+      },
+      "mode": {
+       "tag": "asks before acting",
+       "tone": "",
+       "text": "It asks you before it edits a file or runs a command.",
+       "name": "default"
+      },
+      "network": "Its model only. No internet.",
+      "others": "It can call the tile APIs this tile is granted.",
+      "briefBy": "Written by your agent",
+      "comes": "Its questions and permission requests come to you, in Eui and in Needs you. Your workspace agent can't answer them.",
+      "resumed": "",
+      "runs": "Runs on the workspace's model.",
+      "trustWhose": ""
+     },
+     "allow": [
+      {
+       "knows": [
+        "continue"
+       ],
+       "seen": {
+        "signInId": "si_9",
+        "net": "none"
+       },
+       "continue": false,
+       "harness": "claude",
+       "model": "",
+       "mode": "default"
+      },
+      {
+       "knows": [
+        "continue"
+       ],
+       "seen": {
+        "signInId": "si_9",
+        "net": "none"
+       },
+       "continue": false,
+       "harness": "claude",
+       "model": "",
+       "mode": "default"
       }
      ]
     }
@@ -6970,6 +8032,7 @@
    "rq_st",
    "rq_st_suggested",
    "rq_st_cont",
+   "rq_st_cont_xbin",
    "rq_st_cont_oc",
    "rq_st_resume",
    "rq_st_old",
@@ -7668,6 +8731,26 @@
    },
    {
     "kind": "request",
+    "id": "rq_st_cont_xbin",
+    "title": "Continue the Claude Code session in eui",
+    "chips": [
+     "Claude Code",
+     "model opus",
+     "acts without asking",
+     "uses your Claude Code sign-in"
+    ],
+    "signInId": "si_9",
+    "parts": [
+     "asked 10:02",
+     "expires in 23 h 46 min"
+    ],
+    "action": "Send",
+    "review": true,
+    "inline": "continue",
+    "app": true
+   },
+   {
+    "kind": "request",
     "id": "rq_st_cont_oc",
     "title": "Continue the OpenCode session in eui",
     "chips": [
@@ -7929,6 +9012,7 @@
   "messageRow": "Message",
   "details": "Details",
   "opensWith": "It opens with: ",
+  "olderXbind": "This workspace's xbin is older than this app: what this sheet shows can't be sent as it shows it. Update xbin, or decide this one on the web.",
   "from": {
    "tile": "remembered for this tile",
    "preference": "your preference",

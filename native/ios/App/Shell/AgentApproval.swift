@@ -333,6 +333,8 @@ struct AgentDecisionBar: View {
                     if !note.isEmpty {
                         Text(verbatim: note).font(.caption).foregroundStyle(XbinColor.muted)
                             .frame(maxWidth: .infinity, alignment: .trailing).multilineTextAlignment(.trailing)
+                            // (chrome, like the trusted bar: at the largest sizes the text it is about keeps the room)
+                            .dynamicTypeSize(...DynamicTypeSize.accessibility2)
                             .accessibilityIdentifier("\(id)-note")
                     }
                     layout {
@@ -674,8 +676,10 @@ struct AgentApprovalSheet: View {
                 }
                 .accessibilityIdentifier("approval-signin")
             }
-            ApprovalRow(label: "Network") { Text(verbatim: s.network).font(.callout) }
-            ApprovalRow(label: "Other tiles") { Text(verbatim: s.others).font(.callout) }
+            if !v.continuing { // (a new start's: a continued session keeps its own, which its chips say)
+                ApprovalRow(label: "Network") { Text(verbatim: s.network).font(.callout) }
+                ApprovalRow(label: "Other tiles") { Text(verbatim: s.others).font(.callout) }
+            }
         }
         let brief = DelegationWords.clipText(s.brief, all: showAllBrief)
         VStack(alignment: .leading, spacing: 4) {
@@ -741,11 +745,13 @@ struct AgentApprovalSheet: View {
         let v = r.kind == .session ? StartWords.startView(r, pick ?? StartWords.pickOf(r)) : nil
         let label = r.isRetryable ? DelegationWords.tryAgain : v?.label ?? DelegationWords.allowLabel(r, choice: choice)
         let held = unread(r)
+        // an older xbind that couldn't hold this to what the sheet shows: declined here, never sent otherwise (D253)
+        let older = StartWords.olderRefusal(r, pick: pick, takes: workspace.agent.takes)
         return AgentDecisionBar(deny: "Deny", allow: label,
                                 allowSpoken: v != nil || r.kind == .message ? label : DelegationWords.allowSpoken(r, choice: choice),
-                                armed: arming.armed && !held, working: working,
+                                armed: arming.armed && !held && older.isEmpty, working: working,
                                 stopped: DelegationWords.stopLine(stop),
-                                note: held && r.kind != .unknown ? (clipped(r) ? StartWords.Sheet.unread : StartWords.Sheet.reachEnd) : "",
+                                note: !older.isEmpty ? older : held && r.kind != .unknown ? (clipped(r) ? StartWords.Sheet.unread : StartWords.Sheet.reachEnd) : "",
                                 onDeny: { deny(r) },
                                 onAllow: {
                                     // The wider grant is never one tap: its own sheet, Go back first.
@@ -800,7 +806,9 @@ struct AgentApprovalSheet: View {
         if r.kind == .session || r.kind == .message {
             // the pick, and the text as it is on screen now (all of it, once Show all): xbind allows only all of it
             // (D252) — a Try again only what a retry takes; the web's sheet sends the same (sheetBody, D253)
-            let body = StartWords.sheetBody(r, pick: pick, onScreen: onScreen(r).text, base: DelegationWords.approveBody(picked(r), choice: .once))
+            let takes = workspace.agent.takes
+            guard StartWords.olderRefusal(r, pick: pick, takes: takes).isEmpty else { working = false; return }
+            let body = StartWords.sheetBody(r, pick: pick, onScreen: onScreen(r).text, base: DelegationWords.approveBody(picked(r), choice: .once), takes: takes)
             Task {
                 let out = r.isRetryable ? await workspace.agent.retry(id: r.id, body: body) : await workspace.agent.approve(id: r.id, body: body)
                 working = false

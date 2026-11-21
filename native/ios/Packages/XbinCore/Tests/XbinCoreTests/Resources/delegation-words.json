@@ -9352,7 +9352,13 @@
     "openChangeSets": 1,
     "access": true,
     "agent": "xbin/wsagent",
-    "workspaceAt": "2026-11-16T09:12:00Z"
+    "workspaceAt": "2026-11-16T09:12:00Z",
+    "takes": [
+     "seen-text",
+     "seen-session",
+     "retry-continue",
+     "device-message"
+    ]
    },
    "llm": {
     "configured": true
@@ -9400,7 +9406,13 @@
     "openChangeSets": 1,
     "access": false,
     "agent": "",
-    "workspaceAt": "2026-11-16T09:12:00Z"
+    "workspaceAt": "2026-11-16T09:12:00Z",
+    "takes": [
+     "seen-text",
+     "seen-session",
+     "retry-continue",
+     "device-message"
+    ]
    },
    "llm": {
     "configured": true
@@ -9430,7 +9442,13 @@
     "standingApprovals": 1,
     "openChangeSets": 1,
     "access": true,
-    "agent": "xbin/wsagent"
+    "agent": "xbin/wsagent",
+    "takes": [
+     "seen-text",
+     "seen-session",
+     "retry-continue",
+     "device-message"
+    ]
    },
    "llm": {
     "configured": true
@@ -9461,6 +9479,12 @@
     "openChangeSets": 1,
     "access": true,
     "agent": "xbin/wsagent",
+    "takes": [
+     "seen-text",
+     "seen-session",
+     "retry-continue",
+     "device-message"
+    ],
     "who": {
      "everyone": false,
      "entries": 0,
@@ -9495,7 +9519,13 @@
     "standingApprovals": 1,
     "openChangeSets": 1,
     "access": true,
-    "agent": "xbin/wsagent"
+    "agent": "xbin/wsagent",
+    "takes": [
+     "seen-text",
+     "seen-session",
+     "retry-continue",
+     "device-message"
+    ]
    },
    "llm": {
     "configured": true
@@ -9526,7 +9556,13 @@
     "openChangeSets": 1,
     "access": true,
     "agent": "xbin/wsagent",
-    "workspaceAt": "2026-11-16T09:12:00Z"
+    "workspaceAt": "2026-11-16T09:12:00Z",
+    "takes": [
+     "seen-text",
+     "seen-session",
+     "retry-continue",
+     "device-message"
+    ]
    },
    "llm": {
     "configured": true
@@ -9566,6 +9602,12 @@
     "access": true,
     "agent": "xbin/wsagent",
     "workspaceAt": "2026-11-16T09:12:00Z",
+    "takes": [
+     "seen-text",
+     "seen-session",
+     "retry-continue",
+     "device-message"
+    ],
     "who": {
      "everyone": false,
      "entries": 0,
@@ -9602,6 +9644,12 @@
     "access": true,
     "agent": "xbin/wsagent",
     "workspaceAt": "2026-11-16T09:12:00Z",
+    "takes": [
+     "seen-text",
+     "seen-session",
+     "retry-continue",
+     "device-message"
+    ],
     "who": {
      "everyone": false,
      "entries": 3,
@@ -9638,7 +9686,13 @@
     "openChangeSets": 1,
     "access": true,
     "agent": "xbin/wsagent",
-    "workspaceAt": "2026-11-16T09:12:00Z"
+    "workspaceAt": "2026-11-16T09:12:00Z",
+    "takes": [
+     "seen-text",
+     "seen-session",
+     "retry-continue",
+     "device-message"
+    ]
    },
    "llm": {
     "configured": false
@@ -9678,6 +9732,12 @@
     "access": true,
     "agent": "xbin/wsagent",
     "workspaceAt": "2026-11-16T09:12:00Z",
+    "takes": [
+     "seen-text",
+     "seen-session",
+     "retry-continue",
+     "device-message"
+    ],
     "pausedAt": "2026-11-16T10:31:00Z"
    },
    "llm": {
@@ -9718,6 +9778,12 @@
     "access": true,
     "agent": "xbin/wsagent",
     "workspaceAt": "2026-11-16T09:12:00Z",
+    "takes": [
+     "seen-text",
+     "seen-session",
+     "retry-continue",
+     "device-message"
+    ],
     "held": "locked"
    },
    "llm": {
@@ -9758,6 +9824,12 @@
     "access": true,
     "agent": "xbin/wsagent",
     "workspaceAt": "2026-11-16T09:12:00Z",
+    "takes": [
+     "seen-text",
+     "seen-session",
+     "retry-continue",
+     "device-message"
+    ],
     "held": "older"
    },
    "llm": {
@@ -9798,6 +9870,12 @@
     "access": true,
     "agent": "xbin/wsagent",
     "workspaceAt": "2026-11-16T09:12:00Z",
+    "takes": [
+     "seen-text",
+     "seen-session",
+     "retry-continue",
+     "device-message"
+    ],
     "held": "unavailable",
     "heldWhy": "tiles run without sandboxes here."
    },
@@ -9838,7 +9916,13 @@
     "openChangeSets": 1,
     "access": true,
     "agent": "",
-    "workspaceAt": "2026-11-16T09:12:00Z"
+    "workspaceAt": "2026-11-16T09:12:00Z",
+    "takes": [
+     "seen-text",
+     "seen-session",
+     "retry-continue",
+     "device-message"
+    ]
    },
    "llm": null,
    "admin": false,
@@ -9876,6 +9960,12 @@
     "access": false,
     "agent": "",
     "workspaceAt": "2026-11-16T09:12:00Z",
+    "takes": [
+     "seen-text",
+     "seen-session",
+     "retry-continue",
+     "device-message"
+    ],
     "who": {
      "everyone": false,
      "entries": 2,
@@ -9912,6 +10002,12 @@
     "access": true,
     "agent": "xbin/wsagent",
     "workspaceAt": "2026-11-16T09:12:00Z",
+    "takes": [
+     "seen-text",
+     "seen-session",
+     "retry-continue",
+     "device-message"
+    ],
     "who": {
      "everyone": true,
      "entries": 0,
@@ -9948,6 +10044,12 @@
     "access": false,
     "agent": "",
     "workspaceAt": "2026-11-16T09:12:00Z",
+    "takes": [
+     "seen-text",
+     "seen-session",
+     "retry-continue",
+     "device-message"
+    ],
     "held": "locked",
     "who": {
      "everyone": false,
