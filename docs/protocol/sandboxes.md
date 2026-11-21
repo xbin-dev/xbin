@@ -669,7 +669,9 @@ error.
 binary frames both ways (the ring's tail replays first, at most 256 KiB),
 `{"op":"session","id":…,"sandbox":…,"echoAck":true}` first, acks and
 pongs, and `{"op":"exit","code":N}` at the end (`code` null and a `signal`
-when a signal ended it); the client sends `resize` and `ping`. `sessionId`
+when a signal ended it); the client sends `resize` and `ping`. A resize
+reaches the terminal before the keys sent after it — on the socket, and
+from `…/resize` to the `…/stdin` that follows it — in VM sandboxes too. `sessionId`
 and `sandboxId` (`[A-Za-z0-9._-]{1,64}`) replace the session frame's `id`
 and `sandbox`, so a manager relaying the bytes shows its consumer its own
 ids. `GET …/tty` starts a tty exec — the login shell (`<shell> -l`), or

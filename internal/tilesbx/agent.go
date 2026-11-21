@@ -14,6 +14,7 @@ package tilesbx
 // incident: the run is ended (lost).
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net"
@@ -39,7 +40,9 @@ type agentClient struct {
 	fac    *sandbox.Factory
 	ctl    *proto.Conn
 	sendMu sync.Mutex // one control line at a time
-	logf   func(string, ...any)
+	// sendWait bounds a control line's send (0: ctlSendWait); set before use
+	sendWait time.Duration
+	logf     func(string, ...any)
 
 	mu       sync.Mutex
 	next     int // the next session id
@@ -126,7 +129,7 @@ func (a *agentClient) event(m proto.Msg) {
 			a.syncs = a.syncs[1:]
 		}
 		a.mu.Unlock()
-	case "started", "exited", "error":
+	case "started", "exited", "error", "resized":
 		if m.Session == 0 {
 			if m.Op == "error" {
 				a.logf("the agent: %s", m.Error)
@@ -169,9 +172,21 @@ func (a *agentClient) send(m proto.Msg) error {
 	return nil
 }
 
-// ctlSendWait bounds a control line's send (an exec, a signal, a resize);
-// a variable for the tests.
-var ctlSendWait = 10 * time.Second
+// ctlSendWait bounds a control line's send (an exec, a signal, a resize),
+// unless the client sets its own (sendWait). A constant: a test that wants
+// a shorter bound sets it on its own client, never for the package — an
+// exec's timeout sends its KILL termGrace after the TERM, past the end of
+// the test that started it, and would read a package variable while the
+// next test writes it.
+const ctlSendWait = 10 * time.Second
+
+// ctlWait is this client's bound on a control line's send.
+func (a *agentClient) ctlWait() time.Duration {
+	if a.sendWait > 0 {
+		return a.sendWait
+	}
+	return ctlSendWait
+}
 
 // sendWithin is send, bounded by d: the agent runs a sync inline in its
 // control loop, so over a wedged root it stops reading, and a line past the
@@ -282,7 +297,7 @@ func (a *agentClient) Exec(ex proto.Exec) (*agentSession, map[string]net.Conn, e
 	}
 	ex.Session = a.next
 	a.next++
-	s := &agentSession{id: ex.Session, started: make(chan struct{}), done: make(chan struct{})}
+	s := &agentSession{id: ex.Session, started: make(chan struct{}), done: make(chan struct{}), logf: a.logf}
 	a.sessions[s.id] = s
 	a.mu.Unlock()
 	streams := map[string]net.Conn{}
@@ -300,7 +315,7 @@ func (a *agentClient) Exec(ex proto.Exec) (*agentSession, map[string]net.Conn, e
 		}
 		streams[name] = c
 	}
-	if err := a.sendWithin(proto.Msg{Op: "exec", Exec: &ex}, ctlSendWait); err != nil {
+	if err := a.sendWithin(proto.Msg{Op: "exec", Exec: &ex}, a.ctlWait()); err != nil {
 		return fail(err)
 	}
 	return s, streams, nil
@@ -315,12 +330,21 @@ func (a *agentClient) abandon(s *agentSession, why string) {
 // Signal signals a session (group: its whole process group). Bounded, as
 // every control line but a sync is (sendWithin).
 func (a *agentClient) Signal(session, sig int, group bool) error {
-	return a.sendWithin(proto.Msg{Op: "signal", Session: session, Signal: sig, Group: group}, ctlSendWait)
+	return a.sendWithin(proto.Msg{Op: "signal", Session: session, Signal: sig, Group: group}, a.ctlWait())
 }
 
-// Resize resizes a tty session's terminal (bounded).
-func (a *agentClient) Resize(session int, rows, cols uint16) error {
-	return a.sendWithin(proto.Msg{Op: "resize", Session: session, Rows: rows, Cols: cols}, ctlSendWait)
+// Resize resizes a tty session's terminal (bounded). The resize goes on
+// the control connection and the keys on the session's stream, which the
+// agent reads apart: where it answers resizes (ResizeAcks), this one is
+// numbered and the session's input waits for its answer (AwaitResizes), so
+// the keys sent after it see the new size.
+func (a *agentClient) Resize(s *agentSession, rows, cols uint16) error {
+	seq := s.beginResize()
+	err := a.sendWithin(proto.Msg{Op: "resize", Session: s.id, Rows: rows, Cols: cols, Seq: seq}, a.ctlWait())
+	if err != nil && seq > 0 {
+		s.endResize(seq) // it may never have gone: nothing waits for its answer
+	}
+	return err
 }
 
 // File opens one file operation's connection (proto/file.go's framing
@@ -351,6 +375,42 @@ type agentSession struct {
 	pid  int
 	exit SessionExit
 	fin  bool
+
+	// the resizes the agent hasn't answered yet (proto.Resizes; on once
+	// its "started" said ResizeAcks)
+	resizes proto.Resizes
+	logf    func(string, ...any) // the client's (nil: none)
+}
+
+// beginResize numbers a resize the agent will answer (0: it won't — an
+// agent from before ResizeAcks, or a session that ended).
+func (s *agentSession) beginResize() uint64 {
+	s.mu.Lock()
+	fin := s.fin
+	s.mu.Unlock()
+	if fin {
+		return 0
+	}
+	return s.resizes.Begin()
+}
+
+// endResize: resize seq was answered, or won't be.
+func (s *agentSession) endResize(seq uint64) { s.resizes.End(seq) }
+
+// AwaitResizes waits until every resize sent before the call is answered,
+// so input written next reaches the terminal after them (proto.Resizes):
+// at once with none outstanding. The wait ends with the session — its
+// exit, a stop, the control connection lost (agentClient.Close finishes
+// every session) — and the input goes on to fail or not as the stream
+// says; ctx ending (the writer went away) answers ctx's error. Past d the
+// agent isn't answering its control connection: those resizes are given up
+// (logged) and the input goes on.
+func (s *agentSession) AwaitResizes(ctx context.Context, d time.Duration) error {
+	expired, err := s.resizes.Await(ctx, s.done, d)
+	if expired && s.logf != nil {
+		s.logf("session %d: the agent didn't answer a resize within %s; its input goes on", s.id, d)
+	}
+	return err
 }
 
 func (s *agentSession) event(a *agentClient, m proto.Msg) {
@@ -359,9 +419,16 @@ func (s *agentSession) event(a *agentClient, m proto.Msg) {
 		s.mu.Lock()
 		if !s.fin && s.pid == 0 {
 			s.pid = max(m.Pid, 1)
+			if m.ResizeAcks {
+				s.resizes.Enable()
+			}
 			close(s.started)
 		}
 		s.mu.Unlock()
+	case "resized":
+		if m.Seq > 0 {
+			s.endResize(m.Seq)
+		}
 	case "exited":
 		s.finish(a, SessionExit{Code: m.Code, Signal: max(m.Signal, 0)})
 	case "error":

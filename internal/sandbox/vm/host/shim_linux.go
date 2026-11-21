@@ -65,6 +65,7 @@ type shim struct {
 	vsockd     *exec.Cmd
 	vsockdDone chan struct{}
 	ctl        *proto.Conn
+	ctlMu      sync.Mutex  // one line at a time to ctl from session 1's senders (sendCtl)
 	in         chan ctlMsg // control messages, read by readCtl
 	dumps      chan string // the agent's answers to "dump" (dump_linux.go)
 	tty        bool
@@ -158,6 +159,14 @@ func (s *shim) run() int {
 	return s.session()
 }
 
+// sendCtl sends one control line: session 1's senders (its exec, the
+// signal handler, the terminal's input) run on goroutines of their own.
+func (s *shim) sendCtl(m proto.Msg) error {
+	s.ctlMu.Lock()
+	defer s.ctlMu.Unlock()
+	return s.ctl.Send(m)
+}
+
 // session runs session 1 and returns its exit code.
 func (s *shim) session() int {
 	ex := s.hs.Guest
@@ -169,6 +178,26 @@ func (s *shim) session() int {
 			ex.Rows, ex.Cols = ws.Row, ws.Col
 		}
 	}
+	// a terminal's resizes reach the guest's PTY before the keys that
+	// follow them (ptyin_linux.go)
+	ended := make(chan struct{})
+	defer close(ended)
+	resizes := &proto.Resizes{}
+	in := &ptyInput{
+		size: func() (unix.Winsize, bool) {
+			ws, err := unix.IoctlGetWinsize(0, unix.TIOCGWINSZ)
+			if err != nil {
+				return unix.Winsize{}, false
+			}
+			return *ws, true
+		},
+		send: s.sendCtl, resizes: resizes, end: ended, wait: s.slow(ptyInputWait), last: unix.Winsize{Row: ex.Rows, Col: ex.Cols},
+		logf: func(format string, args ...any) {
+			if s.hs.Debug {
+				fmt.Fprintf(os.Stderr, "[vm] "+format+"\r\n", args...)
+			}
+		},
+	}
 	var streams sync.WaitGroup
 	if s.tty {
 		c, err := s.dialAgent(proto.Hello{Kind: "stream", Session: 1, Stream: "pty"}, s.slow(5*time.Second))
@@ -178,7 +207,7 @@ func (s *shim) session() int {
 		if st, err := term.MakeRaw(0); err == nil {
 			s.raw = st
 		}
-		go func() { _, _ = io.Copy(c, os.Stdin) }()
+		go in.copy(c, os.Stdin)
 		streams.Add(1)
 		go func() { defer streams.Done(); _, _ = io.Copy(os.Stdout, c) }()
 	} else {
@@ -218,23 +247,23 @@ func (s *shim) session() int {
 		for sig := range sigs {
 			switch sig {
 			case unix.SIGWINCH:
-				if ws, err := unix.IoctlGetWinsize(0, unix.TIOCGWINSZ); err == nil {
-					_ = s.ctl.Send(proto.Msg{Op: "resize", Session: 1, Rows: ws.Row, Cols: ws.Col})
+				if s.tty {
+					in.sync() // the input sends it too, before the keys after it
 				}
 			case unix.SIGHUP:
-				_ = s.ctl.Send(proto.Msg{Op: "sync", Session: 1})
+				_ = s.sendCtl(proto.Msg{Op: "sync", Session: 1})
 				select {
 				case <-hup:
 				default:
 					close(hup)
 				}
 			default:
-				_ = s.ctl.Send(proto.Msg{Op: "signal", Session: 1, Signal: int(sig.(unix.Signal))})
+				_ = s.sendCtl(proto.Msg{Op: "signal", Session: 1, Signal: int(sig.(unix.Signal))})
 			}
 		}
 	}()
 
-	if err := s.ctl.Send(proto.Msg{Op: "exec", Exec: &ex}); err != nil {
+	if err := s.sendCtl(proto.Msg{Op: "exec", Exec: &ex}); err != nil {
 		return fail(s, "exec: %v", err)
 	}
 	var deadline <-chan time.Time
@@ -253,7 +282,12 @@ func (s *shim) session() int {
 			return fail(s, "guest: %v", err)
 		}
 		switch m.Op {
+		case "resized":
+			resizes.End(m.Seq)
 		case "started":
+			if m.ResizeAcks {
+				resizes.Enable()
+			}
 			if s.hs.Listen != "" {
 				s.setPhase("session 1 started; its socket isn't listening yet")
 			} else {

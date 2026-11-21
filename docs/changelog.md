@@ -72,6 +72,14 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   session carries, from your own list. A plan's binding that waits for
   its tile ends, nothing bound, when the tile comes up with a warning the
   line didn't carry — whichever way the build goes.
+- tile sandboxes: **a terminal's resize reaches it before the keys sent
+  after it** — on the TTY WebSocket and from `POST …/resize` to the `…/stdin`
+  after it. In VM sandboxes (and, rarely, namespace ones) the keys could
+  overtake the resize, so a command run by them still saw the old size;
+  the sandbox-manager contract's `tty/command` check caught it.
+- terminals: **in a VM terminal (`?vm=1`), a window resize reaches the
+  guest before the keys typed after it** — a command could read them and
+  still see the old size.
 
 ## 2026-11-20
 

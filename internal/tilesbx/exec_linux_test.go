@@ -18,6 +18,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -557,17 +558,14 @@ func (fe *fakeEnv) server(p auth.Principal) *httptest.Server {
 // A control line the agent never reads is bounded: a signal or an exec
 // answers unavailable instead of hanging its request.
 func TestControlSendsBounded(t *testing.T) {
-	old := ctlSendWait
-	ctlSendWait = 200 * time.Millisecond
-	defer func() { ctlSendWait = old }()
 	ours, theirs := net.Pipe() // unbuffered: nothing gets through while nobody reads
 	defer theirs.Close()
-	a := &agentClient{ctl: proto.NewConn(ours, nil), sessions: map[int]*agentSession{}, next: firstSession,
+	a := &agentClient{ctl: proto.NewConn(ours, nil), sendWait: 200 * time.Millisecond, sessions: map[int]*agentSession{}, next: firstSession,
 		ready: make(chan struct{}), gone: make(chan struct{}), logf: func(string, ...any) {}}
 	defer a.Close()
 	for name, send := range map[string]func() error{
 		"signal": func() error { return a.Signal(2, 9, true) },
-		"resize": func() error { return a.Resize(2, 24, 80) },
+		"resize": func() error { return a.Resize(&agentSession{id: 2}, 24, 80) },
 	} {
 		done := make(chan error, 1)
 		go func() { done <- send() }()
@@ -581,6 +579,82 @@ func TestControlSendsBounded(t *testing.T) {
 			t.Fatalf("%s blocked past its bound", name)
 		}
 	}
+}
+
+// A session's input waits for the resizes sent before it only where the
+// agent answers them (its "started" said ResizeAcks): an older agent's
+// keys never wait. An answer ends the wait, a resize whose send failed is
+// not waited for; the session's end, and the writer's ctx, end it too; one
+// never answered is given up after the bound, logged.
+func TestAwaitResizes(t *testing.T) {
+	ctx := context.Background()
+	quick := func(s *agentSession, what string) {
+		t.Helper()
+		done := make(chan error, 1)
+		go func() { done <- s.AwaitResizes(ctx, time.Hour) }()
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatalf("%s: %v", what, err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatalf("%s: the input waited", what)
+		}
+	}
+	var logged atomic.Int32
+	newSess := func(acks bool) *agentSession {
+		s := &agentSession{id: 2, started: make(chan struct{}), done: make(chan struct{}),
+			logf: func(string, ...any) { logged.Add(1) }}
+		s.event(nil, proto.Msg{Op: "started", Session: 2, Pid: 9, ResizeAcks: acks})
+		return s
+	}
+	old := newSess(false)
+	if seq := old.beginResize(); seq != 0 {
+		t.Fatalf("an older agent's resize numbered %d", seq)
+	}
+	quick(old, "an older agent")
+
+	s := newSess(true)
+	quick(s, "no resize")
+	one, two := s.beginResize(), s.beginResize()
+	waited := make(chan struct{})
+	go func() { _ = s.AwaitResizes(ctx, time.Hour); close(waited) }()
+	s.event(nil, proto.Msg{Op: "resized", Session: 2, Seq: two})
+	select {
+	case <-waited:
+		t.Fatal("the input went on with resize 1 unanswered")
+	case <-time.After(50 * time.Millisecond):
+	}
+	s.endResize(one) // its send failed
+	select {
+	case <-waited:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the input still waits with every resize answered or failed")
+	}
+
+	s.beginResize() // never answered: the writer goes away
+	cctx, cancel := context.WithCancel(ctx)
+	gone := make(chan error, 1)
+	go func() { gone <- s.AwaitResizes(cctx, time.Hour) }()
+	cancel()
+	select {
+	case err := <-gone:
+		if err != context.Canceled {
+			t.Fatalf("a writer gone: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the input still waits after its writer went away")
+	}
+	start := time.Now() // … nor answered within the bound
+	if err := s.AwaitResizes(ctx, 100*time.Millisecond); err != nil || time.Since(start) < 100*time.Millisecond || logged.Load() != 1 {
+		t.Fatalf("the bound: %v after %s, %d logged", err, time.Since(start), logged.Load())
+	}
+	quick(s, "a resize given up")
+
+	ended := newSess(true) // the session ends under a waiting input
+	ended.beginResize()
+	go ended.finish(&agentClient{sessions: map[int]*agentSession{}}, SessionExit{Killed: true, Code: -1})
+	quick(ended, "the session ended")
 }
 
 func asError(err error, e **Error) bool {

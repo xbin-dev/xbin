@@ -13,6 +13,7 @@ package tilesbx
 // with is command.go's; the table of a sandbox's execs is exectable.go's.
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -179,20 +180,31 @@ func (e *execRec) signalGroup(sig syscall.Signal, group bool) error {
 }
 
 // writeIn writes p to its input: stdin, or a tty's terminal. A command that
-// doesn't read it for inWait answers unavailable.
-func (e *execRec) writeIn(p []byte) error {
-	_, err := e.writeInN(p, inWait)
+// doesn't read it for inWait answers unavailable; ctx ending first (the
+// caller went away) drops p.
+func (e *execRec) writeIn(ctx context.Context, p []byte) error {
+	_, err := e.writeInN(ctx, p, inWait)
 	return err
 }
 
 // writeInN is writeIn waiting at most wait for the command to read, and
 // how many bytes of p it took: a stdio socket (stdio.go) tries again with
 // the rest, its own flow control holding the client meanwhile.
-func (e *execRec) writeInN(p []byte, wait time.Duration) (int, error) {
+func (e *execRec) writeInN(ctx context.Context, p []byte, wait time.Duration) (int, error) {
 	e.inMu.Lock()
 	defer e.inMu.Unlock()
 	if e.inClosed {
 		return 0, refuse(RefInvalid, "exec %s's stdin was closed (eof)", e.id)
+	}
+	if e.sess != nil { // a tty's resizes reach its terminal before the keys that follow them
+		if err := e.sess.AwaitResizes(ctx, wait); err != nil {
+			return 0, err
+		}
+		select {
+		case <-e.sess.Done(): // it ended while the input waited: nothing reads it now
+			return 0, refuse(RefState, "exec %s has ended", e.id)
+		default:
+		}
 	}
 	done := 0
 	for len(p) > 0 {
@@ -232,7 +244,7 @@ func (e *execRec) resize(rows, cols uint16) error {
 	if c == nil {
 		return refuse(RefState, "the sandbox stopped")
 	}
-	return c.Resize(e.sess.ID(), rows, cols)
+	return c.Resize(e.sess, rows, cols)
 }
 
 // startExec starts a background exec: 201's exec, or — repeat — the one a
@@ -521,15 +533,17 @@ func (m *Manager) watchExec(t *execTable, e *execRec, release func()) {
 	if e.in != nil {
 		e.in.Close()
 	}
-	e.finish(m.now().UnixMilli(), x)
-	t.release()
+	e.finish(m.now().UnixMilli(), x, t.release)
 	release() // its end is activity (hold)
 }
 
 // finish records how it ended (§3.6): killed with its signal when a signal
 // ended it — KILL when its sandbox stopped under it — and killed too when
-// its timeout or a DELETE did; exited with its code otherwise.
-func (e *execRec) finish(now int64, x SessionExit) {
+// its timeout or a DELETE did; exited with its code otherwise. release
+// gives back its execsRunning before done closes: a stop answers once its
+// execs' done are closed (awaitRun), and its answer — and every read after
+// it — counts this one ended.
+func (e *execRec) finish(now int64, x SessionExit, release func()) {
 	e.mu.Lock()
 	for _, t := range e.timers {
 		t.Stop()
@@ -560,6 +574,7 @@ func (e *execRec) finish(now int64, x SessionExit) {
 	if hub != nil {
 		hub.End(e.ttyExit())
 	}
+	release()
 	close(e.done)
 }
 

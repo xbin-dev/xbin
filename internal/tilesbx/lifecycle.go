@@ -545,7 +545,11 @@ func (m *Manager) launch(k Key, d *Def, b *box, lim Limits, ops *modeOps) (err e
 		a.Close()
 		return fail("its agent", errEnded)
 	}
-	if err := a.WaitReady(ops.readyWait(r), r.exited); err != nil {
+	readyWait := ops.readyWait
+	if m.readyWait != nil {
+		readyWait = m.readyWait
+	}
+	if err := a.WaitReady(readyWait(r), r.exited); err != nil {
 		return fail("its agent", err)
 	}
 	// 8. running — unless tile sandboxes were switched off since the start's

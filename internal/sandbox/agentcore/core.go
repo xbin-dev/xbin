@@ -83,6 +83,13 @@ type Core struct {
 	// that outlived their leader — a timeout's KILL after its grace
 	// (plans/tile-sandbox-runtime.md §3.6: TERM to the group, then KILL).
 	ended map[int]endedGroup
+	// afterlife is groupAfterlife; idMaps and ownOOMScore are where
+	// credential and takeOOMScore read (procattr_linux.go). A test points
+	// its own core elsewhere, never the package: a session of an earlier
+	// test's core may still be ending or starting.
+	afterlife   time.Duration // read under mu
+	idMaps      string
+	ownOOMScore string
 
 	sendMu sync.Mutex // one event line at a time
 	wmu    sync.Mutex // file writes: a precondition and its rename are one step
@@ -112,6 +119,10 @@ func New(o Options) *Core {
 		sessions:   map[int]*session{},
 		retired:    map[int]bool{},
 		ended:      map[int]endedGroup{},
+		afterlife:  groupAfterlife,
+		idMaps:     "/proc/self",
+		// the agent's own oom_score_adj
+		ownOOMScore: "/proc/self/oom_score_adj",
 	}
 }
 
@@ -209,6 +220,9 @@ func (c *Core) command(m proto.Msg) {
 	case "resize":
 		if s := c.session(m.Session); s != nil {
 			s.resize(m.Rows, m.Cols)
+		}
+		if m.Seq > 0 { // the PTY has the size (or the session is gone): the host may send the keys that follow it
+			c.send(proto.Msg{Op: "resized", Session: m.Session, Seq: m.Seq})
 		}
 	case "signal":
 		if s := c.session(m.Session); s != nil {
@@ -309,7 +323,7 @@ func (c *Core) retireLocked(id int, s *session) {
 // groupAfterlife is how long an ended session's process group can still be
 // signalled: longer than the TERM → KILL grace its peer keeps (5 s), and
 // short, so the group's number can't have come round to another group.
-var groupAfterlife = 15 * time.Second
+const groupAfterlife = 15 * time.Second
 
 // endedGroup is an ended session's process group (its pid: setsid) and
 // until when a group signal still reaches it.
@@ -330,7 +344,7 @@ func (c *Core) endedLocked(id, pid int) {
 			delete(c.ended, k)
 		}
 	}
-	c.ended[id] = endedGroup{pgid: pid, until: now.Add(groupAfterlife)}
+	c.ended[id] = endedGroup{pgid: pid, until: now.Add(c.afterlife)}
 }
 
 // signalEnded sends sig to the process group of session id, which ended

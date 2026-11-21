@@ -206,6 +206,142 @@ func TestTTY(t *testing.T) {
 	}
 }
 
+// A resize reaches the terminal before the keys that follow it (the
+// sandbox-manager contract's tty/command), by the socket and by the routes,
+// though the two travel apart to the agent — the resize on its control
+// connection, the keys down the session's pty stream — and here, as through
+// a VM's shim, the resize's way is the slower one.
+func TestTTYResizeBeforeKeys(t *testing.T) {
+	fe := newFakeEnv(t)
+	fe.l.slowResize = 300 * time.Millisecond
+	fe.create(ns("sb-1"))
+	fe.want(fe.do(mgr, "POST", "/sandboxes/sb-1/start", nil), http.StatusOK, "")
+	script := `stty size; echo ready; read a; stty size; echo "got:$a"; read b; stty size; echo "got:$b"`
+	q := url.Values{"cmd": {script}, "rows": {"10"}, "cols": {"20"}}
+	tc, _ := dialTTY(t, fe.server(mgr), "/sandboxes/sb-1/tty?"+q.Encode())
+	tc.until("ready")
+	if err := tc.c.WriteMessage(websocket.TextMessage, []byte(`{"op":"resize","cols":100,"rows":40}`)); err != nil {
+		t.Fatal(err)
+	}
+	tc.send("hi\r")
+	tc.until("got:hi")
+	if out := tc.out.String(); !strings.Contains(out[strings.Index(out, "ready"):], "40 100") {
+		t.Fatalf("the keys overtook the socket's resize: %q", out)
+	}
+	id := fe.execList("sb-1")[0].ID
+	fe.want(fe.do(mgr, "POST", "/sandboxes/sb-1/execs/"+id+"/resize", `{"rows":50,"cols":120}`), http.StatusNoContent, "")
+	fe.want(fe.do(mgr, "POST", "/sandboxes/sb-1/execs/"+id+"/stdin", "yo\r"), http.StatusNoContent, "")
+	tc.until("got:yo")
+	if out := tc.out.String(); !strings.Contains(out[strings.Index(out, "got:hi"):], "50 120") {
+		t.Fatalf("the keys overtook the route's resize: %q", out)
+	}
+	tc.until("")
+}
+
+// Input held for a resize's answer that never comes holds nothing else: a
+// stop ends the wait at once (not after inWait), the exec ends killed and
+// uncounted, its terminal says exit, and the input lock is free again.
+func TestTTYResizeUnansweredStop(t *testing.T) {
+	fe := newFakeEnv(t)
+	fe.l.dropResized = true
+	fe.create(ns("sb-1"))
+	fe.want(fe.do(mgr, "POST", "/sandboxes/sb-1/start", nil), http.StatusOK, "")
+	q := url.Values{"cmd": {`echo ready; read a; echo "got:$a"; sleep 100`}, "rows": {"10"}, "cols": {"20"}}
+	tc, _ := dialTTY(t, fe.server(mgr), "/sandboxes/sb-1/tty?"+q.Encode())
+	tc.until("ready")
+	x := fe.execList("sb-1")[0]
+	e := fe.box("sb-1").execs.get(x.ID)
+	if err := tc.c.WriteMessage(websocket.TextMessage, []byte(`{"op":"resize","cols":100,"rows":40}`)); err != nil {
+		t.Fatal(err)
+	}
+	tc.send("hi\r")
+	held := func() bool { // the input's writer holds inMu while it waits
+		if e.inMu.TryLock() {
+			e.inMu.Unlock()
+			return false
+		}
+		return true
+	}
+	for deadline := time.Now().Add(10 * time.Second); !held(); time.Sleep(5 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the keys were never held for the resize's answer")
+		}
+	}
+	start := time.Now()
+	fe.want(fe.do(mgr, "POST", "/sandboxes/sb-1/stop", nil), http.StatusOK, "")
+	if d := time.Since(start); d > inWait/2 {
+		t.Fatalf("the stop took %s: it waited out the held input", d)
+	}
+	if x := fe.execGet("sb-1", x.ID); x.State != ExecKilled || x.Signal != "KILL" {
+		t.Fatalf("after the stop: %+v", x)
+	}
+	if n := fe.get("sb-1").ExecsRunning; n != 0 {
+		t.Fatalf("execsRunning after the stop: %d", n)
+	}
+	tc.until("")
+	for deadline := time.Now().Add(10 * time.Second); held(); time.Sleep(5 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the input's writer still waits after the stop")
+		}
+	}
+	if strings.Contains(tc.out.String(), "got:hi") {
+		t.Fatalf("the keys reached a terminal whose resize was never answered: %q", tc.out.String())
+	}
+}
+
+// Input held for a resize's answer belongs to its socket: while it waits
+// the socket is still read (a ping is answered), and when the client goes
+// the wait ends with it — the next client's input isn't queued behind a
+// gone one's. The keys of the gone client are dropped, not written later.
+func TestTTYHeldInputClientGone(t *testing.T) {
+	fe := newFakeEnv(t)
+	fe.l.dropResized = true
+	fe.create(ns("sb-1"))
+	fe.want(fe.do(mgr, "POST", "/sandboxes/sb-1/start", nil), http.StatusOK, "")
+	srv := fe.server(mgr)
+	q := url.Values{"cmd": {`echo ready; read a; echo "got:$a"; sleep 100`}, "rows": {"10"}, "cols": {"20"}}
+	a, _ := dialTTY(t, srv, "/sandboxes/sb-1/tty?"+q.Encode())
+	a.until("ready")
+	x := fe.execList("sb-1")[0]
+	e := fe.box("sb-1").execs.get(x.ID)
+	held := func() bool {
+		if e.inMu.TryLock() {
+			e.inMu.Unlock()
+			return false
+		}
+		return true
+	}
+	if err := a.c.WriteMessage(websocket.TextMessage, []byte(`{"op":"resize","cols":100,"rows":40}`)); err != nil {
+		t.Fatal(err)
+	}
+	a.send("hi\r")
+	for deadline := time.Now().Add(10 * time.Second); !held(); time.Sleep(5 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the keys were never held for the resize's answer")
+		}
+	}
+	if err := a.c.WriteMessage(websocket.TextMessage, []byte(`{"op":"ping","t":"p1"}`)); err != nil {
+		t.Fatal(err)
+	}
+	for a.hasCtl("pong") == nil {
+		a.next(5 * time.Second) // fails if the socket isn't read while its input waits
+	}
+	a.c.Close()
+	for deadline := time.Now().Add(5 * time.Second); held(); time.Sleep(5 * time.Millisecond) { // inWait is 30 s
+		if time.Now().After(deadline) {
+			t.Fatal("the gone client's input still holds the terminal's")
+		}
+	}
+	b, _ := dialTTY(t, srv, "/sandboxes/sb-1/execs/"+x.ID+"/tty")
+	b.until("ready") // the replay
+	if strings.Contains(b.out.String(), "got:hi") {
+		t.Fatalf("the gone client's keys were written: %q", b.out.String())
+	}
+	if x := fe.execGet("sb-1", x.ID); x.State != ExecRunning {
+		t.Fatalf("the exec after its client went: %+v", x)
+	}
+}
+
 // D88: a tty exec claimed for a user with noTerminal is refused — at its
 // start and at every attach, the attach's own forUser too — and switching
 // noTerminal on kills the tty execs claimed for that user, and those they

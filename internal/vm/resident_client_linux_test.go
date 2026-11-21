@@ -156,6 +156,26 @@ func (x *execution) wait(t *testing.T) (code, sig int, err string) {
 	}
 }
 
+// event waits for the session's next op event, skipping others but its end.
+func (x *execution) event(t *testing.T, op string) proto.Msg {
+	t.Helper()
+	for {
+		select {
+		case m := <-x.events:
+			switch m.Op {
+			case op:
+				return m
+			case "exited", "error":
+				t.Fatalf("session %d ended before its %q: %+v", x.id, op, m)
+			}
+		case <-x.exited:
+			t.Fatalf("session %d: the VM exited", x.id)
+		case <-time.After(vmTimeout):
+			t.Fatalf("session %d: no %q within %s", x.id, op, vmTimeout)
+		}
+	}
+}
+
 // expect reads from c until what it read holds want, and returns it.
 func (x *execution) expect(t *testing.T, c net.Conn, want string) string {
 	t.Helper()

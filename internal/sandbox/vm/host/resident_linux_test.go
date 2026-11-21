@@ -233,9 +233,9 @@ func TestResidentControl(t *testing.T) {
 	if m := rg.guestRecv(); m.Op != "signal" || m.Session != 2 || m.Signal != 15 || !m.Group || m.Error != "" {
 		t.Errorf("the guest got %+v, want a group signal for session 2", m)
 	}
-	_ = a.Send(proto.Msg{Op: "resize", Session: 2, Rows: 40, Cols: 100})
-	if m := rg.guestRecv(); m.Op != "resize" || m.Rows != 40 || m.Cols != 100 {
-		t.Errorf("the guest got %+v, want a resize", m)
+	_ = a.Send(proto.Msg{Op: "resize", Session: 2, Rows: 40, Cols: 100, Seq: 5})
+	if m := rg.guestRecv(); m.Op != "resize" || m.Rows != 40 || m.Cols != 100 || m.Seq != 5 {
+		t.Errorf("the guest got %+v, want a resize numbered 5 (xbind waits for its answer)", m)
 	}
 	_ = a.Send(proto.Msg{Op: "sync"})
 	if m := rg.guestRecv(); m.Op != "sync" || m.Session != 0 {
@@ -243,9 +243,11 @@ func TestResidentControl(t *testing.T) {
 	}
 
 	// events go up
-	for _, ev := range []proto.Msg{{Op: "started", Session: 2, Pid: 42}, {Op: "exited", Session: 2, Code: 143, Signal: 15}, {Op: "synced"}} {
+	for _, ev := range []proto.Msg{{Op: "started", Session: 2, Pid: 42, ResizeAcks: true}, {Op: "resized", Session: 2, Seq: 5},
+		{Op: "exited", Session: 2, Code: 143, Signal: 15}, {Op: "synced"}} {
 		_ = rg.guest.Send(ev)
-		if m := recvMsg(t, a, ac); m.Op != ev.Op || m.Session != ev.Session || m.Pid != ev.Pid || m.Signal != ev.Signal {
+		if m := recvMsg(t, a, ac); m.Op != ev.Op || m.Session != ev.Session || m.Pid != ev.Pid || m.Signal != ev.Signal ||
+			m.Seq != ev.Seq || m.ResizeAcks != ev.ResizeAcks {
 			t.Errorf("xbind got %+v, want %+v", m, ev)
 		}
 	}

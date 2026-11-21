@@ -39,13 +39,10 @@ func sessionCwd(ex proto.Exec) (string, error) {
 	return "", fmt.Errorf("cwd %s: not a directory", ex.Cwd)
 }
 
-// idMaps is where credential reads the sandbox's id maps (tests point it
-// elsewhere).
-var idMaps = "/proc/self"
-
 // credential is the session's uid/gid, refused when the sandbox doesn't map
-// it; nil runs it as the agent.
-func credential(ex proto.Exec) (*syscall.Credential, error) {
+// it; nil runs it as the agent. idMaps is where the sandbox's id maps are
+// read (Core.idMaps: /proc/self).
+func credential(ex proto.Exec, idMaps string) (*syscall.Credential, error) {
 	if ex.UID == nil && ex.GID == nil {
 		return nil, nil
 	}
@@ -129,9 +126,6 @@ func lookPath(argv0 string, env []string) (string, error) {
 	return "", fmt.Errorf("%s: not found in PATH", argv0)
 }
 
-// ownOOMScore is the agent's own oom_score_adj (tests point it elsewhere).
-var ownOOMScore = "/proc/self/oom_score_adj"
-
 // spawnSession starts session id's process, one spawn at a time
 // (Core.spawnMu). A session from 2 on starts with the core's
 // SessionOOMScoreAdj: a process inherits its parent's score at the clone,
@@ -164,7 +158,7 @@ func (c *Core) spawnSession(id int, argv0 string, argv []string, attr *os.ProcAt
 // spawn; it returns what puts the agent's own back, or nil when there is
 // nothing to put back (already adj, or not set: logged).
 func (c *Core) takeOOMScore(id, adj int) (back func()) {
-	b, err := os.ReadFile(ownOOMScore)
+	b, err := os.ReadFile(c.ownOOMScore)
 	if err != nil {
 		c.o.Logf("session %d: oom_score_adj %d: %v", id, adj, err)
 		return nil
@@ -174,12 +168,12 @@ func (c *Core) takeOOMScore(id, adj int) (back func()) {
 	if own == want {
 		return nil
 	}
-	if err := os.WriteFile(ownOOMScore, []byte(want), 0); err != nil {
+	if err := os.WriteFile(c.ownOOMScore, []byte(want), 0); err != nil {
 		c.o.Logf("session %d: oom_score_adj %d: %v", id, adj, err)
 		return nil
 	}
 	return func() {
-		if err := os.WriteFile(ownOOMScore, []byte(own), 0); err != nil {
+		if err := os.WriteFile(c.ownOOMScore, []byte(own), 0); err != nil {
 			c.o.Logf("the agent's own oom_score_adj back to %s after session %d's start: %v", own, id, err)
 		}
 	}

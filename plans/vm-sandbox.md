@@ -104,7 +104,11 @@ workload; the kernel attack surface is what shrinks.
 - **Terminals** (`term/vm.go`): `?vm=1` on `/ws/term`, and `vm` on agent
   create/restart.
   - The shim puts the host PTY slave in raw mode and bridges it to a guest
-    PTY, with SIGWINCH going to resize.
+    PTY, with SIGWINCH going to resize. Each read of the keys first checks
+    the host PTY's size and, when it changed, sends the resize and waits
+    for the guest's `resized` (proto's `Seq`/`ResizeAcks`) — a SIGWINCH is
+    delivered beside the read, so the keys could otherwise reach the guest
+    first (`host/ptyin_linux.go`).
   - Closing a session sends SIGHUP: the guest syncs its disk, then the VM
     is killed.
 - **The VM disk:** `.xbin/term/<key>/vm/disk.img`, sparse, sized by the

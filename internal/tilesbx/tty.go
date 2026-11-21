@@ -15,6 +15,7 @@ package tilesbx
 // that user or attached by them.
 
 import (
+	"context"
 	"net/http"
 	"regexp"
 	"slices"
@@ -190,9 +191,15 @@ func (m *Manager) attach(w http.ResponseWriter, r *http.Request, b *box, d *Def,
 		hello["sandbox"] = tq.sandboxID
 	}
 	hub.Attach(conn, hello, termwire.Terminal{
-		Write: func(p []byte) error {
+		WriteCtx: func(ctx context.Context, p []byte) error { // ctx: this socket's (a wait ends when it goes)
 			m.touch(e.r)
-			return e.writeIn(p)
+			err := e.writeIn(ctx, p) // the session's end ends any wait too
+			select {
+			case <-e.sess.Done(): // keys typed as it ends: dropped, the exit frame follows (finish)
+				return nil
+			default:
+			}
+			return err
 		},
 		Resize: func(cols, rows uint16) {
 			m.touch(e.r)

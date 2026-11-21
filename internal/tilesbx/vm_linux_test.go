@@ -203,8 +203,7 @@ func TestVMStartStop(t *testing.T) {
 func TestVMStopKillsAShimThatStays(t *testing.T) {
 	fe, _ := newVMEnv(t)
 	fe.l.onSignal = nil // SIGHUP ignored
-	defer func(d time.Duration) { vmHupWait = d }(vmHupWait)
-	vmHupWait = 100 * time.Millisecond
+	fe.m.hupWait = 100 * time.Millisecond
 	fe.create(vmDef("vm-1", 512))
 	fe.want(fe.do(mgr, "POST", "/sandboxes/vm-1/start", nil), http.StatusOK, "")
 	r := fe.runOf("vm-1")
@@ -225,8 +224,7 @@ func TestVMStopKillsAShimThatStays(t *testing.T) {
 func TestVMSecondStopKillsAgain(t *testing.T) {
 	fe, _ := newVMEnv(t)
 	fe.l.onSignal = nil // SIGHUP ignored
-	defer func(d time.Duration) { vmHupWait = d }(vmHupWait)
-	vmHupWait = 50 * time.Millisecond
+	fe.m.hupWait = 50 * time.Millisecond
 	fe.m.endWait = 300 * time.Millisecond
 	fe.create(vmDef("vm-1", 512))
 	fe.want(fe.do(mgr, "POST", "/sandboxes/vm-1/start", nil), http.StatusOK, "")

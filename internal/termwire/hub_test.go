@@ -2,6 +2,7 @@ package termwire
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -435,5 +436,71 @@ func TestReadLimit(t *testing.T) {
 	}
 	if got := <-r0.in; len(got) != ReadLimit+1 {
 		t.Fatalf("unlimited: %d bytes", len(got))
+	}
+}
+
+// A WriteCtx terminal: keys and resizes reach it in the order they came,
+// pings are answered while a write waits, and the write's ctx ends when the
+// socket does.
+func TestHubWriteCtxOrderPingsAndCancel(t *testing.T) {
+	h := NewHub(1 << 10)
+	var mu sync.Mutex
+	var log []string
+	note := func(s string) { mu.Lock(); log = append(log, s); mu.Unlock() }
+	hold := make(chan struct{})
+	cancelled := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		conn, err := Upgrade(w, req, nil, 0)
+		if err != nil {
+			return
+		}
+		h.Attach(conn, map[string]any{"id": "s1", "sandbox": "box"}, Terminal{
+			WriteCtx: func(ctx context.Context, b []byte) error {
+				note("keys " + string(b))
+				if string(b) == "wait" { // held until the socket goes
+					close(hold)
+					<-ctx.Done()
+					close(cancelled)
+					return ctx.Err()
+				}
+				return nil
+			},
+			Resize: func(cols, rows uint16) { note(fmt.Sprintf("resize %dx%d", cols, rows)) },
+		})
+	}))
+	defer srv.Close()
+	c, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(srv.URL, "http"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	nextText(t, c) // the session frame
+	send := func(mt int, s string) {
+		t.Helper()
+		if err := c.WriteMessage(mt, []byte(s)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	send(websocket.BinaryMessage, "a")
+	send(websocket.TextMessage, `{"op":"resize","cols":100,"rows":40}`)
+	send(websocket.BinaryMessage, "b")
+	send(websocket.BinaryMessage, "wait")
+	<-hold
+	send(websocket.TextMessage, `{"op":"ping","t":"p"}`)
+	for {
+		if m := nextText(t, c); m["op"] == "pong" {
+			break // answered though the write waits
+		}
+	}
+	c.Close()
+	select {
+	case <-cancelled:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the waiting write's ctx outlived its socket")
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if got := strings.Join(log, ","); got != "keys a,resize 100x40,keys b,keys wait" {
+		t.Fatalf("the terminal got %s", got)
 	}
 }

@@ -221,6 +221,12 @@ type Manager struct {
 	usage  usageState     // the disk measurements and the low-disk watch (usage.go)
 	// endWait and lockWait are lifecycle.go's (tests shorten them).
 	endWait, lockWait time.Duration
+	// hupWait is a VM stop's wait for its hung-up shim (vm.go); readyWait,
+	// when set, replaces the run ops' wait for the agent's "ready". Tests
+	// set them on their own Manager, never on the package: a run of an
+	// earlier test may still be stopping or starting.
+	hupWait   time.Duration
+	readyWait func(*run) time.Duration
 	// copies is the context every snapshot, restore and clone copy runs
 	// under: StopAll ends the ones in flight. copyTree and exchange are
 	// confine.CopyTree and fsutil.Exchange (a test injects a failure).
@@ -269,6 +275,7 @@ func New(o Options) *Manager {
 	m.afterFunc = func(d time.Duration, f func()) stopper { return time.AfterFunc(d, f) }
 	m.bootID = newBootID()
 	m.endWait, m.lockWait = endWait, lockWait
+	m.hupWait = vmHupWait
 	m.trash.remove = confine.RemoveAll
 	m.copyTree, m.exchange = confine.CopyTree, fsutil.Exchange
 	m.usage.du, m.usage.statfs = o.DiskUsage, o.Statfs

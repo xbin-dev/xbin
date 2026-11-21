@@ -326,7 +326,7 @@ func (r *router) command(m proto.Msg) {
 			r.refuse(m.Session, fmt.Sprintf("%s: a resident VM's sessions start at %d", m.Op, firstSession))
 			return
 		}
-		_ = r.toGuest(proto.Msg{Op: m.Op, Session: m.Session, Rows: m.Rows, Cols: m.Cols, Signal: m.Signal, Group: m.Group})
+		_ = r.toGuest(proto.Msg{Op: m.Op, Session: m.Session, Rows: m.Rows, Cols: m.Cols, Signal: m.Signal, Group: m.Group, Seq: m.Seq})
 	case "sync": // session 0 flushes only; a session hangs it up first
 		if m.Session != 0 && m.Session < firstSession {
 			r.refuse(0, fmt.Sprintf("sync: a resident VM's sessions start at %d", firstSession))
