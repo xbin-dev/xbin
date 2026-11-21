@@ -113,7 +113,9 @@ final class XbinWorkspaceAgentFollowupsTests: XCTestCase {
         let anew = e.app.buttons.matching(identifier: "approval-new-session").firstMatch
         e.expect(cont, 10, "the session it continues")
         XCTAssertTrue(cont.isSelected, "continuing is the first choice")
-        for fact in ["Continue the Claude Code session from", "Claude Code", "model opus", "acts without asking", "uses your Claude Code sign-in", "Work"] {
+        // …and its own reach, as xbind recorded the session (the new session's Network and Other tiles rows are hidden)
+        for fact in ["Continue the Claude Code session from", "Claude Code", "model opus", "acts without asking", "uses your Claude Code sign-in", "Work",
+                     "internet", "can call tile APIs"] {
             XCTAssertTrue(cont.label.contains(fact), "“\(fact)”: \(cont.label)")
         }
         XCTAssertEqual(anew.label, "Start a new session instead")
