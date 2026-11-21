@@ -289,6 +289,59 @@ func TestTTYResizeUnansweredStop(t *testing.T) {
 	}
 }
 
+// Input held for a resize's answer belongs to its socket: while it waits
+// the socket is still read (a ping is answered), and when the client goes
+// the wait ends with it — the next client's input isn't queued behind a
+// gone one's. The keys of the gone client are dropped, not written later.
+func TestTTYHeldInputClientGone(t *testing.T) {
+	fe := newFakeEnv(t)
+	fe.l.dropResized = true
+	fe.create(ns("sb-1"))
+	fe.want(fe.do(mgr, "POST", "/sandboxes/sb-1/start", nil), http.StatusOK, "")
+	srv := fe.server(mgr)
+	q := url.Values{"cmd": {`echo ready; read a; echo "got:$a"; sleep 100`}, "rows": {"10"}, "cols": {"20"}}
+	a, _ := dialTTY(t, srv, "/sandboxes/sb-1/tty?"+q.Encode())
+	a.until("ready")
+	x := fe.execList("sb-1")[0]
+	e := fe.box("sb-1").execs.get(x.ID)
+	held := func() bool {
+		if e.inMu.TryLock() {
+			e.inMu.Unlock()
+			return false
+		}
+		return true
+	}
+	if err := a.c.WriteMessage(websocket.TextMessage, []byte(`{"op":"resize","cols":100,"rows":40}`)); err != nil {
+		t.Fatal(err)
+	}
+	a.send("hi\r")
+	for deadline := time.Now().Add(10 * time.Second); !held(); time.Sleep(5 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the keys were never held for the resize's answer")
+		}
+	}
+	if err := a.c.WriteMessage(websocket.TextMessage, []byte(`{"op":"ping","t":"p1"}`)); err != nil {
+		t.Fatal(err)
+	}
+	for a.hasCtl("pong") == nil {
+		a.next(5 * time.Second) // fails if the socket isn't read while its input waits
+	}
+	a.c.Close()
+	for deadline := time.Now().Add(5 * time.Second); held(); time.Sleep(5 * time.Millisecond) { // inWait is 30 s
+		if time.Now().After(deadline) {
+			t.Fatal("the gone client's input still holds the terminal's")
+		}
+	}
+	b, _ := dialTTY(t, srv, "/sandboxes/sb-1/execs/"+x.ID+"/tty")
+	b.until("ready") // the replay
+	if strings.Contains(b.out.String(), "got:hi") {
+		t.Fatalf("the gone client's keys were written: %q", b.out.String())
+	}
+	if x := fe.execGet("sb-1", x.ID); x.State != ExecRunning {
+		t.Fatalf("the exec after its client went: %+v", x)
+	}
+}
+
 // D88: a tty exec claimed for a user with noTerminal is refused — at its
 // start and at every attach, the attach's own forUser too — and switching
 // noTerminal on kills the tty execs claimed for that user, and those they

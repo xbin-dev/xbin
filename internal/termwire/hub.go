@@ -12,6 +12,7 @@
 package termwire
 
 import (
+	"context"
 	"encoding/json"
 	"strconv"
 	"sync"
@@ -32,9 +33,28 @@ const (
 // or a tile TTY exec's stdin. Write gets each binary frame whole; an error
 // ends that socket (not the terminal). Resize, when set, gets a client's
 // resize — always 1..65535 both ways.
+//
+// WriteCtx, when set, is used instead of Write, for a terminal whose input
+// may wait (a tile TTY's keys wait for the resizes sent before them): the
+// socket's binary frames and resizes are applied in the order they came on
+// a goroutine of the socket's own, and the socket is read on meanwhile —
+// pings are answered while input waits, and ctx ends when the socket does,
+// so a wait held for a client that went away gives up rather than holding
+// the terminal's input for the next one.
 type Terminal struct {
-	Write  func(b []byte) error
-	Resize func(cols, rows uint16)
+	Write    func(b []byte) error
+	WriteCtx func(ctx context.Context, b []byte) error
+	Resize   func(cols, rows uint16)
+}
+
+// inputQueue is how many input frames (keys, resizes) a WriteCtx socket
+// may read ahead of the terminal before its reader waits too.
+const inputQueue = 64
+
+// input is one frame for a WriteCtx terminal, in arrival order.
+type input struct {
+	b          []byte // keys; nil: a resize
+	cols, rows uint16
 }
 
 // Exit is how the process ended, as the exit frame reports it. The zero
@@ -268,23 +288,14 @@ func (h *Hub) Attach(conn *websocket.Conn, hello map[string]any, t Terminal) {
 		}
 	}()
 
+	if t.WriteCtx != nil {
+		h.readQueued(c, t)
+		return
+	}
+
 	// Reader: input → the terminal; control frames.
 	go func() {
-		defer func() {
-			c.echo.close()
-			h.mu.Lock()
-			_, attached := h.clients[c]
-			if attached {
-				delete(h.clients, c)
-				close(c.send)
-			}
-			h.lastActive = time.Now()
-			h.mu.Unlock()
-			conn.Close()
-			if attached {
-				h.notify()
-			}
-		}()
+		defer h.detach(c)
 		for {
 			mt, data, err := conn.ReadMessage()
 			if err != nil {
@@ -305,6 +316,92 @@ func (h *Hub) Attach(conn *websocket.Conn, hello map[string]any, t Terminal) {
 				case "resize":
 					if t.Resize != nil && ctl.Cols > 0 && ctl.Rows > 0 && ctl.Cols <= 0xffff && ctl.Rows <= 0xffff {
 						t.Resize(uint16(ctl.Cols), uint16(ctl.Rows))
+					}
+				case "ping":
+					h.enqueue(c, textFrame(map[string]any{"op": "pong", "t": ctl.T}))
+				}
+			}
+		}
+	}()
+}
+
+// detach ends a client's socket from the reader's side: its echo acks stop,
+// it leaves the hub (its writer drains what is queued, without an exit
+// frame) and the socket closes.
+func (h *Hub) detach(c *client) {
+	c.echo.close()
+	h.mu.Lock()
+	_, attached := h.clients[c]
+	if attached {
+		delete(h.clients, c)
+		close(c.send)
+	}
+	h.lastActive = time.Now()
+	h.mu.Unlock()
+	c.conn.Close()
+	if attached {
+		h.notify()
+	}
+}
+
+// readQueued is Attach's reader for a WriteCtx terminal: it reads the
+// socket and answers pings itself; keys and resizes go, in order, to an
+// applier goroutine; the socket ending cancels the applier's ctx.
+func (h *Hub) readQueued(c *client, t Terminal) {
+	ctx, cancel := context.WithCancel(context.Background())
+	inputs := make(chan input, inputQueue)
+	applied := make(chan struct{}) // the applier stopped
+	go func() {
+		defer close(applied)
+		for in := range inputs {
+			if in.b == nil {
+				if t.Resize != nil {
+					t.Resize(in.cols, in.rows)
+				}
+				continue
+			}
+			if t.WriteCtx(ctx, in.b) != nil {
+				c.conn.Close() // the reader ends with it
+				return
+			}
+			c.echo.input()
+		}
+	}()
+	go func() {
+		defer func() {
+			cancel()
+			close(inputs)
+			h.detach(c)
+		}()
+		queue := func(in input) bool {
+			select {
+			case inputs <- in:
+				return true
+			case <-applied:
+				return false
+			}
+		}
+		for {
+			mt, data, err := c.conn.ReadMessage()
+			if err != nil {
+				return
+			}
+			switch mt {
+			case websocket.BinaryMessage:
+				if !queue(input{b: data}) {
+					return
+				}
+			case websocket.TextMessage:
+				var ctl control
+				if json.Unmarshal(data, &ctl) != nil {
+					continue
+				}
+				switch ctl.Op {
+				case "resize":
+					if ctl.Cols > 0 && ctl.Rows > 0 && ctl.Cols <= 0xffff && ctl.Rows <= 0xffff {
+						if !queue(input{cols: uint16(ctl.Cols), rows: uint16(ctl.Rows)}) {
+							return
+						}
 					}
 				case "ping":
 					h.enqueue(c, textFrame(map[string]any{"op": "pong", "t": ctl.T}))
