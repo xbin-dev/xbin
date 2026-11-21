@@ -351,12 +351,12 @@ GET    /docs/page               signed in. ?path=&section= → {path, title,
   own tool permissions, a restore of files), and those are the person's to
   give; a start's first prompt alike, approved or not, and a request for
   such a start isn't taken. `403 {refusal: "mode"}` when the session's
-  CURRENT mode doesn't ask before every edit and command and isn't the
-  mode its person approved the start in: one they have since switched to
-  such a mode takes no more of the agent's messages until they switch it
-  back — or until the person approves that one message: a request of kind
-  `message` (§Approval requests and tickets). The person's own messages
-  are never judged by these.
+  CURRENT mode doesn't ask before every edit and command — the default of
+  the sessions the agent starts (D251) — whatever mode its person
+  approved the start in: each text to it goes only once the person
+  approves that one message, a request of kind `message` (§Approval
+  requests and tickets). The person's own messages are never judged by
+  these.
 - **Taint from elsewhere.** What the agent keeps itself (its notebook) is
   stamped with orgs by the agent: before reading a page into a
   conversation it asks `…/allows` for the page's orgs, and after reading
@@ -1136,7 +1136,17 @@ POST   /delegate/requests       the person's agent only. {method, path,
                                  session asks: send it, no approval
                                  needed). 403 when the tile or its org
                                  refuses the call anyway; 409 past 20
-                                 pending
+                                 pending. A body xbind describes to the
+                                 person — a start's, a message's, a new
+                                 tile's, a page's, an MCP tool's call — is
+                                 read one way only (D252): one JSON
+                                 object, UTF-8, each member one the call
+                                 takes, written exactly so (lower case as
+                                 documented), none twice at any depth,
+                                 nothing after it — else 400 (403 for a
+                                 new tile's), naming the member. A tile
+                                 API call's body is the tile's to read:
+                                 shown and sent byte for byte
 GET    /delegate/requests       the person, or their agent's page.
                                  {requests}, oldest first; ?all=1 adds the
                                  ones decided in the last day; ?failed=1
@@ -1153,8 +1163,9 @@ POST   /delegate/requests/<id>/approve
                                  signin?: true, trust?: true,
                                  via?: "notification", harness?, model?,
                                  mode?, remember?: true, continue?: false,
-                                 knows?: ["continue"], seen?: {signInId?,
-                                 net?, harness?, mode?}}
+                                 knows?: ["continue", "seen-text"],
+                                 seen?: {signInId?, net?, harness?, mode?,
+                                 textLen?}}
                                  → {request, approval?, trust?}. harness,
                                  model, mode: a tile agent start's, as the
                                  person picked them on the sheet (D250,
@@ -1183,7 +1194,16 @@ POST   /delegate/requests/<id>/approve
                                  changed: signin | net | session, reload:
                                  true}, nothing decided: load the request
                                  again and show it. A continue needs no
-                                 signin tick (D251). via: the person
+                                 signin tick (D251). textLen: how much of
+                                 the text the approval sends (a start's
+                                 brief, a message) was on screen when the
+                                 person clicked, UTF-8 bytes — required
+                                 with knows "seen-text" where there is a
+                                 text (400 without); any length but the
+                                 whole text's is 409 {changed: "text",
+                                 reload: true}, nothing decided (D252).
+                                 Seen with textLen alone picks nothing.
+                                 via: the person
                                  decided from a notification's action
                                  (D241): only once, and only a request the
                                  lock-screen rule passes (§Events and
@@ -1266,11 +1286,18 @@ carries what the person may pick (§The person's pick): `choices`,
 model, name, status, text, signInId?}` — show the whole text:
 approving sends exactly it, once, to that session (`signInId`: the
 person's saved sign-in the session carries, a fact to show; its label is
-the person's own list's). The approve says how much of the text the
-client had on screen whole, `seen: {textLen}` (UTF-8 bytes): another
-length than the text's is 409 `{changed: "text", reload: true}`, nothing
-decided (D251 review H1); an approve without it (an older client) isn't
-held to it. A pending request expires after 24
+the person's own list's). The approve says how much of the text was on
+screen when the person clicked — `seen: {textLen}` in UTF-8 bytes, the
+part shown of a text the client clipped — with `knows: ["seen-text"]`,
+which makes it required (400 without): xbind allows only the whole
+text's length, any other is 409 `{changed: "text", reload: true}`,
+nothing decided (D251 review H1, D252). That is all xbind can hold a
+client to: a client that sends the whole length of a text it didn't show
+is believed — the rule that it shows a text before it offers Allow is
+the client's own (the web's and the app's: Show all). An approve without
+the word or the length (an older client) isn't held to it. The text a
+card shows is xbind's — `preview.session.prompt`, `preview.message.text`
+— never a client's own reading of the body (D252). A pending request expires after 24
 hours; decided and withdrawn ones are kept a day, 200 a person at most.
 
 **What a start leaves out, xbind fills.** A start may name only its tile
@@ -1524,8 +1551,10 @@ POST   /delegate/changesets     the person's agent only. {title, items:
                                  [{kind, args, why?}]} → the change set,
                                  proposed. Nothing is applied. 403 without
                                  the opt-in; 400 for an unknown kind or
-                                 arguments; at most 20 items; 409 past 10
-                                 open sets
+                                 arguments — args read as a request's body
+                                 is (each member its kind's, exactly so,
+                                 once: D252); at most 20 items; 409 past
+                                 10 open sets
 GET    /delegate/changesets     the person, their agent's page, or their
                                  agent. {changesets}, oldest first (a set
                                  from another person — §Plans — only to

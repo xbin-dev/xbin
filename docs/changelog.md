@@ -10,6 +10,50 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-11-21
+
+- **Security — a workspace agent's tile agent start could be shown with
+  one brief and told another** (v0.3.80, v0.3.81, v0.3.82, v0.3.83,
+  v0.3.84; D252). The web's and the app's approval sheets read a start's
+  brief from its body by the keys as written (`prompt`, else `brief`,
+  else `message`); xbind read the same body matching keys in any case
+  and keeping the last of two. So a start filed as `{"cwd", "kind":
+  "agent", "message": "Tidy README", "Prompt": "…"}` — or with `"prompt"`
+  twice — showed "Tidy README" and told the session the other text. A
+  workspace agent fed hostile content (a page, a file, a tool's answer)
+  could have its person approve that. The new tile sheet's Template and
+  Name rows were read the same way (the body itself was shown below
+  them). A lock-screen notification never showed a start's text. Now:
+  xbind reads every body it describes to a person — a start's, a
+  message's, a new tile's, a page's, a change set's and a plan's line
+  arguments — one way only when it is filed: one JSON object, UTF-8,
+  each member one the call takes, written exactly as documented, none
+  twice at any depth, nothing after it; anything else is refused naming
+  the member (400; 403 for a new tile's). An approved start is told,
+  and an approved message sends, the text its sheet showed — xbind's
+  reading when it was filed. The sheets show xbind's reading
+  (`preview.session.prompt`, `preview.create`), never their own reading
+  of the body.
+  **Release note:** a workspace agent that was fed hostile content could
+  get a start approved under a different text than the one shown; xbind
+  now refuses such a request when it is filed and sends only the text the
+  approval showed. What to check: nothing to migrate.
+- workspace agent, after D251's second review (D252): an approve with
+  `knows: ["seen-text"]` must say how much of the text was on screen when
+  the person clicked (`seen.textLen`, the part shown of a clipped text;
+  400 without), and only all of it is allowed — the web's sheet and row
+  and the app now send it; an older client is as before. A batch row
+  offers **Send** only when its box shows all of the text on this screen
+  (measured, again on resize): a text the count calls short that still
+  scrolls gets **Show all**, and Send once the box was scrolled to its
+  end. The line and paragraph separators (U+2028, U+2029) are hidden
+  characters, shown as escapes like a carriage return. The row moves a
+  brief's opening line after its goal only for xbin's own update brief.
+  The row and the sheets name the saved sign-in a continued or messaged
+  session carries, from your own list. A plan's binding that waits for
+  its tile ends, nothing bound, when the tile comes up with a warning the
+  line didn't carry — whichever way the build goes.
+
 ## 2026-11-20
 
 - workspace agent: **tile agents act without asking by default; a mode is

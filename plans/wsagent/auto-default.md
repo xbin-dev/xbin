@@ -256,6 +256,27 @@ What the work-mode default changed elsewhere, fixed in this batch:
   sign-in check compared nothing. xbind reads it from the session itself
   now (`term.SigninIDOf`).
 
+## The second review of 2026-11-21 (D252)
+
+- **S1, released (v0.3.80–v0.3.84)**: the sheets read a start's brief
+  from the body's keys as written, xbind case-insensitively and last-wins
+  — `{"message": "Tidy README", "Prompt": "…"}` showed one text and told
+  the session another (probed at v0.3.80–v0.3.84: filed, approved, the
+  session told the other; the template sheet's rows likewise, the body
+  shown below them). Fixed at both ends: xbind reads every body it
+  describes strictly when it is filed (`server.StrictDecode`; change set
+  and plan arguments too) and sends what it showed
+  (`DelegateStart.Brief`, the message ticket's text); the web and the app
+  show `preview.session.prompt` and `preview.create`. Tile API calls are
+  out of this class: the bytes shown are the bytes the tile gets.
+- **H1**: `seen.textLen` is the on-screen part, required with `knows:
+  ["seen-text"]`; the row measures its box (Send only when it shows all,
+  or once a shown-whole box was scrolled to its end); U+2028/2029 are
+  hidden characters; the opening line moves only for `briefBy: "xbin"`.
+- **M1**: `judgeWait` ends a waiting binding that gained a warning.
+- **L2**: auth.md and delegation.md no longer describe the exemption.
+- **L4**: the sign-in's name, from the person's own list, beside the chips.
+
 ## Nothing breaks for an existing workspace
 
 A person who had picked a mode — asking or not — keeps it: it is their

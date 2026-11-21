@@ -6543,3 +6543,39 @@ here: cut from the old end, never reword.
     message in place; the conversation's marker opens xbin's sheet (the
     agent's page can't decide). Not built: a per-session standing grant
     (the spec says what it would give up).
+
+- **D252 — A delegated body is read one way only, and a sheet shows
+  xbind's reading** (2026-11-21; the re-review of D251's review round,
+  S1, H1, M1, L2, L4). v0.3.80–v0.3.84: the web's and the app's start
+  sheets read a brief from the request's body by its keys as written
+  (`prompt ?? brief ?? message`) while xbind decoded the same bytes with
+  encoding/json, which matches keys without regard to case and keeps the
+  last of two — `{"message": "Tidy README", "Prompt": "…"}` showed one
+  text and told the session the other (probed at each tag; the template
+  sheet's rows the same way, milder: the raw body was shown below). So:
+  - **xbind is the authority**: every body it describes to a person — a
+    start, a message, a new tile, a page, a change set's and a plan's
+    line arguments (an MCP call was already, D239) — is read strictly
+    when filed (`server.StrictDecode`: one object, UTF-8, each key the
+    kind's own in its case, none twice at any depth, nothing after it,
+    types as declared), refused with the key named. Rejected:
+    `DisallowUnknownFields` alone (neither case nor repeats).
+  - **What runs is the reading shown**: an approved start is told
+    `preview.session.prompt` (`term.DelegateStart.Brief`), an approved
+    message sends `preview.message.text` — never the bytes read again,
+    which also covers a lenient request pending across the upgrade.
+  - **Clients render what xbind resolved** (`preview.session.prompt`,
+    `preview.create`), never their own reading of the body — web and
+    app, a vector for the hole.
+  - **seen.textLen is what was on screen** when the person clicked (the
+    clipped part if not shown whole), required with `knows:
+    ["seen-text"]`; older clients unchanged. xbind can't see a screen: a
+    client that claims the whole length is believed — the docs say so.
+    A row offers Send only when its box shows all of its text (measured
+    after layout and on resize); shown whole in a box that still
+    scrolls, Send waits until it was scrolled to its end (picked over
+    "fully in view": the box's own scroll is what the person controls).
+    U+2028/U+2029 are hidden characters (escaped) like CR, NEL, VT, FF.
+    The row moves an opening line only for xbin's own brief (`briefBy`).
+  - A waiting binding is held to the warnings its person saw on the
+    normal (slow-build) path too, as an early one was (M1).
