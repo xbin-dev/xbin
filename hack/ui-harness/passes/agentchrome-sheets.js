@@ -206,7 +206,7 @@ async function signinChecks({ page, S, check, refresh, sentTo, armed, text, shot
     await page.click(`${SHEET} button[data-allow]`);
     await page.waitForFunction((x) => { const sh = document.querySelector('bx-agent-dock').shadowRoot.querySelector('bx-agent-approve'); return !sh || !sh.request || sh.request.id !== x; }, 'g1');
     if (await page.$(`${SHEET} [role="dialog"]`)) { await page.keyboard.press('Escape'); await page.waitForFunction(() => !document.querySelector('bx-agent-dock').shadowRoot.querySelector('bx-agent-approve')); }
-    check(JSON.stringify(sentTo(/g1\/approve$/).map((c) => c.body)) === '[{"grant":"once"}]', `[${width}] approved without the tick: no sign-in (${JSON.stringify(sentTo(/g1\/approve$/).map((c) => c.body))})`);
+    check(JSON.stringify(sentTo(/g1\/approve$/).map((c) => c.body)) === '[{"grant":"once","knows":["seen-text"],"seen":{"textLen":20}}]', `[${width}] approved without the tick: no sign-in — and all of its brief on screen (D252) (${JSON.stringify(sentTo(/g1\/approve$/).map((c) => c.body))})`);
     // ticked — the person's own click, held like Allow; a script's click ticks nothing
     S.requests = S.requests.filter((r) => r.id !== 'g1'); S.requests.push(start('g1b', { signIn: 'needed', signInId: 'si_harness01' })); await refresh();
     await review(page, 'request', 'g1b');
@@ -220,7 +220,7 @@ async function signinChecks({ page, S, check, refresh, sentTo, armed, text, shot
     await page.click(`${SHEET} button[data-allow]`);
     await page.waitForFunction((x) => { const sh = document.querySelector('bx-agent-dock').shadowRoot.querySelector('bx-agent-approve'); return !sh || !sh.request || sh.request.id !== x; }, 'g1b');
     if (await page.$(`${SHEET} [role="dialog"]`)) { await page.keyboard.press('Escape'); await page.waitForFunction(() => !document.querySelector('bx-agent-dock').shadowRoot.querySelector('bx-agent-approve')); }
-    check(JSON.stringify(sentTo(/g1b\/approve$/).map((c) => c.body)) === '[{"grant":"once","signin":true}]', `[${width}] ticked: the approval carries it (${JSON.stringify(sentTo(/g1b\/approve$/).map((c) => c.body))})`);
+    check(JSON.stringify(sentTo(/g1b\/approve$/).map((c) => c.body)) === '[{"grant":"once","signin":true,"knows":["seen-text"],"seen":{"textLen":20}}]', `[${width}] ticked: the approval carries it (${JSON.stringify(sentTo(/g1b\/approve$/).map((c) => c.body))})`);
     S.requests = S.requests.filter((r) => r.id !== 'g1b'); await refresh();
     // a sign-in that is gone by the time the sheet is read says so (the open would be refused)
     S.requests.push(start('g2', { signIn: 'connector', signInId: 'si_gone' })); await refresh();
@@ -285,7 +285,7 @@ async function signinChecks({ page, S, check, refresh, sentTo, armed, text, shot
       await page.waitForFunction((x) => { const sh = document.querySelector('bx-agent-dock').shadowRoot.querySelector('bx-agent-approve'); return !sh || !sh.request || sh.request.id !== x; }, id);
       if (await page.$(`${SHEET} [role="dialog"]`)) { await page.keyboard.press('Escape'); await page.waitForFunction(() => !document.querySelector('bx-agent-dock').shadowRoot.querySelector('bx-agent-approve')); }
       const sentBody = JSON.stringify(sentTo(new RegExp(`${id}/approve$`)).map((c) => c.body));
-      check(sentBody === (both ? '[{"grant":"once","signin":true,"trust":true,"shown":"signin+home"}]' : '[{"grant":"once","signin":true}]'), `[${width}] ${both ? 'both ticked: the approval carries both, and what the trust line showed' : 'the sign-in ticked, the trust line not: no trust is sent'} (${sentBody})`);
+      check(sentBody === (both ? '[{"grant":"once","signin":true,"trust":true,"shown":"signin+home","knows":["seen-text"],"seen":{"textLen":20}}]' : '[{"grant":"once","signin":true,"knows":["seen-text"],"seen":{"textLen":20}}]'), `[${width}] ${both ? 'both ticked: the approval carries both, and what the trust line showed' : 'the sign-in ticked, the trust line not: no trust is sent'} (${sentBody})`);
       S.requests = S.requests.filter((r) => r.id !== id); await refresh();
     }
 
