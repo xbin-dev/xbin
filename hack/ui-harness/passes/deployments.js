@@ -410,6 +410,10 @@ async function stepPanes(X) {
   // the Dev API tag follows the session in view
   await fr(P, TILE, (f, t, idx) => { f.setActiveTab(idx); return true; }, j);
   await settle(P);
+  // the move mounted a new <bx-deployments> in the new pane: its rows are
+  // drawn once its own state request answers (a few hundred ms under
+  // --isolate, where reading the side list at once found none)
+  await waitPanel(P, (p) => p.rows.length >= 2, null, "the moved panel's rows");
   const after = await tagsOf(P);
   check(after.find((r) => r.name === DEV)?.pills.some((p) => p.text === 'Dev API') && !after.find((r) => r.name === 'main')?.pills.some((p) => p.text === 'Dev API'),
     `the Dev API tag follows the session in view to dev (${JSON.stringify(after.map((r) => [r.name, r.pills.map((p) => p.text)]))})`);
