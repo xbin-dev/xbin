@@ -567,7 +567,7 @@ func TestControlSendsBounded(t *testing.T) {
 	defer a.Close()
 	for name, send := range map[string]func() error{
 		"signal": func() error { return a.Signal(2, 9, true) },
-		"resize": func() error { return a.Resize(2, 24, 80) },
+		"resize": func() error { return a.Resize(&agentSession{id: 2}, 24, 80) },
 	} {
 		done := make(chan error, 1)
 		go func() { done <- send() }()
@@ -581,6 +581,55 @@ func TestControlSendsBounded(t *testing.T) {
 			t.Fatalf("%s blocked past its bound", name)
 		}
 	}
+}
+
+// A session's input waits for the resizes sent before it only where the
+// agent answers them (its "started" said ResizeAcks): an older agent's
+// keys never wait. An answer ends the wait, a resize whose send failed is
+// not waited for, and one never answered is given up after the bound.
+func TestAwaitResizes(t *testing.T) {
+	quick := func(s *agentSession, what string) {
+		t.Helper()
+		done := make(chan struct{})
+		go func() { s.AwaitResizes(time.Hour); close(done) }()
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("%s: the input waited", what)
+		}
+	}
+	old := &agentSession{id: 2, started: make(chan struct{}), done: make(chan struct{})}
+	old.event(nil, proto.Msg{Op: "started", Session: 2, Pid: 9})
+	if seq := old.beginResize(); seq != 0 {
+		t.Fatalf("an older agent's resize numbered %d", seq)
+	}
+	quick(old, "an older agent")
+
+	s := &agentSession{id: 2, started: make(chan struct{}), done: make(chan struct{})}
+	s.event(nil, proto.Msg{Op: "started", Session: 2, Pid: 9, ResizeAcks: true})
+	quick(s, "no resize")
+	one, two := s.beginResize(), s.beginResize()
+	waited := make(chan struct{})
+	go func() { s.AwaitResizes(time.Hour); close(waited) }()
+	s.event(nil, proto.Msg{Op: "resized", Session: 2, Seq: two})
+	select {
+	case <-waited:
+		t.Fatal("the input went on with resize 1 unanswered")
+	case <-time.After(50 * time.Millisecond):
+	}
+	s.endResize(one) // its send failed
+	select {
+	case <-waited:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the input still waits with every resize answered or failed")
+	}
+	s.beginResize() // never answered
+	start := time.Now()
+	s.AwaitResizes(100 * time.Millisecond)
+	if d := time.Since(start); d < 100*time.Millisecond {
+		t.Fatalf("gave up after %s, before the bound", d)
+	}
+	quick(s, "a resize given up")
 }
 
 func asError(err error, e **Error) bool {

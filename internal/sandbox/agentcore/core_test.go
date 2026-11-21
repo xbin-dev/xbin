@@ -483,8 +483,15 @@ func TestTTYResize(t *testing.T) {
 		})
 	}
 	await("24 80")
-	h.send(proto.Msg{Op: "resize", Session: 2, Rows: 40, Cols: 100})
-	h.barrier() // the resize is on ctl, the newline on the pty: the resize first
+	if m := h.wait(2, "started"); !m.ResizeAcks {
+		t.Fatalf("started %+v: it doesn't say it answers resizes", m)
+	}
+	h.send(proto.Msg{Op: "resize", Session: 2, Rows: 40, Cols: 100, Seq: 7})
+	// the resize is on ctl, the newline on the pty: its answer says the PTY
+	// has the size, so the newline may go
+	if m := h.wait(2, "resized"); m.Seq != 7 {
+		t.Fatalf("resized %+v, want seq 7", m)
+	}
 	if _, err := c.Write([]byte("\n")); err != nil {
 		t.Fatal(err)
 	}

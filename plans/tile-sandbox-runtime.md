@@ -427,7 +427,11 @@ After `ready`, `shim.run()` calls `s.resident()` (a new file,
   (lines ≤ 64 KiB). This replaces `recvUntil`'s single pending reader.
 - **Upstream `exec`, `resize`, `signal` and `sync`** go to the guest
   (lines ≤ 1 MiB). An `exec` for a session below 2 is refused with an error
-  event.
+  event. A `resize` keeps its `seq`: the agent answers a numbered resize
+  with `resized` once the PTY has the size, and xbind holds that session's
+  next input until then — the resize rides `ctl` and the keys their
+  stream, which nothing else orders (an agent says it answers on
+  `started`, `resizeAcks`; an older one's input never waits).
 - **SIGHUP or factory EOF:** the shim sends `{op:"sync"}` for session 0
   (flush only) and waits up to 2 s (6× emulated) for `synced`, then exits
   129.

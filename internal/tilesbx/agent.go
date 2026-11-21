@@ -126,7 +126,7 @@ func (a *agentClient) event(m proto.Msg) {
 			a.syncs = a.syncs[1:]
 		}
 		a.mu.Unlock()
-	case "started", "exited", "error":
+	case "started", "exited", "error", "resized":
 		if m.Session == 0 {
 			if m.Op == "error" {
 				a.logf("the agent: %s", m.Error)
@@ -318,9 +318,18 @@ func (a *agentClient) Signal(session, sig int, group bool) error {
 	return a.sendWithin(proto.Msg{Op: "signal", Session: session, Signal: sig, Group: group}, ctlSendWait)
 }
 
-// Resize resizes a tty session's terminal (bounded).
-func (a *agentClient) Resize(session int, rows, cols uint16) error {
-	return a.sendWithin(proto.Msg{Op: "resize", Session: session, Rows: rows, Cols: cols}, ctlSendWait)
+// Resize resizes a tty session's terminal (bounded). The resize goes on
+// the control connection and the keys on the session's stream, which the
+// agent reads apart: where it answers resizes (ResizeAcks), this one is
+// numbered and the session's input waits for its answer (AwaitResizes), so
+// the keys sent after it see the new size.
+func (a *agentClient) Resize(s *agentSession, rows, cols uint16) error {
+	seq := s.beginResize()
+	err := a.sendWithin(proto.Msg{Op: "resize", Session: s.id, Rows: rows, Cols: cols, Seq: seq}, ctlSendWait)
+	if err != nil && seq > 0 {
+		s.endResize(seq) // it may never have gone: nothing waits for its answer
+	}
+	return err
 }
 
 // File opens one file operation's connection (proto/file.go's framing
@@ -351,6 +360,88 @@ type agentSession struct {
 	pid  int
 	exit SessionExit
 	fin  bool
+
+	// resizes the agent hasn't answered yet (its "started" said
+	// ResizeAcks): their numbers, and a channel closed (and replaced) at
+	// every answer
+	resizeAcks bool
+	resizeSeq  uint64
+	resizing   map[uint64]struct{}
+	resized    chan struct{}
+}
+
+// beginResize numbers a resize the agent will answer (0: it won't — an
+// agent from before ResizeAcks, or a session that ended).
+func (s *agentSession) beginResize() uint64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.resizeAcks || s.fin {
+		return 0
+	}
+	s.resizeSeq++
+	if s.resizing == nil {
+		s.resizing, s.resized = map[uint64]struct{}{}, make(chan struct{})
+	}
+	s.resizing[s.resizeSeq] = struct{}{}
+	return s.resizeSeq
+}
+
+// endResize: resize seq was answered, or won't be.
+func (s *agentSession) endResize(seq uint64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.resizing[seq]; !ok {
+		return // never sent, or answered already
+	}
+	delete(s.resizing, seq)
+	close(s.resized)
+	s.resized = make(chan struct{})
+}
+
+// AwaitResizes waits until every resize sent before the call is answered —
+// at most d, and not past the session's end — so input written next reaches
+// the terminal after them. With none outstanding it returns at once: a
+// keystroke costs no round trip, only the first after a resize waits for
+// one. Past d the agent isn't answering its control connection; those
+// resizes are given up (nothing waits for them again) and the input goes on.
+func (s *agentSession) AwaitResizes(d time.Duration) {
+	s.mu.Lock()
+	upto := s.resizeSeq
+	s.mu.Unlock()
+	var t *time.Timer
+	for {
+		s.mu.Lock()
+		waiting := false
+		for seq := range s.resizing {
+			if seq <= upto {
+				waiting = true
+				break
+			}
+		}
+		ch := s.resized
+		s.mu.Unlock()
+		if !waiting {
+			return
+		}
+		if t == nil {
+			t = time.NewTimer(d)
+			defer t.Stop()
+		}
+		select {
+		case <-ch:
+		case <-s.done:
+			return
+		case <-t.C:
+			s.mu.Lock()
+			for seq := range s.resizing {
+				if seq <= upto {
+					delete(s.resizing, seq)
+				}
+			}
+			s.mu.Unlock()
+			return
+		}
+	}
 }
 
 func (s *agentSession) event(a *agentClient, m proto.Msg) {
@@ -359,9 +450,14 @@ func (s *agentSession) event(a *agentClient, m proto.Msg) {
 		s.mu.Lock()
 		if !s.fin && s.pid == 0 {
 			s.pid = max(m.Pid, 1)
+			s.resizeAcks = m.ResizeAcks
 			close(s.started)
 		}
 		s.mu.Unlock()
+	case "resized":
+		if m.Seq > 0 {
+			s.endResize(m.Seq)
+		}
 	case "exited":
 		s.finish(a, SessionExit{Code: m.Code, Signal: max(m.Signal, 0)})
 	case "error":

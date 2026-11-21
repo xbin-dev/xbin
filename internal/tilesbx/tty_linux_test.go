@@ -206,6 +206,38 @@ func TestTTY(t *testing.T) {
 	}
 }
 
+// A resize reaches the terminal before the keys that follow it (the
+// sandbox-manager contract's tty/command), by the socket and by the routes,
+// though the two travel apart to the agent — the resize on its control
+// connection, the keys down the session's pty stream — and here, as through
+// a VM's shim, the resize's way is the slower one.
+func TestTTYResizeBeforeKeys(t *testing.T) {
+	fe := newFakeEnv(t)
+	fe.l.slowResize = 300 * time.Millisecond
+	fe.create(ns("sb-1"))
+	fe.want(fe.do(mgr, "POST", "/sandboxes/sb-1/start", nil), http.StatusOK, "")
+	script := `stty size; echo ready; read a; stty size; echo "got:$a"; read b; stty size; echo "got:$b"`
+	q := url.Values{"cmd": {script}, "rows": {"10"}, "cols": {"20"}}
+	tc, _ := dialTTY(t, fe.server(mgr), "/sandboxes/sb-1/tty?"+q.Encode())
+	tc.until("ready")
+	if err := tc.c.WriteMessage(websocket.TextMessage, []byte(`{"op":"resize","cols":100,"rows":40}`)); err != nil {
+		t.Fatal(err)
+	}
+	tc.send("hi\r")
+	tc.until("got:hi")
+	if out := tc.out.String(); !strings.Contains(out[strings.Index(out, "ready"):], "40 100") {
+		t.Fatalf("the keys overtook the socket's resize: %q", out)
+	}
+	id := fe.execList("sb-1")[0].ID
+	fe.want(fe.do(mgr, "POST", "/sandboxes/sb-1/execs/"+id+"/resize", `{"rows":50,"cols":120}`), http.StatusNoContent, "")
+	fe.want(fe.do(mgr, "POST", "/sandboxes/sb-1/execs/"+id+"/stdin", "yo\r"), http.StatusNoContent, "")
+	tc.until("got:yo")
+	if out := tc.out.String(); !strings.Contains(out[strings.Index(out, "got:hi"):], "50 120") {
+		t.Fatalf("the keys overtook the route's resize: %q", out)
+	}
+	tc.until("")
+}
+
 // D88: a tty exec claimed for a user with noTerminal is refused — at its
 // start and at every attach, the attach's own forUser too — and switching
 // noTerminal on kills the tty execs claimed for that user, and those they

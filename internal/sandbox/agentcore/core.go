@@ -210,6 +210,9 @@ func (c *Core) command(m proto.Msg) {
 		if s := c.session(m.Session); s != nil {
 			s.resize(m.Rows, m.Cols)
 		}
+		if m.Seq > 0 { // the PTY has the size (or the session is gone): the host may send the keys that follow it
+			c.send(proto.Msg{Op: "resized", Session: m.Session, Seq: m.Seq})
+		}
 	case "signal":
 		if s := c.session(m.Session); s != nil {
 			s.signal(m.Signal, m.Group)

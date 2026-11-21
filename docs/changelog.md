@@ -10,6 +10,14 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-11-21
+
+- tile sandboxes: **a terminal's resize reaches it before the keys sent
+  after it** — on the TTY WebSocket and from `POST …/resize` to the `…/stdin`
+  after it. In VM sandboxes (and, rarely, namespace ones) the keys could
+  overtake the resize, so a command run by them still saw the old size;
+  the sandbox-manager contract's `tty/command` check caught it.
+
 ## 2026-11-20
 
 - workspace agent: **one approval, one place; a start is the person's

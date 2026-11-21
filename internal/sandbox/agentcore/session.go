@@ -285,7 +285,7 @@ func (s *session) run() error {
 	s.proc, s.pid = proc, proc.Pid
 	s.mu.Unlock()
 	pipes.copy()
-	s.c.send(proto.Msg{Op: "started", Session: s.id, Pid: proc.Pid})
+	s.c.send(proto.Msg{Op: "started", Session: s.id, Pid: proc.Pid, ResizeAcks: true})
 	stop := make(chan struct{})
 	if ex.Listen != "" {
 		go s.c.awaitListen(s.id, ex.Listen, stop)

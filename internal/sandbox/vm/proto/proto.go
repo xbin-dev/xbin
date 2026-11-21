@@ -168,10 +168,20 @@ type Exec struct {
 // (the VM is about to be killed: hang up session Session — none for 0 —
 // and flush the disks), "dump" (describe what the guest is doing).
 // Guest → host ops: "ready" (answers config; an agent that takes no config
-// sends it as soon as a ctl connects), "started" (Pid), "listening",
-// "exited" (Code, and Signal when a signal ended it), "synced", "dump"
-// (answers dump, in Dump), "error" (Session names the session it ended,
-// 0 for none).
+// sends it as soon as a ctl connects), "started" (Pid, ResizeAcks),
+// "listening", "exited" (Code, and Signal when a signal ended it), "synced",
+// "resized" (Seq: answers a resize that carried one), "dump" (answers dump,
+// in Dump), "error" (Session names the session it ended, 0 for none).
+//
+// A resize and the keys typed after it travel apart — the resize on the
+// control connection, the keys on the session's pty stream — and the agent
+// reads each on its own goroutine, so nothing on the wire orders them. A
+// host that needs the keys to see the new size (a tile sandbox's terminal:
+// the contract's "a resize reaches the terminal before the keys that follow
+// it") numbers its resizes (Seq) and holds the pty stream's next bytes until
+// every resize sent before them is answered "resized" — which the agent
+// sends after the PTY has the size. An agent that answers says so on the
+// session's "started" (ResizeAcks); a host never waits on one that doesn't.
 type Msg struct {
 	Op      string  `json:"op"`
 	Config  *Config `json:"config,omitempty"`
@@ -192,6 +202,13 @@ type Msg struct {
 	Pid int `json:"pid,omitempty"`
 	// On "exited", Signal > 0 names the signal that ended the session
 	// (Code still says 128+Signal, for older readers).
+
+	// Seq numbers a "resize" (> 0: answer it), and names the resize a
+	// "resized" answers.
+	Seq uint64 `json:"seq,omitempty"`
+	// ResizeAcks, on "started": this agent answers the session's numbered
+	// resizes with "resized", once the PTY has the size.
+	ResizeAcks bool `json:"resizeAcks,omitempty"`
 }
 
 // Conn is a line-delimited JSON channel over one connection (a unix socket

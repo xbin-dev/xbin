@@ -194,6 +194,9 @@ func (e *execRec) writeInN(p []byte, wait time.Duration) (int, error) {
 	if e.inClosed {
 		return 0, refuse(RefInvalid, "exec %s's stdin was closed (eof)", e.id)
 	}
+	if e.sess != nil { // a tty's resizes reach its terminal before the keys that follow them
+		e.sess.AwaitResizes(wait)
+	}
 	done := 0
 	for len(p) > 0 {
 		_ = e.in.SetWriteDeadline(time.Now().Add(wait))
@@ -232,7 +235,7 @@ func (e *execRec) resize(rows, cols uint16) error {
 	if c == nil {
 		return refuse(RefState, "the sandbox stopped")
 	}
-	return c.Resize(e.sess.ID(), rows, cols)
+	return c.Resize(e.sess, rows, cols)
 }
 
 // startExec starts a background exec: 201's exec, or — repeat — the one a

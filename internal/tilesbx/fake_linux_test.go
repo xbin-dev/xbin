@@ -3,7 +3,9 @@
 package tilesbx
 
 import (
+	"bytes"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"sync"
@@ -32,6 +34,10 @@ type fakeLauncher struct {
 	procs []*fakeProc
 	fail  error                    // Start fails with this
 	mod   func(*agentcore.Options) // tweaks the next Core
+	// slowResize holds each read of the agent's that carries a resize line
+	// this long: a resize's longer way to the agent's control loop (a VM's,
+	// through its shim and the vsock) than its keys' down their stream
+	slowResize time.Duration
 	// onSignal is how its processes take a signal other than SIGKILL (nil:
 	// they ignore it) — a VM's shim exits 129 on SIGHUP.
 	onSignal func(p *fakeProc, s os.Signal)
@@ -57,6 +63,7 @@ func (f *fakeLauncher) Start(spec *sandbox.Spec, o LaunchOpts) (Proc, error) {
 		f.mod(&opts)
 	}
 	p.core = agentcore.New(opts)
+	slow := f.slowResize
 	// Core.Serve's loop, with each connection's handler counted: they run
 	// in this test process, so quiesce can wait for them (a real agent's
 	// threads end with its process).
@@ -68,6 +75,10 @@ func (f *fakeLauncher) Start(spec *sandbox.Spec, o LaunchOpts) (Proc, error) {
 			}
 			go func() {
 				defer p.handlers.Done()
+				if slow > 0 {
+					p.core.Handle(slowResizeConn{conn, slow})
+					return
+				}
 				p.core.Handle(conn)
 			}()
 		}
@@ -75,6 +86,28 @@ func (f *fakeLauncher) Start(spec *sandbox.Spec, o LaunchOpts) (Proc, error) {
 	}()
 	f.procs = append(f.procs, p)
 	return p, nil
+}
+
+// slowResizeConn is an agent's connection whose reads that carry a
+// resize line return d late (fakeLauncher.slowResize).
+type slowResizeConn struct {
+	net.Conn
+	d time.Duration
+}
+
+func (c slowResizeConn) Read(p []byte) (int, error) {
+	n, err := c.Conn.Read(p)
+	if bytes.Contains(p[:n], []byte(`"op":"resize"`)) {
+		time.Sleep(c.d)
+	}
+	return n, err
+}
+
+func (c slowResizeConn) CloseWrite() error {
+	if cw, ok := c.Conn.(interface{ CloseWrite() error }); ok {
+		return cw.CloseWrite()
+	}
+	return nil
 }
 
 // quiesce runs at the test's end, after the runtime stopped every sandbox
