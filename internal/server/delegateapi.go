@@ -785,11 +785,7 @@ func (s *Server) apiDelegateRequestDecide(w http.ResponseWriter, r *http.Request
 			}
 		}
 		if status, why := seenTextRefusal(cur, body.Seen, body.Knows, heldByApp(a.p)); found && cur.Kind == delegation.KindMessage && why != "" { // all of it on screen, or nothing (D251 review H1, D252)
-			if _, words, ok := strings.Cut(strings.TrimPrefix(why, seenChanged), "\x00"); ok {
-				WriteJSON(w, status, map[string]any{"error": words, "changed": "text", "reload": true, "docs": delegationDocs})
-				return
-			}
-			WriteError(w, status, why, delegationDocs)
+			refuseSeen(w, status, why)
 			return
 		}
 	}
@@ -806,12 +802,8 @@ func (s *Server) apiDelegateRequestDecide(w http.ResponseWriter, r *http.Request
 		var why string
 		chosen, redrawn, status, why = s.startPickOf(a, r.PathValue("id"), pickBody{Harness: body.Harness, Model: body.Model, Mode: body.Mode, Remember: body.Remember,
 			Continue: body.Continue, Knows: body.Knows, Signin: body.Signin, Seen: body.Seen})
-		if what, words, ok := strings.Cut(strings.TrimPrefix(why, seenChanged), "\x00"); ok && strings.HasPrefix(why, seenChanged) {
-			WriteJSON(w, status, map[string]any{"error": words, "changed": what, "reload": true, "docs": delegationDocs})
-			return
-		}
 		if why != "" {
-			WriteError(w, status, why, delegationDocs)
+			refuseSeen(w, status, why)
 			return
 		}
 	}

@@ -205,6 +205,23 @@ import Testing
         #expect(split.pending.map(\.id) == ["a", "c"] && split.failed.map(\.id) == ["b"])
     }
 
+    /// A continue shows the session's own reach as xbind recorded it — in
+    /// place of a new session's Network and Other tiles rows — and a Try
+    /// again says how much of its brief was on screen, as an approve does
+    /// (D253, the re-review's 2 and 3). The vectors hold the rest.
+    @Test func reachAndTryAgainText() throws {
+        let c: JSONValue = ["provider": "claude", "providerName": "Claude Code", "mode": "auto", "asks": false]
+        func with(_ more: [String: JSONValue]) -> JSONValue { .object((c.objectValue ?? [:]).merging(more) { _, new in new }) }
+        #expect(StartWords.reachChips(with(["net": "none", "netLabel": "offline", "api": true])) == ["its model only", "can call no other tile"])
+        #expect(StartWords.reachChips(with(["net": "internet", "netLabel": "internet", "api": true])) == ["internet", "can call tile APIs"])
+        #expect(StartWords.reachChips(with(["net": "set:docs", "netLabel": "Docs sites", "api": false])) == ["network Docs sites", "can call no other tile"])
+        #expect(StartWords.reachChips(c).isEmpty && StartWords.contChips(c) == ["Claude Code", "acts without asking"], "filed before: nothing said")
+        let starts = try #require(v["starts"]?.arrayValue)
+        let offer = try #require(DelegateRequest(json: starts.first { $0["json"]?["id"]?.stringValue == "rq_st_failed_offer" }?["json"]))
+        let body = StartWords.sheetBody(offer, pick: StartWords.pickOf(offer), onScreen: "Goal: x")
+        #expect(body["knows"] == ["continue", "seen-text"] && body["seen"]?["textLen"] == 7 && body["grant"] == nil)
+    }
+
     /// The person's own names for their saved sign-ins, by id.
     @Test func savedSignInNames() {
         let j: JSONValue = ["harnesses": [["id": "claude", "signins": [["id": "si_9", "name": "Work"], ["id": "si_x", "name": ""], ["name": "no id"]]],

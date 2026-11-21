@@ -12,6 +12,25 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-21
 
+- **Workspace agent: an approval of a long text, and a Try again of a
+  continue, from a sheet older than xbind** (D253). A client that
+  doesn't say `knows: ["seen-text"]` — every one up to v0.3.84 — showed
+  the first 4000 characters of a text until Show all and said nothing of
+  it: an approve or a Try again of a start's brief, a continue's or a
+  message longer than that is now 409 `{changed: "text", reload: true}`,
+  nothing decided ("reload this page"; the app: "update the app, or
+  decide this one on the web"); shorter texts are decided as before. The
+  web's and the app's Try again now say how much of the brief was on
+  screen, as an approve does. A v0.3.84 page's Try again of a continue
+  (`knows: ["continue"]`, no `continue`, no pick) is 409 `{changed:
+  "session", reload: true}`, nothing decided or spent — it opened a new
+  session; so is `continue: true` where no session is offered or without
+  `knows: ["continue"]`, on an approve too. `preview.session.continue`
+  gains the session's own reach from xbind's record of it — `net`,
+  `netLabel`, `api` — shown as chips ("its model only" or its network,
+  "can call tile APIs" or "can call no other tile") where the sheet hides
+  a new session's Network and Other tiles rows
+  ([delegation](/docs/protocol/delegation.md)).
 - **Workspace agent: Try again no longer continues a session its sheet
   started anew** (D253). A start that offered the agent's own session,
   approved as a new session instead and failed, continued the offered

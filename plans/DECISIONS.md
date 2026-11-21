@@ -6673,8 +6673,33 @@ here: cut from the old end, never reword.
     fixture said xbin wrote an agent's text; an xbin brief fixture of its
     own. L4 — the rows re-arm on every row's change, waiting sessions
     too. L5 — the device rule is every session the app holds (Via device
-    or app: a bearer session; a browser's is "session"); chosen over
-    "seen-text from every client", which would refuse a v0.3.84 web page
-    left open across the upgrade and a person's own scripts for nothing
-    the app's rule doesn't already cover. L6 — the message test fails
-    without the rule (an "app" session's Allow without the word).
+    or app: a bearer session; a browser's is "session"). L6 — the
+    message test fails without the rule (an "app" session's Allow
+    without the word).
+  - **The re-review of 2026-11-21** (each red first): 0 — `make check`
+    was red on the size budget: what the agent's page may ask of the
+    chrome (`pageMessage`, `plainDraft`, `contextMessage`…) is its own
+    module, agent-page-words.js, re-exported by agent-chrome-words.js
+    (the vectors byte-identical). 1 — a v0.3.84 page left open across the
+    upgrade preselects the continue on a failed follow-up and its Try
+    again says `knows: ["continue"]` and no `continue`: read as a new
+    session, it opened one the sheet didn't show. Such a body (no
+    continue, no pick, where a session is offered) is 409 `{changed:
+    "session", reload}`, nothing decided or spent; `continue: true` where
+    none is offered or without the word too, on an approve as well —
+    never a new session opened quietly. 2 — the whole-text rule had a
+    hole: a client without `seen-text` (a page or an app up to v0.3.84)
+    showed the first 4000 characters (code points: its CLIP) of a brief
+    or a message until Show all, and said nothing. Every approve and Try
+    again without the word of a text longer than that is now 409
+    `{changed: "text", reload}`; texts that fit are decided as before
+    (L5's exemption of a browser held for those only). The rule is one
+    for every client; only its words key on the session type — bearer
+    (the app): "update the app, or decide this one on the web"; cookie
+    (a browser): "reload this page". The clients' Try again now sends
+    the length too. 3 — a continue hid a new start's Network and Other
+    tiles rows and said nothing of the session's own: `continuable`
+    now carries xbind's record of it (`net`, `netLabel`, `api`), shown as
+    chips (`reachChips`); offline it calls no tile (xbind is out of its
+    reach). The number of tile APIs it may call isn't the session's
+    record (the tile's grants are), so the chip doesn't count them.

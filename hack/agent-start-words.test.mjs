@@ -156,6 +156,20 @@ test('continuing a session that carries the person\'s saved sign-in: one plain a
   noDot(v, 'a continue with a sign-in');
 });
 
+test('a continue shows the session\'s own reach — its network, whether it calls tile APIs — as xbind recorded it; none where xbind said none (D253, the re-review\'s 3)', () => {
+  const c = { session: 'ts-1', provider: 'claude', providerName: 'Claude Code', mode: 'auto', asks: false, model: 'opus' };
+  assert.deepEqual(S.contChips({ ...c, net: 'none', netLabel: 'offline', api: true }), ['Claude Code', 'model opus', 'acts without asking', 'its model only', 'can call no other tile'],
+    'offline, xbind is out of its reach: a tile-API token calls nothing');
+  assert.deepEqual(S.contChips({ ...c, net: 'internet', netLabel: 'internet', api: true }).slice(3), ['internet', 'can call tile APIs']);
+  assert.deepEqual(S.contChips({ ...c, net: 'internet', netLabel: 'internet', api: false }), ['Claude Code', 'model opus', 'acts without asking', 'internet', 'can call no other tile']);
+  assert.deepEqual(S.contChips({ ...c, net: 'set:docs', netLabel: 'Docs sites', api: true }).slice(3), ['network Docs sites', 'can call tile APIs']);
+  assert.deepEqual(S.contChips({ ...c, net: 'org', netLabel: '', api: true }).slice(3), ['network org', 'can call tile APIs']);
+  assert.deepEqual(S.contChips(c), ['Claude Code', 'model opus', 'acts without asking'], 'a request filed before: nothing said');
+  const req = start({ continue: { ...c, net: 'none', netLabel: 'offline', api: false } });
+  assert.deepEqual(S.startView(req, S.pickOf(req)).cont.chips.slice(3), ['its model only', 'can call no other tile']);
+  assert.deepEqual(S.startChips(req).slice(3), ['its model only', 'can call no other tile']);
+});
+
 test('a follow-up on its batch row: whole when it fits, Send at once; a long one only after Show all (D251 review H1)', () => {
   const brief = "This is a piece of work in this tile, handed to you by ada's workspace agent on their behalf.\n\nGoal: Add a computer player.\nDone when: one can play it.";
   const cont = start({ continue: { session: 'ts-1', provider: 'claude', providerName: 'Claude Code', mode: 'auto', asks: false, model: 'opus', signInId: 'si_9' }, prompt: brief },
@@ -264,7 +278,8 @@ test('what the sheet\'s Allow sends: the pick, all of the text, and for a Try ag
   assert.deepEqual(S.sheetBody(req, pick, 'Goal'), { grant: 'once', knows: ['continue', 'seen-text'], seen: { signInId: '', net: '', textLen: 4 }, harness: 'codex', model: '', mode: 'agent', remember: true }, 'the part shown: xbind refuses it');
   const failed = { ...req, state: 'failed', failure: { why: 'x', retry: true }, chosen: { provider: 'gemini', model: '', mode: 'default', continue: true } };
   pick = S.pickOf(failed);
-  assert.deepEqual(S.sheetBody(failed, pick, 'Goal: tic tac toe'), { knows: ['continue'], seen: { signInId: 'si_1', net: '' }, harness: 'gemini', model: '', mode: 'default' }, 'no grant, no length, no tick, nothing remembered');
+  assert.deepEqual(S.sheetBody(failed, pick, 'Goal: tic tac toe'), { knows: ['continue', 'seen-text'], seen: { signInId: 'si_1', net: '', textLen: 17 }, harness: 'gemini', model: '', mode: 'default' },
+    'no grant, no tick, nothing remembered — and all of the brief on screen, as an approve says it (the re-review\'s 2)');
   const msg = { id: 'rq_m', kind: 'message', tile: 'apps/eui', state: 'pending', preview: { message: { session: 'ts-1', provider: 'opencode', text: 'Fix it.' } } };
   assert.deepEqual(S.sheetBody(msg, null, 'Fix it.'), { grant: 'once', knows: ['seen-text'], seen: { textLen: 7 } });
   assert.deepEqual(S.sheetBody({ kind: 'call' }, null, '', { grant: 'hour', scope: 'call' }), { grant: 'hour', scope: 'call' }, 'a call: as approveBody made it');
@@ -294,12 +309,14 @@ test('Try again says what its sheet shows: a new session stays a new session, a 
   let pick = S.pickOf(failed);
   const v = S.startView(failed, pick);
   assert.deepEqual([pick.cont, v.continuing, v.label, v.modeChip], [false, false, 'Start', 'asks before acting'], 'the sheet shows a new session');
-  assert.deepEqual(S.sheetBody(failed, pick, 'Goal: tic tac toe'), { knows: ['continue'], continue: false, seen: { signInId: 'si_9', net: '' }, harness: 'claude', model: '', mode: 'default' },
-    'what it sends says so: absent, xbind opened the offered session');
+  assert.deepEqual(S.sheetBody(failed, pick, 'Goal: tic tac toe'), { knows: ['continue', S.SEEN_TEXT], continue: false, seen: { signInId: 'si_9', net: '', textLen: 17 }, harness: 'claude', model: '', mode: 'default' },
+    'what it sends says so: absent, xbind opened the offered session — and how much of the brief was on screen, as an approve says it (the re-review\'s 2)');
   assert.equal(v.remember.shown, false, 'no Remember on a Try again: a retry remembers nothing');
   pick = S.contChoice(pick, failed, true);
-  assert.deepEqual(S.sheetBody(failed, pick, 'Goal: tic tac toe'), { knows: ['continue'], continue: true, seen: { signInId: 'si_9', net: '', harness: 'claude', mode: 'auto' } },
+  assert.deepEqual(S.sheetBody(failed, pick, 'Goal: tic tac toe'), { knows: ['continue', S.SEEN_TEXT], continue: true, seen: { signInId: 'si_9', net: '', harness: 'claude', mode: 'auto', textLen: 17 } },
     'continuing on a Try again: said, with the session as shown');
+  assert.deepEqual(S.sheetBody(failed, pick, 'Goal: tic'), { knows: ['continue', S.SEEN_TEXT], continue: true, seen: { signInId: 'si_9', net: '', harness: 'claude', mode: 'auto', textLen: 9 } },
+    'the part on screen of a brief it clipped: xbind refuses it, nothing decided');
   assert.equal(S.sheetBody({ ...failed, preview: { session: { ...failed.preview.session, continue: undefined } } }, S.pickOf(failed), '').continue, undefined, 'nothing offered: nothing to say');
   // the first approval: a new session instead says continue false — the sheet, the row and Review all all build it here
   const pending = start({ continue: cont, choices: { harnesses: hs } });

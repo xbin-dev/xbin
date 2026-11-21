@@ -330,12 +330,29 @@ public enum StartWords {
     }
 
     /// A session a start (or a message) goes to, as its facts — coding
-    /// agent, model, mode, the sign-in it carries.
+    /// agent, model, mode, the sign-in it carries, and its own reach as
+    /// xbind recorded it (``reachChips(_:)``).
     public static func contChips(_ c: JSONValue?) -> [String] {
         let name = nonEmpty(str(c?["providerName"])) ?? nonEmpty(str(c?["provider"])) ?? "the tile agent"
         let model = str(c?["model"])
-        return [name, model.isEmpty ? "" : "model \(model)", modeChip(c?["asks"]?.boolValue == true),
-                str(c?["signInId"]).isEmpty ? "" : "uses your \(name) sign-in"].filter { !$0.isEmpty }
+        return ([name, model.isEmpty ? "" : "model \(model)", modeChip(c?["asks"]?.boolValue == true),
+                 str(c?["signInId"]).isEmpty ? "" : "uses your \(name) sign-in"] + reachChips(c)).filter { !$0.isEmpty }
+    }
+
+    /// A continued session's own reach, from xbind's record of it
+    /// (`continue.net`, `netLabel`, `api`) — in place of a new session's
+    /// Network and Other tiles rows, which the sheet hides while it
+    /// continues one: its network ("its model only" offline), and whether
+    /// it can call tile APIs (a token, and a network that reaches xbind).
+    /// Nothing where xbind said nothing (a request filed before D253). The
+    /// web's reachChips.
+    public static func reachChips(_ c: JSONValue?) -> [String] {
+        guard let c else { return [] }
+        let net = c["net"]?.stringValue
+        let label = nonEmpty(str(c["netLabel"])) ?? net ?? ""
+        let place = net == nil ? "" : net == "none" ? "its model only" : label == "internet" ? "internet" : label.isEmpty ? "" : "network \(label)"
+        let api = c["api"]?.boolValue.map { $0 && net != "none" ? "can call tile APIs" : "can call no other tile" } ?? ""
+        return [place, api].filter { !$0.isEmpty }
     }
 
     private static func modeOptions(_ h: JSONValue) -> [StartPicker.Option] {
@@ -478,10 +495,11 @@ public enum StartWords {
 
     /// What the sheet's Allow sends: `base` (``DelegationWords/approveBody``'s
     /// `{grant, scope?, unseen?}`) with the pick, how much of the text it
-    /// sends was on screen (a start's brief, a message), and for a Try again
+    /// sends was on screen (a start's brief, a message; a Try again's too:
+    /// xbind holds it to all of a brief as an approve), and for a Try again
     /// (state failed: `POST …/retry`) only what a retry takes — no grant,
-    /// nothing remembered, no length, and continue as the sheet shows it,
-    /// said either way where the start offers a session. The web's sheet
+    /// nothing remembered, and continue as the sheet shows it, said either
+    /// way where the start offers a session. The web's sheet
     /// sends the same (sheetBody). `takes`: what this app's xbind takes
     /// (``currentTakes``); an older one gets only what it takes — and what it
     /// can't be held to is declined beforehand (``olderRefusal``), never sent
@@ -491,7 +509,7 @@ public enum StartWords {
         var body = base.objectValue ?? [:]
         if let pick { body.merge(pickBody(r, pick, takes: takes)) { _, new in new } }
         // (an xbind before D252 reads an approve strictly: the length goes only to one that takes it)
-        if takes.contains(seenText), r.kind == .message || (r.kind == .session && r.state != .failed) { body = withSeenText(body, onScreen: onScreen) }
+        if takes.contains(seenText), r.kind == .message || r.kind == .session { body = withSeenText(body, onScreen: onScreen) }
         // a Try again keeps the pick's continue — true or false, as its sheet shows: absent, xbind opens a new session
         if r.state == .failed { for k in ["grant", "scope", "unseen", "remember"] { body[k] = nil } }
         return .object(body)

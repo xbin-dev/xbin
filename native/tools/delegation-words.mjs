@@ -298,8 +298,9 @@ const st = (session = {}, o = {}) => ({ id: 'rq_st', user: 'ana', agent: 'xbin/w
   state: 'pending', created: t('10:02:00'), expires: '2026-11-17T10:02:00Z',
   preview: { class: 'act', session: { tile: 'apps/eui', provider: 'claude', providerName: 'Claude Code', mode: 'auto', asks: false, net: 'none', api: true, model: '', prompt: BRIEF,
     signIn: 'connector', signInId: 'si_9', choices: { harnesses: HS }, from: { harness: 'tile', model: 'default', mode: 'default' }, ...session } }, ...o });
+// (its own reach, as xbind recorded the session: D253 re-review 3)
 const CONT = { session: 'ts-1', provider: 'claude', providerName: 'Claude Code', mode: 'auto', asks: false, model: 'opus', name: 'claude: game', started: t('09:52:00'), since: t('09:58:00'),
-  signIn: 'saved', signInId: 'si_9' };
+  signIn: 'saved', signInId: 'si_9', net: 'internet', netLabel: 'internet', api: true };
 const FOLLOW = "This is a piece of work in this tile, handed to you by ana's workspace agent on their behalf.\n\nGoal: add a computer player.\nDone when: one person can play it.";
 const XBIN_BRIEF = "This is a piece of work in this tile, handed to you by ana's workspace agent on their behalf, with xbin's own brief for it.\n\nGoal: merge the template's update.\nDone when: the tile builds and its page loads.";
 // [the case, its steps: ['harness' | 'model' | 'mode', value] a picker; ['cont', bool] continue or a new session; ['remember', bool]]
@@ -313,7 +314,10 @@ export const startCases = [
     [['cont', false], ['harness', 'gemini'], ['cont', true]]],
   // …and one that is xbin's own update brief (briefBy, xbind's word: D248)
   [st({ continue: CONT, prompt: XBIN_BRIEF, briefBy: 'xbin' }, { id: 'rq_st_cont_xbin' }), []],
-  [st({ continue: { ...CONT, signIn: 'connector', signInId: '', provider: 'opencode', providerName: 'OpenCode', mode: 'build', model: '' }, prompt: 'Fix the stray O.' }, { id: 'rq_st_cont_oc' }), [['cont', false]]],
+  [st({ continue: { ...CONT, signIn: 'connector', signInId: '', provider: 'opencode', providerName: 'OpenCode', mode: 'build', model: '', net: 'none', netLabel: 'offline', api: true }, prompt: 'Fix the stray O.' }, { id: 'rq_st_cont_oc' }), [['cont', false]]],
+  // a session in a network set that calls no tile, and one recorded before xbind said its reach
+  [st({ continue: { ...CONT, net: 'set:docs', netLabel: 'Docs sites', api: false }, prompt: FOLLOW }, { id: 'rq_st_cont_set' }), []],
+  [st({ continue: { ...CONT, net: undefined, netLabel: undefined, api: undefined }, prompt: FOLLOW }, { id: 'rq_st_cont_before' }), []],
   // a resume: its mode only
   [st({ resume: true, mode: 'auto', resumeModeNotTaken: 'bypassPermissions', choices: { harnesses: [HS[0]] }, from: undefined }, { id: 'rq_st_resume' }), [['mode', 'default']]],
   // an older xbind's start: no choices — nothing to pick, the length of its brief only

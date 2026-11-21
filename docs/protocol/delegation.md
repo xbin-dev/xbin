@@ -1255,7 +1255,17 @@ POST   /delegate/requests/<id>/retry
                                  session — never the offered one by
                                  default, as a first approval's continue
                                  does; an empty body repeats the first
-                                 approval's choice (D253).
+                                 approval's choice (D253). Where the start
+                                 offers a session, a body that knows
+                                 "continue" and says neither continue nor
+                                 harness, model or mode (v0.3.84's Try
+                                 again of a continue) is 409 {changed:
+                                 "session", reload: true}, nothing
+                                 decided or spent; so is continue: true
+                                 where none is offered or without knows
+                                 "continue" — on an approve too. The text
+                                 rule is an approve's (seen.textLen,
+                                 knows "seen-text").
                                  A start that failed to open for a reason
                                  that isn't the agent's (state failed,
                                  failure.retry) is a ticket again, for 15
@@ -1321,14 +1331,21 @@ text's length, any other is 409 `{changed: "text", reload: true}`,
 nothing decided (D251 review H1, D252). That is all xbind can hold a
 client to: a client that sends the whole length of a text it didn't show
 is believed — the rule that it shows a text before it offers Allow is
-the client's own (the web's and the app's: Show all). An approve without
-the word or the length (an older client) isn't held to it — except an
-app's Allow of a message without the word — from any session the app
-holds: its device's, or the password/SSO one before a device is
-enrolled: the app up to v0.3.84 showed no message, so that is 409
-"decide this one on the web", nothing decided, a length without the
-word too. An app that shows a message (D253) says `seen-text` and the
-whole length, and is allowed as the web is. The text a
+the client's own (the web's and the app's: Show all). An approve or a Try again
+without the word (every client up to v0.3.84) says nothing of what was
+on screen, and such a client showed the first 4000 characters (code
+points) of a text until its person pressed Show all: a text longer than
+that is refused from it — 409 `{changed: "text", reload: true}`,
+nothing decided — and a text that fits is decided as before (D253). The
+app up to v0.3.84 showed no message at all: its Allow of a message
+without the word is 409 "decide this one on the web", nothing decided,
+a length without the word too. The rules are one for every client; only
+the words of a refusal key on the session type — a bearer session is the
+app's (its device's, or the password/SSO one before a device is
+enrolled): "update the app, or decide this one on the web"; a cookie
+session is a browser's: "reload this page", which loads a sheet that
+says the word. An app that shows a message (D253) says `seen-text` and
+the whole length, and is allowed as the web is. The text a
 card shows is xbind's — `preview.session.prompt`, `preview.message.text`
 — never a client's own reading of the body (D252). A pending request expires after 24
 hours; decided and withdrawn ones are kept a day, 200 a person at most.
@@ -1445,7 +1462,7 @@ from: {harness, model, mode},        // "tile" | "preference" | "agent" | "defau
 suggested?: {harness?, model?, mode?},
 modeNotTaken?: "<mode>",             // suggested, a bypass (explicit) one: not preselected
 continue?: {session, provider, providerName, mode, asks, model, name, started, since,
-            signIn, signInId?}
+            signIn, signInId?, net?, netLabel?, api?}
 resumeModeNotTaken?: "<mode>",       // a resume whose last mode was a bypass one: it resumes in the work mode
 ```
 
@@ -1513,7 +1530,13 @@ resumeModeNotTaken?: "<mode>",       // a resume whose last mode was a bypass on
   held to the session shown: the approve's `seen` names its `harness`,
   `mode` and `signInId` as the sheet showed them, and another one now is
   409 `{changed: "session" | "signin", reload: true}`, nothing decided;
-  the redeem checks the session still carries the sign-in shown.
+  the redeem checks the session still carries the sign-in shown. The
+  session's own reach is a fact of it too, from xbind's record of the
+  session when the start was filed: `net` (its network scope; `none`:
+  its model only), `netLabel` (that scope's name) and `api` (it holds a
+  tile-API token: it can call the tile APIs its tile is granted) — the
+  sheet shows them in place of a new session's Network and Other tiles
+  rows; absent from a request filed before (D253).
 - **A plan's `agent.start` line runs as it was reviewed**: the open is the
   line's coding agent, model and mode, whatever the call's body named; to
   run others the agent asks for a single start's approval, where the

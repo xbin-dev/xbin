@@ -111,13 +111,31 @@ export const modeChip = (asks) => (asks ? 'asks before acting' : 'acts without a
 
 /**
  * contChips(c): a session the start (or a message) goes to, as its facts —
- * coding agent, model, mode, the sign-in it carries. Which saved sign-in
- * that is, the chrome draws beside them as an element of its own, from the
- * person's own list by its id (signInIdOf).
+ * coding agent, model, mode, the sign-in it carries, and its own reach as
+ * xbind recorded it (reachChips). Which saved sign-in that is, the chrome
+ * draws beside them as an element of its own, from the person's own list
+ * by its id (signInIdOf).
  */
 export function contChips(c) {
   const name = (c && (c.providerName || c.provider)) || 'the tile agent';
-  return [name, c && c.model ? `model ${c.model}` : '', modeChip(!!(c && c.asks === true)), c && c.signInId ? `uses your ${name} sign-in` : ''].filter(Boolean);
+  return [name, c && c.model ? `model ${c.model}` : '', modeChip(!!(c && c.asks === true)), c && c.signInId ? `uses your ${name} sign-in` : '', ...reachChips(c)].filter(Boolean);
+}
+
+/**
+ * reachChips(c): a continued session's own reach, from xbind's record of
+ * it (continue.net, netLabel, api) — in place of a new session's Network
+ * and Other tiles rows, which the sheet hides while it continues one: its
+ * network ("its model only" offline), and whether it can call tile APIs
+ * (a token, and a network that reaches xbind: offline it can't). Nothing
+ * where xbind said nothing (a request filed before D253).
+ */
+export function reachChips(c) {
+  if (!c) return [];
+  const net = typeof c.net === 'string' ? c.net : null;
+  const label = (typeof c.netLabel === 'string' && c.netLabel) || net || '';
+  const where = net === null ? '' : net === 'none' ? 'its model only' : label === 'internet' ? 'internet' : label ? `network ${label}` : '';
+  const api = typeof c.api !== 'boolean' ? '' : c.api && net !== 'none' ? 'can call tile APIs' : 'can call no other tile';
+  return [where, api].filter(Boolean);
 }
 
 export function startView(req, pick) {
@@ -244,15 +262,16 @@ export function withSeenText(body, onScreen) {
  * (approveBody's {grant, scope?, unseen?, signin?, trust?}) with the pick
  * (pickBody: a start's), how much of the text it sends was on screen when
  * its person clicked (withSeenText: a start's brief, a message — onScreen,
- * the part shown), and for a Try again (a start that failed: POST …/retry)
- * only what a retry takes: no grant, nothing remembered, no text length —
- * and continue as its sheet shows it, said either way where the start
- * offers a session (xbind continues one on a Try again only when told).
+ * the part shown; a Try again's too: xbind holds it to all of a brief as
+ * an approve), and for a Try again (a start that failed: POST …/retry)
+ * only what a retry takes: no grant, nothing remembered — and continue as
+ * its sheet shows it, said either way where the start offers a session
+ * (xbind continues one on a Try again only when told).
  * The web's sheet and the app's send exactly this (D253).
  */
 export function sheetBody(req, pick, onScreen, base = { grant: 'once' }) {
   const body = { ...base, ...(pick ? pickBody(req, pick) : {}) };
-  const out = req.kind === 'message' || (req.kind === 'session' && req.state !== 'failed') ? withSeenText(body, onScreen) : body;
+  const out = req.kind === 'message' || req.kind === 'session' ? withSeenText(body, onScreen) : body;
   // (a Try again keeps the pick's continue — true or false, as its sheet shows: absent, xbind opens a new session)
   if (req.state === 'failed') { delete out.grant; delete out.scope; delete out.unseen; delete out.remember; }
   return out;

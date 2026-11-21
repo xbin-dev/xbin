@@ -27,6 +27,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/xbin-dev/xbin/internal/agent"
 	"github.com/xbin-dev/xbin/internal/agentprefs"
@@ -391,7 +392,10 @@ func (s *Server) continuable(p auth.Principal, sid, tile string) (map[string]any
 	}
 	prov, _ := agent.Lookup(info.Provider)
 	out := map[string]any{"session": sid, "provider": info.Provider, "providerName": cmp.Or(prov.Name, info.Provider), "mode": info.Mode, "asks": prov.Asks(info.Mode),
-		"model": info.Model, "name": info.Name, "started": info.Created, "since": info.LastActive, "signIn": ""}
+		"model": info.Model, "name": info.Name, "started": info.Created, "since": info.LastActive, "signIn": "",
+		// its own reach, as xbind runs it: the network scope (id and label) and whether it holds a tile-API token —
+		// facts of the session the sheet shows in place of a new one's Network and Other tiles rows (D253 re-review 3)
+		"net": info.Net, "netLabel": info.Label, "api": info.API}
 	if id := s.Term.SigninIDOf(sid); id != "" {
 		// it carries the person's saved sign-in: a fact the sheet shows — they ticked it when the session started, and a
 		// follow-up is the same session doing more of what they approved (D251: no tick again). By id, as a start's
@@ -439,8 +443,9 @@ type seenBasis struct {
 	// the part their client showed, the first lines of a clipped one (D251
 	// review H1, D252). Allowed only when that is all of it; another length
 	// is refused, nothing decided. Required with knows "seen-text"
-	// (seenTextRefusal); absent from a client without it (an older one,
-	// which holds its Allow back itself): not checked.
+	// (seenTextRefusal); absent from a client without it (an older one):
+	// then only a text that fits what such a client showed before Show all
+	// (oldClip) is decided.
 	TextLen *int `json:"textLen,omitempty"`
 }
 
@@ -471,17 +476,26 @@ func approvalText(req delegation.Request) string {
 	return ""
 }
 
-// seenTextRefusal is why an approval of req can't be decided for what its
-// client said of the text (""): with knows "seen-text", it must say how much
-// of a text there is was on screen (400); and from any client that says, it
-// must have been all of it (409, seenChanged "text": nothing decided). An
-// app (device) up to v0.3.84 shows no message to a tile agent — it didn't
-// know the kind, and offered Allow on a sheet without its text — so an
-// app's Allow of one without the word is refused (409): decided on the web
-// (D252). An app that shows the message says so with the word, and is held
-// to the whole length like any client (D253). app: the caller is the app —
-// any session it holds, its device's or the password/SSO one it signs in
-// with before a device is enrolled (heldByApp).
+// seenTextRefusal is why an approve or a Try again of req can't be
+// decided for what its client said of the text ("" it can) — a message's,
+// or what a start or a continue tells its session first (approvalText):
+//
+//   - a client that knows "seen-text" says how much of it was on screen
+//     (400 without), and it must have been all of it (409, seenChanged
+//     "text": nothing decided; D252);
+//   - a client that doesn't — every one up to v0.3.84 — showed the first
+//     oldClip characters of a text (code points, as it clipped them) until
+//     its person pressed Show all, and says nothing of it: a longer text is
+//     refused from it (409, seenChanged "text": nothing decided), a text
+//     that fits decided as before (D253, the re-review's 2);
+//   - the app up to v0.3.84 shows no message to a tile agent at all (it
+//     didn't know the kind): its Allow of one without the word is refused,
+//     whatever its length (409: decide it on the web; D252).
+//
+// The rule is the same for every client; what the words tell its person to
+// do keys on the session type: app — a bearer session, which only the xbin
+// app holds (heldByApp) — updates the app or decides on the web; a cookie
+// session is a browser's, whose page reloads into one that says the word.
 //
 // approveTakes is what this xbind takes of an approve's and a Try again's
 // body beyond v0.3.84's — said in GET /delegate/state (`takes`), so a
@@ -492,10 +506,25 @@ func approvalText(req delegation.Request) string {
 // that says seen-text decides a message).
 var approveTakes = []string{knowsSeenText, "seen-session", "retry-continue", "device-message"}
 
+// oldClip is how much of a text a client up to v0.3.84 showed before Show
+// all: its CLIP, in characters (code points).
+const oldClip = 4000
+
 // heldByApp: p is a session the xbin app holds — a bearer session, its
 // device's ("device") or its password/SSO one before a device is enrolled
-// ("app"); a browser's is "session" (auth sessions.go).
+// ("app"); a browser's is a cookie session ("session", auth sessions.go).
 func heldByApp(p auth.Principal) bool { return p.Via == "device" || p.Via == "app" }
+
+// olderClient is a refusal's words for a client older than this xbind,
+// what being what it couldn't say: a browser's page reloads into this
+// xbind's; the app is updated, or the request decided on the web.
+func olderClient(app bool, what string) string {
+	if app {
+		return what + ": update the app, or decide this one on the web — nothing was decided"
+	}
+	return what + ": reload this page, then decide — nothing was decided"
+}
+
 func seenTextRefusal(req delegation.Request, seen *seenBasis, knows []string, app bool) (int, string) {
 	text := approvalText(req)
 	says := slices.Contains(knows, knowsSeenText)
@@ -506,6 +535,8 @@ func seenTextRefusal(req delegation.Request, seen *seenBasis, knows []string, ap
 		return http.StatusBadRequest, `an approval that knows "seen-text" says how much of the text was on screen when its person allowed it: seen {textLen}`
 	case app && req.Kind == delegation.KindMessage && !says:
 		return http.StatusConflict, "this app can't show a message to a tile agent: decide this one on the web — nothing was decided"
+	case !says && utf8.RuneCountInString(text) > oldClip:
+		return http.StatusConflict, seenChanged + "text\x00" + olderClient(app, fmt.Sprintf("this sheet doesn't say whether all of this text's %d characters were on screen (it shows the first %d until Show all)", utf8.RuneCountInString(text), oldClip))
 	}
 	return http.StatusConflict, textSeenRefusal(seen, text)
 }
@@ -523,6 +554,17 @@ func textSeenRefusal(seen *seenBasis, text string) string {
 // else than xbind resolves now: "seen\x00<what>\x00<words>" — the handler
 // answers 409 {error, changed: <what>, reload: true}, nothing decided.
 const seenChanged = "seen\x00"
+
+// refuseSeen answers a refusal of an approve or a Try again: a seenChanged
+// one as 409 {error, changed: <what>, reload: true} — nothing decided, the
+// sheet reads the request again — any other as an error.
+func refuseSeen(w http.ResponseWriter, status int, why string) {
+	if what, words, ok := strings.Cut(strings.TrimPrefix(why, seenChanged), "\x00"); ok && strings.HasPrefix(why, seenChanged) {
+		WriteJSON(w, status, map[string]any{"error": words, "changed": what, "reload": true, "docs": delegationDocs})
+		return
+	}
+	WriteError(w, status, why, delegationDocs)
+}
 
 // seenRefusal is why seen isn't what preview (the session preview of what
 // the approval opens) says now ("" it is, or the client sent no basis).
@@ -582,8 +624,13 @@ func (s *Server) startPickFor(a delegateActor, req delegation.Request, b pickBod
 	shown, _ := req.Preview["session"].(map[string]any)
 	offered, _ := shown["continue"].(map[string]any)
 	knows := slices.Contains(b.Knows, "continue")
-	if status, why := seenTextRefusal(req, b.Seen, b.Knows, false); why != "" { // all of the brief on screen, or nothing (D252)
+	if status, why := seenTextRefusal(req, b.Seen, b.Knows, heldByApp(a.p)); why != "" { // all of the brief on screen, or nothing (D252)
 		return nil, nil, status, why
+	}
+	if b.Continue != nil && *b.Continue && (offered == nil || !knows) {
+		// continuing where xbind offers no session, or from a client that doesn't know the word: its sheet showed
+		// something else than this request — never a new session opened quietly instead (D253, the re-review's 1)
+		return nil, nil, http.StatusConflict, seenChanged + "session\x00this start offers no session to continue as your sheet showed it: look again — nothing was decided"
 	}
 	if !b.picks() && !(offered != nil && knows) {
 		return nil, nil, 0, "" // an older client, or one that picks nothing: the start as it was shown

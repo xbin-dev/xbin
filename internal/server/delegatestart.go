@@ -349,6 +349,21 @@ func (s *Server) apiDelegateRequestRetry(w http.ResponseWriter, r *http.Request)
 		WriteError(w, http.StatusConflict, delegation.ErrNotRetryable.Error(), delegationDocs)
 		return
 	}
+	app := heldByApp(a.p)
+	// all of the brief on screen, said — or one an older client showed whole (D252; D253, the re-review's 2)
+	if status, why := seenTextRefusal(cur, body.Seen, body.Knows, app); why != "" {
+		refuseSeen(w, status, why)
+		return
+	}
+	shown, _ := cur.Preview["session"].(map[string]any)
+	if offered, _ := shown["continue"].(map[string]any); offered != nil && slices.Contains(body.Knows, "continue") &&
+		body.Continue == nil && body.Harness == nil && body.Model == nil && body.Mode == nil {
+		// a sheet that knows the start offers a session and says neither continue nor a pick: v0.3.84's, whose Try
+		// again showed the continue (and didn't send it) — never read as a new session it didn't show, nor as the
+		// continue a new session's sheet of it may have shown: refused, nothing decided or spent (D253 re-review 1)
+		refuseSeen(w, http.StatusConflict, seenChanged+"session\x00"+olderClient(app, "this sheet doesn't say whether Try again continues the session or starts a new one"))
+		return
+	}
 	var chosen *delegation.StartChoice
 	var redrawn map[string]any
 	if pb := (pickBody{Harness: body.Harness, Model: body.Model, Mode: body.Mode, Continue: &cont, Knows: body.Knows, Seen: body.Seen, Signin: body.Signin}); pb.picks() || cont {
@@ -357,11 +372,7 @@ func (s *Server) apiDelegateRequestRetry(w http.ResponseWriter, r *http.Request)
 		if chosen, redrawn, status, why = s.startPickFor(a, cur, pb); why != "" {
 			// what the sheet showed changed since: 409 {changed, reload}, as an approve answers it (D250 review L2) —
 			// it was xbind's raw refusal, which a client couldn't tell from any other
-			if what, words, ok := strings.Cut(strings.TrimPrefix(why, seenChanged), "\x00"); ok && strings.HasPrefix(why, seenChanged) {
-				WriteJSON(w, status, map[string]any{"error": words, "changed": what, "reload": true, "docs": delegationDocs})
-				return
-			}
-			WriteError(w, status, why, delegationDocs)
+			refuseSeen(w, status, why)
 			return
 		}
 	}

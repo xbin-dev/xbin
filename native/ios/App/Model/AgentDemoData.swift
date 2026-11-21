@@ -1722,7 +1722,10 @@ enum AgentDemoData {
       "started": "2026-11-16T09:52:00Z",
       "since": "2026-11-16T09:58:00Z",
       "signIn": "saved",
-      "signInId": "si_9"
+      "signInId": "si_9",
+      "net": "internet",
+      "netLabel": "internet",
+      "api": true
      },
      "briefBy": "agent"
     }
@@ -2054,7 +2057,10 @@ enum AgentDemoData {
       "started": "2026-11-16T09:52:00Z",
       "since": "2026-11-16T09:58:00Z",
       "signIn": "saved",
-      "signInId": "si_9"
+      "signInId": "si_9",
+      "net": "internet",
+      "netLabel": "internet",
+      "api": true
      },
      "briefBy": "xbin"
     }
