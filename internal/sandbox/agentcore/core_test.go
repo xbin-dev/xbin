@@ -367,10 +367,13 @@ func TestGroupSignal(t *testing.T) {
 func TestGroupSignalAfterExit(t *testing.T) {
 	// The afterlife outlasts the test's waits, however slow (and is ended
 	// below on purpose).
-	was := groupAfterlife
-	groupAfterlife = hangGuard
-	t.Cleanup(func() { groupAfterlife = was })
 	h := newHarness(t, nil)
+	afterlife := func(d time.Duration) {
+		h.core.mu.Lock()
+		h.core.afterlife = d
+		h.core.mu.Unlock()
+	}
+	afterlife(hangGuard)
 	orphan := func(session int) int {
 		t.Helper()
 		ss := h.exec(proto.Exec{Session: session, Argv: sh("trap '' TERM; sleep 60 >/dev/null 2>&1 & echo $!"), Merge: true, NoStdin: true})
@@ -413,12 +416,33 @@ func TestGroupSignalAfterExit(t *testing.T) {
 	h.wait(4, "exited")
 
 	// past the afterlife the group is forgotten
-	groupAfterlife = 0
+	afterlife(0)
 	pid = orphan(3)
 	h.send(proto.Msg{Op: "signal", Session: 3, Signal: int(unix.SIGKILL), Group: true})
 	h.barrier()
 	if !untouched(pid) {
 		t.Fatal("a group signal past the afterlife reached the member")
+	}
+}
+
+// A core's afterlife is its own: a session of one core ending while a test
+// sets another's (as an earlier test's sessions end while the next one
+// sets up) shares nothing for -race to catch. With a package variable it
+// did (core.go's endedLocked against the next test's setup).
+func TestAfterlifeIsTheCores(t *testing.T) {
+	earlier := newHarness(t, nil)
+	earlier.exec(proto.Exec{Session: 2, Argv: sh("sleep 0.2"), Merge: true, NoStdin: true})
+	earlier.wait(2, "started")
+	next := newHarness(t, nil)
+	next.core.mu.Lock()
+	next.core.afterlife = hangGuard
+	next.core.mu.Unlock()
+	earlier.wait(2, "exited")
+	earlier.core.mu.Lock()
+	until := earlier.core.ended[2].until
+	earlier.core.mu.Unlock()
+	if d := time.Until(until); d <= 0 || d > groupAfterlife {
+		t.Fatalf("the earlier core's ended group lives %s, want its own afterlife (%s)", d, groupAfterlife)
 	}
 }
 
@@ -636,8 +660,7 @@ func TestIdentity(t *testing.T) {
 	for name, v := range map[string]string{"uid_map": "0 1000 1\n", "gid_map": "0 1000 1\n", "setgroups": "deny\n"} {
 		_ = os.WriteFile(filepath.Join(maps, name), []byte(v), 0o644)
 	}
-	idMaps = maps
-	t.Cleanup(func() { idMaps = "/proc/self" })
+	h.core.idMaps = maps // the exec below reaches the core after this (its socket orders them)
 	five := uint32(5)
 	h.exec(proto.Exec{Session: 3, Argv: []string{"true"}, UID: &five, Merge: true, NoStdin: true})
 	if m := h.wait(3, "error"); !strings.Contains(m.Error, "uid 5 is not mapped") {

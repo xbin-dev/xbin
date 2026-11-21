@@ -61,8 +61,8 @@ const (
 
 // vmHupWait is how long a stop gives a hung-up shim to flush the guest and
 // exit (it waits for the guest at most 2 s, 12 s emulated) before killing
-// it. A var: the tests shorten it.
-var vmHupWait = 10 * time.Second
+// it (Manager.hupWait: a test shortens its own).
+const vmHupWait = 10 * time.Second
 
 // vmOps is VM mode.
 var vmOps = &modeOps{
@@ -191,7 +191,7 @@ func vmStop(m *Manager, r *run, why string) {
 		return // something else ended it meanwhile
 	}
 	if err := r.proc.Signal(syscall.SIGHUP); err == nil {
-		t := time.NewTimer(slower(r, vmHupWait))
+		t := time.NewTimer(slower(r, m.hupWait))
 		defer t.Stop()
 		select {
 		case <-r.exited:

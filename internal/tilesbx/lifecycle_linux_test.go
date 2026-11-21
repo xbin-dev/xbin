@@ -157,9 +157,7 @@ func TestFailedStartUnwinds(t *testing.T) {
 	// An agent that never answers "ready": the run is ended, and torn down.
 	fe.l.fail = nil
 	fe.l.mod = func(o *agentcore.Options) { o.Configure = func(proto.Config) error { return nil } } // waits for a config
-	nsOpsReady := nsOps.readyWait
-	nsOps.readyWait = func(*run) time.Duration { return 300 * time.Millisecond }
-	defer func() { nsOps.readyWait = nsOpsReady }()
+	fe.m.readyWait = func(*run) time.Duration { return 300 * time.Millisecond }
 	w = fe.do(mgr, "POST", "/sandboxes/sb-1/start", nil)
 	fe.want(w, http.StatusOK, "")
 	if in := fe.info(w); in.State != StateStopped || !strings.Contains(in.StateDetail, "wasn't ready within") {
@@ -176,7 +174,7 @@ func TestFailedStartUnwinds(t *testing.T) {
 
 	// An agent that exits before it is ready: its exit and its log say why.
 	fe.l.mod = func(o *agentcore.Options) { o.Configure = func(proto.Config) error { return nil } }
-	nsOps.readyWait = func(*run) time.Duration { return 10 * time.Second }
+	fe.m.readyWait = func(*run) time.Duration { return 10 * time.Second }
 	done, n := make(chan Info), fe.l.count()
 	go func() {
 		w := fe.do(mgr, "POST", "/sandboxes/sb-1/start", nil)

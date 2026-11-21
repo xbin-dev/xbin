@@ -69,9 +69,8 @@ func TestSessionOOMScoreAdj(t *testing.T) {
 	// a score the agent can't take (one below the floor a privileged writer
 	// set; here, an own score it can't even read) is logged, and the session
 	// starts with the agent's
-	was := ownOOMScore
-	t.Cleanup(func() { ownOOMScore = was })
-	ownOOMScore = t.TempDir() // a directory
+	was := h.core.ownOOMScore
+	h.core.ownOOMScore = t.TempDir() // a directory
 	if got := score(h, 4); got != agents {
 		t.Errorf("session 4, the agent unable to take its score: %s, want the agent's %d", got, own)
 	}
@@ -80,7 +79,7 @@ func TestSessionOOMScoreAdj(t *testing.T) {
 		t.Errorf("logged: %q, want session 4's oom_score_adj failure", logged)
 	}
 	mu.Unlock()
-	ownOOMScore = was
+	h.core.ownOOMScore = was
 
 	// without the option, every session keeps the agent's
 	h = newHarness(t, nil)

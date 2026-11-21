@@ -243,7 +243,7 @@ func (s *session) run() error {
 	if err != nil {
 		return err
 	}
-	cred, err := credential(ex)
+	cred, err := credential(ex, s.c.idMaps)
 	if err != nil {
 		return err
 	}
