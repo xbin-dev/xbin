@@ -257,6 +257,8 @@ final class XbinWorkspaceAgentFollowupsTests: XCTestCase {
     /// shows all of it at once, its end is above the decision bar).
     @MainActor
     func test06LargestTextLongMessage() throws {
+        // (signed in at the ordinary size first: a fresh simulator's Log in isn't what this is about)
+        try launch().app.terminate()
         let e = try launch(["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
         e.fuOpen("rq_m_lines")
         let heading = e.element("approval-heading")
