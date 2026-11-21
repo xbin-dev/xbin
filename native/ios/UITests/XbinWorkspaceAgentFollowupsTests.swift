@@ -327,12 +327,19 @@ extension E2E {
     }
 
     /// Scrolls the sheet in front until `element` can be tapped — far: a
-    /// message of 4,000 characters is many screens on a phone.
+    /// message of 4,000 characters is many screens on a phone. The drags
+    /// stay inside the sheet's scrolling part, between its trusted bar and
+    /// its decision bar (on an iPad the sheet is a card in the middle).
     func fuScrollTo(_ element: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {
+        let top = self.element("approval-bar"), bottom = app.buttons.matching(identifier: "approval-deny").firstMatch
+        let window = app.windows.firstMatch.frame
         var tries = 0
         while element.exists, !element.isHittable, tries < 60 {
-            // (inside the sheet's text, above its decision bar: never a button)
-            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7)).press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2)))
+            let x = top.exists ? top.frame.midX : window.midX
+            let from = bottom.exists ? bottom.frame.minY - 40 : window.height * 0.7
+            let to = top.exists ? top.frame.maxY + 30 : window.height * 0.2
+            let origin = app.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0))
+            origin.withOffset(CGVector(dx: x, dy: from)).press(forDuration: 0.05, thenDragTo: origin.withOffset(CGVector(dx: x, dy: to)))
             tries += 1
         }
         XCTAssertTrue(element.exists && element.isHittable, "\(element) can be scrolled into reach", file: file, line: line)
