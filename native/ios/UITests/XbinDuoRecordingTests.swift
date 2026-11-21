@@ -149,12 +149,12 @@ final class XbinDuoRecordingTests: XCTestCase {
             e.clip("start-never-asks-\(theme)", "A start that never asks") {
                 e.hold(1)
                 e.wsInbox("inbox-request:rq_never")
-                e.expect(e.element("approval-danger"), 30, "the danger wording")
+                e.expect(e.element("approval-mode-chip"), 30, "the mode, a fact")
                 e.hold(3.5)
                 e.app.swipeUp()
                 e.hold(2)
                 e.app.buttons.matching(identifier: "approval-deny").firstMatch.tap()
-                XCTAssertTrue(e.until(20) { !e.element("approval-danger").exists })
+                XCTAssertTrue(e.until(20) { !e.element("approval-mode-chip").exists })
                 e.hold(1.5)
             }
             e.wsCloseApprovals()

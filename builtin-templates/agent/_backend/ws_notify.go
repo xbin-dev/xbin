@@ -477,6 +477,10 @@ func (ag *Agent) wsDecide(ctx context.Context, s *wsSession, r *wsReq, xr wsRequ
 				how, row.ID, row.Tile, ran)
 			done.Result = fmt.Sprintf("tile agent #%d started in %s: %s", row.ID, row.Tile, ran)
 		}
+		if !row.Asks {
+			// the usual (D251): what it is told next is its person's to allow — said once, where the agent reads it
+			outcome += " It acts without asking, so a follow-up to it (tile_agent_message) is shown to your person and goes when they allow it: file it and carry on, and don't open a new session to avoid it."
+		}
 		if xr.Chosen != nil && start.Harness != "" && xr.Chosen.Provider != start.Harness {
 			outcome += " Your person picked the coding agent on the approval: that is what runs here, and on this tile next time if they asked xbin to remember it."
 		}
@@ -780,9 +784,19 @@ func (ag *Agent) wsFlushHeld(ctx context.Context, s *wsSession, row *wsAgentRow)
 	}
 	for i, id := range ids {
 		err := ag.wsWith(ctx, s, func(sid string) (err error) { _, err = wsX.AgentSay(ctx, sid, row.Session, texts[i]); return })
+		if errors.Is(err, xbin.ErrSessionMode) {
+			// it acts without asking — the usual (D251): each held text is filed for its person's approval, the whole
+			// text, once — never dropped; one xbind won't take a request for stays held, tried again
+			if _, ferr := ag.wsAskMessage(ctx, s, row, texts[i]); ferr != nil {
+				return
+			}
+			_, _ = ag.db.q.Exec(`DELETE FROM ws_held WHERE id=?`, id)
+			continue
+		}
 		if wsSendRefused(err) {
-			// xbind won't take it whatever happens next (its mode, its model,
-			// a "/"): not tried again — dropped, and the conversation told once
+			// xbind won't take it whatever happens next (the conversation's
+			// taint, a "/"): not tried again — dropped, and the conversation
+			// told once
 			q := `DELETE FROM ws_held WHERE id=?`
 			if !errors.Is(err, xbin.ErrHarnessCommand) {
 				q = `DELETE FROM ws_held WHERE agent_id=? AND id>=?` // the rest would meet the same refusal

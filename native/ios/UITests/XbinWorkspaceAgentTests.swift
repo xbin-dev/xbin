@@ -312,14 +312,13 @@ final class XbinWorkspaceAgentTests: XCTestCase {
         let heading = e.element("approval-heading")
         e.expect(heading, 30, "the start's approval")
         XCTAssertTrue(heading.label.contains("Start a tile agent in Note?"), "the heading: \(heading.label)")
-        // the mode leads the rows
-        let mode = e.containing("asks before it edits or runs anything"), tile = e.app.staticTexts["Coding agent"]
-        XCTAssertTrue(mode.exists, "the mode: it asks before acting")
+        // the mode leads the rows: a fact, either way (D251)
+        let mode = e.element("approval-mode-chip"), tile = e.app.staticTexts["Coding agent"]
+        XCTAssertTrue(mode.exists && ["asks before acting", "acts without asking"].contains(mode.label), "the mode: \(mode.label)")
         XCTAssertTrue(tile.exists, "the coding agent's row")
         XCTAssertLessThan(mode.frame.minY, tile.frame.minY, "the mode's row comes first")
         XCTAssertTrue(e.containing("List what is in the tile").exists, "what it will be told, as sent")
         XCTAssertTrue(e.containing("sent exactly like this").exists)
-        XCTAssertFalse(e.element("approval-danger").exists, "a mode that asks: no danger banner")
         let start = e.app.buttons.matching(identifier: "approval-allow").firstMatch
         XCTAssertEqual(start.label, "Start")
         XCTAssertFalse(e.element("approval-choice-call").exists, "no standing choice for a start: asked every time")

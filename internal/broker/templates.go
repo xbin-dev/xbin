@@ -2,7 +2,6 @@ package broker
 
 import (
 	"cmp"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -80,14 +79,7 @@ func (b *Broker) apiTemplatesList(w http.ResponseWriter, r *http.Request) {
 }
 
 // templateNewBody is POST /templates/new's body.
-type templateNewBody struct {
-	Source string `json:"source"` // builtin name or workspace component path
-	Path   string `json:"path"`   // target component path (optional)
-	Owner  string `json:"owner"`  // as /create: "org:<id>" | "user:<id>" | "" (D24/D52)
-	// false: the instance doesn't start in the template's partition mode
-	// (PD-35 opt-out); absent or true: it does, under --isolate.
-	Partition *bool `json:"partition"`
-}
+type templateNewBody = server.TemplateNewBody // (one struct: what the request's preview and the ticket's check read too, D252)
 
 // templateNewPlan is what a POST /templates/new would create: the template
 // (a builtin, or the workspace component src), the path, the owner ref and
@@ -179,8 +171,8 @@ func (b *Broker) templateNewCheckFor(p auth.Principal, body templateNewBody, qui
 // it for a dry run and before it puts a request in front of the person).
 func (b *Broker) CreatePreview(p auth.Principal, body []byte) (map[string]any, error) {
 	var in templateNewBody
-	if err := json.Unmarshal(body, &in); err != nil {
-		return nil, errors.New("need {source, path?, owner?, partition?}")
+	if err := server.StrictDecode(body, &in); err != nil { // what the person is shown is read one way only (D252)
+		return nil, errors.New(`need {source, path?, owner?, partition?}, each once, in lower case (` + err.Error() + ")")
 	}
 	plan, why := b.templateNewCheck(p, in)
 	if why != nil {

@@ -995,8 +995,10 @@ asks, the person answers. An admin's agent opens sessions in the sandbox tier of
 user. What it sends such a session is bounded three ways
 ([protocol/delegation.md §Agent sessions](/docs/protocol/delegation.md#agent-sessions)):
 never text that begins with `/` (a harness command is the person's to
-give); nothing once the person has switched the session to a mode that
-doesn't ask before it acts, unless that is the mode they approved it in;
+give); nothing unapproved to a session whose current mode doesn't ask
+before it acts — the default of the sessions it starts — whatever mode
+the person approved it in: each such text is a message request, sent
+once they allow exactly it;
 and nothing — a start's first prompt included — to a session whose model
 source doesn't satisfy the model rule of every org whose data the
 conversation holds.

@@ -17,7 +17,7 @@
  * `modeNotTaken` (the agent's suggestion), `continue` (the agent's own idle
  * session the start would continue) — and a message's preview.message.
  */
-import { needTitle, asked as askedJoined, left, toMs, clock, needChangeTitle, sessionRows } from './agent-chrome-words.js';
+import { needTitle, asked as askedJoined, left, toMs, clock, needChangeTitle, sessionRows, MODE_FACT, reveal } from './agent-chrome-words.js';
 
 /** FROM: where a start's choice came from, as the sheet says it under each picker. */
 export const FROM = Object.freeze({
@@ -69,7 +69,7 @@ export function picked(req, pick) {
   const s = sess(req);
   const c = s.continue && s.continue.session ? s.continue : null;
   if (c && pick.cont && pick.harness === c.provider) {
-    // continuing the session there: its own sign-in is what a tick on this approval is for (D250 review L1)
+    // continuing the session there: its own sign-in, a fact of that session (D251: no tick again) — what seen says
     return { ...req, preview: { ...req.preview, session: { ...s, signInId: c.signInId || '', signInTrust: null } } };
   }
   const h = harnessesOf(s).find((x) => x.id === pick.harness);
@@ -87,25 +87,36 @@ export function picked(req, pick) {
  *   cont      {session, label, sub, chips} — the session the start would continue, or null
  *   continuing  the person continues it
  *   remember  {shown, label, note}
- *   danger    a sentence when what is picked acts without asking ('' when it asks)
  *   asks      the picked mode asks before acting
- *   label     the Allow button's words: Start | Start without asking | Continue
+ *   modeChip  the mode as a fact: 'asks before acting' | 'acts without asking' (D251: never a warning)
+ *   fact      the plain line under it — what a mode that acts without asking means ('' when it asks)
+ *   label     the Allow button's words: Start | Send (continuing)
  *   details   the call, for the sheet's Details: "POST /api/xbin/term/sessions"
  */
 /**
  * rememberWords: "Remember for this tile" as the sheet offers it (D250
- * review M1) — it keeps only what the person changed here, and never a mode
- * that acts without asking, nor a coding agent with no mode that asks.
+ * review M1) — it keeps only what the person changed here: the coding
+ * agent, the model, the mode, asking or not (D251) — never a bypass one.
  */
 function rememberWords(continuing, hs, h, pick) {
-  const vouched = !!(h && (h.modes || []).some((m) => m.asks));
   const mode = h && (h.modes || []).find((m) => m.id === pick.mode);
-  // what is kept, said before it is: the coding agent and model the person changed — any coding agent's, OpenCode's
-  // too — and the mode only when it asks (D250 re-review item 3)
-  const note = !vouched ? `Keeps ${h ? h.name : 'this coding agent'} and its model for your next start here, never its mode: ${h ? h.name : 'it'} has no mode that asks before it acts, so each start is still yours to approve here, warned.`
-    : mode && !mode.asks ? 'This mode acts without asking: it isn\'t remembered. Only the coding agent and model you changed are.'
-      : 'Your next start here preselects what you changed. A mode that acts without asking is never remembered.';
-  return { shown: !continuing && hs.length > 0 && !!h, label: 'Remember for this tile', note, keepsMode: !!(mode && mode.asks) };
+  const note = mode && mode.explicit ? 'Your next start here preselects the coding agent and model you changed. A mode that skips every check isn\'t remembered: you pick it each time.'
+    : 'Your next start here preselects what you changed.';
+  return { shown: !continuing && hs.length > 0 && !!h, label: 'Remember for this tile', note, keepsMode: !!(mode && !mode.explicit) };
+}
+
+/** modeChip(asks): a mode as the one fact the sheet, the batch and the app show of it (D251). */
+export const modeChip = (asks) => (asks ? 'asks before acting' : 'acts without asking');
+
+/**
+ * contChips(c): a session the start (or a message) goes to, as its facts —
+ * coding agent, model, mode, the sign-in it carries. Which saved sign-in
+ * that is, the chrome draws beside them as an element of its own, from the
+ * person's own list by its id (signInIdOf).
+ */
+export function contChips(c) {
+  const name = (c && (c.providerName || c.provider)) || 'the tile agent';
+  return [name, c && c.model ? `model ${c.model}` : '', modeChip(!!(c && c.asks === true)), c && c.signInId ? `uses your ${name} sign-in` : ''].filter(Boolean);
 }
 
 export function startView(req, pick) {
@@ -119,47 +130,45 @@ export function startView(req, pick) {
   // not what Remember keeps: the server's rule, D250 review M1) and no longer what the first chain said
   const fromWords = (f) => FROM[changed(f) ? 'you' : (pick.defaulted || []).includes(f) ? 'default' : from[f]] || '';
   const pickers = [];
-  if (!continuing && hs.length) {
-    const hNot = s.harnessNotTaken && pick.harness !== s.harnessNotTaken ? hs.find((x) => x.id === s.harnessNotTaken) : null;
+  if (s.resume && h) {
+    // a resume keeps its coding agent and model; its mode is picked again — a bypass one it ran in last is never
+    // taken: it resumes in its coding agent's work mode, and says what it was in (D251 review M2)
+    const m = (h.modes || []).find((x) => x.id === pick.mode);
+    pickers.push({ id: 'mode', label: 'Mode', value: pick.mode, from: '',
+      options: (h.modes || []).map((x) => ({ value: x.id, label: `${x.name || x.id || 'its own default'}, ${x.explicit ? 'skips every check' : modeChip(x.asks)}` })),
+      note: m && m.explicit ? `${m.name || m.id} skips every check ${h.name} has of its own, even the ones it keeps in its other modes.` : '',
+      warn: s.resumeModeNotTaken ? `It was in ${s.resumeModeNotTaken}, which skips every check; it resumes in ${s.mode || 'its own default mode'}. Pick it yourself if you want it.` : '' });
+  } else if (!continuing && hs.length) {
     pickers.push({ id: 'harness', label: 'Coding agent', value: pick.harness, from: fromWords('harness'),
-      options: hs.map((x) => ({ value: x.id, label: x.id === sug.harness && x.id !== pick.harness ? `${x.name} (suggested by your agent)` : x.name })),
-      // a coding agent with no mode that asks (OpenCode, D250 review M2): the agent's suggestion of it is said, never taken
-      warn: hNot ? `Your agent suggested ${hNot.name}, which acts without asking in every mode. It isn't picked for you: pick it yourself if you want it.` : '' });
+      options: hs.map((x) => ({ value: x.id, label: x.id === sug.harness && x.id !== pick.harness ? `${x.name} (suggested by your agent)` : x.name })), warn: '' });
     if (h) {
       const models = (h.models || []).map((m) => ({ value: m.id, label: !m.id ? 'its default' : m.from === 'agent' ? `${m.id} (suggested by your agent)` : m.id }));
       pickers.push({ id: 'model', label: 'Model', value: pick.model, from: fromWords('model'), options: models,
         note: h.modelsKnown ? '' : `${h.name}'s own list shows in its session once it runs: these are the models xbin knows of it.` });
       const notTaken = s.modeNotTaken && h.id === s.provider && pick.mode !== s.modeNotTaken ? s.modeNotTaken : '';
+      const m = (h.modes || []).find((x) => x.id === pick.mode);
       pickers.push({ id: 'mode', label: 'Mode', value: pick.mode, from: fromWords('mode'),
-        options: (h.modes || []).map((m) => ({ value: m.id, label: `${m.name || m.id || 'its own default'}, ${m.asks ? 'asks before acting' : m.explicit ? 'acts without asking (caution)' : 'acts without asking'}` })),
-        // only true words under the picker (D250 re-review item 2): "it asks you" only of a mode that asks; a coding agent with
-        // none says so, whatever is picked
-        note: !(h.modes || []).some((m) => m.asks) ? `${h.name} has no mode that asks first: in any mode it edits files and runs commands without asking you.`
-          : h.defaultMode != null && pick.mode === h.defaultMode && (h.modes || []).some((m) => m.id === pick.mode && m.asks)
-            ? 'The default: in it, it asks you before it edits a file or runs a command, so nothing your agent tells it acts unseen.' : '',
-        warn: notTaken ? `Your agent suggested ${notTaken}, which acts without asking. It isn't picked for you: pick it yourself if you want it.` : '' });
+        options: (h.modes || []).map((x) => ({ value: x.id, label: `${x.name || x.id || 'its own default'}, ${x.explicit ? 'skips every check' : modeChip(x.asks)}` })),
+        // a bypass mode is the one still said as more than a fact: it skips the coding agent's own checks too
+        note: m && m.explicit ? `${m.name || m.id} skips every check ${h.name} has of its own, even the ones it keeps in its other modes.` : '',
+        // the agent's suggestion of a bypass mode, never preselected (only the person names one)
+        warn: notTaken ? `Your agent suggested ${notTaken}, which skips every check. It isn't picked for you: pick it yourself if you want it.` : '' });
     }
   }
   const p = picked(req, pick);
   const ps = sess(p);
   const asks = continuing ? c.asks === true : ps.asks === true;
-  const who = continuing ? c.providerName || c.provider : ps.providerName || ps.provider || 'The coding agent';
-  const tile = (req && req.tile) || s.tile || '';
-  const tileName = String(tile).split('/').filter(Boolean).pop() || 'the tile';
   return {
     pickers,
+    // continuing: one plain approval (D251) — the session's facts as chips, the sign-in it carries one of them
     cont: c ? { session: c.session, label: `Continue the ${c.providerName || c.provider} session${c.started ? ` from ${clock(toMs(c.started))}` : ''} with this follow-up`,
-      sub: 'Start a new session instead', chips: [c.providerName || c.provider, c.model ? `model ${c.model}` : '', c.asks ? 'asks before acting' : 'acts without asking',
-        c.signInId ? 'your saved sign-in' : ''].filter(Boolean),
-      // it carries the person's saved sign-in: a follow-up into it uses it — their tick, each time (D230, D250 review L1)
-      signIn: c.signInId ? { id: c.signInId, name: c.signInName || '', warn: 'This session carries your saved sign-in: a follow-up into it uses it, and the coding agent can read it.',
-        line: 'Use my sign-in for this follow-up', untickedNote: 'Tick it to continue this session, or start a new session instead: a new session has no sign-in of yours.' } : null } : null,
+      sub: 'Start a new session instead', chips: contChips(c), signInId: String(c.signInId || '') } : null,
     continuing,
-    needsTick: !!(continuing && c.signInId),
-    remember: rememberWords(continuing, hs, h, pick),
-    danger: asks ? '' : `${who} in this mode acts without asking: it edits files and runs commands in ${tileName} without asking you. You will not get a chance to stop a single edit or command.`,
+    remember: s.resume ? { shown: false, label: '', note: '', keepsMode: false } : rememberWords(continuing, hs, h, pick),
     asks,
-    label: continuing ? 'Continue' : asks ? 'Start' : 'Start without asking',
+    modeChip: modeChip(asks),
+    fact: asks ? '' : MODE_FACT,
+    label: continuing ? 'Send' : 'Start',
     details: `${req.method || 'POST'} ${req.target || '/api/xbin/term/sessions'}`,
   };
 }
@@ -189,13 +198,44 @@ export function pickBody(req, pick) {
   // seen: what this sheet shows of what xbind resolves again when it is decided — the sign-in it offers, the
   // network — held to it there: a change since is refused, nothing decided, and the sheet looks again (D250 review L2)
   const ps = sess(picked(req, pick));
+  // (how much of what it would be told was on screen is the caller's to say: withSeenText — D252)
   const out = { knows: ['continue'], seen: { signInId: String(ps.signInId || ''), net: String(ps.net || '') } };
+  if (s.resume) { // a resume picks its mode again, nothing else (D251 review M2)
+    out.mode = pick.mode;
+    return out;
+  }
   const c = s.continue && s.continue.session ? s.continue : null;
-  if (c && pick.cont && pick.harness === c.provider) return out; // continuing: the session keeps its own
+  if (c && pick.cont && pick.harness === c.provider) {
+    // continuing: the session keeps its own — held to it as shown: its coding agent and mode (D251)
+    out.seen.harness = String(c.provider || '');
+    out.seen.mode = String(c.mode ?? '');
+    return out;
+  }
   if (c) out.continue = false;
   Object.assign(out, { harness: pick.harness, model: pick.model, mode: pick.mode });
   if (pick.remember) out.remember = true;
   return out;
+}
+
+/** textBytes(text): its length as xbind counts it — UTF-8 bytes (seen.textLen, D251 review H1). */
+export const textBytes = (text) => new TextEncoder().encode(String(text ?? '')).length;
+
+/**
+ * SEEN_TEXT: the approve's word (knows) that its seen.textLen is how much of
+ * the text — a start's brief, a follow-up, a message — was on screen when
+ * its person clicked: with it xbind requires the length, and allows only a
+ * text that was all on screen (D252).
+ */
+export const SEEN_TEXT = 'seen-text';
+
+/** withSeenText(body, onScreen): an approve body that says how much of the text was on screen (onScreen: the part shown) when its person clicked. */
+export function withSeenText(body, onScreen) {
+  return { ...body, knows: [...new Set([...(body.knows || []), SEEN_TEXT])], seen: { ...(body.seen || {}), textLen: textBytes(onScreen) } };
+}
+
+/** briefOf(req): what a start's session is told first — xbind's reading (preview.session.prompt), never the body's bytes (D252). */
+export function briefOf(req) {
+  return sessionRows(req).brief;
 }
 
 /**
@@ -205,16 +245,25 @@ export function pickBody(req, pick) {
 export function startChips(req) {
   if (!req || req.kind !== 'session') return [];
   const s = sess(req);
-  if (s.continue && s.continue.session) return [`continues ${s.continue.providerName || s.continue.provider}`];
-  return [s.providerName || s.provider || '', s.model ? `model ${s.model}` : '', s.asks === true ? 'asks before acting' : 'acts without asking'].filter(Boolean);
+  if (s.continue && s.continue.session) return contChips(s.continue);
+  return [s.providerName || s.provider || '', s.model ? `model ${s.model}` : '', modeChip(s.asks === true)].filter(Boolean);
 }
 
 // ---- a message to a tile agent that acts without asking ---------------------------------------------
 
-/** messageOf(req): a message request as xbind previews it — {session, provider, name, mode, model, text}. */
+/** signInIdOf(req): the saved sign-in a follow-up's session carries — a message's, a continue's — by id: the chrome names it from the person's own list ('' none). */
+export function signInIdOf(req) {
+  if (!req) return '';
+  if (req.kind === 'message') return messageOf(req).signInId;
+  const c = sess(req).continue;
+  return req.kind === 'session' && c && c.session ? String(c.signInId || '') : '';
+}
+
+/** messageOf(req): a message request as xbind previews it — {session, provider, name, mode, model, text, signInId}. */
 export function messageOf(req) {
   const m = (req && req.preview && req.preview.message) || {};
-  return { session: String(m.session || ''), provider: String(m.providerName || m.provider || 'the tile agent'), mode: String(m.mode || ''), model: String(m.model || ''), text: String(m.text ?? '') };
+  return { session: String(m.session || ''), provider: String(m.providerName || m.provider || 'the tile agent'), mode: String(m.mode || ''), model: String(m.model || ''), text: String(m.text ?? ''),
+    signInId: String(m.signInId || '') };
 }
 
 /** messageView(req): the sheet's rows for a message — {heading, agent: [chips], text, why, label}. */
@@ -224,11 +273,86 @@ export function messageView(req) {
   return {
     heading: { before: `Send this message to the ${m.provider} session in `, strong: tile, after: '?' },
     title: `Send a message to ${m.provider} in ${tile}`,
-    agent: [m.provider, m.mode ? `mode ${m.mode}` : '', 'acts without asking', m.model ? `model ${m.model}` : ''].filter(Boolean),
+    agent: [m.provider, m.mode ? `mode ${m.mode}` : '', modeChip(false), m.model ? `model ${m.model}` : '', m.signInId ? `uses your ${m.provider} sign-in` : ''].filter(Boolean),
+    signInId: m.signInId,
     text: m.text,
-    why: `This session acts without asking, so what your workspace agent tells it is an act of yours to approve. Allowing sends exactly this text, once, to this session; it is refused if the session's mode or coding agent changed since.`,
-    label: 'Send it',
+    why: 'Send sends exactly this text to this session, once. It isn\'t sent if the session\'s mode or coding agent changed since.',
+    label: 'Send',
   };
+}
+
+// ---- a follow-up allowed on its batch row (D251) -------------------------------------------------
+
+/**
+ * ROW_FIT_LINES, ROW_FIT_CHARS: a follow-up shown whole on its batch row —
+ * at most 12 lines and 1,200 characters — so the usual short one is one
+ * click (Send). A longer one shows ROW_LINES lines (at most ROW_CHARS
+ * characters) and Show all; Send comes only once all of it is on screen
+ * (D251 review H1).
+ */
+export const ROW_FIT_LINES = 12;
+export const ROW_FIT_CHARS = 1200;
+export const ROW_LINES = 3;
+export const ROW_CHARS = 280;
+
+// xbin's update brief opens with this line: the row leads with what follows (the goal), and shows the line after
+// it, once the text is shown whole — only where xbind says xbin wrote it (briefBy), never by what the text says
+const BRIEF_OPENING = 'This is a piece of work in this tile, handed to you by ';
+
+/**
+ * rowText(text, all, byXbin): a follow-up's text as its batch row shows it
+ * — {whole, lead, opening, note, shown}. whole: all of it is shown (it
+ * fits, or all) — lead, then opening (xbin's own brief's first paragraph,
+ * its standing words, moved after the goal — only when byXbin: xbind says
+ * xbin wrote it; '' otherwise) — and Send may be offered; otherwise lead is
+ * its first lines and note says how long the text is. shown: the part of
+ * the text on screen (all of it, or the first lines), what withSeenText
+ * counts. Fitting counts lines at the line breaks a sheet draws as breaks
+ * (\n: the others are drawn as escapes, reveal); whether it fits its box
+ * on this screen is the row's to measure.
+ */
+export function rowText(text, all = false, byXbin = false) {
+  const t = String(text ?? '');
+  const chars = [...t].length, lines = t.split('\n').length;
+  let lead = t, opening = '';
+  const cut = t.indexOf('\n\n');
+  if (byXbin && t.startsWith(BRIEF_OPENING) && cut > 0) {
+    opening = t.slice(0, cut);
+    lead = t.slice(cut).replace(/^\n+/, '');
+  }
+  const size = `${lines} ${lines === 1 ? 'line' : 'lines'}, ${chars.toLocaleString('en-US')} characters`;
+  if (all || (lines <= ROW_FIT_LINES && chars <= ROW_FIT_CHARS)) return { whole: true, lead, opening, note: all && (lines > ROW_FIT_LINES || chars > ROW_FIT_CHARS) ? size : '', shown: t };
+  let head = [...lead.split('\n').slice(0, ROW_LINES).join('\n')];
+  if (head.length > ROW_CHARS) head = head.slice(0, ROW_CHARS);
+  return { whole: false, lead: head.join(''), opening: '', note: `${size}: show all of it to send it`, shown: head.join('') };
+}
+
+/**
+ * inPlace(req): a follow-up its person can allow on its batch row — a
+ * message to a tile agent's session, or a start that continues the agent's
+ * own session there (D251 B2): {kind: 'message' | 'continue', title, chips,
+ * text, byXbin, body} — body is what Send sends (POST …/approve), what the
+ * sheet sends for it as preselected; the row adds how much of the text was
+ * on screen when its person clicked (withSeenText, rowText(…).shown);
+ * byXbin: xbind says xbin wrote the text (its update brief), so the row may
+ * move its opening line (rowText). null for anything else, and for one the
+ * sheet must show:
+ * text that holds hidden characters, a conversation that read the web, a
+ * start xbind offers no choices for.
+ */
+export function inPlace(req) {
+  if (!req || req.state !== 'pending' || (req.preview && req.preview.readWeb)) return null;
+  const tile = String(req.tile || '').split('/').filter(Boolean).pop() || 'the tile';
+  if (req.kind === 'message') {
+    const m = messageView(req);
+    return !m.text || reveal(m.text).hidden ? null : { kind: 'message', title: m.title, chips: m.agent, text: m.text, byXbin: false, body: { grant: 'once' } };
+  }
+  const s = sess(req), c = s.continue && s.continue.session ? s.continue : null;
+  if (req.kind !== 'session' || !c || s.resume || !harnessesOf(s).length) return null;
+  const text = briefOf(req);
+  if (!text || reveal(text).hidden) return null;
+  return { kind: 'continue', title: `Continue the ${c.providerName || c.provider} session in ${tile}`, chips: contChips(c), text, byXbin: s.briefBy === 'xbin',
+    body: { grant: 'once', ...pickBody(req, pickOf(req)) } };
 }
 
 // ---- the one batch ------------------------------------------------------------------------------
@@ -237,16 +361,20 @@ export function messageView(req) {
  * batch({requests, failed, changesets, sessions}, now): everything that
  * waits for the person, ONE row a pending act, oldest first — {kind:
  * 'request' | 'retry' | 'changeset' | 'session', id, title, chips, parts,
- * action, review, permits?, agentName?, at, waits?}. review: it opens a
- * review that Review all walks (a request's sheet, a plan's review); retry:
- * a start that was approved and didn't open, which the person tries again.
+ * action, review, permits?, agentName?, at, waits?, inline?}. review: it
+ * opens a review that Review all walks (a request's sheet, a plan's
+ * review); retry: a start that was approved and didn't open, which the
+ * person tries again; inline: a follow-up allowed on the row (inPlace) —
+ * its action is Send, beside Deny and Review….
  */
 export function batch({ requests = [], failed = [], changesets = [], sessions = [] } = {}, now = Date.now()) {
   const rows = [];
   for (const r of requests) {
     if (r.state !== 'pending') continue;
-    const title = r.kind === 'message' ? messageView(r).title : needTitle(r);
-    rows.push({ kind: 'request', id: r.id, title, chips: startChips(r), parts: askedParts(r, now), action: 'Review…', review: true, at: toMs(r.created) });
+    const inline = inPlace(r);
+    const title = inline ? inline.title : r.kind === 'message' ? messageView(r).title : needTitle(r);
+    rows.push({ kind: 'request', id: r.id, title, chips: inline ? inline.chips : startChips(r), signInId: signInIdOf(r), parts: askedParts(r, now), action: inline ? 'Send' : 'Review…', review: true,
+      at: toMs(r.created), ...(inline ? { inline } : {}) });
   }
   for (const r of failed) {
     if (r.state !== 'failed' || !(r.failure && r.failure.retry)) continue;

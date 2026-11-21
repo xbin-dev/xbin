@@ -10,8 +10,113 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-11-21
+
+- **Security, BREAKING for a delegate that writes its own bodies — a
+  tile agent start could be shown with one brief and told another**
+  (v0.3.80, v0.3.81, v0.3.82, v0.3.83, v0.3.84; D252;
+  [migration note](/docs/changes/2026-11-21-strict-delegated-bodies.md)).
+  The web's and the app's approval sheets read a start's brief from its
+  body by the keys as written (`prompt`, else `brief`, else `message`);
+  xbind read the same body matching keys in any case and keeping the last
+  of two. So a start filed as `{"cwd", "kind": "agent", "message": "Tidy
+  README", "Prompt": "…"}` — or with `"prompt"` twice — showed "Tidy
+  README" and told the session the other text. The web's new tile sheet
+  read its Template and Name rows the same way (the body itself was shown
+  below them); a lock-screen notification never showed a start's text.
+  **Who could send such a body:** only a delegate whose own code writes
+  the body. In a release build the one delegate is xbin's workspace agent
+  (and, on an xbind run with `--no-auth --dev`, its owner's dev delegate),
+  and it writes start, new tile, message and page bodies with fixed
+  lower-case keys — the model's words go only into values, and into the
+  arguments of grant, binding, share and limits lines and of MCP tool
+  calls, which every client shows in xbind's own words. So a workspace
+  agent fed hostile content could not produce such a body; the hole was
+  open to a delegate that builds bodies from what it is fed (a sealed
+  component of a build's own table). **Now:** xbind reads every body it
+  describes to a person — a start's (asked for or unasked), a message's,
+  a new tile's, a page's, an MCP call's, a change set's and a plan's line
+  arguments — one way only when it is filed and when its ticket is used:
+  one JSON object, UTF-8, each member one the call takes, written exactly
+  as documented, none twice at any depth, nothing after it; anything else
+  is refused naming the member (400; 403 for a new tile's), and a request
+  filed before the upgrade that doesn't read so is refused when used
+  (`refusal: "ticket"`, nothing runs: file it again). An approved start is
+  told, and an approved message sends, the text its sheet showed —
+  xbind's reading when it was filed. The web's sheets show xbind's reading
+  (a start's brief `preview.session.prompt`, a new tile's template and
+  place `preview.create`); the app shows a start's brief from
+  `preview.session.prompt`, and a new tile as its raw body (it has no
+  Template or Name rows). The app shows no message to a tile agent: it
+  says to decide that one on the web, and xbind refuses an app's Allow of
+  one (409).
+  **Release note:** a delegate that writes its own request bodies could
+  get a tile agent start approved under a different text than the one
+  shown; xbin's own workspace agent never wrote such a body. xbind now
+  reads each request one way only, and sends only the text the approval
+  showed. What to check: a delegate of your own build that writes bodies
+  with other-case, repeated or extra keys — see the migration note;
+  nothing for a workspace on xbin's own components.
+- workspace agent, after D251's second review (D252): an approve with
+  `knows: ["seen-text"]` must say how much of the text was on screen when
+  the person clicked (`seen.textLen`, the part shown of a clipped text;
+  400 without), and only all of it is allowed — the web's sheet and row
+  and the app now send it; an older client is as before. A batch row
+  offers **Send** only when its box shows all of the text on this screen
+  (measured, again on resize): a text the count calls short that still
+  scrolls gets **Show all**, and Send once the box was scrolled to its
+  end. The line and paragraph separators (U+2028, U+2029) are hidden
+  characters, shown as escapes like a carriage return. The row moves a
+  brief's opening line after its goal only for xbin's own update brief.
+  The row and the sheets name the saved sign-in a continued or messaged
+  session carries, from your own list. A plan's binding that waits for
+  its tile ends, nothing bound, when the tile comes up with a warning the
+  line didn't carry — whichever way the build goes.
+
 ## 2026-11-20
 
+- workspace agent: **tile agents act without asking by default; a mode is
+  an ordinary choice; continuing is one plain approval** (D251). A start
+  the workspace agent asks for opens, by default, in the coding agent's
+  work mode — Claude Code `auto`, Codex `agent`, Gemini CLI `autoEdit`,
+  OpenCode its own (never a bypass mode) — and the sheet states the mode
+  as a fact (a chip and one plain line, the ordinary **Start**): no danger
+  banner, colour or delay. The agent's suggestion of a mode is
+  preselected (a bypass one never: `modeNotTaken`); `harnessNotTaken` is
+  gone. `agentSessions.modes` and "Remember for this tile" keep any mode
+  but a bypass one; what v0.3.83 and v0.3.84 saved loads as it is. Every
+  text the agent sends a session that doesn't ask is a `message` request,
+  whatever mode it was approved in, and "start without asking" starts
+  unasked only in a mode that asks the person named — otherwise the start
+  goes to the sheet. Continuing a session is one approval with **Send**,
+  no sign-in tick (`seen` now names a continue's `harness` and `mode`: a
+  changed session is `409 {changed: "session", reload}`); a continue or a
+  message can be sent from its row in Waiting for you. `preview.message`
+  carries the session's `signInId`. A plan's binding line
+  that waits for a tile whose agent already provides it when Apply
+  reaches the line is judged as a waiting line at once — bound if it is
+  exactly what was approved — instead of `stale`; the agent template's
+  `plan_propose` passes a `mode` the person named. Nothing to change: a
+  person with an asking mode chosen keeps it; one with none now sees "acts
+  without asking" on each start.
+- workspace agent, after D251's review: **a text is allowed only once all
+  of it has been on screen.** The batch row shows a follow-up whole when
+  it fits (12 lines, 1,200 characters; the goal first, the brief's opening
+  line after it), else its first lines, its length and **Show all** — and
+  **Send** only after that; the sheet's Allow waits for **Show all** on a
+  text it clips (4,000 characters). The approve carries `seen.textLen`
+  (UTF-8 bytes shown): another length than the text's is `409 {changed:
+  "text", reload}`. v0.3.84's sheet sends none and isn't held to it (it
+  shows up to 4,000 characters with Show all, and could allow without).
+  **A resume never reopens in a bypass mode it ran in last**: it resumes in
+  the work mode (`preview.session.resumeModeNotTaken` says what it was in),
+  and the person may pick its mode on that approval (`mode` only). A
+  continue's card names the session's saved sign-in by id (it never did
+  for a session the agent started), `continue.signInName` is gone. A
+  waiting binding that its tile provided early is stale if the slot or a
+  warning changed since the review. A plan's start line is held to what
+  it resolves to, not to its words (a v0.3.84 plan applies). A batch
+  row's buttons wait a moment again when the list changes.
 - workspace agent: **one approval, one place; a start is the person's
   pick; a follow-up goes to the session that is there** (D250). A tile
   agent's start binds its tile, brief and kind: the person picks the

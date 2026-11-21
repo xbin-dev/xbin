@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/xbin-dev/xbin/internal/agent"
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/events"
 	"github.com/xbin-dev/xbin/internal/term"
@@ -159,6 +160,10 @@ func (s *Server) apiTermSessions(w http.ResponseWriter, r *http.Request) {
 			row := map[string]any{"id": si.ID, "cwd": si.Cwd, "kind": si.Kind, "provider": si.Provider, "mode": si.Mode, "status": si.Status, "origin": si.Origin}
 			if si.Kind == term.KindAgent {
 				row["pending"], row["questions"] = si.Pending, si.Questions
+				// whether its mode asks its person before it acts (acp.Provider.Asks): what a workspace agent reads to
+				// know a session its person put in an asking mode — the default doesn't (D251)
+				prov, _ := agent.Lookup(si.Provider)
+				row["asks"] = prov.Asks(si.Mode)
 				if p.Agent != "" {
 					// its own held messages the session didn't take (D250 re-review 4a): the agent is told once
 					if rs := s.Term.AgentReturned(si.ID, p.Agent); len(rs) > 0 {

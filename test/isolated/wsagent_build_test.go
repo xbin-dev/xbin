@@ -57,7 +57,10 @@ func TestWorkspaceAgentBuildsATool(t *testing.T) {
 
 	plan, _ := json.Marshal(map[string]any{"title": "A dice tool and an assistant that can use it", "changes": []any{
 		map[string]any{"kind": "tile.create", "args": map[string]any{"template": "starter", "name": "Dice"}, "why": "The tool lives in a tile of its own"},
-		map[string]any{"kind": "agent.start", "args": map[string]any{"tile": "Dice", "template": "mcp-tool", "harness": "fake", "goal": "fakeacp-steps: " + wsBuildSteps,
+		// in the mode that asks before each command — a mode is the agent's suggestion, preselected (D251) — so
+		// line 5 waits for the build; the work-mode default is TestWorkspaceAgentStartsAHarnessWithNoDefaultMode's,
+		// and a provide before the apply reaches the line internal/broker TestWaitingLineTheTileAlreadyProvides's
+		map[string]any{"kind": "agent.start", "args": map[string]any{"tile": "Dice", "template": "mcp-tool", "harness": "fake", "mode": "ask", "goal": "fakeacp-steps: " + wsBuildSteps,
 			"tool": map[string]any{"name": "roll_dice", "arguments": "sides: integer, default 6; count: integer, default 1", "result": "each roll and their sum"}}, "why": "A coding agent builds the tool"},
 		map[string]any{"kind": "tile.create", "args": map[string]any{"template": "agent", "name": "Assistant"}, "why": "The assistant"},
 		map[string]any{"kind": "binding.set", "args": map[string]any{"component": "Assistant", "slot": "llm", "provider": "xbin:llm"}, "why": "A model"},

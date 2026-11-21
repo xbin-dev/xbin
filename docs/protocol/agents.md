@@ -56,7 +56,9 @@ GET    /term/sessions             authenticated. the caller's live terminal
                                    workspace agent opened. ?compact=1: a
                                    short row each — {id, cwd, kind,
                                    provider, mode, status, origin} and,
-                                   for an agent session, pending,
+                                   for an agent session, asks (its
+                                   mode asks its person before it acts:
+                                   D251), pending,
                                    questions, turn (the turn it is on; 0
                                    before its first prompt) and last
                                    (the last line it wrote: in the
@@ -537,16 +539,15 @@ What a person's agent sessions start with, kept by xbind per person
  "agentSessions": {                   // sessions your workspace agent starts on tiles
    "start": "ask",                    //   "ask" (default): it asks you first | "allow"
    "harness": "codex",                //   the coding agent they start on where the tile allows it;
-                                      //   absent: the workspace's default (D250). One with no mode
-                                      //   that asks (OpenCode) is preselected with its warning, and
-                                      //   never starts without asking
-   "modes": {"claude": "plan"},       //   per harness; absent: the harness's asking mode. Only modes
-                                      //   xbind knows keep asking (never an explicit one)
+                                      //   absent: the workspace's default (D250)
+   "modes": {"claude": "plan"},       //   per harness; absent: the harness's work mode, which acts
+                                      //   without asking (D251). Any of its modes but an explicit
+                                      //   (bypass) one
    "net": "none",                     //   the network picker's value; absent: the default network
    "api": true,                       //   tile-API access; absent: yes
    "tiles": {"apps/eui":              //   per tile, what the person CHANGED on the approval with
      {"harness": "opencode",          //   "Remember for this tile" (D250): the coding agent, its
-      "model": "", "mode": "",        //   model, its mode — only a mode that asks; at most 200,
+      "model": "", "mode": "",        //   model, its mode — any but a bypass one (D251); at most 200,
       "at": 1795000000}}}}            //   the oldest go first
 ```
 
@@ -555,13 +556,16 @@ What a person's agent sessions start with, kept by xbind per person
 (`agentSessions.tiles`), then the person's preference (`agentSessions.
 harness`; the model of `harnesses.<id>.model`; `agentSessions.modes`), then
 the agent's suggestion, then the workspace's default — preselected on the
-approval, which says where each came from. Neither store keeps a mode that
-acts without asking: a write of one is 400, and a read ignores one found
-there — an older xbind may have written it (v0.3.83 took OpenCode's `plan`
-as asking), and it never blocks a later write. A start without asking
-always takes an asking mode, and a coding agent without one (OpenCode,
-which may still be the person's choice) never starts without asking. The agent reads the
-result, never these routes: `GET /delegate/start-defaults` → `chosen`.
+approval, which says where each came from. The default mode is the coding
+agent's work mode — its ordinary mode for a task, which acts without asking
+(D251): Claude Code `auto`, Codex `agent`, Gemini CLI `autoEdit`, OpenCode
+its own. Both stores keep any of a harness's modes, asking or not, but an
+explicit (bypass) one: a write of one is 400, and a read ignores one found
+there; what v0.3.83 and v0.3.84 wrote loads as it is and never blocks a
+later write. A start without asking (`"start": "allow"`) starts unasked
+only in a mode that asks the person named in `modes`; otherwise each start
+goes to the approval. The agent reads the result, never these routes:
+`GET /delegate/start-defaults` → `chosen`.
 
 `PUT` merges: `{"harnesses": {"claude": {"options": {"effort": null}}}}`
 removes one option and leaves the rest. A client applies `harnesses` itself
@@ -570,8 +574,8 @@ xbind never starts a person's own session in a saved mode by itself.
 `agentSessions` is read by xbind when the person's workspace agent starts a
 session — the agent can't read or write these routes (what they come to
 for a tile it reads as start-defaults' `chosen`) — and checked again
-on every read: a stored mode this xbind doesn't know to keep asking is
-replaced by the harness's asking mode. `credentials` follows the
+on every read: a stored mode this xbind doesn't know, or a bypass one, is
+replaced by the harness's work mode. `credentials` follows the
 precedence rule: the session's own choice, then this saved choice, then
 the workspace's mode (`GET /agents/policy`): `own-first` honours either
 choice, `connector-first` uses the connector unless one of them says

@@ -47,9 +47,10 @@ func (s *Server) drivesRefusal(p auth.Principal, id string) string {
 //   - the text doesn't begin with "/": every shipped harness reads that as
 //     one of its own commands (a model change, a sign-out, a project
 //     command that carries its own tool permissions) — the person's to give;
-//   - the session's CURRENT mode asks before it acts, or is the mode its
-//     person approved it in: one they have since switched to a mode that
-//     asks nothing takes no more of the agent's messages;
+//   - the session's CURRENT mode asks before it acts: one in a mode that
+//     doesn't — the default (D251), whatever mode its person approved it
+//     in — takes a text only as its person's approval of that text, once
+//     (a "message" request, delegatemessage.go);
 //   - the session's model source satisfies every org the conversation
 //     holds data of (sendRefusal).
 func (s *Server) delegateSends(w http.ResponseWriter, r *http.Request, id, text string) bool {
@@ -128,35 +129,31 @@ func harnessCommand(text string) string {
 	return ""
 }
 
-// modeRefusal is why a session in info's current mode takes no message
-// from its person's agent: the mode doesn't ask before every edit and
-// command (acp.Provider.Asks), and it isn't the mode the person approved
-// the session in (started: "" for a session that isn't the agent's) — or
-// its coding agent has no mode xbin can vouch for at all (OpenCode, D250
-// review M2: a writer to the tile can redefine what each of its modes
-// does), so what the person approved names no behaviour: each message is
-// theirs to approve.
 // sessionModeRefusal is modeRefusal for live session id: on the mode it
 // reports, and on a mode a switch asked for that it hasn't reported yet —
 // the one it may be in by the time the text reaches it (D250 re-review 4b).
 func (s *Server) sessionModeRefusal(id string, info term.SessionInfo, user string) string {
-	started := s.Term.AgentOriginMode(id)
-	if why := modeRefusal(info, started, user); why != "" {
+	if why := modeRefusal(info, user); why != "" {
 		return why
 	}
 	if pending := s.Term.AgentPendingMode(id); pending != "" {
 		in := info
 		in.Mode = pending
-		return modeRefusal(in, started, user)
+		return modeRefusal(in, user)
 	}
 	return ""
 }
 
-func modeRefusal(info term.SessionInfo, started, user string) string {
-	if term.MessageModeOK(info.Provider, info.Mode, started) { // (the one predicate: the held queue's delivery uses it too)
+// modeRefusal is why a session in info's current mode takes no message
+// from its person's agent unapproved: the mode doesn't ask before every
+// edit and command (acp.Provider.Asks) — the default of the sessions such
+// an agent starts (D251) — so each text is its person's to approve, once
+// (a message request; whatever mode they approved the session in).
+func modeRefusal(info term.SessionInfo, user string) string {
+	if term.MessageModeOK(info.Provider, info.Mode) { // (the one predicate: the held queue's delivery uses it too)
 		return ""
 	}
-	return "this session is now in the mode " + strconv.Quote(info.Mode) + ", which doesn't ask before it acts, and " + user + " didn't approve it in that mode: it takes no messages from their agent until they switch it back (or they send them)"
+	return "this session acts without asking (mode " + strconv.Quote(info.Mode) + "): a message from " + user + "'s workspace agent goes to it only with their approval of that text — file it as a message request (POST /api/xbin/delegate/requests with this call); it goes once they allow it"
 }
 
 // sendTarget is the tile agent session a delegate would send text to: its

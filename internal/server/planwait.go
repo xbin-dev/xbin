@@ -94,10 +94,17 @@ func (s *Server) personByID(user string) (auth.Principal, bool) {
 // (watchWaits) — not from here: a look at the waiting lines before the
 // write would find the person and nothing of theirs waiting, and drop them.
 func (s *Server) startWaiting(it *delegation.ChangeItem, pv delegation.ChangePreview) {
+	s.startWaitingAs(it, pv, string(pv.Before))
+}
+
+// startWaitingAs is startWaiting with the slot's binding it is held to
+// (Was): the proposal's, for a line whose tile provided before Apply
+// reached it (D251 review M1).
+func (s *Server) startWaitingAs(it *delegation.ChangeItem, pv delegation.ChangePreview, was string) {
 	w := *it.Wait
 	w.Until = time.Now().UTC().Truncate(time.Second).Add(delegation.MaxWait)
 	w.Owners = []string{s.policy().OwnerOf(w.Component), s.policy().OwnerOf(w.Tile)}
-	w.Was, w.Held = string(pv.Before), ""
+	w.Was, w.Held = was, ""
 	if wp, ok := s.ChangeSets.(WaitPreviewer); ok {
 		w.Ids = []string{wp.TileIdentity(w.Component), wp.TileIdentity(w.Tile)}
 	}
@@ -301,6 +308,8 @@ func (s *Server) judgeWait(cs delegation.ChangeSet, i int) bool {
 		return end("this now takes an admin's rights — it was yours to do when you approved it: nothing was bound")
 	case string(pv.Before) != w.Was:
 		return end(fmt.Sprintf("%s's %s was bound by someone since you approved this: nothing was changed", w.Component, w.Slot))
+	case warnedAnew(it, pv): // held to the warnings its person saw, as a line its tile provided early is (D252)
+		return end("as the tile came up, this line carries a warning it didn't when you approved it: nothing was bound — your agent can propose it again")
 	}
 	// (the bind reads the tile once more, under the lock it writes under, and records the approved role: WithBindWait)
 	status, msg, _ := s.adminCallOut(delegation.WithBindWait(context.Background(), w.PlanWait), person, pv.Call)

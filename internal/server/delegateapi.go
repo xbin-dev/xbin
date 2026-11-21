@@ -462,6 +462,20 @@ func (s *Server) apiDelegateAudit(w http.ResponseWriter, r *http.Request) {
 
 // ---- approval requests ----
 
+// requestNewBody is POST /delegate/requests' body.
+type requestNewBody struct {
+	Method     string `json:"method"`
+	Path       string `json:"path"`
+	Body       string `json:"body"`
+	BodyBase64 string `json:"bodyBase64"`
+	// ContentType is the media type the call's body will be sent as:
+	// bound like the body. Absent with a body: application/json.
+	ContentType *string `json:"contentType"`
+	Summary     string  `json:"summary"`
+	// Knows: what the backend understands of D250's answers ("retry": a failed start, tried again by its person)
+	Knows []string `json:"knows"`
+}
+
 // apiDelegateRequestNew — POST /delegate/requests {method, path, body? |
 // bodyBase64?, summary?}: the agent asks its person to approve one side
 // effect — a non-GET call to a tile's API, a POST /term/sessions or a
@@ -478,18 +492,7 @@ func (s *Server) apiDelegateRequestNew(w http.ResponseWriter, r *http.Request) {
 	}
 	p := a.p
 	r.Body = http.MaxBytesReader(w, r.Body, delegation.MaxBody*2)
-	var in struct {
-		Method     string `json:"method"`
-		Path       string `json:"path"`
-		Body       string `json:"body"`
-		BodyBase64 string `json:"bodyBase64"`
-		// ContentType is the media type the call's body will be sent as:
-		// bound like the body. Absent with a body: application/json.
-		ContentType *string `json:"contentType"`
-		Summary     string  `json:"summary"`
-		// Knows: what the backend understands of D250's answers ("retry": a failed start, tried again by its person)
-		Knows []string `json:"knows"`
-	}
+	var in requestNewBody
 	if err := DecodeJSON(r, &in); err != nil || in.Method == "" || in.Path == "" {
 		WriteError(w, http.StatusBadRequest, "need {method, path, body? | bodyBase64?, contentType?, summary?, knows?}", delegationDocs)
 		return
@@ -745,7 +748,7 @@ func (s *Server) apiDelegateRequestDecide(w http.ResponseWriter, r *http.Request
 	}
 	if r.ContentLength != 0 {
 		if err := DecodeJSON(r, &body); err != nil {
-			WriteError(w, http.StatusBadRequest, `need {grant?: "once" | "hour" | "always", scope?: "call" | "tile", unseen?: true, signin?: true, trust?: true, via?: "notification", harness?, model?, mode?, remember?: true, continue?: false, knows?: [..], seen?: {signInId?, net?}}`, delegationDocs)
+			WriteError(w, http.StatusBadRequest, `need {grant?: "once" | "hour" | "always", scope?: "call" | "tile", unseen?: true, signin?: true, trust?: true, via?: "notification", harness?, model?, mode?, remember?: true, continue?: false, knows?: [..], seen?: {signInId?, net?, harness?, mode?, textLen?}}`, delegationDocs)
 			return
 		}
 	}
@@ -779,6 +782,14 @@ func (s *Server) apiDelegateRequestDecide(w http.ResponseWriter, r *http.Request
 				WriteJSON(w, http.StatusConflict, map[string]any{"error": "This request needs a look in the app: " + why, "review": true, "docs": delegationDocs})
 				return
 			}
+		}
+		if status, why := seenTextRefusal(cur, body.Seen, body.Knows, a.p.Via == "device"); found && cur.Kind == delegation.KindMessage && why != "" { // all of it on screen, or nothing (D251 review H1, D252)
+			if _, words, ok := strings.Cut(strings.TrimPrefix(why, seenChanged), "\x00"); ok {
+				WriteJSON(w, status, map[string]any{"error": words, "changed": "text", "reload": true, "docs": delegationDocs})
+				return
+			}
+			WriteError(w, status, why, delegationDocs)
+			return
 		}
 	}
 	device := ""
@@ -843,7 +854,7 @@ func (s *Server) apiDelegateRequestDecide(w http.ResponseWriter, r *http.Request
 	out := map[string]any{"request": req}
 	if chosen != nil && chosen.Remember && req.State == delegation.Approved && s.AgentPrefs != nil {
 		// "Remember for this tile": the person's own act, made only here — of the fields they changed on the sheet,
-		// and never a mode that doesn't ask (D250 review M1)
+		// any mode but a bypass one (D251; D250 review M1)
 		prev, _ := s.AgentPrefs.TileChoice(a.user, req.Tile)
 		if ts, ok := rememberedOf(prev, *chosen); ok {
 			if err := s.AgentPrefs.RememberTile(a.user, req.Tile, ts, time.Now().Unix()); err != nil {

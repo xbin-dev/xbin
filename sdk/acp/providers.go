@@ -267,13 +267,29 @@ func Lookup(id string) (Provider, bool) {
 	return Provider{}, false
 }
 
+// WorkMode is the mode in which p works through a task in its sandbox
+// without stopping to ask — a person's "auto": its own non-explicit "auto"
+// mode (Claude Code's), else its auto-edit mode (AutoMode), else its own
+// default ("" for one that opens as it opens itself: OpenCode). Never an
+// Explicit (bypass) mode. The default of a session a person's workspace
+// agent starts (D251).
+func (p Provider) WorkMode() string {
+	for _, m := range p.Modes {
+		if m.ID == "auto" && !m.Explicit {
+			return m.ID
+		}
+	}
+	if p.AutoMode != "" {
+		return p.AutoMode
+	}
+	return p.DefaultMode
+}
+
 // AskingMode is the mode in which p asks its person before every edit and
 // command — its ask mode, else its plan mode, else the first of AskModes —
-// and "" for a harness with none (OpenCode, as xbin knows it). It is the
-// one answer to "which mode does a session that must ask open in" (xbind's
-// start-defaults, the agent preferences' unasked start, an approval's
-// default): a harness with none never opens unasked, and is never
-// preselected for anyone.
+// and "" for a harness with none (OpenCode, as xbin knows it): the one a
+// session must be in to take its person's agent's messages unapproved, or
+// to start with no sheet at all.
 func (p Provider) AskingMode() string {
 	for _, m := range append([]string{p.ApproveMode, p.PlanMode}, p.AskModes...) {
 		if p.Asks(m) {

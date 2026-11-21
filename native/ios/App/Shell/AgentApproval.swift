@@ -16,13 +16,13 @@ import XbinRenderer
 //   - Deny left, Allow right, equal width, at the bottom; stacked (Allow
 //     below) at accessibility sizes. Allow is always the primary button and
 //     Deny (Go back) the quiet one, in the same places on every sheet
-//     (D250): a warned approval colours Allow as the danger it is, and
-//     never promotes Deny.
+//     (D250): a warned approval (the wider grant) colours Allow as the
+//     danger it is, and never promotes Deny.
 //   - "Always, every change to <tile>" is a second sheet, armed late, which
 //     asks Face ID.
-//   - A tile agent's start leads with its mode; one that never asks — any
-//     mode xbind doesn't say asks: only a harness's ask or plan mode does —
-//     is said in the danger wording, and its Allow is the danger colour.
+//   - A tile agent's start leads with its mode, a neutral tag and one plain
+//     line: acting without asking is the ordinary default (D251), never a
+//     warning; its Allow is the ordinary primary "Start".
 //   - What WIDENS the grant is armed like Allow (the web chrome's
 //     WidenGuard): a standing choice, "until I take it back" — dimmed and
 //     inert for 600 ms after the sheet shows, while another sheet covers it
@@ -290,9 +290,8 @@ struct AgentDurationPicker: View {
 
 /// Deny and Allow at the bottom of a sheet: Deny left, Allow right, equal
 /// width; stacked with Allow below at accessibility sizes. Allow is the
-/// primary button, Deny the quiet one, always (D250); `warned` (a mode that
-/// never asks; the wider grant) colours Allow as the danger it is — Deny is
-/// never promoted.
+/// primary button, Deny the quiet one, always (D250); `warned` (the wider
+/// grant) colours Allow as the danger it is — Deny is never promoted.
 struct AgentDecisionBar: View {
     let deny: String
     let allow: String
@@ -474,6 +473,11 @@ struct AgentApprovalSheet: View {
                     .accessibilityIdentifier("approval-decided-where")
             }
         }
+        if r.isPending, r.kind == .unknown { // a kind this app can't show (a message to a tile agent, D250): decided on the web
+            Label { Text(verbatim: DelegationWords.unknownKindOnWeb) } icon: { Image(systemName: "info.square") }
+                .font(.callout.weight(.semibold))
+                .accessibilityIdentifier("approval-unknown-kind")
+        }
         if r.preview["readWeb"]?.boolValue == true { AgentReadWebBanner() }
         switch r.kind {
         case .session: sessionRows(r)
@@ -583,18 +587,14 @@ struct AgentApprovalSheet: View {
     @ViewBuilder private func sessionRows(_ r: DelegateRequest) -> some View {
         let s = DelegationWords.sessionRows(r)
         let t = DelegationWords.tile(r)
-        if !s.danger.isEmpty {
-            Label { Text(verbatim: s.danger).font(.callout.weight(.semibold)) } icon: { Image(systemName: "exclamationmark.octagon.fill") }
-                .foregroundStyle(XbinColor.danger)
-                .padding(10).frame(maxWidth: .infinity, alignment: .leading)
-                .background(XbinColor.dangerBackground, in: .xbinPlate)
-                .accessibilityIdentifier("approval-danger")
-        }
         VStack(alignment: .leading, spacing: 0) {
             // The mode leads: it is what stands between the brief and a change.
             ApprovalRow(label: "Mode") {
-                AgentTag(text: s.modeTag, symbol: s.modeAsks ? "checkmark.shield" : "exclamationmark.octagon", tone: s.modeAsks ? "ok" : "danger")
+                AgentTag(text: s.modeTag).accessibilityIdentifier("approval-mode-chip")
                 Text(verbatim: s.modeText).font(.callout)
+                if !s.resumed.isEmpty { // a bypass mode it ran in last, not taken (D251 review M2)
+                    Text(verbatim: s.resumed).font(.callout).foregroundStyle(XbinColor.danger).accessibilityIdentifier("approval-resumed")
+                }
                 if !s.modeName.isEmpty { Text(verbatim: s.modeName).font(XbinFont.code).foregroundStyle(XbinColor.muted) }
             }
             ApprovalRow(label: "Tile") {
@@ -642,13 +642,24 @@ struct AgentApprovalSheet: View {
     private func buttons(_ r: DelegateRequest) -> some View {
         AgentDecisionBar(deny: "Deny", allow: DelegationWords.allowLabel(r, choice: choice),
                          allowSpoken: DelegationWords.allowSpoken(r, choice: choice),
-                         warned: r.neverAsks, armed: arming.armed, working: working,
+                         armed: arming.armed && !unread(r), working: working,
                          stopped: DelegationWords.stopLine(stop),
                          onDeny: { deny(r) },
                          onAllow: {
                              // The wider grant is never one tap: its own sheet, Go back first.
                              if r.kind == .call, choice == .tile { wider = true } else { send(r, choice: choice) }
                          })
+    }
+
+    /// A text is allowed only once all of it was on screen (D251 review H1): a
+    /// brief or a body this sheet still clips holds Allow back until Show all.
+    private func unread(_ r: DelegateRequest) -> Bool {
+        switch r.kind {
+        case .session: return DelegationWords.clipText(DelegationWords.sessionRows(r).brief, all: showAllBrief).clipped
+        case .call, .template: return DelegationWords.sends(r, all: showAll).clipped
+        case .unknown: return true // nothing of it is shown here: never allowed here (D252)
+        default: return false
+        }
     }
 
     private var doneBar: some View {
@@ -661,8 +672,10 @@ struct AgentApprovalSheet: View {
     private func send(_ r: DelegateRequest, choice: GrantChoice.ID) {
         working = true
         problem = nil
+        // a start's brief as it is on screen now (all of it, once Show all): xbind allows only all of it (D252)
+        let onScreen = r.kind == .session ? DelegationWords.clipText(DelegationWords.sessionRows(r).brief, all: showAllBrief).text : nil
         Task {
-            let out = await workspace.agent.approve(r, choice: choice, duration: duration)
+            let out = await workspace.agent.approve(r, choice: choice, duration: duration, onScreen: onScreen)
             working = false
             settle(out, allowed: true)
         }

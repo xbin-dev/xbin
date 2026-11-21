@@ -50,10 +50,12 @@ func ticketStart(r delegation.Request) (*term.DelegateStart, string) {
 	if r.UseSignin {
 		signin, _ = shown["signInId"].(string)
 	}
-	// a resume opens what its history entry says, and is refused when that is no longer what the card showed
-	// (term.OpenAgentWith); any other start opens what the card showed or the person picked
-	resume, _ := shown["resume"].(bool)
-	return &term.DelegateStart{Approved: true, Picked: !resume, Provider: prov, Mode: mode, Model: model, Net: net, Signin: signin, TrustAsked: shown["signInTrust"] != nil, Continue: cont}, ""
+	// every start opens what the card showed or the person picked — a resume too: its coding agent its history's
+	// (term.OpenAgentWith refuses another), its mode the card's, never a bypass one it ran in last (D251 review M2)
+	// — and is told what the card showed (D252)
+	brief, _ := shown["prompt"].(string)
+	return &term.DelegateStart{Approved: true, Picked: true, Provider: prov, Mode: mode, Model: model, Net: net, Signin: signin, TrustAsked: shown["signInTrust"] != nil, Continue: cont,
+		Brief: &brief}, ""
 }
 
 // startStill is why an approved start can't open as its person approved
@@ -97,9 +99,9 @@ func (s *Server) startStill(p auth.Principal, r delegation.Request, st *term.Del
 			return "ticket", delegation.ReasonSession, "the session your person chose to continue can't take it now (" + why + "): file the start again"
 		case was == nil || c["provider"] != was["provider"] || c["mode"] != was["mode"]:
 			return "ticket", delegation.ReasonSession, fmt.Sprintf("the session your person chose to continue is now %v in mode %q, not %v in mode %q as approved: file the start again", c["provider"], c["mode"], was["provider"], was["mode"])
-		case continueSigninStill(c, approved, r.UseSignin) != "":
-			// it carries the person's saved sign-in: only a follow-up they ticked that sign-in for goes in (D250 review L1)
-			return "ticket", delegation.ReasonSession, continueSigninStill(c, approved, r.UseSignin)
+		case continueSigninStill(c, approved) != "":
+			// the same session, with the sign-in it carried when it was shown — no tick asked for that (D251)
+			return "ticket", delegation.ReasonSession, continueSigninStill(c, approved)
 		}
 	}
 	return "", "", ""
@@ -242,6 +244,10 @@ func (s *Server) sessionPreviewFor(p auth.Principal, body []byte, person *delega
 	if err != nil {
 		return nil, err.Error()
 	}
+	resumedIn := "" // a resume whose mode — its history's, or the agent's word — is a bypass one: never taken (D251 review M2)
+	if eff.Resumes && !eff.Provider.Safe(eff.Mode) {
+		resumedIn, eff.Mode = eff.Mode, workMode(eff.Provider)
+	}
 	if err := s.agentPolicy().SessionAllows(delegation.Subject{Holder: p.Agent, User: p.UserID, Tile: eff.Tile, Model: p.AgentModel}, eff.Provider.ID); err != nil {
 		return nil, err.Error()
 	}
@@ -259,9 +265,16 @@ func (s *Server) sessionPreviewFor(p auth.Principal, body []byte, person *delega
 		"options": options, // every setting the start carries; none of them can change the mode
 		// what the session will be told first: sent by xbind itself once the
 		// session is up, and bound by the ticket with the rest of the body.
-		// Nothing the agent sends the session later is approved one by one.
+		// What the agent sends the session later is approved one text at a
+		// time unless the session asks before it acts (D251).
 		"prompt": b.Prompt,
 		"net":    b.Net, "api": b.API == nil || *b.API, "vm": b.VM, "gpu": b.GPU, "model": options["model"], "name": b.Name, "resume": eff.Resumes,
+	}
+	if resumedIn != "" {
+		out["resumeModeNotTaken"] = resumedIn
+	}
+	if b.Resume != "" { // a resume keeps its coding agent and model; its mode is the person's to pick again (D251 review M2)
+		out["choices"] = map[string]any{"harnesses": []harnessChoice{resumeChoice(eff.Provider, options["model"])}}
 	}
 	if b.Resume == "" {
 		// D250: what may be picked, where each part came from, and what the agent suggested
@@ -278,9 +291,6 @@ func (s *Server) sessionPreviewFor(p auth.Principal, body []byte, person *delega
 		}
 		if pick.ModeNotTaken != "" {
 			out["modeNotTaken"] = pick.ModeNotTaken
-		}
-		if pick.HarnessNotTaken != "" {
-			out["harnessNotTaken"] = pick.HarnessNotTaken
 		}
 		if b.Continue != "" { // the agent's own idle session there: continued unless the person starts a new one
 			if c, why := s.continuable(p, b.Continue, eff.Tile); why == "" {

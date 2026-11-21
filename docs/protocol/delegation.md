@@ -351,12 +351,12 @@ GET    /docs/page               signed in. ?path=&section= → {path, title,
   own tool permissions, a restore of files), and those are the person's to
   give; a start's first prompt alike, approved or not, and a request for
   such a start isn't taken. `403 {refusal: "mode"}` when the session's
-  CURRENT mode doesn't ask before every edit and command and isn't the
-  mode its person approved the start in: one they have since switched to
-  such a mode takes no more of the agent's messages until they switch it
-  back — or until the person approves that one message: a request of kind
-  `message` (§Approval requests and tickets). The person's own messages
-  are never judged by these.
+  CURRENT mode doesn't ask before every edit and command — the default of
+  the sessions the agent starts (D251) — whatever mode its person
+  approved the start in: each text to it goes only once the person
+  approves that one message, a request of kind `message` (§Approval
+  requests and tickets). The person's own messages are never judged by
+  these.
 - **Taint from elsewhere.** What the agent keeps itself (its notebook) is
   stamped with orgs by the agent: before reading a page into a
   conversation it asks `…/allows` for the page's orgs, and after reading
@@ -1136,7 +1136,22 @@ POST   /delegate/requests       the person's agent only. {method, path,
                                  session asks: send it, no approval
                                  needed). 403 when the tile or its org
                                  refuses the call anyway; 409 past 20
-                                 pending
+                                 pending. A body xbind describes to the
+                                 person — a start's, a message's, a new
+                                 tile's, a page's, an MCP tool's call — is
+                                 read one way only (D252): one JSON
+                                 object, UTF-8, each member one the call
+                                 takes, written exactly so (lower case as
+                                 documented), none twice at any depth,
+                                 nothing after it — else 400 (403 for a
+                                 new tile's), naming the member; read so
+                                 again when its ticket is used: a request
+                                 filed before (pending across the
+                                 upgrade) that doesn't read so is 403
+                                 {refusal: "ticket", reason: "bound"},
+                                 nothing run — file it again. A tile
+                                 API call's body is the tile's to read:
+                                 shown and sent byte for byte
 GET    /delegate/requests       the person, or their agent's page.
                                  {requests}, oldest first; ?all=1 adds the
                                  ones decided in the last day; ?failed=1
@@ -1153,8 +1168,9 @@ POST   /delegate/requests/<id>/approve
                                  signin?: true, trust?: true,
                                  via?: "notification", harness?, model?,
                                  mode?, remember?: true, continue?: false,
-                                 knows?: ["continue"], seen?: {signInId?,
-                                 net?}}
+                                 knows?: ["continue", "seen-text"],
+                                 seen?: {signInId?, net?, harness?, mode?,
+                                 textLen?}}
                                  → {request, approval?, trust?}. harness,
                                  model, mode: a tile agent start's, as the
                                  person picked them on the sheet (D250,
@@ -1174,13 +1190,25 @@ POST   /delegate/requests/<id>/approve
                                  seen: what the sheet showed of a start
                                  xbind resolves when it is approved (the
                                  sign-in offered, the network; "" for
-                                 none) — required, both, with harness,
-                                 model, mode, remember or continue, or a
-                                 continue the client knows (400 without);
-                                 where it would now be otherwise, 409
-                                 {error, changed, reload: true}, nothing
-                                 decided: load the request again and show
-                                 it. via: the person
+                                 none; for a continue also the session's
+                                 harness and mode, D251) — signInId and
+                                 net required with harness, model, mode,
+                                 remember or continue, or a continue the
+                                 client knows (400 without); where it
+                                 would now be otherwise, 409 {error,
+                                 changed: signin | net | session, reload:
+                                 true}, nothing decided: load the request
+                                 again and show it. A continue needs no
+                                 signin tick (D251). textLen: how much of
+                                 the text the approval sends (a start's
+                                 brief, a message) was on screen when the
+                                 person clicked, UTF-8 bytes — required
+                                 with knows "seen-text" where there is a
+                                 text (400 without); any length but the
+                                 whole text's is 409 {changed: "text",
+                                 reload: true}, nothing decided (D252).
+                                 Seen with textLen alone picks nothing.
+                                 via: the person
                                  decided from a notification's action
                                  (D241): only once, and only a request the
                                  lock-screen rule passes (§Events and
@@ -1251,14 +1279,32 @@ standing scope would allow from then on — show the one the person is about
 to choose. For a session start `preview.session` is `{tile, provider,
 providerName, mode, asks, options, net, api, vm, gpu, model, name,
 resume}`: the harness and mode the session **will** run in — a resumed
-session's come from its history when the request names none — and every
+session's harness from its history, its mode the history's too unless
+that is a bypass (explicit) one: then the harness's work mode, with
+`resumeModeNotTaken` naming what it was in (D251 review M2) — and every
 option the start carries; `asks: false` means the mode lets the tile agent
-act without asking — say so on the card. A new session's start also
+act without asking — the default (D251): say so on the card as a fact,
+not a warning. A new session's start also
 carries what the person may pick (§The person's pick): `choices`,
 `from`, `suggested?`, `modeNotTaken?` and `continue?`. For a message,
 `preview.message` is `{session, provider, providerName, mode, asks: false,
-model, name, status, text}` — show the whole text: approving sends exactly
-it, once, to that session. A pending request expires after 24
+model, name, status, text, signInId?}` — show the whole text:
+approving sends exactly it, once, to that session (`signInId`: the
+person's saved sign-in the session carries, a fact to show; its label is
+the person's own list's). The approve says how much of the text was on
+screen when the person clicked — `seen: {textLen}` in UTF-8 bytes, the
+part shown of a text the client clipped — with `knows: ["seen-text"]`,
+which makes it required (400 without): xbind allows only the whole
+text's length, any other is 409 `{changed: "text", reload: true}`,
+nothing decided (D251 review H1, D252). That is all xbind can hold a
+client to: a client that sends the whole length of a text it didn't show
+is believed — the rule that it shows a text before it offers Allow is
+the client's own (the web's and the app's: Show all). An approve without
+the word or the length (an older client) isn't held to it — except the
+app's (a device session) Allow of a message, which no app shows: 409
+"decide this one on the web", nothing decided. The text a
+card shows is xbind's — `preview.session.prompt`, `preview.message.text`
+— never a client's own reading of the body (D252). A pending request expires after 24
 hours; decided and withdrawn ones are kept a day, 200 a person at most.
 
 **What a start leaves out, xbind fills.** A start may name only its tile
@@ -1371,50 +1417,50 @@ choices: {harnesses: [{id, name, defaultMode, modes: [{id, name, asks, explicit?
                        modelsKnown, noSignIn?, signIn?, signInId?, signInTrust?}]},
 from: {harness, model, mode},        // "tile" | "preference" | "agent" | "default"
 suggested?: {harness?, model?, mode?},
-modeNotTaken?: "<mode>",             // suggested, doesn't ask: not preselected
-harnessNotTaken?: "<harness>",       // suggested, has no mode that asks: not preselected
+modeNotTaken?: "<mode>",             // suggested, a bypass (explicit) one: not preselected
 continue?: {session, provider, providerName, mode, asks, model, name, started, since,
-            signIn, signInId?, signInName?}
+            signIn, signInId?}
+resumeModeNotTaken?: "<mode>",       // a resume whose last mode was a bypass one: it resumes in the work mode
 ```
 
 - **Preselected by one chain, per field**: this tile's remembered choice
   (`agentSessions.tiles`, [agents.md](/docs/protocol/agents.md)) > the
   person's preference > the agent's suggestion > the workspace's default;
-  `from` says which. The default mode is the harness's asking one
-  (`defaultMode`) — for a coding agent whose entry names no default mode
-  but lists a mode that asks, that one: the start is strict, so it opens
-  in it or not at all (the agent is switched before the brief goes; one
-  that refuses the switch never gets it). **A coding agent with no mode xbin can vouch asks** —
-  OpenCode, whose modes ask or act by its own permission configuration,
-  which xbin doesn't set: the agent's suggestion of it is not preselected
-  (`harnessNotTaken`, warned); the person's own choice of it (remembered
-  for the tile, or their preference) is — with the warning, `asks:
-  false`, every time; it never starts without asking (403
-  `needs-approval`: "your person's coding agent for this tile acts
-  without asking, so every start is approved on the sheet"); a message
-  from the agent to a session of it is always a message approval; and a
-  plan's `agent.start` line that resolves to it carries the warning, so
-  the review starts it unticked. The workspace's default is a coding
-  agent that asks wherever the tile allows one — OpenCode only where it
-  is all the tile allows, warned.
-- **A suggested mode that doesn't ask is never preselected**: the asking
-  default is, `modeNotTaken` names the suggestion, and the sheet warns
-  beside it; only the person's own pick makes the start a mode that acts
-  without asking. An `explicit` (bypass) mode is never preselected at all.
+  `from` says which. **The default mode is the harness's work mode**
+  (`defaultMode`, D251) — its ordinary mode for a task, which acts without
+  asking: Claude Code `auto`, Codex `agent`, Gemini CLI `autoEdit`,
+  OpenCode its own (no mode named). Never an `explicit` (bypass) one. The
+  start is strict: it opens in its mode or not at all (the agent is
+  switched before the brief goes; one that refuses the switch never gets
+  it). The card states the mode as a fact (`asks`), with the ordinary
+  Start; a plan's `agent.start` line is an ordinary line. OpenCode, whose
+  modes ask or act by its own configuration, is an ordinary choice.
+- **The agent's suggestion is a preselection**, of a mode too — except an
+  `explicit` (bypass) mode, which is never preselected: the default is,
+  and `modeNotTaken` names the suggestion for the person to pick, or not.
+- **No path without the sheet starts a session in a mode that doesn't
+  ask, or sends text to one**: a start without asking (the person's
+  preference) starts unasked only in a mode that asks they named; any
+  other is 403 `needs-approval` ("the sessions your person's agent starts
+  act without asking, so every start is approved on the sheet"). A
+  notification's Allow once never approves a start or a message. Every
+  text the agent sends a session that acts without asking — whatever mode
+  it was approved in — is a `message` request, approved once.
 - **A sign-in is never suggested or picked here**: D230's unticked line
   (`signin`) stands, offered for the harness the person picks.
 - `modelsKnown: false`: the harness's own models are only known once a
   session runs — the list is "its default" plus what xbind knows; say so.
 - **The approve call carries the pick** (`harness`, `model`, `mode`,
   `remember`), validated as a by-hand start's: 400 for a field that isn't
-  a start's or a resumed session's, 409 for a pick that can't open
+  a start's (a resume picks its `mode` only — any of its harness's, a
+  bypass one too: the person's own pick, on that approval), 409 for a pick that can't open
   ("this start can't open as you picked it: …"), nothing decided either
   way. `remember: true` keeps for the tile only what the person CHANGED on
   the sheet — not what was preselected from the agent's suggestion: the
-  coding agent and model (any coding agent's), and the mode only when it
-  asks. The store refuses a mode that acts without asking, and a read
-  ignores one found there (a value an earlier xbind saved under looser
-  rules is ignored, never an error: it never blocks a later write).
+  coding agent, the model and the mode — any but a bypass one (D251).
+  The store refuses a bypass mode, and a read ignores one found there
+  (what an earlier xbind saved loads as it is, or is ignored, never an
+  error: it never blocks a later write).
   The request records it
   as `chosen`, and the agent is told what ran (the session's row, its
   `request` notice). Changing the coding agent, model or mode is never an
@@ -1433,12 +1479,15 @@ continue?: {session, provider, providerName, mode, asks, model, name, started, s
   instead is judged in full when they approve it. A follow-up is judged where it goes: on
   that session's own coding agent and model (its taint, a connector model
   by its own id), as a message to it is — never on what a new start there
-  would run on. **A session that carries the person's saved sign-in**
-  (`continue.signIn: "saved"`, `signInId`, `signInName`): a follow-up into
-  it uses that sign-in, so it needs the same unticked, warned tick as a
-  start with it — `signin: true` on the approve, each time; without it,
-  409, and the sheet offers "Start a new session instead" (which has
-  none). The redeem checks the session still carries the sign-in ticked.
+  would run on. **Continuing is one plain approval** (D251): no tick, for
+  a session that carries the person's saved sign-in too (`continue.signIn:
+  "saved"`, `signInId` — a fact the sheet shows, "uses your Claude Code
+  sign-in", its label from the person's own list; they ticked it when the
+  session started). It is
+  held to the session shown: the approve's `seen` names its `harness`,
+  `mode` and `signInId` as the sheet showed them, and another one now is
+  409 `{changed: "session" | "signin", reload: true}`, nothing decided;
+  the redeem checks the session still carries the sign-in shown.
 - **A plan's `agent.start` line runs as it was reviewed**: the open is the
   line's coding agent, model and mode, whatever the call's body named; to
   run others the agent asks for a single start's approval, where the
@@ -1509,8 +1558,10 @@ POST   /delegate/changesets     the person's agent only. {title, items:
                                  [{kind, args, why?}]} → the change set,
                                  proposed. Nothing is applied. 403 without
                                  the opt-in; 400 for an unknown kind or
-                                 arguments; at most 20 items; 409 past 10
-                                 open sets
+                                 arguments — args read as a request's body
+                                 is (each member its kind's, exactly so,
+                                 once: D252); at most 20 items; 409 past
+                                 10 open sets
 GET    /delegate/changesets     the person, their agent's page, or their
                                  agent. {changesets}, oldest first (a set
                                  from another person — §Plans — only to
@@ -1978,6 +2029,9 @@ manifest). Without such a start before it, the line is `blocked` as ever.
   rights now, the proposing conversation's scope and hidden tiles, both
   tiles' agent levels, their orgs' agent rules, the account. `result`
   becomes `applied` (with its `inverse`: it can be undone). At most once.
+  A tile that provides it already when Apply reaches the line — its tile
+  agent, acting without asking (D251), was quicker — is judged the same
+  way, at once: never `stale` for being early.
 - **The approved role stays the binding's limit.** The bind reads the
   tile's manifest once more under the lock the binding is written under,
   and records the role with it (`bindingCaps` in the workspace's

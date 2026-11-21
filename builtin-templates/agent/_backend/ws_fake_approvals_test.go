@@ -26,7 +26,7 @@ func (a *fakeApprovals) chosenFor(tile, def string) *wsChosenNow {
 		cc := *c
 		return &cc
 	}
-	return &wsChosenNow{Harness: def, Mode: "default", Asks: true, From: map[string]string{"harness": "default", "mode": "default", "model": "default"}}
+	return &wsChosenNow{Harness: def, Mode: "auto", Asks: false, From: map[string]string{"harness": "default", "mode": "default", "model": "default"}}
 }
 
 // remember is the person's "Remember for this tile".

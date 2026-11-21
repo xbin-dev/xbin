@@ -173,7 +173,7 @@ export const closingWords = 'Applied. This closes by itself — each line’s ou
 /** startRows(item): an agent.start line as a single start's sheet draws it (sessionRows) — from xbind's `start`. */
 export function startRows(item) {
   const s = (item && item.start) || {};
-  return sessionRows({ kind: 'session', tile: s.tile, preview: { tile: s.tile, session: s }, body: JSON.stringify({ prompt: typeof s.prompt === 'string' ? s.prompt : '' }) });
+  return sessionRows({ kind: 'session', tile: s.tile, preview: { tile: s.tile, session: s } });
 }
 
 /** planNeed(cs): a plan (or a request from another person) as a row of Needs you. */

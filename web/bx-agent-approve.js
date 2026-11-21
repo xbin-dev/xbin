@@ -34,15 +34,19 @@
  * and its mode — preselected from the person's choice for the tile, their
  * preference, the agent's suggestion and the default, each said — and
  * "Remember for this tile"; the pick rides the approval and is what runs.
- * A mode the agent suggested that acts without asking is never preselected.
- * Picking one that acts without asking arms Allow again. Where the start
- * would continue the agent's own idle session there, that is the first
- * choice and "Start a new session instead" the second.
+ * The mode is a fact the sheet states (D251) — a chip, "acts without
+ * asking" or "asks before acting", and one plain line — never a warning:
+ * a tile agent the workspace agent starts acts without asking by default.
+ * Only a bypass mode the agent suggested is never preselected. Where the
+ * start would continue the agent's own idle session there, that is the
+ * first choice — one plain approval, Send (D251) — and "Start a new
+ * session instead" the second.
  *
  * The buttons, on every kind (D250): Deny on the left, the quiet
- * secondary; Allow on the right, the primary — coloured as danger where the
- * act is (a mode that acts without asking, the wider standing grant), never
- * by promoting Deny. A warning is said in the body.
+ * secondary; Allow on the right, the primary — coloured as danger only
+ * for the wider standing grant, never by promoting Deny. A warning (a
+ * saved sign-in on a new session, the trust line, reading the web, hidden
+ * text) is said in the body.
  */
 import { LitElement, html, css, nothing, keyed } from '/vendor/lit-all.min.js';
 import '/vendor/bx-icons.js';
@@ -51,7 +55,7 @@ import { agentStore } from '/vendor/agent-chrome-store.js';
 import '/vendor/agent-signin.js';
 import { uncovered } from '/vendor/agent-armed.js';
 import { trustWords, offerWords } from '/vendor/agent-signins.js';
-import { pickOf, picked, startView, choose, contChoice, pickBody, messageView, askedParts } from '/vendor/agent-start-words.js';
+import { pickOf, picked, startView, choose, contChoice, pickBody, messageView, askedParts, withSeenText } from '/vendor/agent-start-words.js';
 import {
   CHOICES, DURATIONS, heading, tile, levelWords, sends, undoWords, grantChoices, allowLabel, allowSpoken, approveBody, widerWords, sessionRows, settled,
   stopRefusal, stopWords, reveal, HIDDEN_NOTE, clipText, clipNote, ownerWords, webRows, mcpRows, READ_WEB,
@@ -92,6 +96,13 @@ export { uncovered }; // (/vendor/agent-armed.js: shared with the sign-in card's
  * read-only. A start that would begin signed out with nothing saved gets
  * the chrome's sign-in card. Nothing where neither is the case.
  */
+/**
+ * signinName(id): which saved sign-in a follow-up's session carries, as a
+ * chip of its own — its label from the person's own list, by id (never a
+ * name in the request); nothing when it carries none.
+ */
+export const signinName = (id) => (id ? html`<span class="chip" data-signin-name><bx-agent-signin view="name" sid=${id}></bx-agent-signin></span>` : nothing);
+
 export const signinRow = (r, ticks = null) => {
   if (!r.signin) return nothing;
   if (!r.signin.offer) {
@@ -224,13 +235,30 @@ export class BxAgentApprove extends LitElement {
     return !!e && e.isTrusted && this._armed && !this._busy && document.hasFocus() && uncovered(e.currentTarget);
   }
 
+  // a text is allowed only once all of it was on screen (D251 review H1): whether this sheet still clips one
+  _unread(req) {
+    switch (req.kind) {
+      case 'session': case 'message': return this._onScreen(req).clipped;
+      case 'mcp': return clipText(mcpRows(req).arguments, this._all).clipped;
+      case 'call': case 'template': return sends(req, this._all).clipped;
+    }
+    return false;
+  }
+
+  // the text an approval sends (a start's brief, a message) as this sheet shows it now: {text: the part on screen, clipped}
+  _onScreen(req) {
+    return req.kind === 'message' ? clipText(messageView(req).text, this._all) : clipText(sessionRows(this._pick ? picked(req, this._pick) : req).brief, this._allBrief);
+  }
+
   async _allow(e) {
     if (!this._may(e) || this.stopped) return;
     const req = this.request;
+    if (this._unread(req)) return; // (its button says so, and isn't armed)
     if (req.kind === 'call' && this._choice === 'tile' && this._step === 'main') { this._step = 'wider'; this._arm(); return; }
-    if (this._pick && startView(req, this._pick).needsTick && !this._ticks.signin) return; // a follow-up with a sign-in: only once ticked
     this._busy = true; this._err = '';
     const body = { ...approveBody(picked(req, this._pick || {}), this._choice, this._duration || CHOICES.duration[this._choice], this._ticks), ...(this._pick ? pickBody(req, this._pick) : {}) };
+    // how much of the text was on screen when the person clicked: xbind allows only all of it (D251 review H1, D252)
+    if (req.kind === 'message' || (req.kind === 'session' && req.state !== 'failed')) Object.assign(body, withSeenText(body, this._onScreen(req).text));
     if (req.state === 'failed') { delete body.grant; delete body.scope; delete body.unseen; delete body.continue; delete body.remember; }
     const r = req.state === 'failed' ? await this.store.retry(req.id, body) : await this.store.approve(req.id, body);
     this._busy = false;
@@ -350,28 +378,21 @@ export class BxAgentApprove extends LitElement {
     const r = sessionRows(eff);
     const brief = clipText(r.brief, this._allBrief);
     const set = (field, value) => {
-      const was = v ? v.asks : true;
       this._pick = choose(this._pick, req, field, value);
       if (field === 'harness') this._ticks = {}; // the sign-in offered is that coding agent's
-      if (was && !startView(req, this._pick).asks) this._arm(); // what is allowed now acts without asking: Allow waits again
     };
     return html`${v && v.cont ? html`<div class="cont" role="radiogroup" aria-label="Where it goes" data-continue>
-        ${/* every switch arms Allow again, and drops a tick that was the other choice's (D250 review L1) */ ''}<label class=${v.continuing ? 'on' : ''}><input type="radio" name="cont" data-cont="continue" .checked=${v.continuing} @change=${() => { this._pick = contChoice(this._pick, req, true); this._ticks = {}; this._arm(); }}>
-          <span><b>${v.cont.label}</b><span class="chips">${v.cont.chips.map((c) => html`<span class="chip">${c}</span>`)}</span></span></label>
-        <label class=${v.continuing ? '' : 'on'}><input type="radio" name="cont" data-cont="new" .checked=${!v.continuing} @change=${() => { this._pick = contChoice(this._pick, req, false); this._ticks = {}; this._arm(); }}>
-          <span>${v.cont.sub}</span></label>
-        ${v.continuing && v.cont.signIn ? html`<div class="trustline" data-cont-signin-line>
-          <div class="small"><span class="tag bad"><bx-icon name="warning"></bx-icon>YOUR SIGN-IN</span> <span data-warn>${v.cont.signIn.warn}</span></div>
-          <label class="row"><input type="checkbox" data-cont-signin data-widen="on" .checked=${!!this._ticks.signin} @click=${this._widen.click} @keydown=${this._widen.key}
-            @change=${(e) => { this._ticks = { signin: e.target.checked }; }}><span><b>${v.cont.signIn.line}</b> <bx-agent-signin view="name" sid=${v.cont.signIn.id}></bx-agent-signin></span></label>
-          ${this._ticks.signin ? nothing : html`<div class="small muted" data-unticked>${v.cont.signIn.untickedNote}</div>`}</div>` : nothing}</div>` : nothing}
-      ${(v ? !v.asks : r.danger) ? html`<div class="banner bad" role="alert" data-danger><bx-icon name="error"></bx-icon><span>${v ? v.danger : r.danger}</span></div>` : nothing}
+        ${/* a switch drops a tick that was the other choice's (D250 review L1); continuing is one plain approval (D251) */ ''}<label class=${v.continuing ? 'on' : ''}><input type="radio" name="cont" data-cont="continue" .checked=${v.continuing} @change=${() => { this._pick = contChoice(this._pick, req, true); this._ticks = {}; }}>
+          <span><b>${v.cont.label}</b><span class="chips" data-cont-chips>${v.cont.chips.map((c) => html`<span class="chip">${c}</span>`)}${signinName(v.cont.signInId)}</span></span></label>
+        <label class=${v.continuing ? '' : 'on'}><input type="radio" name="cont" data-cont="new" .checked=${!v.continuing} @change=${() => { this._pick = contChoice(this._pick, req, false); this._ticks = {}; }}>
+          <span>${v.cont.sub}</span></label></div>` : nothing}
       <dl class="rows">
         ${v && v.pickers.length ? v.pickers.map((pk) => html`<dt><label for=${`pick-${pk.id}`}>${pk.label}</label></dt><dd class="pick" data-pick=${pk.id}>
             ${/* a new select for new options: one whose options are swapped under it keeps the old (dirty) selection, and
                  showed a blank mode after the coding agent changed (the approvalsUx pass) */ ''}${keyed(`${pk.id}:${pk.options.map((o) => o.value).join('\n')}`, html`<select id=${`pick-${pk.id}`} data-select=${pk.id} .value=${pk.value} @change=${(e) => set(pk.id, e.target.value)}>
               ${pk.options.map((o) => html`<option value=${o.value} ?selected=${o.value === pk.value}>${o.label}</option>`)}</select>`)}
             ${pk.from ? html`<span class="small from" data-from=${pk.id}>${pk.from}</span>` : nothing}
+            ${pk.id === 'mode' ? html`<span class="chips"><span class="chip" data-mode-chip>${v.modeChip}</span></span>${v.fact ? html`<span class="small" data-mode-fact>${v.fact}</span>` : nothing}` : nothing}
             ${pk.note ? html`<span class="small muted">${pk.note}</span>` : nothing}
             ${pk.warn ? html`<span class="small err" data-not-taken>${pk.warn}</span>` : nothing}</dd>`)
           : html`<dt>Coding agent</dt><dd>${r.agent}</dd>`}
@@ -379,7 +400,8 @@ export class BxAgentApprove extends LitElement {
             @change=${(e) => { this._pick = { ...this._pick, remember: e.target.checked }; }}> ${v.remember.label}</label>
           <div class="small muted">${v.remember.note}</div></dd>` : nothing}
         ${v && (v.pickers.length || v.continuing) ? nothing /* the Mode picker says it (and a continued session's chips): not a second Mode row */
-          : html`<dt>Mode</dt><dd data-row="mode"><span class="tag ${r.mode.tone}">${r.mode.tag}</span>${r.mode.name ? html` <span class="mono muted">${r.mode.name}</span>` : nothing}<div>${r.mode.text}</div></dd>`}
+          : html`<dt>Mode</dt><dd data-row="mode"><span class="chip" data-mode-chip>${r.mode.tag}</span>${r.mode.name ? html` <span class="mono muted">${r.mode.name}</span>` : nothing}<div class="small" data-mode-fact>${r.mode.text}</div>
+            ${r.resumed ? html`<div class="small err" data-resumed>${r.resumed}</div>` : nothing}</dd>`}
         ${this._tileRow(req)}
         ${v && v.continuing ? nothing : signinRow(r, { ...this._ticks, guard: this._widen, set: (patch) => { this._ticks = { ...this._ticks, ...patch }; } })}
         <dt>Network</dt><dd>${r.network}</dd>
@@ -392,17 +414,18 @@ export class BxAgentApprove extends LitElement {
       <p class="small muted">${r.comes}</p>`;
   }
 
-  // a message to a tile agent that acts without asking (D250): the whole text, sent exactly so, once
+  // a message to a tile agent that acts without asking (D250): the whole text, sent exactly so, once — one plain
+  // approval, the session's facts as chips (D251)
   _message(req) {
     const m = messageView(req);
     const t = clipText(m.text, this._all);
-    return html`<div class="banner warn" data-why><bx-icon name="warning"></bx-icon><span>${m.why}</span></div>
-      <dl class="rows">
+    return html`<dl class="rows">
         ${this._tileRow(req)}
-        <dt>Tile agent</dt><dd><span class="chips">${m.agent.map((c) => html`<span class="chip">${c}</span>`)}</span></dd>
+        <dt>Tile agent</dt><dd><span class="chips">${m.agent.map((c) => html`<span class="chip">${c}</span>`)}${signinName(m.signInId)}</span></dd>
         <dt>Message</dt><dd>${hiddenLine(m.text)}<pre class="body" tabindex="-1" data-row="message">${shown(t.text)}${t.clipped ? '…' : ''}</pre>
           <div class="small muted">${t.clipped ? html`${clipNote(t)} — <button class="link" data-show-all @click=${() => this._showAll('_all')}>Show all</button> ` : nothing}sent exactly like this, once</div></dd>
       </dl>
+      <p class="small muted" data-why>${m.why}</p>
       <details class="call small" data-details><summary>Details</summary><div class="mono" data-call>${req.method} ${req.target}</div></details>
       ${this._quote(req.summary)}`;
   }
@@ -450,12 +473,12 @@ export class BxAgentApprove extends LitElement {
   }
 
   _template(req) {
-    let b = {};
-    try { b = JSON.parse(req.body || '{}') || {}; } catch { /* shown raw below */ }
+    // what is created is xbind's reading of the body (preview.create), never this sheet's own (D252)
+    const c = (req.preview && req.preview.create) || {};
     const s = sends(req, this._all);
     return html`<dl class="rows">
-        <dt>Template</dt><dd class="mono">${b.source || b.template || '(the default)'}</dd>
-        <dt>Name and place</dt><dd class="mono">${b.path || b.name || req.target}</dd>
+        <dt>Template</dt><dd class="mono" data-row="template">${c.template ? shown(String(c.template)) : '(the default)'}</dd>
+        <dt>Name and place</dt><dd class="mono" data-row="path">${c.path ? shown(String(c.path)) : '(xbin picks it)'}</dd>
         <dt>Owner</dt><dd data-row="owner">${ownerWords(req)}</dd>
         <dt>Sends</dt><dd>${hiddenLine(req.body)}<pre class="body" tabindex="-1">${shown(s.text)}${s.clipped ? '…' : ''}</pre>
           <div class="small muted" data-note>${s.note}${s.clipped ? html` — <button class="link" data-show-all @click=${() => this._showAll('_all')}>Show all</button>` : nothing}</div></dd>
@@ -463,17 +486,17 @@ export class BxAgentApprove extends LitElement {
       ${this._quote(req.summary)}`;
   }
 
-  // Deny on the left, the quiet secondary; Allow on the right, the primary — coloured as danger where the act is,
-  // never by promoting Deny (D250). The when: each fact an element of its own.
+  // Deny on the left, the quiet secondary; Allow on the right, the ordinary primary — a mode is a fact, not a danger
+  // (D251); never by promoting Deny (D250). The when: each fact an element of its own.
   _foot(req, v) {
-    const danger = req.kind === 'session' && !(v ? v.asks : req.preview && req.preview.session && req.preview.session.asks === true);
-    const on = this._armed && !this._busy && !(v && v.needsTick && !this._ticks.signin); // (a follow-up with a sign-in: only once ticked)
+    const unread = this._unread(req);
+    const on = this._armed && !this._busy && !unread;
     const when = req.kind === 'call' || req.kind === 'mcp' ? askedParts(req) : ['asked every time', ...(req.kind === 'session' ? ['change in Preferences'] : [])];
     const label = req.state === 'failed' ? 'Try again' : v ? v.label : req.kind === 'message' ? messageView(req).label : allowLabel(req, this._choice);
     return html`<div class="foot">
-      <span class="when small muted">${when.map((x) => html`<span>${x}</span>`)}</span>
+      <span class="when small muted">${unread ? html`<span data-unread>Show all of the text to allow it</span>` : when.map((x) => html`<span>${x}</span>`)}</span>
       ${/* the quiet one — filled only where nothing can be allowed and it is the sheet's one button (as the app's) */ ''}<button data-deny class=${this.stopped ? 'primary' : ''} ?disabled=${this._busy} @click=${this._deny}>Deny</button>
-      ${this.stopped ? this._stop() : html`<button class="primary ${danger ? 'danger' : ''} arming" data-allow=${this._choice} aria-disabled=${on ? 'false' : 'true'} aria-label=${v || req.kind === 'message' ? label : allowSpoken(req, this._choice)}
+      ${this.stopped ? this._stop() : html`<button class="primary arming" data-allow=${this._choice} aria-disabled=${on ? 'false' : 'true'} aria-label=${v || req.kind === 'message' ? label : allowSpoken(req, this._choice)}
         @click=${this._allow}>${shown(label)}</button>`}
     </div>`;
   }

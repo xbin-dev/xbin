@@ -7,6 +7,7 @@ package server
 // delegate.go (delegateHandle, sessionAllows, taint).
 
 import (
+	"cmp"
 	"errors"
 	"net/http"
 	"slices"
@@ -500,8 +501,9 @@ func (d startDefaultsView) netFor(id string) string  { h, _ := d.of(id); return 
 // it names nothing: per harness the tile's orgs' rules allow (the policy's
 // SessionAllows — their harness lists, and whether the harness can run
 // where the tile's sessions must), the mode, network and API access of the
-// person's preference for agent-started sessions (the policy's StartPrefs)
-// or, where they ask to approve each start, the harness's asking mode. One
+// person's preference for agent-started sessions (the policy's StartPrefs:
+// only a mode that asks starts unasked) or, where each start is approved,
+// the harness's work mode (D251). One
 // place: the preview of a start request, the unasked start and
 // GET /delegate/start-defaults all read it.
 //
@@ -526,24 +528,13 @@ func (s *Server) startDefaults(p auth.Principal, tile string) startDefaultsView 
 			continue
 		}
 		h := startHarness{ID: prov.ID, Name: prov.Name, API: true, NeedsTicket: true}
-		if prefs, ok := pol.StartPrefs(p.UserID, tile, prov.ID); ok {
-			h.Mode, h.Net, h.API, h.NeedsTicket = prefs.Mode, prefs.Net, prefs.API, false
-		}
-		if m, err := prov.ResolveMode(h.Mode); err == nil { // "" is the harness's own default
-			h.Mode = m
-		}
-		if h.Mode == "" {
-			// a harness with no default mode of its own (OpenCode) opens in its
-			// asking mode, as the approval's default and an unasked start do
-			// (D250, startchoice.go askingMode) — said so here, so what reads
-			// this (the agent's backend) knows a session in it asks
-			h.Mode = askingMode(prov)
-		}
-		if !prov.Asks(h.Mode) {
-			// a mode not known to ask its person (a harness that keeps its
-			// modes to itself, or a preference the catalog no longer
-			// vouches for): never unasked — the person sees it on a card
-			h.NeedsTicket = true
+		// a start with no sheet: only in a mode that asks — the preference's, else its asking one, as the open
+		// takes it (term/delegate.go); anything else is approved on the sheet, where it opens by default in the
+		// coding agent's work mode (D251)
+		if prefs, ok := pol.StartPrefs(p.UserID, tile, prov.ID); ok && prov.Asks(cmp.Or(prefs.Mode, prov.AskingMode())) {
+			h.Mode, h.Net, h.API, h.NeedsTicket = cmp.Or(prefs.Mode, prov.AskingMode()), prefs.Net, prefs.API, false
+		} else {
+			h.Mode = workMode(prov)
 		}
 		h.Asks = prov.Asks(h.Mode)
 		h.NoSignIn = noSignIn(llm[prov.ID])
@@ -558,12 +549,7 @@ func (s *Server) startDefaults(p auth.Principal, tile string) startDefaultsView 
 			break
 		}
 	}
-	// the workspace's default is one with a mode that asks wherever one is allowed (D250 re-review item 3); a
-	// coding agent with none (OpenCode) only where it is all the tile allows — preselected warned, as ever
-	cands := slices.DeleteFunc(slices.Clone(out.Harnesses), func(h startHarness) bool { return !vouched(h.ID) })
-	if len(cands) == 0 {
-		cands = out.Harnesses
-	}
+	cands := out.Harnesses // (any coding agent may be the default: none is a danger for its mode, D251)
 	if first := cands; out.Harness == "" && len(first) > 0 &&
 		(llm != nil && !runsNow(llm[first[0].ID]) || llm == nil && first[0].SignIn == "needed") {
 		// the first allowed can't run as things are: the first the

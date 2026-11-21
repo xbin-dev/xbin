@@ -65,6 +65,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/delegation"
 	"github.com/xbin-dev/xbin/internal/limits"
 	"github.com/xbin-dev/xbin/internal/registry"
+	"github.com/xbin-dev/xbin/internal/server"
 	"github.com/xbin-dev/xbin/internal/users"
 )
 
@@ -84,11 +85,11 @@ func ChangeKinds() []string {
 }
 
 // strictArgs decodes a kind's arguments: unknown keys are an error, so a
-// misspelt or smuggled field never rides into the admin call.
+// misspelt or smuggled field never rides into the admin call — and so is a
+// key in another case or written twice, so the line xbind writes is the
+// one reading of them there is (D252).
 func strictArgs(raw json.RawMessage, v any) error {
-	dec := json.NewDecoder(bytes.NewReader(raw))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(v); err != nil {
+	if err := server.StrictDecode(raw, v); err != nil {
 		return fmt.Errorf("its arguments don't parse: %w", err)
 	}
 	return nil

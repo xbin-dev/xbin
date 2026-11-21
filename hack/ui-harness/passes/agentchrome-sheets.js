@@ -69,10 +69,15 @@ async function sheetChecks({ page, S, check, refresh, sentTo, armed, text, shot,
     const clipNote = await text(`${SHEET} [data-row="sends"] [data-note]`);
     check(/first 4000 of 4940 characters — Show all$/.test(clipNote) && !/shown in full/.test(clipNote), `[${width}] a long body: "first 4000 of 4940 characters", not "shown in full" (${clipNote})`);
     await shot(page, `agent-chrome-clipped${tag}`, { fullPage: false });
+    // a text is allowed only once all of it was on screen (D251 review H1): Allow waits for Show all, and says so
+    await page.waitForTimeout(700); // (past the sheet's own arming)
+    check(await page.$eval(`${SHEET} button[data-allow]`, (b) => b.getAttribute('aria-disabled') === 'true') && /Show all of the text to allow it/.test(await text(`${SHEET} [data-unread]`)),
+      `[${width}] a clipped body: Allow waits for Show all`);
     await page.click(`${SHEET} [data-row="sends"] [data-show-all]`);
     await page.waitForFunction(() => /shown in full/.test(document.querySelector('bx-agent-dock').shadowRoot.querySelector('bx-agent-approve').shadowRoot.querySelector('[data-row="sends"] [data-note]').textContent));
     const whole = await page.$eval(`${SHEET} [data-row="sends"] pre`, (p) => p.textContent.length);
     check(whole === long.length, `[${width}] …Show all: the whole of it, and then "shown in full" (${whole})`);
+    check(await page.$eval(`${SHEET} button[data-allow]`, (b) => b.getAttribute('aria-disabled') === 'false'), `[${width}] …and then Allow`);
     await page.keyboard.press('Escape');
     await page.waitForFunction(() => !document.querySelector('bx-agent-dock').shadowRoot.querySelector('bx-agent-approve'));
     S.requests = S.requests.filter((r) => r.id !== 'l2'); await refresh();
@@ -177,7 +182,7 @@ async function signinChecks({ page, S, check, refresh, sentTo, armed, text, shot
     await ctx.route('**/api/xbin/agent/signins', list);
     const start = (id, session) => ({ id, user: 'admin', agent: 'system/agent', kind: 'session', method: 'POST', target: '/api/xbin/term/sessions', tile: 'apps/crawler', body: JSON.stringify({ prompt: 'Fix the export test.' }),
       bodyShown: 30, bodySize: 30, summary: 'I will fix the export', state: 'pending', created: iso(-500), expires: iso(86390000),
-      preview: { class: 'session', tile: 'apps/crawler', session: { tile: 'apps/crawler', provider: 'claude', providerName: 'Claude Code', mode: 'default', asks: true, net: 'none', api: true, ...session } } });
+      preview: { class: 'session', tile: 'apps/crawler', session: { tile: 'apps/crawler', provider: 'claude', providerName: 'Claude Code', mode: 'default', asks: true, net: 'none', api: true, prompt: 'Fix the export test.', ...session } } });
     const row = `${SHEET} [data-row="signin"]`;
     // a session the workspace agent starts never has the person's sign-in unless they tick it, each time: the sheet says what the session runs
     // on as it stands and OFFERS the sign-in — a warned line of xbin's own, unticked; its label is the person's own list's (the id is xbind's),
@@ -201,7 +206,7 @@ async function signinChecks({ page, S, check, refresh, sentTo, armed, text, shot
     await page.click(`${SHEET} button[data-allow]`);
     await page.waitForFunction((x) => { const sh = document.querySelector('bx-agent-dock').shadowRoot.querySelector('bx-agent-approve'); return !sh || !sh.request || sh.request.id !== x; }, 'g1');
     if (await page.$(`${SHEET} [role="dialog"]`)) { await page.keyboard.press('Escape'); await page.waitForFunction(() => !document.querySelector('bx-agent-dock').shadowRoot.querySelector('bx-agent-approve')); }
-    check(JSON.stringify(sentTo(/g1\/approve$/).map((c) => c.body)) === '[{"grant":"once"}]', `[${width}] approved without the tick: no sign-in (${JSON.stringify(sentTo(/g1\/approve$/).map((c) => c.body))})`);
+    check(JSON.stringify(sentTo(/g1\/approve$/).map((c) => c.body)) === '[{"grant":"once","knows":["seen-text"],"seen":{"textLen":20}}]', `[${width}] approved without the tick: no sign-in — and all of its brief on screen (D252) (${JSON.stringify(sentTo(/g1\/approve$/).map((c) => c.body))})`);
     // ticked — the person's own click, held like Allow; a script's click ticks nothing
     S.requests = S.requests.filter((r) => r.id !== 'g1'); S.requests.push(start('g1b', { signIn: 'needed', signInId: 'si_harness01' })); await refresh();
     await review(page, 'request', 'g1b');
@@ -215,7 +220,7 @@ async function signinChecks({ page, S, check, refresh, sentTo, armed, text, shot
     await page.click(`${SHEET} button[data-allow]`);
     await page.waitForFunction((x) => { const sh = document.querySelector('bx-agent-dock').shadowRoot.querySelector('bx-agent-approve'); return !sh || !sh.request || sh.request.id !== x; }, 'g1b');
     if (await page.$(`${SHEET} [role="dialog"]`)) { await page.keyboard.press('Escape'); await page.waitForFunction(() => !document.querySelector('bx-agent-dock').shadowRoot.querySelector('bx-agent-approve')); }
-    check(JSON.stringify(sentTo(/g1b\/approve$/).map((c) => c.body)) === '[{"grant":"once","signin":true}]', `[${width}] ticked: the approval carries it (${JSON.stringify(sentTo(/g1b\/approve$/).map((c) => c.body))})`);
+    check(JSON.stringify(sentTo(/g1b\/approve$/).map((c) => c.body)) === '[{"grant":"once","signin":true,"knows":["seen-text"],"seen":{"textLen":20}}]', `[${width}] ticked: the approval carries it (${JSON.stringify(sentTo(/g1b\/approve$/).map((c) => c.body))})`);
     S.requests = S.requests.filter((r) => r.id !== 'g1b'); await refresh();
     // a sign-in that is gone by the time the sheet is read says so (the open would be refused)
     S.requests.push(start('g2', { signIn: 'connector', signInId: 'si_gone' })); await refresh();
@@ -280,7 +285,7 @@ async function signinChecks({ page, S, check, refresh, sentTo, armed, text, shot
       await page.waitForFunction((x) => { const sh = document.querySelector('bx-agent-dock').shadowRoot.querySelector('bx-agent-approve'); return !sh || !sh.request || sh.request.id !== x; }, id);
       if (await page.$(`${SHEET} [role="dialog"]`)) { await page.keyboard.press('Escape'); await page.waitForFunction(() => !document.querySelector('bx-agent-dock').shadowRoot.querySelector('bx-agent-approve')); }
       const sentBody = JSON.stringify(sentTo(new RegExp(`${id}/approve$`)).map((c) => c.body));
-      check(sentBody === (both ? '[{"grant":"once","signin":true,"trust":true,"shown":"signin+home"}]' : '[{"grant":"once","signin":true}]'), `[${width}] ${both ? 'both ticked: the approval carries both, and what the trust line showed' : 'the sign-in ticked, the trust line not: no trust is sent'} (${sentBody})`);
+      check(sentBody === (both ? '[{"grant":"once","signin":true,"trust":true,"shown":"signin+home","knows":["seen-text"],"seen":{"textLen":20}}]' : '[{"grant":"once","signin":true,"knows":["seen-text"],"seen":{"textLen":20}}]'), `[${width}] ${both ? 'both ticked: the approval carries both, and what the trust line showed' : 'the sign-in ticked, the trust line not: no trust is sent'} (${sentBody})`);
       S.requests = S.requests.filter((r) => r.id !== id); await refresh();
     }
 

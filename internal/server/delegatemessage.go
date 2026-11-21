@@ -1,15 +1,16 @@
 package server
 
 // delegatemessage.go — a message to a tile agent that acts without asking,
-// as an approval (D250; plans/wsagent/approvals-ux.md §5c).
+// as an approval (D250, D251; plans/wsagent/approvals-ux.md §5c).
 //
 // A session the person's agent started takes the agent's messages freely
-// while its mode asks before every edit and command: the mode is the guard.
-// One whose mode doesn't ask — the person switched it, or approved it so —
-// takes none (delegatesend.go modeRefusal): such a session acts on what it
+// only while its mode asks before every edit and command: the mode is the
+// guard. One whose mode doesn't ask — the default of the sessions it
+// starts (D251), whatever mode its person approved it in — takes none
+// unapproved (delegatesend.go modeRefusal): such a session acts on what it
 // is told, so a message from an agent that can be prompt-injected would be
-// an act nobody approved. That rule stands. What changes is the way
-// forward: the agent asks its person for that one message — a request of
+// an act nobody approved. The way forward: the agent asks its person for
+// that one message — a request of
 // kind "message" for POST /term/sessions/<id>/prompt or …/queue, the whole
 // text shown — and the person's approval sends exactly that text, once, to
 // that session: refused, spending nothing, when the session ended, is no
@@ -19,7 +20,6 @@ package server
 import (
 	"cmp"
 	"context"
-	"encoding/json"
 	"net/http"
 	"strings"
 
@@ -68,13 +68,13 @@ func (s *Server) messageTarget(p auth.Principal, id string) (term.SessionInfo, i
 // (its mode asks), or nothing approves it (a harness command, the
 // conversation's taint).
 func (s *Server) messagePreview(p auth.Principal, path string, body []byte) (map[string]any, string, int, string) {
-	var b struct {
-		Text string `json:"text"`
-	}
-	dec := json.NewDecoder(strings.NewReader(string(body)))
-	dec.DisallowUnknownFields()
-	if dec.Decode(&b) != nil || strings.TrimSpace(b.Text) == "" {
-		return nil, "", http.StatusBadRequest, "a message for approval is {text}: the whole of what is sent, nothing else"
+	var b messageBody
+	if err := StrictDecode(body, &b); err != nil || strings.TrimSpace(b.Text) == "" { // read one way only (D252)
+		why := "no text"
+		if err != nil {
+			why = err.Error()
+		}
+		return nil, "", http.StatusBadRequest, `a message for approval is {"text"}: the whole of what is sent, nothing else, written once in lower case (` + why + ")"
 	}
 	id := sessionOfPath(path)
 	info, status, why := s.messageTarget(p, id)
@@ -85,7 +85,7 @@ func (s *Server) messagePreview(p auth.Principal, path string, body []byte) (map
 		return nil, "", http.StatusForbidden, why
 	}
 	if s.sessionModeRefusal(id, info, p.UserID) == "" {
-		return nil, "", http.StatusBadRequest, "this session asks its person before it acts (or runs in the mode they approved it in): send the message — it needs no approval"
+		return nil, "", http.StatusBadRequest, "this session asks its person before it acts: send the message — it needs no approval"
 	}
 	t := sendTargetOf(info)
 	if t.served == "connector" {
@@ -96,19 +96,37 @@ func (s *Server) messagePreview(p auth.Principal, path string, body []byte) (map
 	}
 	tile := s.sessionTile(info.Cwd)
 	prov, _ := agent.Lookup(info.Provider)
-	return map[string]any{"session": id, "provider": info.Provider, "providerName": cmp.Or(prov.Name, info.Provider), "mode": info.Mode, "asks": false,
-		"model": info.Model, "name": info.Name, "status": info.Status, "text": b.Text}, tile, 0, ""
+	out := map[string]any{"session": id, "provider": info.Provider, "providerName": cmp.Or(prov.Name, info.Provider), "mode": info.Mode, "asks": false,
+		"model": info.Model, "name": info.Name, "status": info.Status, "text": b.Text}
+	if sid := s.Term.SigninIDOf(id); sid != "" {
+		out["signInId"] = sid // a fact of the session, shown as one (D251), as a continue's
+	}
+	return out, tile, 0, ""
 }
 
-// messageTicketKey carries, to the handler, the session a message ticket
-// was spent for: delegateSends lets that one message past the mode rule.
+// messageTicketKey carries, to the handler, the message ticket spent for
+// the call (a spentMessage): delegateSends lets that one message past the
+// mode rule, and the text that goes is the one its person was shown.
 type messageTicketKey struct{}
+
+// spentMessage is a spent message ticket: the session it was for and the
+// text its person approved — xbind's own reading of the body when it was
+// filed (preview.message.text), which the session is sent whatever a later
+// reading of the bytes would say (D252).
+type spentMessage struct{ session, text string }
 
 // messageApproved reports that r carries a spent message ticket for
 // session id.
 func messageApproved(r *http.Request, id string) bool {
-	sid, _ := r.Context().Value(messageTicketKey{}).(string)
-	return sid != "" && sid == id
+	_, ok := approvedMessage(r, id)
+	return ok
+}
+
+// approvedMessage is the text r's spent message ticket for session id
+// approved (ok false: none).
+func approvedMessage(r *http.Request, id string) (string, bool) {
+	m, _ := r.Context().Value(messageTicketKey{}).(spentMessage)
+	return m.text, m.session != "" && m.session == id
 }
 
 // messageStill is why an approved message can't go as approved, now —
@@ -133,7 +151,19 @@ func (s *Server) messageStill(p auth.Principal, r delegation.Request, path strin
 
 func asString(v any) string { s, _ := v.(string); return s }
 
-// withMessageTicket is r carrying the spent message ticket of session id.
-func withMessageTicket(r *http.Request, id string) {
-	*r = *r.WithContext(context.WithValue(r.Context(), messageTicketKey{}, id))
+// withMessageTicket is r carrying the spent message ticket req, for
+// session id: the text it approved goes.
+func withMessageTicket(r *http.Request, id string, req delegation.Request) {
+	shown, _ := req.Preview["message"].(map[string]any)
+	*r = *r.WithContext(context.WithValue(r.Context(), messageTicketKey{}, spentMessage{session: id, text: asString(shown["text"])}))
+}
+
+// approvedPrompt is the prompt a message call sends: with a message ticket
+// spent for session id, the text its person approved and nothing else (the
+// body, read again, can't say another — D252); otherwise p as read.
+func approvedPrompt(r *http.Request, id string, p agent.Prompt) agent.Prompt {
+	if text, ok := approvedMessage(r, id); ok {
+		return agent.Prompt{Text: text}
+	}
+	return p
 }

@@ -200,11 +200,11 @@ test('the brief: the backend\'s button, what it runs on, the coding agents to pi
   assert.equal(W.briefCard({ ...b, state: 'started' }, undefined, sd3).signin, null, 'a started brief asks for nothing');
   assert.match(w.note, /told first/);
   // "asks before acting" only where xbind says the mode asks (ask or plan); not before it said
-  assert.match(w.note, /the tile agent asks you before it acts/);
+  assert.match(w.note, /It asks you before it acts, so what your agent sends it later goes straight to it/);
   assert.match(W.briefCard(b, undefined, null).note, /Whether it asks you before it acts shows once xbin says/);
-  assert.doesNotMatch(W.briefCard(b, undefined, null).note, /the tile agent asks you before it acts/);
+  assert.doesNotMatch(W.briefCard(b, undefined, null).note, /It asks you before it acts/);
   assert.equal(W.briefCard(b, undefined, { ...sd, ticket: false }).button, 'Start', 'the person\'s preference lets it through: the click is the confirmation');
-  assert.match(W.briefCard(b, undefined, { ...sd, asks: false }).note, /acts without asking/);
+  assert.match(W.briefCard(b, undefined, { ...sd, asks: false }).note, /It acts without asking you, in this tile’s sandbox\. What your agent sends it later comes to you first\./);
   assert.equal(W.briefCard(b, undefined, null).button, 'Review and start…', 'before the defaults are read: the asking button');
   assert.equal(W.briefCard({ ...b, state: 'asked' }).button, 'Review…');
   assert.equal(W.briefCard({ ...b, state: 'started' }).button, '');

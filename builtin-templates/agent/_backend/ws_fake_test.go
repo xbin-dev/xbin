@@ -658,9 +658,10 @@ func (f *fakeXbin) StartDefaults(_ context.Context, sid, tile string) (wsStartDe
 	if _, err := f.tile(sid, tile, false); err != nil {
 		return wsStartDefaults{}, err
 	}
-	d := wsStartDefaults{Tile: tile, Harness: f.harnesses[0].ID, Mode: "default", Asks: true, Net: "model", Ticket: f.startAsk}
+	// each coding agent in its work mode, which acts without asking (D251)
+	d := wsStartDefaults{Tile: tile, Harness: f.harnesses[0].ID, Mode: "auto", Asks: false, Net: "model", Ticket: f.startAsk}
 	for _, h := range f.harnesses {
-		d.Harnesses = append(d.Harnesses, wsHarness{ID: h.ID, Name: h.Name, Mode: "default", Asks: true, Net: "model", NeedsTicket: f.startAsk})
+		d.Harnesses = append(d.Harnesses, wsHarness{ID: h.ID, Name: h.Name, Mode: "auto", Asks: false, Net: "model", NeedsTicket: f.startAsk})
 	}
 	d.Chosen = f.apx.chosenFor(tile, d.Harness)
 	return d, nil
@@ -766,7 +767,7 @@ func (f *fakeXbin) AgentStart(_ context.Context, sid string, a wsAgentStart, tic
 			return wsAgent{}, nil, &xbin.DelegateError{Status: 403, Refusal: "tile", Message: a.Harness + " isn't allowed on this tile"}
 		}
 	}
-	ag := &wsAgent{ID: f.id("s"), Tile: a.Tile, Provider: harness.ID, Name: harness.Name, Mode: "default", Asks: true, Status: "running", Origin: "agent", Mine: true, Turn: 1}
+	ag := &wsAgent{ID: f.id("s"), Tile: a.Tile, Provider: harness.ID, Name: harness.Name, Mode: "auto", Asks: false, Status: "running", Origin: "agent", Mine: true, Turn: 1}
 	f.agents[ag.ID] = ag
 	if a.Prompt != "" {
 		f.said[ag.ID] = append(f.said[ag.ID], a.Prompt) // xbind sends the brief: its first prompt
@@ -854,7 +855,9 @@ func (f *fakeXbin) sendRefusal(sid, text, id string) (why, code string) {
 	case strings.HasPrefix(strings.TrimSpace(text), "/"):
 		return "a message from a workspace agent can't begin with \"/\": the coding agent reads that as one of its own commands", "command"
 	case id != "" && f.modeOff[id]:
-		return "this session is now in the mode \"bypassPermissions\", which doesn't ask before it acts, and alice didn't approve it in that mode", "mode"
+		return "this session acts without asking (mode \"bypassPermissions\"): a message from alice's workspace agent goes to it only with their approval of that text", "mode"
+	case id != "" && f.agents[id] != nil && !f.agents[id].Asks: // xbind's rule (D251): every text to a session that doesn't ask is approved
+		return "this session acts without asking (mode \"" + f.agents[id].Mode + "\"): a message from alice's workspace agent goes to it only with their approval of that text", "mode"
 	}
 	if h := f.handles[sid]; h != nil && f.briefTaint != "" && hasStr(h.Tainted, f.briefTaint) {
 		return "this conversation holds data of " + f.briefTaint + ", so a tile agent it briefs must be on a model that org allows — Finance allows private models only", "taint"

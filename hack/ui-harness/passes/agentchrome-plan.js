@@ -49,7 +49,7 @@ async function planChecks({ page, S, check, refresh, sentTo, armed, text, shot, 
     && /Needs line 2 — checked again once that exists/.test(await text(`${DLG} .item[data-n="3"] [data-needs]`)) && (await text(`${DLG} .item[data-n="3"] [data-admin]`)) === 'admin',
   `[${width}] the admin's line says whose rights apply it; a line says what it needs and what needs it`);
   const st = await text(`${DLG} .item[data-n="5"] [data-start]`);
-  check(/asks before it edits or runs anything/i.test(st) && /Coding agent\s*Codex/.test(st) && /Done when: tools\/list names it\./.test(st) && /sent exactly like this/.test(st), `[${width}] a start line: the mode, the coding agent, the brief as sent (${st.slice(0, 80)})`);
+  check(/asks before acting/i.test(st) && /Coding agent\s*Codex/.test(st) && /Done when: tools\/list names it\./.test(st) && /sent exactly like this/.test(st), `[${width}] a start line: the mode, the coding agent, the brief as sent (${st.slice(0, 80)})`);
   await shot(page, `agent-plan-review${tag}`, { fullPage: false });
   // a line and the lines that need it
   await page.uncheck(`${DLG} .item[data-n="1"] input`);
@@ -98,20 +98,21 @@ async function planChecks({ page, S, check, refresh, sentTo, armed, text, shot, 
   await page.waitForFunction(() => !document.querySelector('bx-agent-changes'));
   S.changesets = S.changesets.filter((c) => c.id !== 'pl5');
 
-  // ---- a start in a mode that doesn't ask: the danger wording, unticked; hidden characters in the brief as escapes; a kind this page doesn't know ----
+  // ---- a start in a mode that doesn't ask: an ordinary line, ticked, its mode a fact (D251); hidden characters in the brief as
+  // escapes; a kind this page doesn't know ----
   S.changesets.push({ ...plan('pl2', iso), items: [
-    { n: 1, kind: 'agent.start', args: {}, line: 'Start a tile agent in apps/dice — Codex, in its mode "full-auto"', start: { ...start(false), prompt: 'Goal: pay ‮evil‬ now' },
-      warnings: ['ACTS WITHOUT ASKING: in the mode "full-auto" Codex edits files and runs commands in apps/dice without asking you. You will not get a chance to stop a single edit or command.'], why: 'faster' },
+    { n: 1, kind: 'agent.start', args: {}, line: 'Start a tile agent in apps/dice — Codex, in its mode "agent", which acts without asking', start: { ...start(false), prompt: 'Goal: pay ‮evil‬ now' }, why: 'faster' },
     { n: 2, kind: 'tile.delete', args: {}, line: 'Delete the tile apps/old' }] });
   await refresh();
   await review(page, 'pl2');
   await page.waitForSelector(`${DLG} [role="dialog"][data-view="review"] .item[data-n="2"]`);
   const hid = await page.$$eval(`${DLG} .item[data-n="1"] .hid`, (els) => els.map((e) => e.textContent).join(' '));
-  check((await ticks()) === '1- 2-' && /acts without asking/i.test(await text(`${DLG} .item[data-n="1"] [data-row="mode"]`)) && /ACTS WITHOUT ASKING/.test(await text(`${DLG} .item[data-n="1"] [data-warning]`)) && hid === '⟨U+202E⟩ ⟨U+202C⟩',
-    `[${width}] a mode that doesn't ask: the danger wording, a warning, unticked; the brief's hidden characters are escapes (${hid})`);
+  const tone = await page.$eval(`${DLG} .item[data-n="1"] [data-row="mode"] .tag`, (e) => e.className);
+  check((await ticks()) === '1+ 2-' && /acts without asking/i.test(await text(`${DLG} .item[data-n="1"] [data-row="mode"]`)) && !(await page.$(`${DLG} .item[data-n="1"] [data-warning]`)) && !/\bbad\b/.test(tone) && hid === '⟨U+202E⟩ ⟨U+202C⟩',
+    `[${width}] a mode that doesn't ask: an ordinary line, ticked, its mode a fact (D251); the brief's hidden characters are escapes (${hid}; ${tone})`);
   check((await page.getAttribute(`${DLG} .item[data-n="2"]`, 'data-line')) === 'unknown' && await page.$eval(`${DLG} .item[data-n="2"] input`, (e) => e.disabled) && /does not know this kind of change/.test(await text(`${DLG} .item[data-n="2"] [data-why]`))
-    && (await text(`${DLG} [data-apply]`)) === 'Apply none', `[${width}] a kind this page doesn't know is shown and can't be ticked`);
-  await shot(page, `agent-plan-danger${tag}`, { fullPage: false });
+    && /^Apply 1 change/.test(await text(`${DLG} [data-apply]`)), `[${width}] a kind this page doesn't know is shown and can't be ticked`);
+  await shot(page, `agent-plan-acts${tag}`, { fullPage: false });
   await close();
   S.changesets = S.changesets.filter((c) => c.id !== 'pl2');
 

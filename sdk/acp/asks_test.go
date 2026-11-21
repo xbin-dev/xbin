@@ -57,3 +57,20 @@ func TestAskingMode(t *testing.T) {
 		t.Errorf("the fake with no default mode: %q", got)
 	}
 }
+
+// The mode a session works in without stopping to ask (D251): the default
+// of one a person's workspace agent starts — never a bypass mode.
+func TestWorkMode(t *testing.T) {
+	want := map[string]string{"claude": "auto", "codex": "agent", "gemini": "autoEdit", "opencode": ""}
+	for _, p := range Providers() {
+		if got := p.WorkMode(); got != want[p.ID] {
+			t.Errorf("%s: work mode %q, want %q", p.ID, got, want[p.ID])
+		}
+		if m := p.WorkMode(); m != "" && !p.Safe(m) {
+			t.Errorf("%s: the work mode %q is a bypass mode", p.ID, m)
+		}
+	}
+	if got := Fake([]string{"fakeacp"}).WorkMode(); got != "auto" {
+		t.Errorf("the scripted agent's: %q", got)
+	}
+}

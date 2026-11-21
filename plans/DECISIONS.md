@@ -6500,3 +6500,101 @@ here: cut from the old end, never reword.
     asks (OpenCode's shape) is shown with no mode, warned, unticked. Not
     detected: an agent that acknowledges set_mode and stays in its own —
     xbind takes the agent's answer, as for any coding agent's mode.
+- **D251 — Tile agents act without asking by default, and continuing is
+  one plain approval (2026-11-21; the owner's answers to two questions on
+  D250; spec `plans/wsagent/auto-default.md`).** "No, keep all agents
+  generally in auto/always-accept"; "No, continuing sessions should be
+  smoother UX". The tile's sandbox contains a coding agent; the person's
+  approval of every text the workspace agent sends one contains the
+  workspace agent. So:
+  - **The default mode** of a session the workspace agent starts is the
+    coding agent's work mode (`acp.Provider.WorkMode`: its own `auto`,
+    else its auto-edit mode, else its own default) — Claude Code `auto`,
+    Codex `agent`, Gemini CLI `autoEdit`, OpenCode its own `build`; never
+    an Explicit (bypass) mode. Rejected: the bypass modes as the default
+    (the catalog never defaults to them; a person picks one by name).
+  - **A mode is a normal choice**: remembered like the coding agent and
+    the model (only what the person changed), preselected from the
+    agent's suggestion, shown as a fact — a chip and one plain line — with
+    no red banner, danger colour or armed delay; a plan's start line is
+    an ordinary line, ticked like the others. Supersedes D250's "a
+    suggested mode that doesn't ask is never preselected"
+    (`modeNotTaken`, `harnessNotTaken`), "Remember never keeps a mode
+    that doesn't ask" (and its read-time ignore), and the danger
+    treatment of such a mode on the sheet, the card, the batch, the plan
+    review and the app.
+  - **What doesn't loosen**: no path without a sheet starts a session in
+    a mode that doesn't ask, or sends text to one (the preference starts
+    unasked only in a mode that asks the person named; otherwise the
+    start goes to the sheet); every message to a session that acts
+    without asking is an approval of that text, once — now whatever mode
+    the session was approved in (D250's exemption for "the mode the
+    person approved it in" is gone: with the default not asking, it
+    would have let every agent message through unseen); the ticket binds
+    tile, brief and kind; `seen` stays required with picks. A saved
+    sign-in on a NEW session keeps its unticked, warned tick (D230); the
+    trust line and homes (D245), the wider standing grant, reading the
+    web keep their warnings.
+  - **Continuing** is one plain approval — the session's facts, the
+    text, "Send" — with no tick for a sign-in it carries (supersedes
+    D250 review L1's tick) and no armed delay; the session must still be
+    the one shown (`seen`: its coding agent, mode, sign-in), or it is
+    409 and the sheet looks again. The batch row sends a continue or a
+    message in place; the conversation's marker opens xbin's sheet (the
+    agent's page can't decide). Not built: a per-session standing grant
+    (the spec says what it would give up).
+
+- **D252 — A delegated body is read one way only, and a sheet shows
+  xbind's reading** (2026-11-21; the re-review of D251's review round,
+  S1, H1, M1, L2, L4). v0.3.80–v0.3.84: the web's and the app's start
+  sheets read a brief from the request's body by its keys as written
+  (`prompt ?? brief ?? message`) while xbind decoded the same bytes with
+  encoding/json, which matches keys without regard to case and keeps the
+  last of two — `{"message": "Tidy README", "Prompt": "…"}` showed one
+  text and told the session the other (probed at each tag; the template
+  sheet's rows the same way, milder: the raw body was shown below). So:
+  - **xbind is the authority**: every body it describes to a person — a
+    start, a message, a new tile, a page, a change set's and a plan's
+    line arguments (an MCP call was already, D239) — is read strictly
+    when filed (`server.StrictDecode`: one object, UTF-8, each key the
+    kind's own in its case, none twice at any depth, nothing after it,
+    types as declared), refused with the key named. Rejected:
+    `DisallowUnknownFields` alone (neither case nor repeats).
+  - **What runs is the reading shown**: an approved start is told
+    `preview.session.prompt` (`term.DelegateStart.Brief`), an approved
+    message sends `preview.message.text` — never the bytes read again.
+    A request pending across the upgrade whose body doesn't read one way
+    is refused when its ticket is used (`readApproved`: refusal "ticket",
+    reason "bound", nothing run, file it again) — its sheet may have
+    shown another text; it is not sent as shown.
+  - **It is a break, said so** (the second review): uniform for every
+    delegated start (asked or unasked) and every described body — one
+    rule. Delegation is held only by sealed components (a release
+    build's: the workspace agent, whose bodies use fixed lower-case
+    keys), so the affected are a build's own delegate and a dev-mode
+    delegate writing their own bodies; a migration note says so. The
+    start's field list is one (`agentCreateBody`, embedded in
+    `delegatedStart`); the new tile's (`TemplateNewBody`) shared with the
+    broker. The app shows no message to a tile agent: xbind refuses a
+    device's Allow of one that says nothing of its text (409, "decide
+    this one on the web"), and the app now says so and holds Allow.
+  - **Who could exploit it**: not xbin's own workspace agent — the model
+    chooses values only, and keys only in grant/binding/share/limits
+    line args and MCP tool arguments, which every client shows in
+    xbind's words. A latent hole for a delegate building bodies from
+    what it is fed; fixed at both ends regardless.
+  - **Clients render what xbind resolved** (`preview.session.prompt`,
+    `preview.create`), never their own reading of the body — web and
+    app, a vector for the hole.
+  - **seen.textLen is what was on screen** when the person clicked (the
+    clipped part if not shown whole), required with `knows:
+    ["seen-text"]`; older clients unchanged. xbind can't see a screen: a
+    client that claims the whole length is believed — the docs say so.
+    A row offers Send only when its box shows all of its text (measured
+    after layout and on resize); shown whole in a box that still
+    scrolls, Send waits until it was scrolled to its end (picked over
+    "fully in view": the box's own scroll is what the person controls).
+    U+2028/U+2029 are hidden characters (escaped) like CR, NEL, VT, FF.
+    The row moves an opening line only for xbin's own brief (`briefBy`).
+  - A waiting binding is held to the warnings its person saw on the
+    normal (slow-build) path too, as an early one was (M1).

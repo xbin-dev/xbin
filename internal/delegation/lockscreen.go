@@ -94,7 +94,8 @@ var lockScreenPreviewKeys = map[string]bool{"class": true, "reversible": true, "
 // as its escape (agent-chrome-words.js reveal, DelegationWords.reveal):
 // a control character but newline and tab, or a format character (bidi
 // embeddings, overrides and isolates, the zero-width ones, the word joiner,
-// the byte order mark — Unicode category Cf). Invalid UTF-8 counts.
+// the byte order mark — Unicode category Cf), or a line or paragraph
+// separator (U+2028, U+2029). Invalid UTF-8 counts.
 func HidesText(s string) bool {
 	if !utf8.ValidString(s) {
 		return true
@@ -104,7 +105,7 @@ func HidesText(s string) bool {
 		case c == '\n' || c == '\t':
 		case c < 0x20 || c == 0x7f || (c >= 0x80 && c < 0xa0):
 			return true
-		case unicode.Is(unicode.Cf, c):
+		case unicode.Is(unicode.Cf, c), c == 0x2028 || c == 0x2029: // a format character; a line or paragraph separator (D252)
 			return true
 		}
 	}

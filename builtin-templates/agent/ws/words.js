@@ -238,7 +238,8 @@ export const BRIEF_FIELDS = Object.freeze([['goal', 'Goal'], ['doneWhen', 'Done 
  * start…" (xbind's approval opens) or, where the person's preferences let
  * this start through without a ticket (`ticket: false`), "Start" — the
  * click is then the confirmation. The brief is what the tile agent is told
- * first; what the agent sends it later is not approved one by one.
+ * first; what the agent sends it later goes to it as sent where its mode
+ * asks, and is its person's to allow where it acts without asking (D251).
  */
 export function briefCard(b, tileName = (p) => p, sd = null) {
   const tile = tileName(b.tile) || b.tile;
@@ -268,8 +269,9 @@ export function briefCard(b, tileName = (p) => p, sd = null) {
     signin: needs ? { harness: needs.id, name: needs.name || harness(needs.id), button: `Sign in to ${needs.name || harness(needs.id)}…`,
       // where no chrome can draw the sign-in (the app's native view): the truth, and where to go
       elsewhere: `Needs your ${needs.name || harness(needs.id)} sign-in — set it up on the web: open this workspace in a browser and sign in to ${needs.name || harness(needs.id)} there. A saved sign-in is then used here too.` } : null,
-    // only xbind's word that the mode asks (a harness's ask or plan mode) says it asks — unknown is not "asks"
-    note: `This is what the tile agent is told first. What your agent sends it later isn’t approved message by message${sd && sd.asks === true ? ': the tile agent asks you before it acts.' : sd && sd.asks === false ? ', and in this mode it acts without asking you.' : '. Whether it asks you before it acts shows once xbin says what it runs on.'}`,
+    // only xbind's word that the mode asks (a harness's ask or plan mode) says it asks — unknown is not "asks"; acting
+    // without asking is the ordinary default (D251), said as a fact, and so is who sees what the agent sends it later
+    note: `This is what the tile agent is told first.${sd && sd.asks === true ? ' It asks you before it acts, so what your agent sends it later goes straight to it.' : sd && sd.asks === false ? ' It acts without asking you, in this tile’s sandbox. What your agent sends it later comes to you first.' : ' Whether it asks you before it acts shows once xbin says what it runs on.'}`,
     edited: !!b.edited,
     // who wrote it (D248 review): xbind's update brief, word for word, or the agent's (a person's edit makes it theirs)
     by: b.xbin ? BRIEF_BY_XBIN : 'Written by your agent',

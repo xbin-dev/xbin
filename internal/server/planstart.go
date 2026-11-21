@@ -6,7 +6,6 @@ package server
 
 import (
 	"bytes"
-	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -182,9 +181,7 @@ func (s *Server) previewStart(a planAgent, op delegation.ChangeOp, planned []del
 		Mode     string          `json:"mode"`
 		Brief    string          `json:"-"`
 	}
-	dec := json.NewDecoder(bytes.NewReader(op.Args))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&in); err != nil {
+	if err := StrictDecode(op.Args, &in); err != nil { // one reading of them only (D252)
 		return delegation.ChangePreview{}, fmt.Errorf("its arguments don't parse: %w", err)
 	}
 	in.Tile = strings.Trim(in.Tile, "/")
@@ -281,9 +278,6 @@ func (s *Server) previewStart(a planAgent, op delegation.ChangeOp, planned []del
 		if pick.ModeNotTaken != "" {
 			shown["modeNotTaken"] = pick.ModeNotTaken
 		}
-		if pick.HarnessNotTaken != "" {
-			shown["harnessNotTaken"] = pick.HarnessNotTaken
-		}
 		if pick.Model != "" {
 			shown["options"] = map[string]string{"model": pick.Model}
 		}
@@ -303,13 +297,17 @@ func (s *Server) previewStart(a planAgent, op delegation.ChangeOp, planned []del
 	asks, _ := shown["asks"].(bool)
 	// a coding agent whose catalog entry names no default mode (OpenCode) opens as it opens itself: said so,
 	// not as a mode ""
-	inMode, inTheMode := fmt.Sprintf("in its mode %q", mode), fmt.Sprintf("in the mode %q", mode)
+	inMode := fmt.Sprintf("in its mode %q", mode)
 	if mode == "" {
-		inMode, inTheMode = "in its own default mode", "in its own default mode"
+		inMode = "in its own default mode"
 	}
 	pv.Line = fmt.Sprintf("Start a tile agent in %s — %s, %s", in.Tile, name, inMode)
-	if asks { // what the mode means, beside its name (D246; the feedback's E: "read-only" was read as the file permissions)
+	// what the mode means, beside its name (D246; the feedback's E: "read-only" was read as the file permissions) — a
+	// fact either way, never a warning (D251)
+	if asks {
 		pv.Line += ", which asks before it edits or runs anything"
+	} else {
+		pv.Line += ", which acts without asking"
 	}
 	shown["briefBy"] = briefBy // who wrote what it is told first: the review's label, never the text's own claim
 	pv.Start, _ = json.Marshal(shown)
@@ -325,23 +323,15 @@ func (s *Server) previewStart(a planAgent, op delegation.ChangeOp, planned []del
 	pv.Pin = delegation.BodyHash(pin)
 	// the review picks nothing: the line is what runs, and where another is picked (D250 review H1)
 	pv.Effects = append(pv.Effects, "What runs is this line's coding agent, model and mode. To run others, ask your agent for a single start's approval, where you pick them, or change your choice for the tile in your preferences.")
-	if hn, _ := shown["harnessNotTaken"].(string); hn != "" {
-		hp, _ := agent.Lookup(hn)
-		pv.Effects = append(pv.Effects, fmt.Sprintf("Your agent suggested %s, which acts without asking in every mode: not taken. To start it, approve a single start where you can pick it.", cmp.Or(hp.Name, hn)))
-	}
 	if nt, _ := shown["modeNotTaken"].(string); nt != "" {
-		// D250: the agent's suggestion never picks a mode that acts without asking — the review has no picker to pick it
-		pv.Effects = append(pv.Effects, fmt.Sprintf("Your agent suggested the mode %q, which acts without asking: not taken. To start it that way, change the session's mode once it runs, or approve a single start where you can pick it.", nt))
+		// the agent's suggestion never picks a bypass mode — the review has no picker to pick it
+		pv.Effects = append(pv.Effects, fmt.Sprintf("Your agent suggested the mode %q, which skips every check: not taken. To start it that way, approve a single start where you can pick it.", nt))
 	}
 	if asks {
 		pv.Effects = append(pv.Effects, "It asks you before it edits a file or runs a command: its questions and permission requests come to you, never to your workspace agent.")
 	} else {
-		// only a harness's ask or plan mode is one xbind vouches for: anything else is the danger wording, and starts unticked
-		pv.Warnings = []string{fmt.Sprintf("ACTS WITHOUT ASKING: %s %s edits files and runs commands in %s without asking you. You will not get a chance to stop a single edit or command.", inTheMode, name, in.Tile)}
-		if pp, _ := agent.Lookup(fmt.Sprint(shown["provider"])); pp.ID != "" && pp.AskingMode() == "" {
-			// (the person's own choice of a coding agent with no mode that asks: D250 re-review item 3)
-			pv.Warnings = []string{fmt.Sprintf("ACTS WITHOUT ASKING: %s has no mode that asks before it acts: it edits files and runs commands in %s without asking you. You will not get a chance to stop a single edit or command.", name, in.Tile)}
-		}
+		// a fact, not a warning: an ordinary line, ticked like the others (D251)
+		pv.Effects = append(pv.Effects, "It edits files and runs commands in this tile's sandbox without asking you. You approve what your agent tells it.")
 	}
 	return pv, nil
 }

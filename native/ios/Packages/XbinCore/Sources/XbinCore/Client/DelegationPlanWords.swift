@@ -200,8 +200,7 @@ public enum PlanWords {
     public static func startRows(_ item: AdminChangeSet.Item) -> DelegationWords.SessionRows? {
         let s = item.start ?? .object([:])
         let tile = s["tile"] ?? .string("")
-        let body = JSONValue.object(["prompt": .string(s["prompt"]?.stringValue ?? "")]).jsonString
-        guard let r = DelegateRequest(json: .object(["id": .string("line"), "kind": .string("session"), "tile": tile, "body": .string(body),
+        guard let r = DelegateRequest(json: .object(["id": .string("line"), "kind": .string("session"), "tile": tile,
                                                       "preview": .object(["tile": tile, "session": s])])) else { return nil }
         return DelegationWords.sessionRows(r)
     }

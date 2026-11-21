@@ -62,6 +62,11 @@ import Testing
             #expect(DelegationWords.allowSpoken(r, choice: .tool) == c["tool"]?[1]?.stringValue, "\(id) tool")
             #expect(DelegationWords.approveBody(r, choice: .tool) == c["tool"]?[2], "\(id) tool")
             #expect(DelegationWords.approveBody(r, choice: .tool, duration: "hour") == c["tool"]?[3], "\(id) tool, an hour")
+            // a start's Allow says how much of its brief was on screen — clipped, and after Show all (D252)
+            if let want = c["seenBodies"], !want.isNull {
+                let seen = [false, true].map { DelegationWords.approveBody(r, choice: .once, onScreen: DelegationWords.clipText(DelegationWords.sessionRows(r).brief, all: $0).text) }
+                #expect(JSONValue.array(seen) == want, "\(id) seen")
+            }
             if let want = c["net"], !want.isNull {
                 if r.kind == .web {
                     let w = DelegationWords.webRows(r)
@@ -84,13 +89,15 @@ import Testing
                 let rows = DelegationWords.sessionRows(r)
                 #expect(rows.agent == s(want, "agent"), "\(id)")
                 #expect(rows.modeTag == s(want["mode"], "tag") && rows.modeText == s(want["mode"], "text") && rows.modeName == s(want["mode"], "name"), "\(id)")
-                #expect(rows.modeAsks == (s(want["mode"], "tone") == "ok"), "\(id)")
-                // only xbind's `asks: true` earns the green tag; anything else is the danger wording, Deny first
+                // only xbind's `asks: true` says it asks; either is a fact in a neutral tag, never a warning (D251)
+                #expect(s(want["mode"], "tone") == "" && want["danger"] == nil, "\(id)")
                 #expect(rows.modeAsks == (r.session["asks"]?.boolValue == true), "\(id)")
-                #expect(r.neverAsks == !rows.modeAsks && rows.danger.isEmpty == rows.modeAsks, "\(id)")
+                #expect(r.neverAsks == !rows.modeAsks && (rows.modeAsks || rows.modeText == DelegationWords.modeFact), "\(id)")
+                #expect(DelegationWords.allowLabel(r) == "Start", "\(id)")
                 #expect(rows.network == s(want, "network") && rows.others == s(want, "others"), "\(id)")
-                #expect(rows.brief == s(want, "brief") && rows.danger == s(want, "danger") && rows.comes == s(want, "comes"), "\(id)")
+                #expect(rows.brief == s(want, "brief") && rows.comes == s(want, "comes"), "\(id)")
                 #expect(rows.briefBy == s(want, "briefBy"), "\(id) briefBy")
+                #expect(rows.resumed == s(want, "resumed"), "\(id) resumed")
                 // the sign-in a start would use is said before it is allowed, with who will hold it (D230)
                 // a saved sign-in is only offered — a line ticked on the web: the app says what the session runs on (the
                 // web's words) and where to go; whose tile it is, in the web's words, where the tile's trust is asked too

@@ -580,11 +580,8 @@ func wsRunsOnChips(h wsHarness, id, model string, asks bool) []map[string]string
 	if model != "" {
 		chips = append(chips, map[string]string{"text": "model " + model, "kind": "model"})
 	}
-	if asks {
-		chips = append(chips, map[string]string{"text": "asks before acting", "kind": "mode", "tone": "ok"})
-	} else {
-		chips = append(chips, map[string]string{"text": "acts without asking", "kind": "mode", "tone": "bad"})
-	}
+	// the mode is a fact, never a warning (D251): acting without asking is the ordinary default
+	chips = append(chips, map[string]string{"text": map[bool]string{true: "asks before acting", false: "acts without asking"}[asks], "kind": "mode"})
 	switch {
 	case h.NoSignIn:
 		chips = append(chips, map[string]string{"text": "no sign-in needed", "kind": "signin"})

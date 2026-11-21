@@ -40,7 +40,7 @@ func agentPolicyEndpoints() []ep {
 			"{harness, lastKind, harnesses: {<id>: {mode?, model?, options?, credentials?}}, agentSessions: {start: ask|allow, modes?: {<id>: mode}, net?, api?}} — defaults filled in. harness: the harness a new agent session starts with; harnesses: what each starts with (credentials: own | connector, absent follows the workspace default); agentSessions: what the person's workspace agent may start a tile agent session with — start ask (the default) asks them first.",
 			nil, nil, "{harness, lastKind, harnesses, agentSessions}"},
 		{"PUT", "/agent/prefs", "Agent sessions", "Change the caller's agent preferences", "a person's own session, app or device; never a tile's credentials, view-as or the root token (403)",
-			"A JSON merge patch (RFC 7386): keys present replace, null removes, objects merge. 400: an unknown key, a harness this xbind doesn't run, a mode that isn't one of the harness's, or a bypass mode (explicit: picked per session, never saved; agentSessions.modes takes only modes known to keep asking). → the preferences now.",
+			"A JSON merge patch (RFC 7386): keys present replace, null removes, objects merge. 400: an unknown key, a harness this xbind doesn't run, a mode that isn't one of the harness's, or a bypass mode (explicit: picked per session, never saved; agentSessions.modes takes any other mode of the harness, D251). → the preferences now.",
 			nil, jsonBody("the change", oapi{"harness": str("a harness id, or \"\""), "lastKind": str("shell | agent"),
 				"harnesses":     object("{<id>: {mode?, model?, options?: {<id>: value}, credentials?: own|connector} | null}"),
 				"agentSessions": object("{start?: ask|allow, modes?: {<id>: mode}, net?, api?}")}), "{harness, lastKind, harnesses, agentSessions}"},

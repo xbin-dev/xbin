@@ -1,6 +1,6 @@
 package main
 
-// The owner's test session of 2026-11-21, replayed (D250; xbind's
+// The owner's test session of 2026-11-21, replayed (D250, D251; xbind's
 // docs/workspace-agent.md §How approvals work): "turn eui into a tic tac toe game" took five approval
 // rounds and started nothing. Each scenario here is one of its frictions,
 // now one round: the person's pick on the sheet is what runs, and the
@@ -33,6 +33,89 @@ func euiFix(t *testing.T) (*wsFix, *wsSession) {
 // requestsFiled is how many approval requests the agent filed.
 func (f *fakeXbin) requestsFiled() int { return f.count("Ask ") }
 
+// The owner's session as it goes under D251 (xbind's docs/workspace-agent.md):
+// OpenCode remembered for eui, in its build mode — "turn eui into a tic
+// tac toe game" is ONE approval, said plainly (no warning, no "every start
+// is approved on the sheet"); "add a computer player" continues the session
+// there, ONE approval; a fix handed back is ONE message approval. Three
+// approvals, one session, every text the person's to allow.
+func TestWsEvalApprovalOwnersSessionActsWithoutAsking(t *testing.T) {
+	fx, s := euiFix(t)
+	fx.x.remember("apps/eui", wsChosenNow{Harness: "opencode", Mode: "build", Asks: false})
+	f := fakeOf(fx.ag)
+	f.on(forRun(s.Run, lastUser("tic tac toe")), callTools(tc("c1", "tile_agent_brief", tttBrief), tc("c2", "tile_agent_start", `{"brief":1}`))).once()
+	f.on(forRun(s.Run, lastTool("tile_agent_start")), say("It starts once you allow it.")).once()
+	f.on(forRun(s.Run, lastUser("[workspace updates")), say("eui's agent has started on the game.")).once()
+	fx.say(t, s, "turn eui into a tic tac toe game")
+	fx.idle(t, s)
+	brief := fx.toolResult(t, s, "tile_agent_brief")
+	if !strings.Contains(brief, "It would run on OpenCode (your person's own choice for this tile), acts without asking") || strings.Contains(brief, "every start is approved on the sheet") {
+		t.Fatalf("the brief's answer: %q", brief)
+	}
+	first := fx.x.pending(t)
+	if a := first.startBody(); a.Harness != "" || a.Mode != "" {
+		t.Fatalf("the agent suggested what the person never named: %s", first.call.Body)
+	}
+	// round 1: the person allows it as shown — OpenCode in build, the ordinary Start
+	fx.x.decideWith(first.ID, wsChosen{Provider: "opencode", Mode: "build"})
+	fx.notify(t)
+	waitFor(t, "the start's outcome", func() bool { return strings.Contains(fx.lastAssistant(t, s), "started on the game") })
+	fx.idle(t, s)
+	up := fx.updates(t, s)
+	if len(up) != 1 || !strings.Contains(up[0], "tile agent #1 started in apps/eui: OpenCode, acts without asking.") || !strings.Contains(up[0], "a follow-up to it (tile_agent_message) is shown to your person and goes when they allow it") {
+		t.Fatalf("what the agent was told: %q", up)
+	}
+	row := fx.ag.db.wsAgents(`WHERE run_id=?`, s.Run)[0]
+	fx.x.setAgent(row.Session, func(a *wsAgent) { a.Status, a.Last = "idle", "The game is in." })
+	f.on(forRun(s.Run, lastUser("[workspace updates")), say("The game is in.")).once()
+	fx.notify(t)
+	fx.rest(t, s)
+
+	// round 2: "add a computer player" — the follow-up continues the session there, one approval
+	f.on(forRun(s.Run, lastUser("computer player")), callTools(tc("c3", "tile_agent_brief", strings.Replace(tttBrief, "playable tic tac toe game", "computer player for the tic tac toe game", 1)),
+		tc("c4", "tile_agent_start", `{"brief":2}`))).once()
+	f.on(forRun(s.Run, lastTool("tile_agent_start")), say("It goes to the session there once you allow it.")).once()
+	f.on(forRun(s.Run, lastUser("[workspace updates")), say("The session took the follow-up.")).once()
+	fx.say(t, s, "add a computer player")
+	fx.idle(t, s)
+	second := fx.x.pending(t)
+	if a := second.startBody(); a.Continue != row.Session {
+		t.Fatalf("the follow-up names no session to continue: %s", second.call.Body)
+	}
+	fx.x.decideWith(second.ID, wsChosen{Provider: "opencode", Continue: row.Session}) // (Send on its batch row)
+	fx.notify(t)
+	waitFor(t, "the follow-up's outcome", func() bool { return strings.Contains(fx.lastAssistant(t, s), "took the follow-up") })
+	fx.idle(t, s)
+	fx.x.setAgent(row.Session, func(a *wsAgent) { a.Status = "idle" })
+	f.on(forRun(s.Run, lastUser("[workspace updates")), say("Done.")).once()
+	fx.notify(t)
+	fx.rest(t, s)
+
+	// round 3: a fix handed back — one message approval, exactly that text, once
+	const fix = "After a Reset during the computer's pause, a stray O appears: cancel the pending move on Reset."
+	in, _ := json.Marshal(map[string]string{"agent": "#1", "text": fix})
+	f.on(forRun(s.Run, lastUser("stray O")), callTools(tc("m1", "tile_agent_message", string(in)))).once()
+	f.on(forRun(s.Run, lastTool("tile_agent_message")), say("It goes once you allow it.")).once()
+	f.on(forRun(s.Run, lastUser("[workspace updates")), say("The fix went to eui's agent.")).once()
+	fx.say(t, s, "fix the stray O")
+	fx.idle(t, s)
+	if got := fx.toolResult(t, s, "tile_agent_message"); !strings.Contains(got, "acts without asking, so this message is shown to your person and goes when they allow it") {
+		t.Fatalf("the fix's answer: %q", got)
+	}
+	third := fx.x.pending(t)
+	if third.Kind != "message" {
+		t.Fatalf("the fix's request: %s", third.Kind)
+	}
+	fx.x.decide(third.ID, "approved") // (Send on its batch row)
+	fx.notify(t)
+	waitFor(t, "the fix's outcome", func() bool { return strings.Contains(fx.lastAssistant(t, s), "The fix went") })
+	fx.idle(t, s)
+	said := fx.x.said[row.Session]
+	if fx.x.requestsFiled() != 3 || len(fx.ag.db.wsAgents(`WHERE run_id=?`, s.Run)) != 1 || len(said) != 3 || said[2] != fix {
+		t.Fatalf("three approvals, one session: %d requests, %d sessions, told %q", fx.x.requestsFiled(), len(fx.ag.db.wsAgents(`WHERE run_id=?`, s.Run)), said)
+	}
+}
+
 // The tic tac toe start, the person switching the coding agent to OpenCode
 // on the sheet: ONE approval round, it starts with OpenCode, and the agent
 // is told what ran — never "the approval no longer covered the call".
@@ -53,7 +136,7 @@ func TestWsEvalApprovalPickIsTheStart(t *testing.T) {
 		t.Fatalf("the agent suggested what the person never named: %s", req.call.Body)
 	}
 	// the person picks OpenCode on xbin's sheet — its own default mode, which acts without asking (no mode of it
-	// does, as xbin knows it: D250 review M2), warned there — and approves: that is the approval
+	// does, as xbin knows it: D250 review M2), a fact there (D251) — and approves: that is the approval
 	fx.x.decideWith(req.ID, wsChosen{Provider: "opencode", Mode: ""})
 	fx.notify(t)
 	waitFor(t, "the start's outcome", func() bool { return strings.Contains(fx.lastAssistant(t, s), "on OpenCode") })
@@ -132,9 +215,9 @@ func TestWsEvalApprovalFollowUpContinues(t *testing.T) {
 	}
 }
 
-// A five-line fix handed back to a session the person switched to a mode
-// that acts without asking: ONE message approval, exactly that text, once
-// — no new session.
+// A five-line fix handed back to a session that acts without asking (the
+// usual, D251): ONE message approval, exactly that text, once — no new
+// session.
 func TestWsEvalApprovalMessageToNonAskingSession(t *testing.T) {
 	fx, s := euiFix(t)
 	_, sid := fx.seedAgent(t, s, "apps/eui")

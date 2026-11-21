@@ -179,14 +179,17 @@ func QueuedBy(ctx context.Context, agent string, approved bool) context.Context 
 }
 
 // MessageModeOK reports whether a session of provider in mode takes a
-// message from its person's workspace agent unapproved: the mode asks
-// before every edit and command — or it is the mode the person approved
-// the session in (started), of a coding agent with a mode that asks at all
-// (D250; review M2: OpenCode has none). The one predicate: xbind's send
-// gate (delegatesend.go) and the held queue's delivery.
-func MessageModeOK(provider, mode, started string) bool {
+// message from its person's workspace agent unapproved: only where the
+// mode asks its person before every edit and command (acp.Provider.Asks).
+// In any other — the default of the sessions such an agent starts (D251) —
+// each text is its person's to approve, once, whatever mode they approved
+// the session in (D250 let that mode take messages unapproved; with the
+// default not asking it would let every one through unseen). The one
+// predicate: xbind's send gate (delegatesend.go) and the held queue's
+// delivery.
+func MessageModeOK(provider, mode string) bool {
 	prov, ok := agent.Lookup(provider)
-	return ok && prov.Asks(mode) || started != "" && mode == started && ok && prov.AskingMode() != ""
+	return ok && prov.Asks(mode)
 }
 
 // queueData is EvQueue's payload.
@@ -448,12 +451,13 @@ func (m *Manager) flushQueue(s *Session) {
 		return
 	}
 	// a message of the person's workspace agent is judged again here, when it goes in (D250 review L4): the person
-	// may have switched the session to a mode that acts without asking while it waited — then it isn't delivered;
+	// may have switched the session from its asking mode to one that acts without asking while it waited (D251:
+	// any mode but an asking one) — then it isn't delivered;
 	// it goes back to the agent with the reason (the queue event's returned), and the rest go on
 	var returned []string
 	var gone []queueItem
 	// the mode it reports, and one a switch asked for that it hasn't reported yet (D250 re-review 4b)
-	if !MessageModeOK(st.provider.ID, st.mode, s.originMode) || st.pendingMode != "" && !MessageModeOK(st.provider.ID, st.pendingMode, s.originMode) {
+	if !MessageModeOK(st.provider.ID, st.mode) || st.pendingMode != "" && !MessageModeOK(st.provider.ID, st.pendingMode) {
 		kept := st.queue[:0:0]
 		for _, it := range st.queue {
 			if it.by.agent != "" && !it.by.approved {
@@ -467,10 +471,10 @@ func (m *Manager) flushQueue(s *Session) {
 	}
 	if len(returned) > 0 {
 		mode := st.mode
-		if !MessageModeOK(st.provider.ID, st.pendingMode, s.originMode) && st.pendingMode != "" {
+		if !MessageModeOK(st.provider.ID, st.pendingMode) && st.pendingMode != "" {
 			mode = st.pendingMode
 		}
-		why := fmt.Sprintf("this session is now in the mode %q, which acts without asking, and its person didn't approve it in that mode: a message from their workspace agent goes in only with their approval of that message", mode)
+		why := fmt.Sprintf("this session is now in the mode %q, which acts without asking: a message from its person's workspace agent goes in only with their approval of that message — file it as a message request; it goes once they allow it", mode)
 		for _, it := range gone { // what the agent is told by its next read of the session (D250 re-review 4a)
 			st.returned = append(st.returned, Returned{ID: it.q.ID, Text: preview(it.q.Text), Reason: why, At: time.Now().UnixMilli(), agent: it.by.agent})
 		}

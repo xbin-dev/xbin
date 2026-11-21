@@ -154,11 +154,14 @@ export function sends(req, all = false) {
  * characters but newline and tab, and every format character (Unicode Cf) —
  * the bidi embeddings, overrides and isolates (U+202A–202E, U+2066–2069),
  * the zero-width ones (U+200B–200F), the word joiner (U+2060), the byte
- * order mark (U+FEFF) and the rest. Drawn as they are they reorder or hide
- * what the person reads; a sheet shows each as a visible escape, ⟨U+202E⟩,
- * never interpreted.
+ * order mark (U+FEFF) and the rest — and the line and paragraph separators
+ * (U+2028, U+2029: Zl, Zp), line breaks no one types that a sheet's lines
+ * and a row's count of them would read differently (D252). Drawn as they
+ * are they reorder or hide what the person reads; a sheet shows each as a
+ * visible escape, ⟨U+202E⟩, never interpreted. A carriage return, U+0085, a
+ * vertical tab and a form feed are Cc: escaped, never a line break either.
  */
-const HIDDEN = /[\p{Cc}\p{Cf}]/u;
+const HIDDEN = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u;
 const hidden = (c) => c !== '\n' && c !== '\t' && HIDDEN.test(c);
 /** HIDDEN_NOTE: the line above text that holds any. */
 export const HIDDEN_NOTE = 'contains hidden characters — shown as ⟨U+…⟩';
@@ -217,7 +220,7 @@ export const DURATIONS = Object.freeze([{ id: 'hour', label: 'For one hour' }, {
 
 /** allowLabel(req, choice): the Allow button's words — they follow the choice. */
 export function allowLabel(req, choice = 'once') {
-  if (req.kind === 'session') return req.preview && req.preview.session && req.preview.session.asks === true ? 'Start' : 'Start without asking'; // only xbind's word that the mode asks
+  if (req.kind === 'session') return 'Start'; // whatever its mode: the mode is a fact the sheet states (D251), not a warning
   if (req.kind === 'template') return 'Create the tile';
   if (req.kind === 'web') return 'Read this page';
   if (req.kind === 'mcp') return choice === 'tool' ? 'Allow always' : 'Allow once';
@@ -262,26 +265,30 @@ export function widerWords(req) {
 export const BRIEF_BY_XBIN = "xbin's update brief — written by xbin for this tile's update, not by your agent";
 export const BRIEF_BY_AGENT = 'Written by your agent';
 
+/** MODE_FACT: what a mode that acts without asking means, said plainly where it is picked or shown (D251) — a fact, not a warning. */
+export const MODE_FACT = "It edits files and runs commands in this tile's sandbox without asking you. You approve what your agent tells it.";
+
 /**
  * sessionRows(req): a tile agent start as the sheet's rows —
- * {agent, mode: {tag, tone, text}, network, others, brief, danger}: the
- * mode leads; one that never asks is the danger wording in the body, and
- * Allow is coloured as the danger it is — in its place: Deny is never made
- * the primary button (D250).
+ * {agent, mode: {tag, tone, text}, network, others, brief}: the mode is
+ * a chip and one plain line — "acts without asking" is the ordinary
+ * default of a tile agent the workspace agent starts (D251), stated, never
+ * a warning; Allow is the ordinary primary "Start".
  */
 export function sessionRows(req) {
   const s = (req.preview && req.preview.session) || {};
   const t = tileOf(req).name || 'the tile';
-  // only xbind's word that the mode asks (a harness's ask or plan mode) earns the green tag: any other mode, and one
-  // xbind doesn't vouch for, leads with the danger wording
+  // only xbind's word that the mode asks (a harness's ask or plan mode) says it asks: any other mode, and one xbind
+  // doesn't vouch for, is said to act without asking — a fact, in a neutral chip
   const asks = s.asks === true;
   const who = s.providerName || s.provider || 'A coding agent';
   const model = s.model ? ` · model ${s.model}` : '';
   // what it signs in with, as xbind read it when the request was filed (D230): a saved sign-in is named; none at all is said, with the harness to sign in to
   const cred = s.signIn === 'needed' ? ''
     : s.credentials === 'own' ? ', on your own sign-in' : s.credentials === 'connector' || s.model ? ", through the workspace's connector" : '';
-  let brief = '';
-  try { const b = JSON.parse(req.body || '{}'); brief = String(b.prompt ?? b.brief ?? b.message ?? ''); } catch { brief = String(req.body || ''); }
+  // what the session will be told is xbind's reading of the body (preview.session.prompt) — never this chrome's own
+  // reading of the bytes, which a body with a key in another case or twice could make another text (D252)
+  const brief = typeof s.prompt === 'string' ? s.prompt : '';
   return {
     agent: `${who}${model}${cred}`,
     // a saved sign-in is OFFERED (xbind's signInId), never used by itself: the sheet's own line, unticked — the label drawn by the chrome
@@ -289,16 +296,17 @@ export function sessionRows(req) {
     signin: typeof s.signInId === 'string' && s.signInId
       ? { offer: true, id: s.signInId, name: who, without: s.signIn || '', trust: s.signInTrust && typeof s.signInTrust === 'object' ? s.signInTrust : null }
       : s.signIn === 'needed' && typeof s.provider === 'string' ? { harness: s.provider, name: who, text: `Needs your ${who} sign-in: without it the tile agent starts signed out.` } : null,
-    mode: asks ? { tag: 'asks before it edits or runs anything', tone: 'ok', text: 'It asks you before it edits a file or runs a command.', name: s.mode || '' }
-      : { tag: 'acts without asking', tone: 'bad', text: `It edits files and runs commands in ${t} without asking you.`, name: s.mode || '' },
+    mode: asks ? { tag: 'asks before acting', tone: '', text: 'It asks you before it edits a file or runs a command.', name: s.mode || '' }
+      : { tag: 'acts without asking', tone: '', text: MODE_FACT, name: s.mode || '' },
     network: !s.net || s.net === 'none' ? 'Its model only. No internet.' : `Network: ${s.net}`,
     others: s.api === false ? 'It can call no other tile.' : 'It can call the tile APIs this tile is granted.',
     brief,
     // who wrote it, as xbind says (D248 review): xbind's update brief is xbin's; any other text the agent's, whatever it says
     briefBy: !brief ? '' : s.briefBy === 'xbin' ? BRIEF_BY_XBIN : BRIEF_BY_AGENT,
-    // (the agent can't pick a mode that never asks — D250: only the person can, on the sheet)
-    danger: asks ? '' : `${who} in this mode acts without asking: it edits files and runs commands in ${t} without asking you. You will not get a chance to stop a single edit or command.`,
     comes: `Its questions and permission requests come to you, in ${t} and in Needs you. Your workspace agent can't answer them.`,
+    // a resume whose last mode was a bypass one resumes in its coding agent's work mode: said (D251 review M2)
+    resumed: typeof s.resumeModeNotTaken === 'string' && s.resumeModeNotTaken
+      ? `It was in ${s.resumeModeNotTaken}, which skips every check; it resumes in ${s.mode || 'its own default mode'}.` : '',
   };
 }
 
@@ -867,10 +875,11 @@ export const SETUP_INTRO = { title: 'Set up the workspace agent', text: 'One age
  * tile agents the agent starts (agentSessions.modes of GET /agent/prefs),
  * one row per coding agent of GET /agent/providers that lists modes —
  * {id, name, value, options: [{id, name}], never: [name]}. options are the
- * modes that ask before acting (the catalog's non-explicit ones: the only
- * ones xbind saves there); never names the ones that don't, which xbind
- * refuses — shown with why, never offered. value '' is the coding agent's
- * own asking mode (also for a stored mode that isn't offered).
+ * catalog's non-explicit modes, asking or not (D251: the ones xbind saves
+ * there); never names its bypass (explicit) ones, which xbind refuses
+ * there — shown with why, picked only on an approval. value '' is the
+ * coding agent's default (MODE_DEFAULT; also for a stored mode that isn't
+ * offered).
  */
 export function sessionModes(providers, modes) {
   const saved = modes && typeof modes === 'object' ? modes : {};
@@ -882,8 +891,10 @@ export function sessionModes(providers, modes) {
   });
 }
 
-/** neverAsks(names): why those modes aren't offered for tile agents the agent starts. */
-export const neverAsks = (names) => `Not offered: ${names.join(', ')} — ${names.length === 1 ? 'it acts' : 'they act'} without asking you first, and xbin doesn't let a tile agent your agent starts run that way.`;
+/** notOffered(names): why those modes (a coding agent's bypass ones) aren't a preference for tile agents the agent starts. */
+export const notOffered = (names) => `Not offered here: ${names.join(', ')} — ${names.length === 1 ? 'it skips' : 'they skip'} every check of the coding agent's own. You can pick ${names.length === 1 ? 'it' : 'one'} on an approval, for that start.`;
+/** MODE_DEFAULT: the Preferences mode picker's "" — each coding agent's ordinary mode for a task, which acts without asking (D251). */
+export const MODE_DEFAULT = 'Its default, which acts without asking';
 
 // ---- what the page may ask of the dock -----------------------------------------------------
 

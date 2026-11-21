@@ -13,7 +13,7 @@
 // The file is a convenience for sessions people start themselves and a
 // rule for sessions their workspace agent starts, so the second part is
 // re-checked on every read against the harness catalog (AgentStart): a
-// stored mode this xbind doesn't know to keep asking is never used. A user
+// stored mode this xbind doesn't know, or a bypass one, is never used. A user
 // id can be given to a new person after the old one was deleted; the file
 // records whose it is (the account's creation stamp), and another person's
 // AgentSessions read as the defaults.
@@ -27,7 +27,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"strings"
 	"sync"
 
@@ -84,8 +83,9 @@ type AgentSessions struct {
 	// its coding agent and model, and its mode only from Modes. At most
 	// MaxTiles.
 	Tiles map[string]TileStart `json:"tiles,omitempty"`
-	// Modes: harness id → the mode such a session starts in. A harness not
-	// named starts in its asking mode. Never a bypass mode.
+	// Modes: harness id → the mode such a session starts in, asking or not
+	// (D251). A harness not named starts in its work mode, which acts
+	// without asking. Never a bypass mode.
 	Modes map[string]string `json:"modes,omitempty"`
 	// Net is the session's network picker value; "" the launcher's default.
 	Net string `json:"net,omitempty"`
@@ -196,16 +196,13 @@ func (s *Store) own(userID string, f file) Prefs {
 	return s.sane(p.filled())
 }
 
-// sane is p as the rules read it, whatever the file holds (D250 review M1;
-// re-review item 1): no remembered or preferred mode that acts without
-// asking — the predicate the approval's warning uses (acp.Provider.Asks) —
-// and no choice of a coding agent this xbind doesn't know. A value that
-// slipped past check (a file an earlier xbind wrote under looser rules:
-// v0.3.83 took OpenCode's "plan" as an asking mode) is ignored, never an
-// error — so it never blocks a later write of something else (the Agent
-// tab's launcher writes on every by-hand start). A coding agent with no
-// mode that asks stays the person's choice (re-review item 3): only its
-// mode is never kept.
+// sane is p as the rules read it, whatever the file holds: no remembered
+// or preferred bypass mode (one the catalog doesn't know as Safe), and no
+// choice of a coding agent this xbind doesn't know. A mode that acts
+// without asking is a choice like any other (D251): kept. A value that
+// slipped past check (a file an earlier xbind wrote under other rules) is
+// ignored, never an error — so it never blocks a later write of something
+// else (the Agent tab's launcher writes on every by-hand start).
 func (s *Store) sane(p Prefs) Prefs {
 	a := &p.AgentSessions
 	if _, ok := s.lookup(a.Harness); a.Harness != "" && !ok {
@@ -214,7 +211,7 @@ func (s *Store) sane(p Prefs) Prefs {
 	if len(a.Modes) > 0 {
 		modes := make(map[string]string, len(a.Modes))
 		for id, mode := range a.Modes {
-			if prov, known := s.lookup(id); known && (!prov.Safe(mode) || !prov.Asks(mode)) {
+			if prov, known := s.lookup(id); known && !prov.Safe(mode) {
 				continue
 			}
 			modes[id] = mode
@@ -228,7 +225,7 @@ func (s *Store) sane(p Prefs) Prefs {
 			if !ok {
 				continue
 			}
-			if ts.Mode != "" && !prov.Asks(ts.Mode) {
+			if ts.Mode != "" && !prov.Safe(ts.Mode) {
 				ts.Mode = ""
 			}
 			tiles[tile] = ts
@@ -413,11 +410,9 @@ func (s *Store) check(p *Prefs) error {
 			return fmt.Errorf("agentSessions.modes: no harness %q", id)
 		case !prov.Safe(mode): // a bypass mode, or one the catalog doesn't know
 			return fmt.Errorf("agentSessions.modes.%s: %s", id, modeRefusal(prov, mode))
-		case !prov.Asks(mode):
-			// a session nobody watches start: only a mode that asks before
-			// every edit and command (the harness's ask or plan mode)
-			return fmt.Errorf("agentSessions.modes.%s: %s isn't a mode in which %s asks before every edit and command — a session your agent starts without asking you opens only in one that does (%s)", id, mode, prov.Name, strings.Join(askModes(prov), ", "))
 		}
+		// (any of its modes but a bypass one: the approval preselects it; a start with no sheet takes it only where
+		// it asks — D251)
 	}
 	if len(a.Modes) == 0 {
 		a.Modes = nil
@@ -449,9 +444,8 @@ func (s *Store) check(p *Prefs) error {
 			return fmt.Errorf("agentSessions.tiles.%s.harness: no harness %q", tile, ts.Harness)
 		case len(ts.Model) > maxValue:
 			return fmt.Errorf("agentSessions.tiles.%s.model: too long", tile)
-		case ts.Mode != "" && !prov.Asks(ts.Mode):
-			// only a mode that asks is remembered (D250 review M1): one that acts without asking is the person's
-			// explicit pick on each approval, warned there — never a preselection
+		case ts.Mode != "" && !prov.Safe(ts.Mode):
+			// any of its modes but a bypass one (D251): that is named on each approval
 			return fmt.Errorf("agentSessions.tiles.%s.mode: %s", tile, modeRefusal(prov, ts.Mode))
 		}
 	}
@@ -479,8 +473,8 @@ func (s *Store) RememberTile(userID, tile string, ts TileStart, now int64) error
 	if !ok {
 		return fmt.Errorf("no harness %q", ts.Harness)
 	}
-	if ts.Mode != "" && !prov.Asks(ts.Mode) {
-		ts.Mode = ""
+	if ts.Mode != "" && !prov.Safe(ts.Mode) {
+		ts.Mode = "" // a bypass mode is named on each approval (D251: any other mode is kept)
 	}
 	ts.At = now
 	s.mu.Lock()
@@ -549,9 +543,9 @@ func modeRefusal(prov agent.Provider, mode string) string {
 type AgentStart struct {
 	// Ask: the person is asked before the session starts (the default).
 	Ask bool
-	// Mode is the session's permission mode: the person's choice for the
-	// harness when the catalog knows it keeps asking, else the provider's
-	// asking mode.
+	// Mode is the mode a start without asking opens in: the person's choice
+	// for the harness when the catalog knows it asks; "" otherwise — no
+	// start without the sheet then (D251).
 	Mode string
 	// Model is the person's saved model for the harness ("" the agent's own).
 	Model string
@@ -566,10 +560,10 @@ type AgentStart struct {
 // agent starts. The stored mode is checked again here: a mode the catalog
 // doesn't mark safe is never returned, whatever the file says.
 func (p Prefs) AgentStart(prov agent.Provider) AgentStart {
-	// the asking mode xbind's start-defaults says too (acp.Provider.AskingMode: one source); "" for a harness
-	// with none, which never starts without asking (StartPrefs)
+	// a start with no sheet opens only in a mode that asks, which the person named (D251): the default of the
+	// sessions their agent starts acts without asking, so without one such a start goes to the sheet (StartPrefs)
 	a := AgentStart{Ask: p.AgentSessions.Start != StartAllow, Net: p.AgentSessions.Net, API: true,
-		Mode: prov.AskingMode(), Model: p.Harnesses[prov.ID].Model}
+		Model: p.Harnesses[prov.ID].Model}
 	if m := p.AgentSessions.Modes[prov.ID]; m != "" && prov.Asks(m) {
 		a.Mode = m
 	}
@@ -590,23 +584,14 @@ func (s *Store) StartPrefs(userID, harness string) (mode, net string, api, ok bo
 }
 
 // AgentStartFor is Get(userID).AgentStart for the harness, and whether
-// this xbind runs that harness.
+// this xbind runs that harness (a nil store: asked, unknown).
 func (s *Store) AgentStartFor(userID, harness string) (AgentStart, bool) {
+	if s == nil {
+		return AgentStart{Ask: true}, false
+	}
 	prov, ok := s.lookup(harness)
 	if !ok {
 		return AgentStart{Ask: true}, false
 	}
 	return s.Get(userID).AgentStart(prov), true
-}
-
-// askModes are the modes of prov in which it asks before every edit and
-// command.
-func askModes(prov agent.Provider) []string {
-	var out []string
-	for _, m := range []string{prov.ApproveMode, prov.PlanMode} {
-		if m != "" && !slices.Contains(out, m) {
-			out = append(out, m)
-		}
-	}
-	return out
 }

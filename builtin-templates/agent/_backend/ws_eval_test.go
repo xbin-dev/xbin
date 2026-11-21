@@ -86,7 +86,7 @@ func TestWsEvalStartWakeSummarise(t *testing.T) {
 
 	fx.say(t, s, "Add an overdue filter to Invoices")
 	fx.idle(t, s) // the start is pending: nothing waits on it
-	if got := fx.toolResult(t, s, "tile_agent_brief"); !strings.Contains(got, "It would run on Claude Code, asks before acting") {
+	if got := fx.toolResult(t, s, "tile_agent_brief"); !strings.Contains(got, "It would run on Claude Code, acts without asking") {
 		t.Fatalf("the brief's result: %q", got)
 	}
 	if got := fx.toolResult(t, s, "tile_agent_start"); !strings.HasPrefix(got, "Pending — request 1 (start a tile agent in apps/invoices) waits for your person's decision in xbin") || !strings.Contains(got, "Nothing has run.") {
@@ -119,7 +119,8 @@ func TestWsEvalStartWakeSummarise(t *testing.T) {
 	fx.notify(t)
 	waitFor(t, "the start's outcome", func() bool { return strings.Contains(fx.lastAssistant(t, s), "has started on the filter") })
 	fx.idle(t, s)
-	if up := fx.updates(t, s); len(up) != 1 || !strings.Contains(up[0], "request 1 (start a tile agent in apps/invoices): approved by your person — tile agent #1 started in apps/invoices: Claude Code, asks before acting. It was told the brief.") {
+	if up := fx.updates(t, s); len(up) != 1 || !strings.Contains(up[0], "request 1 (start a tile agent in apps/invoices): approved by your person — tile agent #1 started in apps/invoices: Claude Code, acts without asking. It was told the brief.") ||
+		!strings.Contains(up[0], "a follow-up to it (tile_agent_message) is shown to your person and goes when they allow it") {
 		t.Fatalf("the start's update: %q", up)
 	}
 	agents := fx.ag.db.wsAgents(`WHERE run_id=?`, s.Run)

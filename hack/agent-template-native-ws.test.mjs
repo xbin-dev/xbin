@@ -270,7 +270,7 @@ test('the brief: editable, and its one button files the start and asks the app t
     { tap: { t: 'button', p: { label: 'Review and start…' } } }, { wait: 100 }]);
   const card = find(r.snapshots.brief, { t: 'card', p: { title: 'Brief for Orders’ agent' } });
   assert.deepEqual(all(card, { t: 'button' }).map((b) => [b.p.label, b.p.role]), [['Review and start…', 'primary'], ['Edit', 'plain']]);
-  assert.match(card.p.note, /the tile agent asks you before it acts/);
+  assert.match(card.p.note, /It asks you before it acts, so what your agent sends it later goes straight to it/);
   // what it will run on, from xbind: each fact its own element (D250), never one line joined with "·"
   assert.ok(find(card, { t: 'text', p: { text: 'Claude Code' } }) && find(card, { t: 'text', p: { text: 'asks before acting' } }), 'what it will run on, from xbind');
   assert.ok(!JSON.stringify(card).includes('·'), 'no "·" on the brief');
@@ -526,7 +526,7 @@ test('a brief whose mode xbin hasn\'t named: it says so, and nothing says "asks 
   seed.startDefaults = { harness: 'claude', harnessName: 'Claude Code', ticket: true, line: 'Claude Code', defaults: { harness: 'claude', harnesses: [{ id: 'claude', name: 'Claude Code', needsTicket: true }] } };
   const r = await run(seed, [{ wait: 100 }]);
   const card = find(r.tree, { t: 'card', p: { title: 'Brief for Orders’ agent' } });
-  assert.equal(card.p.note, 'This is what the tile agent is told first. What your agent sends it later isn’t approved message by message. Whether it asks you before it acts shows once xbin says what it runs on.');
+  assert.equal(card.p.note, 'This is what the tile agent is told first. Whether it asks you before it acts shows once xbin says what it runs on.');
   assert.ok(!/asks? (you )?before (it )?act/.test(json(r.tree).replace('Whether it asks you before it acts', '')), 'no promise that it asks');
 });
 

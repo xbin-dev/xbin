@@ -114,7 +114,7 @@ func TestWsBriefCard(t *testing.T) {
 	fx.idle(t, s)
 	var dry string
 	_ = fx.ag.db.q.QueryRow(`SELECT content FROM messages WHERE run_id=? AND tool_call_id='b2'`, s.Run).Scan(&dry)
-	for _, want := range []string{"To start a tile agent in apps/orders would run as your person", "must allow it first", "It would run on Claude Code, asks before acting.", "never to you", "not approved message by message"} {
+	for _, want := range []string{"To start a tile agent in apps/orders would run as your person", "must allow it first", "It would run on Claude Code, acts without asking.", "never to you", "is shown to your person and goes when they allow it"} {
 		if !strings.Contains(dry, want) {
 			t.Errorf("the start's dry run lacks %q: %s", want, dry)
 		}
@@ -156,7 +156,7 @@ func TestWsBriefCard(t *testing.T) {
 		Line        string
 	}
 	fx.json(t, fx.call(t, wsAlice, "GET", base+"/briefs/1/start-defaults", nil), 200, &defs)
-	if defs.Line != "Claude Code · asks before acting" || len(defs.Defaults.Harnesses) != 2 || !defs.Defaults.Ticket || !defs.Defaults.Harnesses[1].NeedsTicket || defs.Picked != "" {
+	if defs.Line != "Claude Code · acts without asking" || len(defs.Defaults.Harnesses) != 2 || !defs.Defaults.Ticket || !defs.Defaults.Harnesses[1].NeedsTicket || defs.Picked != "" {
 		t.Fatalf("the start's defaults: %+v", defs)
 	}
 	// the person edits the brief and picks another harness the tile allows:
@@ -185,7 +185,7 @@ func TestWsBriefCard(t *testing.T) {
 		t.Fatalf("the tile agent: %+v, told %q", agents, fx.x.said)
 	}
 	// the person edited the brief's text before approving: the agent is told so, with what was sent (D250)
-	if up := fx.updates(t, s); len(up) != 1 || !strings.Contains(up[0], "tile agent #1 started in apps/orders: Codex, asks before acting.") ||
+	if up := fx.updates(t, s); len(up) != 1 || !strings.Contains(up[0], "tile agent #1 started in apps/orders: Codex, acts without asking.") ||
 		!strings.Contains(up[0], "Your person edited the brief before approving; what was sent:") || !strings.Contains(up[0], "every order of the month") {
 		t.Fatalf("the start's update: %q", up)
 	}
@@ -244,7 +244,7 @@ func TestWsBriefCard(t *testing.T) {
 	f.on(forRun(s.Run, lastUser("where are we")), callTools(tc("b7", "tile_agents", `{}`))).once()
 	fx.say(t, s, "where are we?")
 	fx.idle(t, s)
-	if got := fx.toolResult(t, s, "tile_agents"); !strings.Contains(got, "Tile agent #1 in apps/orders (Codex, asks before acting) is working") || !strings.Contains(got, "Brief 3 for apps/orders (asked)") {
+	if got := fx.toolResult(t, s, "tile_agents"); !strings.Contains(got, "Tile agent #1 in apps/orders (Codex, acts without asking) is working") || !strings.Contains(got, "Brief 3 for apps/orders (asked)") {
 		t.Fatalf("tile_agents: %q", got)
 	}
 }

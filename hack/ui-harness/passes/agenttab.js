@@ -35,7 +35,10 @@ const TILE = 'apps/crawler';
 const VIEW = { viewport: { width: 1400, height: 1300 } };
 
 async function agentTab(browser) {
-  const { check, done } = checker('agent-tab');
+  const { check, skip, done } = checker('agent-tab');
+  // not written for sandboxes (D251 C): the scripted agent is a host path (XBIN_AGENT_FAKE=$REPO/bin/fakeacp), which a
+  // tile's sandbox can't run — run.sh says so, and agentChrome skips the same step. test/isolated runs it in the tile.
+  if (process.env.HARNESS_ISOLATE === '1') { skip('the scripted agent (XBIN_AGENT_FAKE, a host path) can\'t start inside a tile\'s sandbox under HARNESS_ISOLATE=1: run it unisolated'); return done(); }
 
   const openWindow = async (page) => {
     await openShell(page);

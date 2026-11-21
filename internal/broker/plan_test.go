@@ -93,7 +93,7 @@ func TestPlanOfAnAdmin(t *testing.T) {
 		"Create the tile apps/assistant from the template AI Agent (assistant) — yours",
 		"Bind apps/assistant's llm to xbin:llm",
 		"Bind apps/assistant's mcp to apps/dice",
-		`Start a tile agent in apps/dice — Claude Code, in its mode "default", which asks before it edits or runs anything`,
+		`Start a tile agent in apps/dice — Claude Code, in its mode "auto", which acts without asking`, // its work mode (D251)
 	} {
 		if it[i].Line != want {
 			t.Errorf("line %d: %q, want %q", i+1, it[i].Line, want)
@@ -109,7 +109,7 @@ func TestPlanOfAnAdmin(t *testing.T) {
 		t.Errorf("line 3: %+v", it[2])
 	}
 	var start map[string]any
-	if json.Unmarshal(it[4].Start, &start); start["provider"] != "claude" || start["asks"] != true || start["prompt"] != "Goal: a roll_dice tool." || start["tile"] != "apps/dice" {
+	if json.Unmarshal(it[4].Start, &start); start["provider"] != "claude" || start["asks"] != false || start["prompt"] != "Goal: a roll_dice tool." || start["tile"] != "apps/dice" {
 		t.Errorf("line 5 starts %v", start)
 	}
 	if _, ok := w.b.Reg.Component("apps/dice"); ok {

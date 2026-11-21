@@ -265,11 +265,12 @@ public enum DelegationWords {
     /// Whether `c` is never drawn as it is in the agent's text: a control
     /// character but newline and tab, or any format character (Cf) — the
     /// bidi embeddings, overrides and isolates, the zero-width ones, the
-    /// word joiner, the byte order mark (the web's `reveal`).
+    /// word joiner, the byte order mark — or the line and paragraph
+    /// separators, U+2028 and U+2029 (D252) (the web's `reveal`).
     public static func isHidden(_ c: Unicode.Scalar) -> Bool {
         if c == "\n" || c == "\t" { return false }
         switch c.properties.generalCategory {
-        case .control, .format: return true
+        case .control, .format, .lineSeparator, .paragraphSeparator: return true
         default: return false
         }
     }
@@ -331,7 +332,7 @@ public enum DelegationWords {
     /// The Allow button's words — they follow the choice.
     public static func allowLabel(_ r: DelegateRequest, choice: GrantChoice.ID = .once) -> String {
         switch r.kind {
-        case .session: return r.neverAsks ? "Start without asking" : "Start"
+        case .session: return "Start" // whatever its mode: the mode is a fact the sheet states (D251)
         case .template: return "Create the tile"
         case .web, .mcp, .unknown: return netAllowLabel(r, choice: choice)
         case .call:
@@ -351,10 +352,18 @@ public enum DelegationWords {
     }
 
     /// What `POST …/approve` sends: `{grant, scope?, unseen?}`. A body
-    /// nobody could read is approved only by saying so.
-    public static func approveBody(_ r: DelegateRequest, choice: GrantChoice.ID = .once, duration: String = "") -> JSONValue {
+    /// nobody could read is approved only by saying so. `onScreen`: a
+    /// start's brief as the sheet showed it when the person tapped (all of
+    /// it, or its clipped part) — said as `seen.textLen` with `knows:
+    /// ["seen-text"]`: xbind allows only a brief that was all on screen
+    /// (D252; the web's withSeenText).
+    public static func approveBody(_ r: DelegateRequest, choice: GrantChoice.ID = .once, duration: String = "", onScreen: String? = nil) -> JSONValue {
         var o: [String: JSONValue] = [:]
         if sends(r).binary { o["unseen"] = true }
+        if r.kind == .session, let onScreen {
+            o["knows"] = .array([.string("seen-text")])
+            o["seen"] = .object(["textLen": .int(Int64(onScreen.utf8.count))])
+        }
         let tool = r.kind == .mcp && choice == .tool // an MCP tool: always, this tool (D239)
         if !tool, r.kind != .call || choice == .once {
             o["grant"] = "once"
@@ -374,10 +383,14 @@ public enum DelegationWords {
                 "Go back", "Allow every change")
     }
 
-    /// A tile agent's start as the sheet's rows: the mode leads; one that
-    /// never asks is the danger wording in the body, and Allow is coloured
-    /// as the danger it is, in its place — Deny is never made the primary
-    /// button (D250).
+    /// What a mode that acts without asking means, said plainly where it
+    /// is shown (the web's MODE_FACT, D251) — a fact, never a warning.
+    public static let modeFact = "It edits files and runs commands in this tile's sandbox without asking you. You approve what your agent tells it."
+
+    /// A tile agent's start as the sheet's rows: the mode leads, as a
+    /// neutral tag and one plain line — acting without asking is the
+    /// ordinary default of a tile agent the workspace agent starts (D251);
+    /// Allow is the ordinary primary "Start".
     public struct SessionRows: Sendable, Equatable {
         public var agent: String
         public var modeTag: String
@@ -387,7 +400,6 @@ public enum DelegationWords {
         public var network: String
         public var others: String
         public var brief: String
-        public var danger: String
         public var comes: String
         /// Who wrote what it is told first, as xbind says (the web's
         /// `briefBy`): xbind's update brief, or the agent — whatever the
@@ -412,6 +424,10 @@ public enum DelegationWords {
         /// mode on the approval (D250's `choices`): the app approves xbind's
         /// preselection, and says where the pick is. "" where none is offered.
         public var picks: String = ""
+        /// A resume whose last mode was a bypass one resumes in its coding
+        /// agent's work mode (xbind's `resumeModeNotTaken`, D251 review M2):
+        /// said, the web's words. "" otherwise.
+        public var resumed: String = ""
     }
 
     /// What the app says of a start whose coding agent, model and mode the
@@ -462,25 +478,18 @@ public enum DelegationWords {
         let cred = signIn == "saved" || signIn == "needed" ? ""
             : credentials == "own" ? ", on your own sign-in"
             : credentials == "connector" || !modelName.isEmpty ? ", through the workspace's connector" : ""
-        var brief = ""
-        if let b = try? JSONValue(parsing: r.body.isEmpty ? "{}" : r.body), b.objectValue != nil {
-            brief = b["prompt"]?.stringValue ?? b["brief"]?.stringValue ?? b["message"]?.stringValue ?? ""
-        } else {
-            brief = r.body
-        }
-        if brief.isEmpty { brief = s["prompt"]?.stringValue ?? "" }
+        // what the session will be told is xbind's reading of the body (preview.session.prompt) — never the app's own
+        // reading of the bytes, which a body with a key in another case or twice could make another text (D252)
+        let brief = s["prompt"]?.stringValue ?? ""
         let net = s["net"]?.stringValue ?? ""
         return SessionRows(
             agent: "\(who)\(model)\(cred)",
-            modeTag: asks ? "asks before it edits or runs anything" : "acts without asking", modeAsks: asks,
-            modeText: asks ? "It asks you before it edits a file or runs a command."
-                           : "It edits files and runs commands in \(t) without asking you.",
+            modeTag: asks ? "asks before acting" : "acts without asking", modeAsks: asks,
+            modeText: asks ? "It asks you before it edits a file or runs a command." : modeFact,
             modeName: s["mode"]?.stringValue ?? "",
             network: net.isEmpty || net == "none" ? "Its model only. No internet." : "Network: \(net)",
             others: s["api"]?.boolValue == false ? "It can call no other tile." : "It can call the tile APIs this tile is granted.",
             brief: brief,
-            // (the agent can't pick a mode that never asks — D250: only the person can)
-            danger: asks ? "" : "\(who) in this mode acts without asking: it edits files and runs commands in \(t) without asking you. You will not get a chance to stop a single edit or command.",
             comes: "Its questions and permission requests come to you, in \(t) and in Needs you. Your workspace agent can't answer them.",
             briefBy: brief.isEmpty ? "" : s["briefBy"]?.stringValue == "xbin" ? briefByXbin : briefByAgent,
             signIn: offer ? runs : saved ? "Uses your saved \(who) sign-in"
@@ -489,7 +498,9 @@ public enum DelegationWords {
             signInTrustWhose: whose,
             signInTrust: offer ? "To use your saved \(who) sign-in for this session, allow it on the web: it is a line you tick there"
                 + (whose.isEmpty ? "." : ", with the tile's trust line under it.") + " Allowed here, the session has no saved sign-in." : "",
-            picks: s["choices"]?.objectValue != nil ? picksOnWeb : "")
+            picks: s["choices"]?.objectValue != nil ? picksOnWeb : "",
+            resumed: (s["resumeModeNotTaken"]?.stringValue ?? "").isEmpty ? ""
+                : "It was in \(s["resumeModeNotTaken"]?.stringValue ?? ""), which skips every check; it resumes in \(nonEmpty(s["mode"]?.stringValue) ?? "its own default mode").")
     }
 
     private static func nonEmpty(_ s: String?) -> String? { (s ?? "").isEmpty ? nil : s }
@@ -513,6 +524,11 @@ public enum DelegationWords {
     /// Apply, and this line.
     public static let unknownState = (title: "A state this app doesn't know",
                                       text: "This app is older than the workspace — open it on the web.")
+
+    /// A pending request of a kind this app can't show — a message to a
+    /// tile agent: nothing of it is drawn here, so it is never allowed here
+    /// (xbind refuses an app's Allow of a message too, D252).
+    public static let unknownKindOnWeb = "This app can't show this request — decide this one on the web."
 
     // MARK: When nothing can be allowed
 

@@ -288,8 +288,8 @@ final class WorkspaceAgentModel {
 
     // MARK: What only the person's own session may send
 
-    func approve(_ r: DelegateRequest, choice: GrantChoice.ID, duration: String) async -> DelegateOutcome {
-        let out = await decide(DelegateRoute.approve(r.id, DelegationWords.approveBody(r, choice: choice, duration: duration)))
+    func approve(_ r: DelegateRequest, choice: GrantChoice.ID, duration: String, onScreen: String? = nil) async -> DelegateOutcome {
+        let out = await decide(DelegateRoute.approve(r.id, DelegationWords.approveBody(r, choice: choice, duration: duration, onScreen: onScreen)))
         await afterDecision(r.id, standing: choice != .once)
         return out
     }

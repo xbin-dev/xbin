@@ -42,11 +42,11 @@ func TestDelegateSessionStart(t *testing.T) {
 	const bypass = `{"cwd":"apps/x","kind":"agent","provider":"claude","mode":"bypassPermissions","net":"internet"}`
 	req := w.ask(alice, "POST", "/api/xbin/term/sessions", bypass)
 	sess, _ := req.Preview["session"].(map[string]any)
-	// D250: the body's mode is the agent's suggestion — one that doesn't ask is never preselected: the card shows
-	// the asking default, and the suggestion beside it (modeNotTaken) for the person to pick, or not
-	if req.Kind != delegation.KindSession || req.Tile != "apps/x" || req.State != delegation.Pending || sess["mode"] != "default" ||
-		sess["asks"] != true || sess["modeNotTaken"] != "bypassPermissions" || sess["net"] != "internet" || sess["provider"] != "claude" || req.Summary != "the agent's words" || req.Body != bypass {
-		t.Fatalf("the request (its card preselects the asking mode, the suggestion beside it): %+v", req)
+	// D250: the body's mode is the agent's suggestion — a bypass one is never preselected (D251: only the
+	// person names one): the card shows the default, the coding agent's work mode, and the suggestion beside it
+	if req.Kind != delegation.KindSession || req.Tile != "apps/x" || req.State != delegation.Pending || sess["mode"] != "auto" ||
+		sess["asks"] != false || sess["modeNotTaken"] != "bypassPermissions" || sess["net"] != "internet" || sess["provider"] != "claude" || req.Summary != "the agent's words" || req.Body != bypass {
+		t.Fatalf("the request (its card preselects the work mode, the bypass suggestion beside it): %+v", req)
 	}
 	// pending: not a ticket yet
 	if c, b := create("", bypass, alice, header(HeaderTicket, req.ID)); c != 403 || !strings.Contains(b, `"refusal":"ticket"`) {
@@ -79,8 +79,11 @@ func TestDelegateSessionStart(t *testing.T) {
 		t.Fatalf("the ticket a second time: %d %s", c, b)
 	}
 	// a resume: the card shows what the session AMOUNTS TO — the history
-	// entry's harness and mode, not the body's — and only a session the
-	// agent started can be resumed (security review, finding 1)
+	// entry's harness, not the body's — and only a session the agent
+	// started can be resumed (security review, finding 1). Its mode is the
+	// history's, but never a bypass one: that resumes in the coding agent's
+	// work mode, the card says what it was in, and only its person picks it
+	// back, on that approval (D251 review M2)
 	seed := func(id, mode, by string) {
 		dir := filepath.Join(w.s.Term.Root, "data", "agent-history", "alice", util.CompKey("apps/x"))
 		if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -96,23 +99,42 @@ func TestDelegateSessionStart(t *testing.T) {
 	const resume = `{"cwd":"apps/x","kind":"agent","provider":"codex","resume":"mine","options":{"effort":"high"}}`
 	rr := w.ask(alice, "POST", "/api/xbin/term/sessions", resume)
 	shown, _ := rr.Preview["session"].(map[string]any)
-	if shown["provider"] != "claude" || shown["mode"] != "bypassPermissions" || shown["asks"] != false || shown["resume"] != true || fmt.Sprint(shown["options"]) != "map[effort:high]" {
-		t.Fatalf("a resume's card must show the history entry's harness and mode, and every option: %v", shown)
+	if shown["provider"] != "claude" || shown["mode"] != "auto" || shown["resumeModeNotTaken"] != "bypassPermissions" || shown["asks"] != false || shown["resume"] != true || fmt.Sprint(shown["options"]) != "map[effort:high]" {
+		t.Fatalf("a resume's card must show the history entry's harness, its work mode for a bypass one, and every option: %v", shown)
+	}
+	// approved as shown it opens in the work mode; the person's own pick of the bypass mode, on that approval, in it
+	w.approve(person, rr.ID, "")
+	if got, _ := w.store.Request("alice", rr.ID); func() bool { d, _ := ticketStart(got); return d == nil || d.Mode != "auto" || !d.Picked }() {
+		t.Fatalf("a resume approved as shown: %+v", got.Chosen)
+	}
+	rp := w.ask(alice, "POST", "/api/xbin/term/sessions", resume)
+	if rec := w.do(w.full, "POST", "/api/xbin/delegate/requests/"+rp.ID+"/approve", w.seen("alice", rp.ID, `{"harness":"claude"}`), person); rec.Code != 400 {
+		t.Fatalf("a resume's coding agent picked again: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := w.do(w.full, "POST", "/api/xbin/delegate/requests/"+rp.ID+"/approve", w.seen("alice", rp.ID, `{"mode":"bypassPermissions"}`), person); rec.Code != 200 {
+		t.Fatalf("the person picks the bypass mode on the resume's approval: %d %s", rec.Code, rec.Body.String())
+	}
+	if got, _ := w.store.Request("alice", rp.ID); func() bool { d, _ := ticketStart(got); return d == nil || d.Mode != "bypassPermissions" }() {
+		t.Fatalf("the person's pick on a resume: %+v", got.Chosen)
 	}
 	in, _ := json.Marshal(map[string]string{"method": "POST", "path": "/api/xbin/term/sessions", "body": `{"cwd":"apps/x","kind":"agent","provider":"claude","resume":"hers"}`})
 	if rec := w.do(w.full, "POST", "/api/xbin/delegate/requests", string(in), alice); rec.Code != 403 || !strings.Contains(rec.Body.String(), "resumes only the sessions it started") {
 		t.Fatalf("asking to resume the person's own bypass session: %d %s", rec.Code, rec.Body.String())
 	}
-	// the history entry changes between the approval and the start: no longer what was approved
+	// the history entry changes between the approval and the start: it opens in the mode the card said, never
+	// the bypass one the history says now (every gate passed: 503, no bx in this fixture)
 	seed("mine", "default", dHolder)
 	rr2 := w.ask(alice, "POST", "/api/xbin/term/sessions", resume) // its card says: default, asks
-	if sh, _ := rr2.Preview["session"].(map[string]any); sh["mode"] != "default" || sh["asks"] != true {
+	if sh, _ := rr2.Preview["session"].(map[string]any); sh["mode"] != "default" || sh["asks"] != true || sh["resumeModeNotTaken"] != nil {
 		t.Fatalf("the card: %v", sh)
 	}
 	w.approve(person, rr2.ID, "")
 	seed("mine", "bypassPermissions", dHolder)
-	if c, b := create("", resume, alice, header(HeaderTicket, rr2.ID)); c != 403 || !strings.Contains(b, "exactly the session its person approved") {
-		t.Fatalf("a start that is no longer what the card said: %d %s", c, b)
+	if got, _ := w.store.Request("alice", rr2.ID); func() bool { d, _ := ticketStart(got); return d == nil || d.Mode != "default" }() {
+		t.Fatalf("the resume's ticket: %+v", got)
+	}
+	if c, b := create("", resume, alice, header(HeaderTicket, rr2.ID)); c != 503 {
+		t.Fatalf("a resume whose history moved since its card: %d %s — want it to open as the card said", c, b)
 	}
 
 	// a deployment is never the agent's pick, approved or not

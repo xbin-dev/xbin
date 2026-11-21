@@ -98,6 +98,29 @@ func (s *Server) apiAgentProviders(w http.ResponseWriter, r *http.Request) {
 	WriteJSON(w, http.StatusOK, s.withAgentLLM(r, cwd, out))
 }
 
+// agentCreateBody is POST /term/sessions' body — a person's own, and,
+// read strictly with a workspace agent's "brief" and "continue", a
+// delegate's (delegatedStart embeds it: one field list, so a field added
+// here is a delegate's too, never refused for it — D252).
+type agentCreateBody struct {
+	Cwd      string            `json:"cwd"`
+	Kind     string            `json:"kind"`
+	Provider string            `json:"provider"`
+	Mode     string            `json:"mode"`
+	Net      string            `json:"net"`
+	GPU      string            `json:"gpu"`
+	Name     string            `json:"name"`
+	Model    string            `json:"model"`
+	Resume   string            `json:"resume"`
+	LLM      string            `json:"llm"`    // who serves its model calls: connector | own (agentllm.go)
+	Signin   string            `json:"signin"` // which saved sign-in: an id, "none", or absent — the person's default (agentsignins.go)
+	API      *bool             `json:"api"`
+	VM       bool              `json:"vm"`
+	Options  map[string]string `json:"options"`
+	// Prompt: a workspace agent's start only — what the session is told first
+	Prompt string `json:"prompt"`
+}
+
 // apiAgentCreate opens an agent session: {cwd, kind:"agent", provider,
 // mode?, net?, api?, gpu?, vm?, name?, resume?, llm?, signin?} → SessionInfo (status starting).
 // signin picks the saved sign-in (D230, agentsignins.go): one of the
@@ -117,16 +140,7 @@ func (s *Server) apiAgentCreate(w http.ResponseWriter, r *http.Request) {
 		apiErr(w, http.StatusNotImplemented, "terminals are not enabled")
 		return
 	}
-	var body struct {
-		Cwd, Kind, Provider, Mode, Net, GPU, Name, Model, Resume string
-		LLM                                                      string // who serves its model calls: connector | own (agentllm.go)
-		Signin                                                   string // which saved sign-in: an id, "none", or absent — the person's default (agentsignins.go)
-		API                                                      *bool
-		VM                                                       bool
-		Options                                                  map[string]string
-		// Prompt: a workspace agent's start only — what the session is told first
-		Prompt string
-	}
+	var body agentCreateBody
 	if json.NewDecoder(r.Body).Decode(&body) != nil {
 		apiErr(w, http.StatusBadRequest, "need {cwd, kind:\"agent\", provider, mode?, model?, options?, net?, api?, gpu?, vm?, name?, resume?, llm?, signin?, prompt?}")
 		return
@@ -184,6 +198,9 @@ func (s *Server) apiAgentCreate(w http.ResponseWriter, r *http.Request) {
 		open.Options["model"] = start.Model
 	}
 	open.Provider = term.DelegateProvider(open) // a delegate's start that names no harness: the one xbind resolved for it
+	if start != nil && start.Brief != nil {
+		body.Prompt = *start.Brief // what its person was shown (D252)
+	}
 	if body.Prompt != "" && start == nil {
 		apiErr(w, http.StatusBadRequest, "prompt is for a workspace agent's start: send a session its first message with POST /term/sessions/<id>/prompt")
 		return
@@ -483,6 +500,7 @@ func (s *Server) apiAgentPrompt(w http.ResponseWriter, r *http.Request) {
 		apiErr(w, code, err.Error())
 		return
 	}
+	p = approvedPrompt(r, id, p)
 	if !s.delegateSends(w, r, id, p.Text) { // what a person's agent may tell a session, and which session
 		s.Term.KickQueue(id)
 		return
@@ -520,6 +538,7 @@ func (s *Server) apiAgentQueue(w http.ResponseWriter, r *http.Request) {
 		apiErr(w, code, err.Error())
 		return
 	}
+	p = approvedPrompt(r, id, p)
 	if !s.delegateSends(w, r, id, p.Text) {
 		return
 	}

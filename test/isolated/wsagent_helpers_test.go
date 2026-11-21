@@ -191,8 +191,9 @@ type wsRequest struct {
 	Preview                                                                  struct {
 		Class, Level, Role string
 		Session            struct {
-			Tile, Provider, Mode, Prompt string
-			Asks                         bool
+			Tile, Provider, Mode, Prompt, Net string
+			SignInID                          string `json:"signInId"`
+			Asks                              bool
 		}
 	}
 }

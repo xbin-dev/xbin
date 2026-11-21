@@ -230,10 +230,10 @@ final class XbinWorkspaceAgentStatesTests: XCTestCase {
         e.app.buttons.matching(identifier: "changeset-done").firstMatch.tap()
     }
 
-    /// A tile agent's start: only xbind's word that the mode asks earns the
-    /// green tag. A mode that never asks — and one xbind doesn't vouch for —
-    /// leads with the danger wording, and the button reads "Start without
-    /// asking".
+    /// A tile agent's start: only xbind's word that the mode asks says it
+    /// asks. A mode that never asks — and one xbind doesn't vouch for — is
+    /// a fact, a neutral tag and one plain line, and the button reads the
+    /// ordinary "Start" (D251).
     @MainActor
     func test05DemoStartsThatNeverAsk() throws {
         let e = try E2E(self)
@@ -244,18 +244,17 @@ final class XbinWorkspaceAgentStatesTests: XCTestCase {
         let heading = e.element("approval-heading")
         let allow = e.app.buttons.matching(identifier: "approval-allow").firstMatch
         let deny = e.app.buttons.matching(identifier: "approval-deny").firstMatch
-        let danger = e.element("approval-danger")
+        let chip = e.element("approval-mode-chip")
 
         for (n, id) in ["rq_never", "rq_unknown_mode"].enumerated() {
             e.wsInbox("inbox-request:\(id)")
             e.expect(heading, 30, "the start's approval (\(id))")
             XCTAssertEqual(heading.label, "Start a tile agent in Orders?")
-            e.expect(danger, 10, "\(id): the danger wording leads")
-            XCTAssertTrue(danger.label.contains("a mode that never asks") && danger.label.contains("stop a single edit or command"), danger.label)
-            XCTAssertTrue(e.containing("acts without asking").exists, "\(id): the mode's tag")
-            XCTAssertFalse(e.containing("asks before it edits or runs anything").exists, "\(id): never the green tag")
-            XCTAssertTrue(e.containing("It edits files and runs commands in Orders without asking you.").exists)
-            XCTAssertEqual(allow.label, "Start without asking", id)
+            e.expect(chip, 10, "\(id): the mode's tag")
+            XCTAssertEqual(chip.label, "acts without asking", id)
+            XCTAssertFalse(e.containing("asks before acting").exists, "\(id): never that it asks")
+            XCTAssertTrue(e.containing("It edits files and runs commands in this tile's sandbox without asking you.").exists)
+            XCTAssertEqual(allow.label, "Start", id)
             XCTAssertEqual(deny.label, "Deny")
             // the trusted bar's Not now is a whole target too (it was 28 pt high)
             e.wsAssertWholeTarget(e.app.buttons.matching(identifier: "approval-later").firstMatch, "\(id): Not now")
@@ -264,7 +263,6 @@ final class XbinWorkspaceAgentStatesTests: XCTestCase {
             let tile = e.app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "Tile")).firstMatch
             XCTAssertTrue(mode.exists && tile.exists, "the Mode and Tile rows")
             XCTAssertLessThan(mode.frame.minY, tile.frame.minY, "\(id): the mode leads the rows")
-            XCTAssertLessThan(danger.frame.minY, mode.frame.minY, "\(id): the warning comes first of all")
             if id == "rq_unknown_mode" {
                 // its brief and the agent's words hold characters that reorder or hide text: each is shown as its escape
                 let noted = e.app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "contains hidden characters — shown as ⟨U+…⟩"))
@@ -278,11 +276,10 @@ final class XbinWorkspaceAgentStatesTests: XCTestCase {
             XCTAssertTrue(e.until(10) { !heading.exists })
         }
 
-        // …and one xbind says asks: the green tag, Start, no warning
+        // …and one xbind says asks: its tag, Start
         e.wsInbox("inbox-request:rq_sess")
         e.expect(heading, 30, "a start in a mode that asks")
-        XCTAssertTrue(e.containing("asks before it edits or runs anything").exists)
-        XCTAssertFalse(danger.exists, "no danger wording for a mode that asks")
+        XCTAssertEqual(chip.label, "asks before acting")
         XCTAssertEqual(allow.label, "Start")
         e.app.buttons.matching(identifier: "approval-later").firstMatch.tap()
     }
@@ -542,10 +539,10 @@ final class XbinWorkspaceAgentStatesTests: XCTestCase {
         // a tile agent's start, in a mode that never asks
         e.wsInbox("inbox-request:rq_never")
         e.expect(heading, 30, "the start's approval at the largest text size")
-        let danger = e.element("approval-danger")
-        XCTAssertTrue(danger.exists && danger.isHittable, "the danger wording shows first")
+        let chip = e.element("approval-mode-chip")
+        XCTAssertTrue(chip.exists && chip.isHittable, "the mode leads")
         checkButtons("a tile agent's start", deny: deny, allow: allow)
-        XCTAssertEqual(allow.label, "Start without asking")
+        XCTAssertEqual(allow.label, "Start")
         e.shot("wsagent2-23-large-start-top")
         let told = e.containing("sent exactly like this")
         e.wsScrollTo(told)
@@ -991,7 +988,7 @@ final class XbinWorkspaceAgentStatesTests: XCTestCase {
             e.expect(e.app.buttons.matching(identifier: "inbox-changeset:cs_1").firstMatch, 30, "the inbox")
             shot(e, "inbox")
             e.app.buttons.matching(identifier: "inbox-request:rq_never").firstMatch.tap()
-            e.expect(e.element("approval-danger"), 30, "a start that never asks")
+            e.expect(e.element("approval-mode-chip"), 30, "a start that never asks")
             shot(e, "start-never-asks")
             e.app.buttons.matching(identifier: "approval-later").firstMatch.tap()
             XCTAssertTrue(e.until(10) { !e.element("approval-heading").exists })
@@ -1028,7 +1025,7 @@ final class XbinWorkspaceAgentStatesTests: XCTestCase {
             big.app.buttons.matching(identifier: "approval-later").firstMatch.tap()
             XCTAssertTrue(big.until(10) { !big.element("approval-heading").exists })
             big.wsInbox("inbox-request:rq_never")
-            big.expect(big.element("approval-danger"), 30, "the start, large")
+            big.expect(big.element("approval-mode-chip"), 30, "the start, large")
             shot(big, "large-start-never-asks")
             big.app.terminate()
         }

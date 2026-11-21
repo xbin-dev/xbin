@@ -78,7 +78,7 @@ func TestWsEvalMessageRefusedByModeAndCommand(t *testing.T) {
 	calls := len(f.callsFor(s.Run))
 	fx.say(t, s, "tell it to add tests")
 	fx.idle(t, s)
-	if got := fx.toolResult(t, s, "tile_agent_message"); !strings.Contains(got, "acts without asking now, so your person approves this message first") || !strings.Contains(got, "Pending — request 1") {
+	if got := fx.toolResult(t, s, "tile_agent_message"); !strings.Contains(got, "acts without asking, so this message is shown to your person and goes when they allow it") || !strings.Contains(got, "Pending — request 1") {
 		t.Fatalf("the message's answer: %s", got)
 	}
 	if n := len(f.callsFor(s.Run)) - calls; n != 2 || fx.x.count("AgentSay refused") != 1 || len(fx.x.said[sess]) != 0 {
@@ -155,9 +155,10 @@ func TestWsEvalCommandRefusedThoughTheTileAgentWaits(t *testing.T) {
 	}
 }
 
-// Scenario R3 — messages held behind a tile agent's question, refused when
-// they would go in (its person switched its mode meanwhile): dropped, not
-// tried at every pass; the conversation is told once.
+// Scenario R3 — a message held behind a tile agent's question, its
+// session switched meanwhile to a mode that acts without asking: when it
+// would go in, it is filed for its person's approval — the whole text,
+// once (D251) — never dropped, and tried once.
 func TestWsEvalHeldMessagesRefusedOnce(t *testing.T) {
 	fx := newWsFix(t)
 	s := fx.main(t)
@@ -178,7 +179,7 @@ func TestWsEvalHeldMessagesRefusedOnce(t *testing.T) {
 	fx.x.modeOff = map[string]bool{sess: true}
 	fx.x.mu.Unlock()
 	fx.x.setAgent(sess, func(a *wsAgent) { a.Pending = 0 })
-	f.on(forRun(s.Run, lastUser("[workspace updates")), say("Your message to the Orders agent wasn't delivered: you switched it to a mode that doesn't ask.")).once()
+	f.on(forRun(s.Run, lastUser("[workspace updates")), say("Your message to the Orders agent waits for your approval.")).once()
 	fx.notify(t)
 	fx.rest(t, s)
 	fx.notify(t)
@@ -187,11 +188,18 @@ func TestWsEvalHeldMessagesRefusedOnce(t *testing.T) {
 		t.Fatalf("the held message was tried %d times", n)
 	}
 	if ids, _ := fx.ag.db.wsHeld(row.ID); len(ids) != 0 {
-		t.Fatalf("a refused held message stays held: %v", ids)
+		t.Fatalf("a held message filed for approval stays held: %v", ids)
 	}
-	up := fx.updates(t, s)
-	if len(up) == 0 || !strings.Contains(up[len(up)-1], "were not delivered") || !strings.Contains(up[len(up)-1], "only they can drive it now") {
-		t.Fatalf("the update: %q", up)
+	if req := fx.x.pending(t); req.Kind != "message" || string(req.call.Body) != `{"text":"Also add a header row."}` {
+		t.Fatalf("the held message's request: %s %s", req.Kind, req.call.Body)
+	}
+	for _, u := range fx.updates(t, s) {
+		if strings.Contains(u, "were not delivered") {
+			t.Fatalf("a held message filed for approval was said dropped: %q", u)
+		}
+	}
+	if len(fx.x.said[sess]) != 0 {
+		t.Fatalf("it reached the session unapproved: %q", fx.x.said[sess])
 	}
 }
 
@@ -201,7 +209,7 @@ func TestWsOffRefusalWords(t *testing.T) {
 		{"no-agent", "no-agent", "hasn't been given a workspace agent"},
 		{"held", "held", "held on this xbin"},
 		{"taint", "brief-taint", "a clean conversation"},
-		{"mode", "mode", "only they can drive it now"},
+		{"mode", "mode", "goes only with your person's approval of that text"},
 		{"command", "command", `can't begin with "/"`},
 	} {
 		err := error(&xbin.DelegateError{Status: 403, Refusal: c.refusal, Message: "xbind says so"})

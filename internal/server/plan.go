@@ -403,18 +403,7 @@ func (s *Server) apiPlanNew(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, delegation.MaxSetBytes)
-	var in struct {
-		Title string `json:"title"`
-		Items []struct {
-			Kind string          `json:"kind"`
-			Args json.RawMessage `json:"args"`
-			Why  string          `json:"why"`
-		} `json:"items"`
-		// DryRun: describe the plan as it would be proposed — each line in
-		// xbind's words, with what an agent may read of it — and propose
-		// nothing: no set is kept, nobody is told.
-		DryRun bool `json:"dryRun"`
-	}
+	var in changeSetBody
 	if err := DecodeJSON(r, &in); err != nil || len(in.Items) == 0 {
 		WriteError(w, http.StatusBadRequest, "need {title, items: [{kind, args, why?}], dryRun?} with at least one line", delegationDocs)
 		return
@@ -501,18 +490,36 @@ func planChosen(cs delegation.ChangeSet, chosen []int) (admin bool, refusal stri
 // it names existed is held to its sentence and to its warnings: a warning
 // that was not shown is not one the person approved.
 func lineStale(it delegation.ChangeItem, pv delegation.ChangePreview) bool {
+	if it.Kind == delegation.KindAgentStart && it.Pin != "" {
+		// a start is held to what it resolves to — the coding agent, mode, network, API access, model, an
+		// xbind-written brief (Pin) — and to its warnings, not to its sentence: an upgrade may word a line
+		// otherwise (D251 review L3: v0.3.84's lines didn't say ", which acts without asking")
+		return pv.Pin != it.Pin || warnedAnew(it, pv)
+	}
 	if !it.Deferred {
 		return changeBasis(pv) != it.Basis
 	}
 	if pv.Line != it.Line || pv.Pin != it.Pin {
 		return true // another sentence — or, for a start, another coding agent, mode, network or API access than was shown
 	}
+	return warnedAnew(it, pv)
+}
+
+// warnedAnew: pv carries a warning the line didn't when its person saw it.
+func warnedAnew(it delegation.ChangeItem, pv delegation.ChangePreview) bool {
 	for _, w := range pv.Warnings {
 		if !slices.Contains(it.Warnings, w) {
 			return true
 		}
 	}
 	return false
+}
+
+// earlyStale: a waiting line whose tile provides before Apply reaches it
+// (D251) is still the line proposed only while the slot's binding is as it
+// was then and it carries no warning it didn't (D251 review M1).
+func earlyStale(it delegation.ChangeItem, pv delegation.ChangePreview) bool {
+	return string(pv.Before) != string(it.Before) || warnedAnew(it, pv)
 }
 
 // pinStart is an agent.start line as its person was shown it: where the

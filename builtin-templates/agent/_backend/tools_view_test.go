@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -19,7 +20,11 @@ func TestToolsView(t *testing.T) {
 	toolsProbeMu.Lock()
 	toolsProbes = map[string]toolsProbe{}
 	toolsProbeMu.Unlock()
+	// what the gateway was asked: the probes of several servers run at once, so every count is under askedMu
+	// (a bare map here was "concurrent map writes" under load)
+	var askedMu sync.Mutex
 	asked := map[string]int{}
+	count := func(k string) int { askedMu.Lock(); defer askedMu.Unlock(); return asked[k] }
 	fakeGateway(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		var req struct {
@@ -27,7 +32,9 @@ func TestToolsView(t *testing.T) {
 			Method string `json:"method"`
 		}
 		_ = json.Unmarshal(body, &req)
+		askedMu.Lock()
 		asked[r.URL.Path+" "+req.Method]++
+		askedMu.Unlock()
 		if r.URL.Path != "/api/apps/dice/mcp" {
 			http.Error(w, "the provider's backend is not running", http.StatusBadGateway)
 			return
@@ -127,9 +134,9 @@ func TestToolsView(t *testing.T) {
 		t.Fatalf("GET /tools stored a tool list: %s", raw)
 	}
 	// asked again at once: the probe's answer is reused, the servers aren't asked again
-	before := asked["/api/apps/dice/mcp tools/list"]
-	if code, _, _ := get(asBob, false); code != 200 || asked["/api/apps/dice/mcp tools/list"] != before {
-		t.Fatalf("a second read within %v asked the server again (%d → %d)", toolsProbeFresh, before, asked["/api/apps/dice/mcp tools/list"])
+	before := count("/api/apps/dice/mcp tools/list")
+	if code, _, _ := get(asBob, false); code != 200 || count("/api/apps/dice/mcp tools/list") != before {
+		t.Fatalf("a second read within %v asked the server again (%d → %d)", toolsProbeFresh, before, count("/api/apps/dice/mcp tools/list"))
 	}
 
 	// alice's workspace agent reads it as she would (agentMay)

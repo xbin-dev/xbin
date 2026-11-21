@@ -53,23 +53,23 @@ func wsAgentTools() []coordTool {
 			}))}},
 			Run: wsTool(wsBriefTool)},
 		{Write: true, Spec: toolSpec{Type: "function", Function: funcDef{Name: "tile_agent_start",
-			Description: "Start a tile agent from a brief (or continue one that stopped, with resume). Your person is asked (unless their preference lets it start unasked: then Start on the brief's card is their go-ahead): xbin shows the brief exactly as sent, and they pick the coding agent, model and mode there — their pick runs. It answers \"pending\"; what ran, or their refusal, reaches you as a workspace update. " +
-				"If a tile agent this conversation started is idle on that tile, the brief goes to IT as a follow-up — one session — unless you pass new: true with a reason they see. A follow-up to a working session is tile_agent_message. " +
-				"Pass harness, model or mode only when your person named one: their own choice for the tile and their preference come first (the brief's answer says them), and a mode that acts without asking is never picked by you. " +
+			Description: "Start a tile agent from a brief (or continue one that stopped, with resume). Your person is asked (rarely, their preference lets it start unasked: then Start on the brief's card is their go-ahead): xbin shows the brief exactly as sent, and they pick the coding agent, model and mode there — their pick runs. Tile agents normally act without asking, in their tile's sandbox: your person approving what you tell them is the check. It answers \"pending\": file it and carry on, don't ask in chat first; what ran, or their no, reaches you as an update. " +
+				"If a tile agent this conversation started is idle there, the brief goes to IT as a follow-up — one session, one approval — unless you pass new: true with a reason they see; never open a new session to avoid an approval. A follow-up to a working session is tile_agent_message. " +
+				"Pass harness, model or mode only when your person named one: their own choice for the tile and their preference come first (the brief's answer says them). " +
 				"The session is theirs to see and answer; you are told when it ends a turn, fails, or asks them a question.",
 			Parameters: obj(nil, map[string]any{
 				"brief":   coordIntProp("the brief's number (from tile_agent_brief)"),
 				"resume":  strProp("instead of a brief: the number of a tile agent that stopped or failed (#3), to continue it where it was"),
 				"harness": strProp("only when your person named one: the coding agent they asked for (an id: claude, codex, opencode, …) — a suggestion they see; their pick on the approval wins"),
 				"model":   strProp("only when your person named one: the model they asked for — a suggestion"),
-				"mode":    strProp("only when your person named one: the mode they asked for — a suggestion; one that acts without asking is never picked for them"),
+				"mode":    strProp("only when your person named one: the mode they asked for — a suggestion they see; a bypass mode (one that skips every check) is never picked for them"),
 				"new":     map[string]any{"type": "boolean", "description": "true: a new session even where one you started is idle on the tile (say why in reason)"},
 				"reason":  strProp("with new: why a new session rather than the one there — shown to your person"),
 				"dry_run": wsDryProp(),
 			})}},
 			Run: wsTool(wsStartTool)},
 		{Write: true, Spec: toolSpec{Type: "function", Function: funcDef{Name: "tile_agent_message",
-			Description: "Send a message to a tile agent you started: a correction, an answer to something it reported, the next piece of work — the way to follow up in the session that is there. It takes it at its next step, or as its next turn. Your person approved the brief, not each message: keep within what the brief was for — a tile agent in a mode that asks takes your messages as they are; one in a mode that acts without asking takes them only by your person's approval, which this tool asks for (the whole text shown; pending, like a start). " +
+			Description: "Send a message to a tile agent you started: a correction, an answer to something it reported, the next piece of work — the way to follow up in the session that is there. Tile agents normally act without asking, so a message to one is shown to your person and goes when they allow it — the whole text, exactly, once: this tool files it and answers pending. File it and carry on; don't ask them in chat first, and don't open a new session to avoid it. A tile agent in a mode that asks takes your messages as they are. Keep within what the brief was for. " +
 				"If the session waits for your person (a permission request, a question of its own), your message is held until they answered: you never answer for them, and nothing you send counts as their answer. Not for a session you didn't start.",
 			Parameters: obj([]string{"agent", "text"}, map[string]any{
 				"agent":   agent,
@@ -255,10 +255,6 @@ func (ag *Agent) wsRunsOn(ctx context.Context, s *wsSession, tile, picked string
 		on += ", model " + model
 	}
 	on += ", " + map[bool]string{true: "asks before acting", false: "acts without asking"}[asks]
-	if !asks && from != "" {
-		// the person's own choice of a coding agent with no mode that asks (D250 re-review item 3)
-		on += " — your person's coding agent for this tile acts without asking, so every start is approved on the sheet"
-	}
 	if h.NoSignIn {
 		on += ", on the workspace's model with no sign-in"
 	}
@@ -340,7 +336,7 @@ func wsStartTool(ctx context.Context, ag *Agent, s *wsSession, c0 coordCall) (st
 			if on := ag.wsRunsOn(ctx, s, start.Tile, start.Harness); on != "" {
 				out += " It would run on " + on + "."
 			}
-			out += " The coding agent, its mode and its network are your person's preferences and the tile's rules; its questions and permission requests go to your person, never to you. The approval is of the brief: what you message it later is not approved message by message — its mode is what asks. What it changes in the tile stays until someone changes it back."
+			out += " The coding agent, its mode and its network are your person's preferences and the tile's rules; its questions and permission requests go to your person, never to you. The approval is of the brief; tile agents normally act without asking, so what you message it later is shown to your person and goes when they allow it — file it and carry on. What it changes in the tile stays until someone changes it back."
 		}
 		return out, nil
 	}
@@ -541,7 +537,10 @@ func wsMessageTool(ctx context.Context, ag *Agent, s *wsSession, c coordCall) (s
 		if row.Waits {
 			return fmt.Sprintf("This would be held, not delivered: tile agent #%d %s It would go in after they answered. Nothing was sent.", row.ID, wsWaitsWords(row)), nil
 		}
-		return fmt.Sprintf("This would be delivered to tile agent #%d in %s now: it takes it at its next step, or starts a turn on it. It steers work your person already approved, so nobody is asked; what the tile agent then changes stays. Nothing was sent.", row.ID, row.Tile), nil
+		if !row.Asks {
+			return fmt.Sprintf("Tile agent #%d in %s acts without asking, so this would be shown to your person and go when they allow it — exactly this text, once. Nothing was sent.", row.ID, row.Tile), nil
+		}
+		return fmt.Sprintf("This would be delivered to tile agent #%d in %s now: it asks your person before it acts, so it takes it at its next step, or starts a turn on it; what it then changes stays. Nothing was sent.", row.ID, row.Tile), nil
 	}
 	if row.Waits { // the never-answers rule: what waits for a person is theirs
 		if n := ag.db.wsOne(`SELECT count(*) FROM ws_held WHERE agent_id=?`, row.ID); n >= 8 {
@@ -555,7 +554,7 @@ func wsMessageTool(ctx context.Context, ag *Agent, s *wsSession, c coordCall) (s
 	var outcome string
 	err = ag.wsWith(ctx, s, func(sid string) (err error) { outcome, err = wsX.AgentSay(ctx, sid, row.Session, text); return })
 	if errors.Is(err, xbin.ErrSessionMode) {
-		// it acts without asking, in a mode its person didn't approve it in: the message is theirs to approve (D250)
+		// it acts without asking — the usual (D251): the message is its person's to approve, exactly that text, once
 		return ag.wsAskMessage(ctx, s, row, text)
 	}
 	if err != nil {
@@ -571,8 +570,8 @@ func wsMessageTool(ctx context.Context, ag *Agent, s *wsSession, c coordCall) (s
 }
 
 // wsAskMessage files a message to row's session for its person's approval:
-// the session acts without asking, so what it is told is an act of theirs
-// to approve — the whole text, once (D250).
+// the session acts without asking — the usual (D251) — so what it is told is
+// theirs to approve, the whole text, once (D250).
 func (ag *Agent) wsAskMessage(ctx context.Context, s *wsSession, row *wsAgentRow, text string) (string, error) {
 	c := messageCall(row.Session, text)
 	req := &wsReq{Kind: wsReqMessage, Tile: row.Tile, Title: fmt.Sprintf("send a message to tile agent #%d in %s (it acts without asking)", row.ID, row.Tile),
@@ -583,7 +582,7 @@ func (ag *Agent) wsAskMessage(ctx context.Context, s *wsSession, row *wsAgentRow
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("Tile agent #%d is in a mode that acts without asking now, so your person approves this message first: xbin shows them the whole text, and their approval sends exactly it, once. ", row.ID) + out, nil
+	return fmt.Sprintf("Tile agent #%d acts without asking, so this message is shown to your person and goes when they allow it: xbin shows them the whole text, and their approval sends exactly it, once. Carry on meanwhile — don't ask them in chat, and don't open a new session for it. ", row.ID) + out, nil
 }
 
 // wsAgentNow is where a tile agent stands now, with the messages of this

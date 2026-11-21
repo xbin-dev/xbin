@@ -2,6 +2,13 @@
 
 > Status: live
 
+> **D251 changes rules here** (`plans/wsagent/auto-default.md`, the
+> owner's answers of 2026-11-21): tile agents act without asking by
+> default, a mode is an ordinary choice stated as a fact, and continuing
+> is one plain approval. Each rule it replaces is marked **[D251]** below
+> with what replaces it; the safety table marks the rows that changed and
+> adds D251's own.
+
 The owner's test session of 2026-11-21 (the agent's retro and his
 screenshot are kept outside the repo, `~/buxon-keep/2026-11-21/`): "turn
 eui into a tic tac toe game" took five approval rounds and started
@@ -177,7 +184,10 @@ the tile, remembered, so it is preselected — and, having no mode that
 asks, warned every time. A warned approval (a mode that doesn't ask, or a
 coding agent with none): the warning is a banner in the body, Deny stays
 where it is and quiet, Start stays where it is, coloured as the danger it
-is, armed after 600 ms; nothing on the sheet says it asks.
+is, armed after 600 ms; nothing on the sheet says it asks. **[D251]** No
+longer: the mode is a chip ("acts without asking" / "asks before
+acting") and one plain line, the button the ordinary Start; nothing says
+it asks where it doesn't.
 
 ## 2. What the person picks on the approval is the approval
 
@@ -229,7 +239,12 @@ is, armed after 600 ms; nothing on the sheet says it asks.
   shows the suggestion preselected unless the person's preference says
   otherwise (§3), marked "suggested by your agent"; the person's pick
   always wins.
-- The agent can't choose a mode that doesn't ask, or a sign-in, by
+- **[D251]** The default mode is the coding agent's work mode (it acts
+  without asking); the agent's suggestion of a mode or a coding agent is
+  a preselection, except a bypass (explicit) mode; OpenCode is an
+  ordinary choice; it starts unasked only in a mode that asks the person
+  named. The D250 rule this bullet replaces, as it was: the agent can't
+  choose a mode that doesn't ask, or a sign-in, by
   suggesting it: a suggested mode that doesn't ask is never preselected —
   the select shows the asking default and, under it, "your agent suggested
   build, which acts without asking: pick it yourself if you want it". The
@@ -253,7 +268,8 @@ is, armed after 600 ms; nothing on the sheet says it asks.
   the open is the line's coding agent, model and mode, whatever the call's
   body named; the line says so, and how to run another.
 - **The approval holds to what the sheet showed** (the review, L2): the
-  approve carries `seen: {signInId, net}`; where xbind would now resolve
+  approve carries `seen: {signInId, net}` (and, for a continue, the
+  session's `harness` and `mode`, D251); where xbind would now resolve
   the sign-in or the network otherwise, it is 409 `{changed, reload}`,
   nothing decided, and the sheet reloads. An approve that picks, or
   continues, without `seen` is 400 (re-review item 5); one that picks
@@ -312,7 +328,8 @@ choice per tile.
   the coding agent and model of any coding agent, OpenCode's too
   (re-review item 3) — and never a mode that doesn't ask: one predicate
   in the store (`RememberTile`), which refuses such a mode on write and
-  ignores one on read (the review, M1). The sheet says beforehand what is
+  ignores one on read (the review, M1). **[D251]** Any mode but a bypass
+  one is kept now, asking or not. The sheet says beforehand what is
   kept. Such a mode is picked each time, as a bypass mode is in the Agent
   tab. A value an earlier xbind stored under looser rules (v0.3.83 took
   OpenCode's `plan` as an asking mode) is ignored at read, never an error,
@@ -432,7 +449,9 @@ agent that can be prompt-injected would be an act nobody approved.
   would run on (the review, M3). The sheet shows the session's coding
   agent, model, mode and sign-in as elements, warns when it doesn't ask
   or carries a sign-in, and re-arms on every switch between continue and
-  new (L1). A start filed as a follow-up is judged at filing as the
+  new (L1). **[D251]** No warning, tick or re-arm: continuing is one plain
+  approval, Send, held to the session shown (`seen`), and a continue or a
+  message can be sent from its batch row. A start filed as a follow-up is judged at filing as the
   decide judges it — on the session's live source — not as a new start
   on the model the body suggests; a new session the person picks instead
   is judged in full (re-review item 6). **A session that carries the
@@ -480,8 +499,8 @@ options and their words, placed: its rejections first, its first allow
 (the primary) last, the others between in its order — superseding "in its
 order" (the checks `harness-ask`, `harness-child`, `grant` say so now).
 A warned approval keeps Approve where it is —
-coloured as danger where the act is (a mode that acts without asking, the
-wider standing grant), never by promoting Deny — and says the warning in
+coloured as danger where the act is (the wider standing grant; **[D251]**
+no longer a mode that acts without asking), never by promoting Deny — and says the warning in
 the body, armed after 600 ms (`/vendor/agent-armed.js`, unchanged).
 
 ## 7. Smaller, from the retro
@@ -519,11 +538,11 @@ commit that adds rows 35 to 44. 44 rules, each with its test:
 |---|---|---|
 | 1 | the ticket still binds tile, brief text and kind: a brief the AGENT swaps after approval is refused, with "the brief's text changed after approval", and spends nothing | `internal/server: TestApprovedStartBindsTheBrief` |
 | 2 | the person's choices are validated as a by-hand start's: a harness the tile's orgs don't allow, a mode the harness doesn't have, a model xbind doesn't offer — 400, nothing decided | `internal/server: TestApproveChoicesAreByHandChoices` |
-| 3 | a suggested mode that doesn't ask is never preselected | `internal/server: TestSuggestionNeverPicksANonAskingModeOrSignin` |
-| 4 | a start naming a sign-in is refused before its ticket is spent, whatever was approved | `internal/server: TestSuggestionNeverPicksANonAskingModeOrSignin` |
+| 3 | **[D251]** a suggested bypass mode is never preselected (any other suggestion is) | `internal/server: TestSuggestionNeverPicksABypassModeOrSignin` |
+| 4 | a start naming a sign-in is refused before its ticket is spent, whatever was approved | `internal/server: TestSuggestionNeverPicksABypassModeOrSignin` |
 | 5 | the person's pick is what opens: harness, mode, model | `internal/server: TestPersonsPickIsTheStart` |
 | 6 | a coding agent with no default mode starts on its ticket | `internal/server: TestNoDefaultModeStartsOnItsTicket` |
-| 7 | start-defaults says the asking mode the start takes | `internal/server: TestNoDefaultModeStartsOnItsTicket` |
+| 7 | start-defaults says the mode the start takes, and whether it asks (**[D251]** the work mode) | `internal/server: TestNoDefaultModeStartsOnItsTicket` |
 | 8 | an approved message passes the mode rule, sends exactly the approved text, once, to the session named | `internal/server: TestMessageApproval*` |
 | 9 | an approved message is refused after a mode or harness change | `internal/server: TestMessageApproval*` |
 | 10 | continue is offered only for a live, idle session this agent started on the same tile — never the person's own, another agent's, one on another tile, or a busy one | `internal/server: TestContinueOnlyOwnSessionSameTile` |
@@ -531,18 +550,18 @@ commit that adds rows 35 to 44. 44 rules, each with its test:
 | 12 | an older client (no `knows: ["continue"]`) approves a new session, through the start route | `internal/server: TestContinueOnlyOwnSessionSameTile` |
 | 13 | an older client approving a start sends no choices: today's defaults | `internal/server: TestOlderClientApprovals` |
 | 14 | preferences are per person: another person can't read or write them, the agent reads only its person's chosen line and writes nothing | `internal/server: TestStartPrefsArePersonal` |
-| 15 | starting without asking: no suggestion, only an asking mode, no sign-in | `internal/server: TestUnaskedStartIgnoresSuggestion` |
+| 15 | starting without asking: no suggestion, only an asking mode the person named, no sign-in | `internal/server: TestUnaskedStartIgnoresSuggestion` |
 | 16 | refusals say what differed, and spend nothing | `internal/delegation: TestRedeemSaysWhatDiffered` |
 | 17 | Try again only for a start that failed for a reason not the agent's, by the person, its sign-in tick its own | `internal/delegation: TestFailedStartRetry`, `internal/server: TestFailedStartRetryRoute` |
 | 18 | a plan's start opens the line reviewed, not the agent's suggestion (H1) | `internal/server: TestPlanStartRunsTheReviewedLine`, `TestPlanStartUsesOnlyTheSignInItsLineNamed` |
 | 19 | OpenCode has no asking mode (M2) | `internal/server: TestOpenCodeHasNoAskingMode` |
-| 20 | OpenCode never starts unasked, and a suggestion of it isn't preselected (M2) | `internal/agentprefs: TestOpenCodeNeverStartsUnasked`, `internal/server: TestOpenCodeHasNoAskingMode` |
+| 20 | OpenCode never starts unasked (M2); **[D251]** a suggestion of it is preselected | `internal/agentprefs: TestNoStartWithoutTheSheetInAModeThatDoesntAsk`, `internal/server: TestOpenCodeHasNoAskingMode` |
 | 21 | a session of OpenCode takes no unapproved agent message (M2) | `internal/server: TestOpenCodeHasNoAskingMode` |
 | 22 | Remember keeps only the person's own changes (M1) | `internal/server: TestRememberKeepsOnlyThePersonsOwnPick` |
-| 23 | the store never keeps a mode that acts without asking, and a read ignores one (M1) | `internal/agentprefs: TestRememberNeverKeepsAModeThatActsWithoutAsking` |
+| 23 | **[D251]** the store keeps any mode but a bypass one, and a read ignores a bypass one | `internal/agentprefs: TestRememberKeepsAnyModeButBypass`, `TestAgentSessionModesAreAnyButBypass` |
 | 24 | a continue is judged on the live session; a connector model by its own id (M3) | `internal/server: TestContinueIsJudgedOnTheLiveSession`, `internal/term: TestConnectorModelIDDropsTheHarnessPrefix` |
-| 25 | a follow-up into a session with the person's sign-in needs the tick, at approval and at redeem (L1) | `internal/server: TestContinueIntoASessionWithASignInNeedsTheTick` |
-| 26 | the sheet holds Continue until the sign-in is ticked (L1) | `hack/agent-start-words.test.mjs` |
+| 25 | **[D251]** a follow-up into a session with the person's sign-in needs no tick, and is held to that session's sign-in at approval and at redeem | `internal/server: TestContinueIntoASessionWithASignInIsThatSession` |
+| 26 | **[D251]** continuing is one plain approval: chips, Send, no tick | `hack/agent-start-words.test.mjs` |
 | 27 | the approval holds to what the sheet showed (L2) | `internal/server: TestApprovalHoldsToWhatTheSheetShowed`, `hack/agent-start-words.test.mjs` |
 | 28 | an agent's own bad start is refused before its ticket is spent (L3) | `internal/server: TestStartFailuresByCause` |
 | 29 | `failed` only by cause, and only for a backend that knows it (L3) | `internal/server: TestStartFailuresByCause` |
@@ -552,15 +571,33 @@ commit that adds rows 35 to 44. 44 rules, each with its test:
 | 33 | a plan's stubbed open is checked as picked, not only authorised (the review's test fix) | `internal/server: TestPlanStartUsesOnlyTheSignInItsLineNamed` |
 | 34 | the sheet says a model or mode a coding-agent switch reset is the default, not the person's pick — what Remember keeps (M1) | `hack/agent-start-words.test.mjs` |
 | 35 | a file a released xbind wrote (OpenCode's `plan` saved as asking) loads, and never blocks a later write (re-review 1) | `internal/agentprefs: TestAReleasedFileNeverBlocksAWrite` |
-| 36 | the person's OpenCode for a tile: remembered (never its mode), preselected warned (re-review 3) | `internal/server: TestTheOwnersOpenCodeForATile` |
+| 36 | the person's OpenCode for a tile: remembered (**[D251]** its mode too), preselected (re-review 3) | `internal/server: TestTheOwnersOpenCodeForATile` |
 | 37 | a coding agent with no mode that asks never starts unasked, and says why (re-review 3) | `internal/server: TestTheOwnersOpenCodeForATile` |
-| 38 | the workspace's default prefers a coding agent that asks (re-review 3) | `internal/server: TestTheOwnersOpenCodeForATile` |
-| 39 | the OpenCode sheet: warned, nothing says it asks; Remember says what it keeps (re-review 2, 3) | `hack/agent-start-words.test.mjs`; approvalsUx checks the sheet |
-| 40 | a plan line on the person's OpenCode carries the warning, so it starts unticked (D238) | `internal/server: TestPlanStartUsesOnlyTheSignInItsLineNamed` |
+| 38 | **[D251]** the workspace's default is the first coding agent the tile allows, in its work mode (no longer one that asks) | `internal/server: TestTheOwnersOpenCodeForATile` |
+| 39 | **[D251]** the OpenCode sheet: the fact, no warning, nothing says it asks; Remember says what it keeps | `hack/agent-start-words.test.mjs`; approvalsUx checks the sheet |
+| 40 | **[D251]** a plan line on the person's OpenCode is an ordinary line, its mode said | `internal/server: TestPlanStartUsesOnlyTheSignInItsLineNamed` |
 | 41 | picks and continuing need what the sheet showed (re-review 5) | `internal/server: TestPicksNeedWhatTheSheetShowed` |
 | 42 | a follow-up is filed as it would be decided; a new session picked instead is judged in full (re-review 6) | `internal/server: TestAFollowUpIsFiledAsItWouldBeDecided` |
 | 43 | the agent is told once of a held message xbind returned (re-review 4a) | `builtin-templates/agent/_backend: TestWsEvalApprovalReturnedMessageIsSaidOnce`, `internal/server: TestAgentQueuedMessageIsMarkedAsTheAgents` |
 | 44 | a mode switch in flight counts at the delivery and at the send gate (re-review 4b) | `internal/term: TestAgentMessageHeldIsJudgedWhileASwitchIsInFlight`; the send gate by a widened window (the commit message) |
+
+D251's rules (`plans/wsagent/auto-default.md` §A5, B1), each run red
+without its rule — the runs are in the message of the commit that adds
+them (S1–S12):
+
+| # | Rule | Test |
+|---|---|---|
+| 45 | every text to a session that doesn't ask is an approval of that text, once — whatever mode it was approved in (D250's exemption gone) | `internal/server: TestAStartActsWithoutAskingAndEveryTextToItIsApproved`, `TestDelegateSendRules` |
+| 46 | no path without the sheet starts a session in a mode that doesn't ask (the preference, start-defaults), and the agent is told so | `internal/server: TestNoPathWithoutTheSheetStartsAModeThatDoesntAsk` |
+| 47 | a notification's Allow once never approves a start or a message | `internal/server: TestAStartActsWithoutAskingAndEveryTextToItIsApproved` |
+| 48 | a continue is held to the session shown — its coding agent, mode and sign-in (`seen`) | `internal/server: TestAContinueIsHeldToTheSessionShown`, `TestContinueIntoASessionWithASignInIsThatSession` |
+| 49 | the default is the work mode; a suggestion is a preselection, never a bypass mode | `internal/server: TestAStartActsWithoutAskingAndEveryTextToItIsApproved`, `TestSuggestionNeverPicksABypassModeOrSignin` |
+| 50 | the ticket still binds brief, text and path; `seen` still required | `internal/server: TestApprovedStartBindsTheBrief`, `TestMessageApproval`, `TestPicksNeedWhatTheSheetShowed`, `internal/delegation: TestRedeemSaysWhatDiffered` |
+| 51 | a text is allowed only with all of it on screen: a clipped `seen.textLen` is refused (H1) | `internal/server: TestAllOfTheTextOrNothing`; `hack/agent-start-words.test.mjs`; approvalsUx (no Send before Show all) |
+| 52 | a waiting line provided early is stale where its slot or a warning changed (M1) | `internal/broker: TestWaitingLineProvidedEarlyIsHeldToTheProposal` |
+| 53 | a resume never reopens in a bypass mode unless its person picks it there (M2) | `internal/server: TestDelegateSessionStart` |
+| 54 | a start line is held to its facts and warnings, not its words (L3) | `internal/server: TestStartLineStalenessIsItsFacts` |
+| 55 | a continue's card names the session's saved sign-in; held to it at the redeem, its mode too (L4) | `internal/server: TestAContinueIntoASessionWithItsSignIn`, `TestAContinueIsHeldToTheSessionShown` |
 
 The agent's side: the retro's session replayed as scripted evals
 (`builtin-templates/agent/_backend/ws_eval_approvals_test.go`): the tic

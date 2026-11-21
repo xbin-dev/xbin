@@ -94,6 +94,11 @@ type DelegateStart struct {
 	// person chose to continue instead of opening one (D250): the start's
 	// first prompt goes to it.
 	Continue string
+	// Brief is the first prompt the person approved — the text their sheet
+	// showed, xbind's own reading of the body when it was filed — sent
+	// whatever the body says (D252). nil: the body's (a start xbind built
+	// itself, or one its person's preference let go unasked).
+	Brief *string
 }
 
 // EffectiveStart is what a delegate's session start amounts to once the
@@ -230,19 +235,6 @@ func (m *Manager) AgentConnectorModel(id string) string {
 		}
 	}
 	return st.llm.offer.Model
-}
-
-// AgentOriginMode is the mode live session id was opened in by the sealed
-// component that started it for its person — the mode the person approved
-// on the start's card, or their preference's; "" for a session they opened
-// themselves, and for an unknown id.
-func (m *Manager) AgentOriginMode(id string) string {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if s := m.sessions[id]; s != nil && s.origin != "" {
-		return s.originMode
-	}
-	return ""
 }
 
 // delegateOpen applies the file comment's rules to delegate p's open a on

@@ -806,13 +806,8 @@ func (s *Server) delegateApproval(w http.ResponseWriter, r *http.Request, p auth
 		if err != nil {
 			return nil, http.StatusRequestEntityTooLarge, "too-large", fmt.Sprintf("an approved call carries at most %d bytes", delegation.MaxBody)
 		}
-		body = b
-		if session { // xbind's update brief, named by the start: its text, as the request was filed with it (startBrief)
-			resolved, _, bad := s.startBrief(p, body)
-			if bad != "" {
-				return nil, http.StatusBadRequest, "brief", bad
-			}
-			body = resolved
+		if body, status, refusal, msg = s.readApproved(p, v.pattern, ticket, b); msg != "" { // one reading; a start's xbind brief resolved
+			return nil, status, refusal, msg
 		}
 		r.Body = io.NopCloser(bytes.NewReader(body))
 		r.ContentLength = int64(len(body))
@@ -873,7 +868,7 @@ func (s *Server) delegateApproval(w http.ResponseWriter, r *http.Request, p auth
 		}
 		row.Ticket = req.ID
 		if message {
-			withMessageTicket(r, sessionOfPath(r.URL.Path))
+			withMessageTicket(r, sessionOfPath(r.URL.Path), req)
 		}
 		if session && start == nil {
 			var why string
@@ -896,14 +891,15 @@ func (s *Server) delegateApproval(w http.ResponseWriter, r *http.Request, p auth
 		if differs != "" {
 			return nil, http.StatusForbidden, "needs-approval", differs + ask
 		}
-		if prov, known := agent.Lookup(cmp.Or(provider, s.startDefaults(p, asked.Cwd).Harness)); known && prov.AskingMode() == "" {
-			// the person's own choice may be a coding agent with no mode that asks (D250 re-review item 3): it
-			// never starts unasked, whatever their preference says — each start is theirs to approve, warned
-			return nil, http.StatusForbidden, "needs-approval", "your person's coding agent for this tile, " + prov.Name + ", acts without asking, so every start is approved on the sheet" + ask
-		}
 		prefs, ok := s.agentPolicy().StartPrefs(p.UserID, asked.Cwd, provider)
-		if !ok {
-			return nil, http.StatusForbidden, "needs-approval", "starting a tile agent needs its person's approval" + ask
+		// no sheet, only a mode that asks (D251): the one it would open in — the preference's, else the asking one
+		prov, known := agent.Lookup(cmp.Or(provider, s.startDefaults(p, asked.Cwd).Harness))
+		ok = ok && known && prov.Asks(cmp.Or(prefs.Mode, prov.AskingMode()))
+		if why := "starting a tile agent needs its person's approval"; !ok {
+			if a, _ := s.AgentPrefs.AgentStartFor(p.UserID, prov.ID); !a.Ask { // "start without asking", no asking mode named (nil store: asks)
+				why = "the sessions your person's agent starts act without asking, so every start is approved on the sheet: one approval, the same start — it starts without asking only in a mode that asks they named"
+			}
+			return nil, http.StatusForbidden, "needs-approval", why + ask
 		}
 		row.Under = "preference"
 		return &term.DelegateStart{Prefs: &prefs, Provider: provider, Model: model}, 0, "", "" // the harness the preference was read for: what opens must be it
