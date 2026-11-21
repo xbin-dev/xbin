@@ -181,7 +181,7 @@ final class AgentNotifications {
                     case .unknown:
                         followUp(w, identifier: identifier, info: info, note: AgentNoticeWords.unconfirmed(w.title))
                     }
-                case .failed(let why), .stepUp(let why, _):
+                case .failed(let why), .stepUp(let why, _), .changed(_, let why):
                     followUp(w, identifier: identifier, info: info, note: AgentNoticeWords.failed(why, allow: a == .allowOnce))
                 case .unseen:
                     followUp(w, identifier: identifier, info: info, note: AgentNoticeWords.review(""))

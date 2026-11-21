@@ -12,6 +12,23 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-21
 
+- **xbin app — the workspace agent's approvals as on the web** (D253):
+  a tile agent's start is picked on the app's sheet (Coding agent, Model,
+  Mode, where each came from, Remember for this tile); a follow-up
+  continues the agent's own session with **Send**, or starts a new one;
+  a message to a tile agent that acts without asking is shown whole and
+  sent from the app; a short follow-up is sent from its Needs you row;
+  a start that didn't open is **Try again**. The app sends what the web
+  sends (`harness`, `model`, `mode`, `remember`, `continue`, `knows`,
+  `seen`) and reads `GET /delegate/requests?failed=1` and
+  `GET /agent/signins`. **xbind:** a device's Allow of a message is now
+  refused by the missing `knows: ["seen-text"]`, not by a missing length:
+  an app that says it and sends the whole length is allowed (as the web
+  is), one that doesn't is refused in the same words as before ("decide
+  this one on the web") — a length without the word too. `POST
+  /delegate/requests/<id>/retry` is documented as the app's and the
+  device's too, as it already answered them
+  ([delegation](/docs/protocol/delegation.md)).
 - **Security, BREAKING for a delegate that writes its own bodies — a
   tile agent start could be shown with one brief and told another**
   (v0.3.80, v0.3.81, v0.3.82, v0.3.83, v0.3.84; D252;

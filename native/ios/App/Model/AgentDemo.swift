@@ -31,6 +31,11 @@ import XbinCore
 //               (`demo-password` is the right one) and then partly fails
 //   offline     live until the app has been to the background once; from
 //               then on xbind can't be reached
+//   followups   a tile agent's start with xbind's choices (the pickers), a
+//               follow-up that continues the agent's own session, a message
+//               short, long and clipped, and a start that failed and may be
+//               tried again (D253); an Allow of a message is held to all of
+//               its text as xbind holds it (409 reload otherwise)
 
 #if DEBUG
 @MainActor
@@ -51,6 +56,8 @@ final class AgentDemo {
     private var requests: [[String: JSONValue]] = []
     private var changesets: [[String: JSONValue]] = []
     private var approvals: [JSONValue] = []
+    /// `followups`: the starts that failed and may be tried again.
+    private var failed: [[String: JSONValue]] = []
     private var prefs: [String: JSONValue] = ["start": "ask"]
     /// `offline`: set once the app has been to the background.
     private var cut = false
@@ -61,7 +68,7 @@ final class AgentDemo {
         data = (try? JSONValue(parsing: AgentDemoData.json)) ?? .null
         let pick: [String: String] = ["setup": "never-on-admin", "setup-who": "nobody-chosen", "off": "off", "nomodel": "no-model",
                                       "locked": "locked", "older": "older", "held": "held-other", "none": "admin-without-one",
-                                      "paused": "paused", "grants": "page", "net": "page"]
+                                      "paused": "paused", "grants": "page", "net": "page", "followups": "page"]
         let chosen = data["states"]?[pick[name] ?? "page"]
         state = chosen?["state"]?.objectValue ?? [:]
         llm = chosen?["llm"] ?? ["configured": true]
@@ -94,6 +101,22 @@ final class AgentDemo {
             approvals = data["approvals"]?.arrayValue ?? []
             state["canAdminChanges"] = true
             state["adminChanges"] = true
+        }
+        if name == "followups" {
+            // asked a moment ago, oldest first, a day to decide
+            let now = Date()
+            requests = (data["followups"]?.arrayValue ?? []).compactMap(\.objectValue).enumerated().map { i, r in
+                var r = r
+                r["created"] = .string(DelegateTime.rfc3339(now.addingTimeInterval(Double(-300 + i * 30))))
+                r["expires"] = .string(DelegateTime.rfc3339(now.addingTimeInterval(86_400 - 300)))
+                return r
+            }
+            failed = (data["followupsFailed"]?.arrayValue ?? []).compactMap(\.objectValue).map { r in
+                var r = r
+                r["created"] = .string(DelegateTime.rfc3339(now.addingTimeInterval(-600)))
+                r["expires"] = .string(DelegateTime.rfc3339(now.addingTimeInterval(86_400 - 600)))
+                return r
+            }
         }
         if let plan = data["plans"]?[name]?.objectValue {
             // a plan to review (D238): as an admin who never opted in, as a
@@ -141,12 +164,16 @@ final class AgentDemo {
         case ("GET", "/api/xbin/llm"): return ok(llm)
         case ("GET", "/api/xbin/components"): return ok([])
         case ("GET", "/api/xbin/agent/providers"): return ok([])
+        case ("GET", "/api/xbin/agent/signins"): return name == "followups" ? ok(data["signins"] ?? .object([:])) : err(404, ["error": "not in the demo"])
         case ("GET", "/api/xbin/term/sessions"): return ok([])
         case ("GET", "/api/xbin/agent/prefs"): return ok(["agentSessions": .object(prefs)])
         case ("PUT", "/api/xbin/agent/prefs"):
             for (k, v) in body["agentSessions"]?.objectValue ?? [:] { prefs[k] = v }
             return ok(["agentSessions": .object(prefs)])
-        case ("GET", d + "/requests"): return ok(["requests": .array(requests.filter { $0["state"] == "pending" }.map { .object($0) })])
+        case ("GET", d + "/requests"):
+            // ?failed=1: the starts that failed and may be tried again come with them
+            let withFailed = req.path.contains("failed=1") ? failed.filter { $0["state"] == "failed" } : []
+            return ok(["requests": .array((requests.filter { $0["state"] == "pending" } + withFailed).map { .object($0) })])
         case ("GET", d + "/changesets"): return ok(["changesets": .array(changesets.map { .object($0) })])
         case ("GET", d + "/approvals"): return ok(["approvals": .array(approvals)])
         case ("GET", d + "/audit"): return ok(["calls": data["audit"] ?? []])
@@ -156,12 +183,22 @@ final class AgentDemo {
         let id = parts[1], verb = parts.count > 2 ? parts[2] : ""
         switch parts[0] {
         case "requests":
+            if let f = failed.firstIndex(where: { $0["id"]?.stringValue == id }) {
+                // a start that failed: read, or tried again — a ticket again (xbind's retry)
+                if req.method == "GET" { return ok(.object(failed[f])) }
+                guard verb == "retry", failed[f]["state"] == "failed" else { return err(409, ["error": "it can't be tried again"]) }
+                failed[f]["state"] = "approved"
+                failed[f]["decided"] = .string(DelegateTime.rfc3339(Date()))
+                return ok(["request": .object(failed[f])])
+            }
             guard let i = requests.firstIndex(where: { $0["id"]?.stringValue == id }) else { return err(404, ["error": "no such request"]) }
             if req.method == "GET" { return ok(.object(requests[i])) }
             guard requests[i]["state"] == "pending" else { return err(409, ["error": "no longer pending"]) }
             if verb == "deny" {
                 requests[i]["state"] = "denied"
             } else if verb == "approve" {
+                // xbind's rule for a text: all of it on screen, or nothing decided (D252, D253)
+                if let refused = Self.textRefusal(requests[i], body) { return err(refused.status, refused.body) }
                 let grant = body["grant"]?.stringValue ?? "once"
                 requests[i]["state"] = "approved"
                 requests[i]["grant"] = .string(grant)
@@ -242,10 +279,28 @@ final class AgentDemo {
         }
     }
 
+    /// What xbind answers an approve of a text that doesn't say all of it was
+    /// on screen: knows "seen-text" without a length is 400; another length
+    /// than the text's is 409 {changed: "text", reload}; a message without
+    /// the word from a device is 409 (decided on the web). nil: decided.
+    private static func textRefusal(_ r: [String: JSONValue], _ body: JSONValue) -> (status: Int, body: JSONValue)? {
+        let text = r["kind"] == "message" ? r["preview"]?["message"]?["text"]?.stringValue ?? "" : r["preview"]?["session"]?["prompt"]?.stringValue ?? ""
+        guard !text.isEmpty else { return nil }
+        let says = body["knows"]?.arrayValue?.contains("seen-text") == true
+        let len = body["seen"]?["textLen"]?.intValue
+        if says, len == nil { return (400, ["error": "an approval that knows \"seen-text\" says how much of the text was on screen"]) }
+        if !says, r["kind"] == "message" { return (409, ["error": "this app can't show a message to a tile agent: decide this one on the web — nothing was decided"]) }
+        if let len, len != Int64(text.utf8.count) {
+            return (409, ["error": .string("not all of the text this would send was on screen (\(len) of its \(text.utf8.count) bytes): show all of it, then allow — nothing was decided"),
+                          "changed": "text", "reload": true])
+        }
+        return nil
+    }
+
     /// The state with its counts as they are now.
     private var stateNow: JSONValue {
         var s = state
-        if name == "grants" || name == "net" || name.hasPrefix("plan") {
+        if name == "grants" || name == "net" || name == "followups" || name.hasPrefix("plan") {
             s["pendingRequests"] = .int(Int64(requests.filter { $0["state"] == "pending" }.count))
             s["openChangeSets"] = .int(Int64(changesets.filter { $0["state"] == "proposed" }.count))
             s["standingApprovals"] = .int(Int64(approvals.count))

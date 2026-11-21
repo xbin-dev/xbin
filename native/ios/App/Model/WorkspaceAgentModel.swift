@@ -30,6 +30,12 @@ enum AgentReview: Hashable, Identifiable {
     }
 }
 
+extension AgentNeed {
+    /// The sheet its row opens: a change set's review, else a request's —
+    /// a start tried again is its request's sheet too (D253).
+    var review: AgentReview { kind == .changeset ? .changeset(id) : .request(id) }
+}
+
 /// One of the chrome's own panels.
 enum AgentPanel: String, Identifiable {
     case approvals, activity, prefs, setup
@@ -54,6 +60,10 @@ final class WorkspaceAgentModel {
     private(set) var llmHosted = false
     /// Pending requests, oldest first.
     private(set) var requests: [DelegateRequest] = []
+    /// Starts that were approved and didn't open, which their person may try
+    /// again (`GET /delegate/requests?failed=1`; D250 review L3, the app's
+    /// since D253).
+    private(set) var failed: [DelegateRequest] = []
     private(set) var changesets: [AdminChangeSet] = []
     private(set) var approvals: [StandingApproval] = []
     /// Requests and change sets the conversation's cards show, by id, as
@@ -67,6 +77,11 @@ final class WorkspaceAgentModel {
     /// The sealed component whose native view is the agent's conversation.
     private(set) var holder: TileInfo?
     private(set) var providerNames: [String: String] = [:]
+    /// The person's own names for their saved sign-ins, by id — what a
+    /// follow-up's chips name a sign-in its session carries by (read once a
+    /// sheet or a row needs one).
+    private(set) var signInNames: [String: String] = [:]
+    @ObservationIgnored private var signInNamesRead = false
 
     /// A read was answered `403 {refusal: "no-agent"}` (docs/protocol/
     /// delegation.md §The switches): until the state is read again — a
@@ -98,7 +113,7 @@ final class WorkspaceAgentModel {
     /// proposals, and the tile agents it started that wait for them.
     var count: Int { needs.count + waitingSessions.count }
 
-    var needs: [AgentNeed] { AgentNeed.rows(requests: requests, changesets: changesets) }
+    var needs: [AgentNeed] { AgentNeed.rows(requests: requests, changesets: changesets, failed: failed) }
 
     /// Tile agents the agent started that wait for the person.
     var waitingSessions: [TermDirectoryEntry] { (workspace?.sessions ?? []).filter { $0.startedByAgent && $0.needsYou } }
@@ -127,6 +142,17 @@ final class WorkspaceAgentModel {
 
     func harnessName(_ id: String) -> String { providerNames[id] ?? "" }
 
+    /// A saved sign-in's name from the person's own list ("" unknown, or none).
+    func signInName(_ id: String) -> String { id.isEmpty ? "" : signInNames[id] ?? "" }
+
+    /// Reads the person's saved sign-ins' names once (again after a refresh)
+    /// when `ids` names one not known yet.
+    func readSignInNames(for ids: [String]) async {
+        guard ids.contains(where: { !$0.isEmpty && signInNames[$0] == nil }), !signInNamesRead else { return }
+        signInNamesRead = true
+        if let j = await get(DelegateRoute.signins) { signInNames = DelegateRoute.savedSignInNames(j) }
+    }
+
     // MARK: Reading
 
     /// Reads everything again (a first load, a reconnect, "Check again").
@@ -139,11 +165,12 @@ final class WorkspaceAgentModel {
     }
 
     private func readAll() async {
+        signInNamesRead = false
         await readState()
         // No agent for this person (or none on this xbind): nothing is shown,
         // and nothing more is read — not its component, not its lists.
         guard state != nil, dock != .hidden else {
-            requests = []; changesets = []; approvals = []; holder = nil
+            requests = []; failed = []; changesets = []; approvals = []; holder = nil
             known = [:]; knownSets = [:]; sessionRows = [:]
             return
         }
@@ -175,9 +202,10 @@ final class WorkspaceAgentModel {
     }
 
     private func readRequests() async {
-        guard let j = await get(DelegateRoute.requests) else { return }
-        requests = DelegateRequest.list(j)
-        for r in requests { known[r.id] = r }
+        // the starts that failed and may be tried again come with them (an xbind before D250 ignores the query)
+        guard let j = await get(DelegateRoute.requestsAndFailed) else { return }
+        (requests, failed) = DelegateRequest.split(j)
+        for r in requests + failed { known[r.id] = r }
         // a card of a request that no longer waits shows what came of it
         for id in known.keys where known[id]?.isPending == true && !requests.contains(where: { $0.id == id }) {
             _ = await request(id)
@@ -294,6 +322,24 @@ final class WorkspaceAgentModel {
         return out
     }
 
+    /// Approves `id` with a sheet's or a row's own body — a start's pick, a
+    /// continue, a message, each with how much of its text was on screen
+    /// (``StartWords/sheetBody``; D253). An older xbind that doesn't know a
+    /// field of it is asked once more in the shape it takes.
+    func approve(id: String, body: JSONValue) async -> DelegateOutcome {
+        let out = await decideBody(body) { DelegateRoute.approve(id, $0) }
+        await afterDecision(id, standing: false)
+        return out
+    }
+
+    /// Try again: a start that failed for a reason not its agent's is a
+    /// ticket again, with the picks the sheet shows (`POST …/retry`).
+    func retry(id: String, body: JSONValue) async -> DelegateOutcome {
+        let out = await decideBody(body) { DelegateRoute.retry(id, $0) }
+        await afterDecision(id, standing: false)
+        return out
+    }
+
     func deny(_ r: DelegateRequest) async -> DelegateOutcome {
         let out = await decide(DelegateRoute.deny(r.id))
         await afterDecision(r.id, standing: false)
@@ -372,7 +418,7 @@ final class WorkspaceAgentModel {
         if case .done(let j) = out, let s = DelegateState(json: j) { state = s } else { await readState() }
         switch out {
         case .done: return nil
-        case .failed(let why), .gone(let why), .stopped(_, let why): return why
+        case .failed(let why), .gone(let why), .stopped(_, let why), .changed(_, let why): return why
         case .stepUp, .unseen: return "That couldn't be saved."
         }
     }
@@ -455,6 +501,19 @@ final class WorkspaceAgentModel {
         let d = dock
         let has = (d == .page || d == .paused || d == .offline) && state?.agent.isEmpty == false && state?.held.isEmpty != false
         return (has, state?.paused ?? false, count, tileAgents.filter(\.isAgentBusy).count)
+    }
+
+    /// `make(body)` sent; an older xbind's 400 for a field it doesn't know
+    /// (``StartWords/olderXbindBody(_:refused:)``) sends it once more without.
+    private func decideBody(_ body: JSONValue, _ make: (JSONValue) -> APIRequest) async -> DelegateOutcome {
+        do {
+            let r = try await send(make(body))
+            if let older = StartWords.olderXbindBody(body, refused: r) { return DelegateOutcome.read(try await send(make(older))) }
+            return DelegateOutcome.read(r)
+        } catch {
+            unreachable = true
+            return .failed("xbin can't be reached")
+        }
     }
 
     private func decide(_ req: APIRequest, sentPassword: Bool = false) async -> DelegateOutcome {

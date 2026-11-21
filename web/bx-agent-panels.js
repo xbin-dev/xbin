@@ -41,7 +41,7 @@ import { WidenGuard, shown, hiddenLine, signinName } from '/vendor/bx-agent-appr
 import { uncovered } from '/vendor/agent-armed.js';
 import '/vendor/bx-agent-permits.js';
 import { standingRow, STANDING_NOTE, didByDay, DID_FILTERS, DID_NOTE, clock, stateWords, setupSteps, SETUP_INTRO, dockState, sessionModes, notOffered, MODE_DEFAULT, netPrefs, CHOICES } from '/vendor/agent-chrome-words.js';
-import { batch, batchTitle, rowText, withSeenText } from '/vendor/agent-start-words.js';
+import { batch, batchTitle, rowText, withSeenText, SHEET } from '/vendor/agent-start-words.js';
 
 // an element that draws the store: it subscribes while it is in the page
 class StoreView extends LitElement {
@@ -157,7 +157,7 @@ export class BxAgentNeeds extends StoreView {
     const state = this._sendable(r);
     return html`${hiddenLine(r.inline.text)}<pre class="body row small" data-inline-text data-whole=${t.whole ? 'yes' : 'no'} data-fits=${state === 'send' ? 'yes' : 'no'} tabindex="-1"
         @scroll=${(e) => { const was = this._end.has(r.id); this._atEnd(e.currentTarget, r.id); if (!was && this._end.has(r.id)) this.requestUpdate(); }}>${shown(t.lead)}${t.whole ? '' : '…'}</pre>
-      ${t.whole && t.opening ? html`<div class="small muted opening" data-inline-opening>It opens with: ${shown(t.opening)}</div>` : nothing}
+      ${t.whole && t.opening ? html`<div class="small muted opening" data-inline-opening>${SHEET.opensWith}${shown(t.opening)}</div>` : nothing}
       ${t.note ? html`<span class="small muted" data-inline-note>${t.note}</span>` : nothing}
       ${state === 'scroll' ? html`<span class="small muted" data-inline-scroll>Scroll to the end of the text to send it</span>` : nothing}`;
   }

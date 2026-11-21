@@ -174,6 +174,8 @@ public enum StartWords {
         public static let agentRow = "Tile agent"
         public static let messageRow = "Message"
         public static let details = "Details"
+        /// A row's: xbin's own brief's opening paragraph, after the goal (``rowText``).
+        public static let opensWith = "It opens with: "
     }
 
     /// The approve's word that `seen.textLen` says how much of the text was

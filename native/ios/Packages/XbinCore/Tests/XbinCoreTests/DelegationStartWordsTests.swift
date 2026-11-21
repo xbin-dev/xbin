@@ -175,6 +175,7 @@ import Testing
         typealias X = StartWords.Sheet
         #expect(X.unread == s(w, "unread") && X.reachEnd == s(w, "reachEnd") && X.sent == s(w, "sent") && X.sentOnce == s(w, "sentOnce"))
         #expect(X.whereItGoes == s(w, "whereItGoes") && X.agentRow == s(w, "agentRow") && X.messageRow == s(w, "messageRow") && X.details == s(w, "details"))
+        #expect(X.opensWith == s(w, "opensWith"))
         #expect(StartWords.from == (w["from"]?.objectValue ?? [:]).mapValues { $0.stringValue ?? "" })
         #expect(DelegationWords.modeFact == s(w, "modeFact") && DelegationWords.failedHead == s(w, "failedHead") && DelegationWords.tryAgain == s(w, "tryAgain"))
         #expect(StartWords.seenText == s(w, "seenText"))

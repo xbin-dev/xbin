@@ -608,3 +608,17 @@ handed to a session that doesn't ask — one message approval; a brief
 edited by the person before approving — one round.
 
 The browser: `hack/ui-harness/passes/approvalsux.js` (approvalsUx).
+
+## The app (D253)
+
+The xbin app decides all of the above as the web does: the pickers (menus
+of the same options, each with where it came from), Remember, continuing
+first with "Start a new session instead", a message shown whole and sent,
+Send from a Needs you row (the web's `inPlace`, and at most 6 lines and
+400 characters: a phone's row shows it whole), Try again with the earlier
+picks. Its words and rules are `web/agent-start-words.js`'s, ported to
+XbinCore (`StartWords`) and held by vectors; the approve's body is the
+same `sheetBody`. Stricter in the app: a message's Send waits until its
+end has been in view. xbind's device rule for a message keys on `knows:
+["seen-text"]` (an app before this one is refused as before). The UI
+tests: `XbinWorkspaceAgentFollowupsTests` (demo `followups`).

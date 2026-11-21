@@ -435,6 +435,7 @@ export const SHEET = Object.freeze({
   agentRow: 'Tile agent',
   messageRow: 'Message',
   details: 'Details',
+  opensWith: 'It opens with: ', // (a row: xbin's own brief's opening paragraph, after the goal — rowText)
 });
 
 /**

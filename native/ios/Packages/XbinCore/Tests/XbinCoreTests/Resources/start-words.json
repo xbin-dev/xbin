@@ -7928,6 +7928,7 @@
   "agentRow": "Tile agent",
   "messageRow": "Message",
   "details": "Details",
+  "opensWith": "It opens with: ",
   "from": {
    "tile": "remembered for this tile",
    "preference": "your preference",

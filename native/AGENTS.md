@@ -1150,6 +1150,14 @@ conversations use hack/fakeopenai's phrases ("Set the note in <tile> to
 ID, VoiceOver's own speech (the tests read labels, traits and order), and
 an open iPhone Duo (Book, Open: no test can set the pose, see "The iPhone
 Duo" below) — a closed one runs every test with `XBIN_DUO=1`.
+`XbinWorkspaceAgentFollowupsTests` (D253, demo `followups`: the
+start-words corpus): a start's pickers (where each value came from, a pick
+of the person's own, another coding agent's defaults and sign-in line, a
+bypass mode warned), a follow-up continuing the agent's session or a new one,
+messages short, long (Send once its end was in view) and clipped (Show all
+first) — the demo holds Send to all of the text as xbind does —, Send from a
+Needs you row, Try again; `test05Gallery` shoots each, light and dark
+(`followups-<light|dark>-NN-<what>.png`).
 `XbinAgentReviewTests` (D210) make apps/welcome a git repo (snapshot
 diffs need one), have the fake agent's `run:` write 31 files and 12 000
 lines, and review the turn on the Agent screen: the card folded, its first
@@ -1381,7 +1389,13 @@ plans/wsagent/ux.md):
   `homeStatus`), and what `pageMessage()` makes of a corpus of messages
   (ids, sessions, drafts), which `AgentBridge.decide` must match — so a
   test of the port never writes its own expectations. The design's open choices are
-  `AgentChoices`, one place.
+  `AgentChoices`, one place. **`DelegationStartWords.swift`** (`StartWords`,
+  D253) is the port of `web/agent-start-words.js` — a start's pickers and
+  pick, a continue, a message, the whole-text rule, what an Allow sends
+  (`sheetBody`), the rows that wait and Send on a row (`appInPlace`) — held
+  to it by `start-words.json` (`node native/tools/delegation-words.mjs
+  --start-words > …/Resources/start-words.json`): each start of the corpus
+  played step by step through the pickers, as the web's sheet plays it.
 - **`App/Model/WorkspaceAgentModel.swift`** (`workspace.agent`) — the state,
   the requests and change sets that wait, the standing approvals; read with
   the device's session, refreshed by the `delegate` events. Every grant
@@ -1450,7 +1464,7 @@ plans/wsagent/ux.md):
   delay (never shortens it); `-XbinAgentDemo <state>` answers the chrome's
   own reads from canned xbind JSON with no network (`App/Model/
   AgentDemo.swift`; states: setup, setup-who, off, nomodel, locked, older,
-  held, none, paused, grants, offline) for what a test xbind can't be put
+  held, none, paused, grants, offline, followups) for what a test xbind can't be put
   in — the data is the delegation words' corpus, generated (`node
   native/tools/delegation-words.mjs --demo-swift >
   native/ios/App/Model/AgentDemoData.swift`; `make js-test` fails while it

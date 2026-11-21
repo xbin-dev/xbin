@@ -199,7 +199,7 @@ final class SceneModel: Identifiable {
             case .first:
                 await w.agent.refresh()
                 if let n = w.agent.needs.first {
-                    await presentAfterOpening(n.kind == .request ? .request(n.id) : .changeset(n.id))
+                    await presentAfterOpening(n.review)
                 } else if let s = w.agent.waitingSessions.first {
                     showAgent = false
                     w.open(.agent(cwd: s.cwd, session: s.id), in: nav(for: w))

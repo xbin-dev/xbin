@@ -14,6 +14,15 @@ struct InboxView: View {
     @Environment(\.openWindow) private var openWindow
     @Environment(\.supportsMultipleWindows) private var multipleWindows
     @Environment(\.dynamicTypeSize) private var typeSize
+    @Environment(\.scenePhase) private var phase
+    /// A follow-up row's Send and Deny answer as Allow does (D251 review
+    /// L1): not before the moment after the list shows, and again whenever
+    /// its rows or their order change — a row going moves another under the
+    /// finger — or the app comes back to the front.
+    @State private var rowArming = AgentArming()
+
+    /// The rows that wait, in order: what a change of re-arms the rows' Send.
+    private var order: [String] { app.workspaces.flatMap { w in w.agent.needs.map { "\(w.id)/\($0.kind.rawValue):\($0.id)" } } }
 
     var body: some View {
         NavigationStack {
@@ -26,28 +35,44 @@ struct InboxView: View {
                             // What the person's workspace agent asked (D233):
                             // approvals and proposed admin changes, oldest
                             // first, above the sessions. Review… opens the
-                            // app's own sheet — never an Allow from a list.
+                            // app's own sheet. A follow-up whose text the row
+                            // shows whole may be sent from the row (D253):
+                            // its text, Review…, Deny and Send — armed like
+                            // Allow; at an accessibility text size the row
+                            // is Review… alone.
                             ForEach(asked) { n in
-                                Button {
-                                    scene.select(w.id)
-                                    scene.review(n.kind == .request ? .request(n.id) : .changeset(n.id), afterInbox: true)
-                                } label: {
-                                    // (at accessibility sizes Review… goes under the words: neither is squeezed)
-                                    let row = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 6))
-                                                                           : AnyLayout(HStackLayout(spacing: 8))
-                                    row {
-                                        VStack(alignment: .leading, spacing: 2) {
-                                            Text(verbatim: n.title).foregroundStyle(XbinColor.text).multilineTextAlignment(.leading)
-                                            if !n.note.isEmpty {
-                                                Text(verbatim: n.note).font(.caption.monospacedDigit()).foregroundStyle(XbinColor.muted)
-                                                    .multilineTextAlignment(.leading)
-                                            }
-                                        }
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                        Text("Review…").font(.callout.weight(.semibold)).foregroundStyle(XbinColor.accentText)
+                                if let inline = n.inline, !typeSize.isAccessibilitySize {
+                                    AgentInlineRow(workspace: w, need: n, inline: inline, armed: rowArming.armed) {
+                                        scene.select(w.id)
+                                        scene.review(n.review, afterInbox: true)
                                     }
+                                } else {
+                                    Button {
+                                        scene.select(w.id)
+                                        scene.review(n.review, afterInbox: true)
+                                    } label: {
+                                        // (at accessibility sizes Review… goes under the words: neither is squeezed)
+                                        let row = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 6))
+                                                                               : AnyLayout(HStackLayout(spacing: 8))
+                                        row {
+                                            VStack(alignment: .leading, spacing: 2) {
+                                                Text(verbatim: n.title).foregroundStyle(XbinColor.text).multilineTextAlignment(.leading)
+                                                if n.kind == .retry {
+                                                    // (a start that didn't open, D253: each fact an element of its own)
+                                                    ForEach(Array(n.parts.enumerated()), id: \.offset) { _, p in
+                                                        Text(verbatim: p).font(.caption).foregroundStyle(XbinColor.muted).multilineTextAlignment(.leading)
+                                                    }
+                                                } else if !n.note.isEmpty {
+                                                    Text(verbatim: n.note).font(.caption.monospacedDigit()).foregroundStyle(XbinColor.muted)
+                                                        .multilineTextAlignment(.leading)
+                                                }
+                                            }
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                            Text(verbatim: n.kind == .retry ? DelegationWords.tryAgain : "Review…").font(.callout.weight(.semibold)).foregroundStyle(XbinColor.accentText)
+                                        }
+                                    }
+                                    .accessibilityIdentifier("inbox-\(n.kind.rawValue):\(n.id)")
                                 }
-                                .accessibilityIdentifier("inbox-\(n.kind.rawValue):\(n.id)")
                             }
                             ForEach(waiting) { s in
                                 Button {
@@ -84,7 +109,116 @@ struct InboxView: View {
             .concreteBackground()
             .navigationTitle("Needs you")
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
-            .task { for w in app.workspaces { await w.refreshSessions() } }
+            .task {
+                for w in app.workspaces {
+                    await w.refreshSessions()
+                    // which saved sign-in a follow-up's session carries, by the person's own name for it
+                    await w.agent.readSignInNames(for: w.agent.needs.map(\.signInId))
+                }
+            }
+            .onAppear { rowArming.arm(settle: 0.4) }
+            .onChange(of: order) { _, _ in rowArming.arm() }
+            .onChange(of: phase) { _, p in if p == .active { rowArming.arm() } else { rowArming.disarm() } }
+        }
+    }
+}
+
+/// A follow-up allowed on its Needs you row (D251 B2, the app's since
+/// D253): what it is, the session's facts as chips, ALL of its text — the
+/// row is offered only where it fits whole (StartWords.appInPlace) — when it
+/// was asked and expires, and Review…, Deny and Send. Send sends what the
+/// sheet would, with the whole text's length (xbind allows only all of it);
+/// what the row showed changed since: its sheet shows it as it is now.
+struct AgentInlineRow: View {
+    let workspace: WorkspaceModel
+    let need: AgentNeed
+    let inline: InPlace
+    let armed: Bool
+    let review: () -> Void
+    @State private var working = false
+    @State private var problem = ""
+
+    var body: some View {
+        let agent = workspace.agent
+        VStack(alignment: .leading, spacing: 6) {
+            Text(verbatim: need.title).font(.body.weight(.semibold)).foregroundStyle(XbinColor.text)
+                .accessibilityIdentifier("inbox-title:\(need.id)")
+            AgentChips(chips: inline.chips, signInName: agent.signInName(need.signInId))
+            // all of it, the goal first: xbin's own brief's standing opening paragraph after it (the web's row, rowText)
+            let t = StartWords.rowText(inline.text, all: true, byXbin: inline.byXbin)
+            Text(verbatim: t.lead).font(XbinFont.code).textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(8).frame(maxWidth: .infinity, alignment: .leading)
+                .background(XbinColor.surface2, in: .xbinPlate)
+                .accessibilityLabel(Text(verbatim: "\(StartWords.Sheet.messageRow): \(t.lead)"))
+                .accessibilityIdentifier("inbox-text:\(need.id)")
+            if !t.opening.isEmpty {
+                Text(verbatim: StartWords.Sheet.opensWith + t.opening).font(.caption).foregroundStyle(XbinColor.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("inbox-opening:\(need.id)")
+            }
+            HStack(spacing: 12) {
+                ForEach(Array(need.parts.enumerated()), id: \.offset) { _, p in
+                    Text(verbatim: p).font(.caption.monospacedDigit()).foregroundStyle(XbinColor.muted)
+                }
+            }
+            if !problem.isEmpty {
+                Label { Text(verbatim: problem) } icon: { Image(systemName: "exclamationmark.octagon") }
+                    .font(.callout).foregroundStyle(XbinColor.danger)
+            }
+            HStack(spacing: 8) {
+                Button("Review…", action: review)
+                    .buttonStyle(.borderless)
+                    .frame(minHeight: 44)
+                    .accessibilityIdentifier("inbox-review:\(need.id)")
+                Spacer(minLength: 4)
+                Button { deny() } label: { Text("Deny").frame(minWidth: 64, minHeight: 36) }
+                    .xbinSecondary() // (a styled button: its own target in a list row)
+                    .disabled(!armed || working)
+                    .accessibilityHint(armed ? Text(verbatim: "") : Text("Available in a moment"))
+                    .accessibilityIdentifier("inbox-deny:\(need.id)")
+                Button { send() } label: { Text("Send").frame(minWidth: 64, minHeight: 36) }
+                    .xbinPrimary()
+                    .disabled(!armed || working)
+                    .accessibilityLabel(Text(verbatim: "Send: \(need.title)"))
+                    .accessibilityHint(armed ? Text(verbatim: "") : Text("Available in a moment"))
+                    .accessibilityIdentifier("inbox-send:\(need.id)")
+            }
+        }
+        .padding(.vertical, 4)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("inbox-inline:\(need.id)")
+    }
+
+    private func send() {
+        guard armed, !working else { return }
+        working = true
+        problem = ""
+        // all of the text is on the row (it is offered only where it fits whole): its whole length (D252)
+        let body = JSONValue.object(StartWords.withSeenText(inline.body.objectValue ?? [:], onScreen: inline.text))
+        Task {
+            let out = await workspace.agent.approve(id: need.id, body: body)
+            working = false
+            switch out {
+            case .done: Haptics.settle()
+            case .gone: break // decided elsewhere, withdrawn or expired: the list reads it so
+            case .changed: review() // what the row showed changed since: the sheet shows it as it is now
+            case .stopped(_, let why), .failed(let why): problem = why
+            case .stepUp(let why, _): problem = why
+            case .unseen: review()
+            }
+        }
+    }
+
+    private func deny() {
+        guard armed, !working else { return }
+        working = true
+        problem = ""
+        Task {
+            guard let r = workspace.agent.requests.first(where: { $0.id == need.id }) else { working = false; return }
+            let out = await workspace.agent.deny(r)
+            working = false
+            if case .failed(let why) = out { problem = why }
         }
     }
 }
