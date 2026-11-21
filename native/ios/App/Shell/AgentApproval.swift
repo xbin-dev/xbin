@@ -474,7 +474,7 @@ struct AgentApprovalSheet: View {
             }
         }
         if r.isPending, r.kind == .unknown { // a kind this app can't show (a message to a tile agent, D250): decided on the web
-            Label { Text(verbatim: DelegationWords.unknownKind) } icon: { Image(systemName: "info.square") }
+            Label { Text(verbatim: DelegationWords.unknownKindOnWeb) } icon: { Image(systemName: "info.square") }
                 .font(.callout.weight(.semibold))
                 .accessibilityIdentifier("approval-unknown-kind")
         }
