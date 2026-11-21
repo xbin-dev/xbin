@@ -165,3 +165,56 @@ func TestPtyInputOlderGuestAndEnd(t *testing.T) {
 		t.Fatalf("the guest's log %q", l)
 	}
 }
+
+// Resizes go to the guest in the order the terminal took them: a sync
+// that read the size (the SIGWINCH handler) and was held up before it sent
+// it can't send that size after a newer one another sync sent meanwhile
+// (the input's, for the keys after the newer size) — the guest would be
+// left at the stale size with the keys.
+func TestPtyInputResizesInOrder(t *testing.T) {
+	var mu sync.Mutex
+	cur := unix.Winsize{Row: 40, Col: 100}
+	inSize, release := make(chan struct{}), make(chan struct{})
+	first := true
+	var sent []proto.Msg
+	p := &ptyInput{
+		size: func() (unix.Winsize, bool) {
+			mu.Lock()
+			ws, hold := cur, first
+			first = false
+			mu.Unlock()
+			if hold { // the handler read 40x100, and is held up here
+				close(inSize)
+				<-release
+			}
+			return ws, true
+		},
+		send: func(m proto.Msg) error {
+			mu.Lock()
+			sent = append(sent, m)
+			mu.Unlock()
+			return nil
+		},
+		resizes: &proto.Resizes{}, end: make(chan struct{}), last: unix.Winsize{Row: 10, Col: 20},
+	}
+	handler := make(chan struct{})
+	go func() { p.sync(); close(handler) }()
+	<-inSize
+	mu.Lock()
+	cur = unix.Winsize{Row: 50, Col: 120} // xbind resizes again, and types
+	mu.Unlock()
+	input := make(chan struct{})
+	go func() { p.sync(); close(input) }()
+	if p.mu.TryLock() { // the handler doesn't hold the lock while it reads: the input's sync runs through
+		p.mu.Unlock()
+		<-input
+	}
+	close(release)
+	<-handler
+	<-input
+	mu.Lock()
+	defer mu.Unlock()
+	if len(sent) == 0 || sent[len(sent)-1].Rows != 50 || sent[len(sent)-1].Cols != 120 {
+		t.Fatalf("sent %+v: the guest is left at a stale size, want 50x120 last", sent)
+	}
+}

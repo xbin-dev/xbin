@@ -14,7 +14,8 @@ import (
 )
 
 // ptyInputWait bounds how long a read of the terminal's input waits for the
-// guest to answer a resize before it goes on anyway (logged).
+// guest to answer a resize before it goes on anyway (logged); the shim
+// stretches it for an emulated VM (shim.slow).
 const ptyInputWait = 10 * time.Second
 
 // ptyInput carries a terminal session's input (the host PTY, the shim's
@@ -35,6 +36,7 @@ type ptyInput struct {
 	send    func(proto.Msg) error       // one control line to the guest
 	resizes *proto.Resizes
 	end     <-chan struct{} // closed when the session is over: nothing waits past it
+	wait    time.Duration   // how long a read waits for an answer (0: ptyInputWait)
 	logf    func(string, ...any)
 
 	mu   sync.Mutex // one resize decision and send at a time, in size order
@@ -42,13 +44,15 @@ type ptyInput struct {
 }
 
 // sync sends the host PTY's size when it differs from the one last sent.
+// The size is read under the lock: a sync held up between its read and its
+// send would otherwise send an older size after a newer one.
 func (p *ptyInput) sync() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	ws, ok := p.size()
 	if !ok {
 		return
 	}
-	p.mu.Lock()
-	defer p.mu.Unlock()
 	if ws.Row == p.last.Row && ws.Col == p.last.Col {
 		return
 	}
@@ -67,8 +71,12 @@ func (p *ptyInput) copy(dst io.Writer, src io.Reader) {
 		n, err := src.Read(buf)
 		if n > 0 {
 			p.sync()
-			if expired, _ := p.resizes.Await(context.Background(), p.end, ptyInputWait); expired && p.logf != nil {
-				p.logf("the guest didn't answer a resize within %s; the input goes on", ptyInputWait)
+			wait := p.wait
+			if wait <= 0 {
+				wait = ptyInputWait
+			}
+			if expired, _ := p.resizes.Await(context.Background(), p.end, wait); expired && p.logf != nil {
+				p.logf("the guest didn't answer a resize within %s; the input goes on", wait)
 			}
 			if _, werr := dst.Write(buf[:n]); werr != nil {
 				return

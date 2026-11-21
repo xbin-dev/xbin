@@ -191,7 +191,7 @@ func (s *shim) session() int {
 			}
 			return *ws, true
 		},
-		send: s.sendCtl, resizes: resizes, end: ended, last: unix.Winsize{Row: ex.Rows, Col: ex.Cols},
+		send: s.sendCtl, resizes: resizes, end: ended, wait: s.slow(ptyInputWait), last: unix.Winsize{Row: ex.Rows, Col: ex.Cols},
 		logf: func(format string, args ...any) {
 			if s.hs.Debug {
 				fmt.Fprintf(os.Stderr, "[vm] "+format+"\r\n", args...)
