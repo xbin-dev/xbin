@@ -474,19 +474,21 @@ func approvalText(req delegation.Request) string {
 // seenTextRefusal is why an approval of req can't be decided for what its
 // client said of the text (""): with knows "seen-text", it must say how much
 // of a text there is was on screen (400); and from any client that says, it
-// must have been all of it (409, seenChanged "text": nothing decided). The
-// app (device) shows no message to a tile agent — none up to v0.3.84 knew
-// the kind, and offered Allow on a sheet without its text — so an app's
-// Allow of one that says nothing of the text is refused (409): decided on
-// the web (D252).
+// must have been all of it (409, seenChanged "text": nothing decided). An
+// app (device) up to v0.3.84 shows no message to a tile agent — it didn't
+// know the kind, and offered Allow on a sheet without its text — so an
+// app's Allow of one without the word is refused (409): decided on the web
+// (D252). An app that shows the message says so with the word, and is held
+// to the whole length like any client (D253).
 func seenTextRefusal(req delegation.Request, seen *seenBasis, knows []string, device bool) (int, string) {
 	text := approvalText(req)
+	says := slices.Contains(knows, knowsSeenText)
 	switch {
 	case text == "":
 		return 0, ""
-	case slices.Contains(knows, knowsSeenText) && (seen == nil || seen.TextLen == nil):
+	case says && (seen == nil || seen.TextLen == nil):
 		return http.StatusBadRequest, `an approval that knows "seen-text" says how much of the text was on screen when its person allowed it: seen {textLen}`
-	case device && req.Kind == delegation.KindMessage && (seen == nil || seen.TextLen == nil):
+	case device && req.Kind == delegation.KindMessage && !says:
 		return http.StatusConflict, "this app can't show a message to a tile agent: decide this one on the web — nothing was decided"
 	}
 	return http.StatusConflict, textSeenRefusal(seen, text)

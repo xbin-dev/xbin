@@ -1228,7 +1228,8 @@ POST   /delegate/requests/<id>/deny
                                  the person. {via?: "notification"} →
                                  {request}
 POST   /delegate/requests/<id>/retry
-                                 the person, in their own session.
+                                 the person, in their own session, app or
+                                 device.
                                  {harness?, model?, mode?, signin?: true,
                                  trust?: true, seen?} — the sheet again,
                                  its earlier picks preselected; validated
@@ -1300,9 +1301,12 @@ nothing decided (D251 review H1, D252). That is all xbind can hold a
 client to: a client that sends the whole length of a text it didn't show
 is believed — the rule that it shows a text before it offers Allow is
 the client's own (the web's and the app's: Show all). An approve without
-the word or the length (an older client) isn't held to it — except the
-app's (a device session) Allow of a message, which no app shows: 409
-"decide this one on the web", nothing decided. The text a
+the word or the length (an older client) isn't held to it — except a
+device session's (an app's) Allow of a message without the word: the
+app up to v0.3.84 showed no message, so that is 409 "decide this one on
+the web", nothing decided, a length without the word too. An app that
+shows a message (D253) says `seen-text` and the whole length, and is
+allowed as the web is. The text a
 card shows is xbind's — `preview.session.prompt`, `preview.message.text`
 — never a client's own reading of the body (D252). A pending request expires after 24
 hours; decided and withdrawn ones are kept a day, 200 a person at most.

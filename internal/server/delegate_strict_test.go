@@ -269,13 +269,67 @@ func TestTheAppDecidesNoMessageItCantShow(t *testing.T) {
 	}
 	briefTurnOver(t, w, a.ID)
 	m := w.ask(alice, "POST", "/api/xbin/term/sessions/"+a.ID+"/prompt", `{"text":"Now add a computer player."}`)
-	if rec := w.do(w.full, "POST", "/api/xbin/delegate/requests/"+m.ID+"/approve", `{"grant":"once"}`, app); rec.Code != 409 || !strings.Contains(rec.Body.String(), "decide this one on the web") {
-		t.Fatalf("the app's Allow of a message: %d %s", rec.Code, rec.Body.String())
+	// an app that doesn't say it shows the text — v0.3.84's, or one that sends a length without the word — decides
+	// nothing: the web's, in the same words
+	for _, body := range []string{`{"grant":"once"}`, `{"grant":"once","seen":{"textLen":26}}`} {
+		if rec := w.do(w.full, "POST", "/api/xbin/delegate/requests/"+m.ID+"/approve", body, app); rec.Code != 409 || !strings.Contains(rec.Body.String(), "decide this one on the web") {
+			t.Fatalf("the app's Allow of a message, %s: %d %s", body, rec.Code, rec.Body.String())
+		}
 	}
 	if got, _ := w.store.Request("alice", m.ID); got.State != delegation.Pending {
 		t.Fatalf("decided from the app: %s", got.State)
 	}
 	if rec := w.do(w.full, "POST", "/api/xbin/delegate/requests/"+m.ID+"/approve", `{"grant":"once","knows":["seen-text"],"seen":{"textLen":26}}`, person); rec.Code != 200 {
 		t.Fatalf("on the web: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+// An app that shows a message to a tile agent (D253) says so — knows
+// "seen-text" — and how much of it was on screen: all of it is allowed, a
+// clipped part is refused as the web's is (409, reload), and the word
+// without a length is 400. Nothing is decided by a refusal. An older app
+// (no word) stays refused, in the same words (TestTheAppDecidesNoMessageItCantShow).
+func TestTheAppDecidesAMessageItShows(t *testing.T) {
+	w := realDelegateWorld(t, "--auto-mode")
+	alice := delegateCred("d-alice")
+	app := bearer(w.s.Auth.NewBearerSession("alice", "dev-1", "127.0.0.1").Token)
+	first := startBody("apps/x", "Goal: a game.", "provider", "fake")
+	s := w.ask(alice, "POST", "/api/xbin/term/sessions", first)
+	if rec := w.do(w.full, "POST", "/api/xbin/delegate/requests/"+s.ID+"/approve", `{"grant":"once"}`, app); rec.Code != 200 {
+		t.Fatalf("the app's Allow of a start: %d %s", rec.Code, rec.Body.String())
+	}
+	var a struct{ ID string }
+	if rec := w.do(w.full, "POST", "/api/xbin/term/sessions", first, alice, header(HeaderTicket, s.ID)); rec.Code != 200 || json.Unmarshal(rec.Body.Bytes(), &a) != nil {
+		t.Fatalf("the start: %d %s", rec.Code, rec.Body.String())
+	}
+	briefTurnOver(t, w, a.ID)
+	text := "Now add a computer player. It plays O — é😀"
+	m := w.ask(alice, "POST", "/api/xbin/term/sessions/"+a.ID+"/prompt", `{"text":`+strconv.Quote(text)+`}`)
+	approve := func(body string) (int, string) {
+		rec := w.do(w.full, "POST", "/api/xbin/delegate/requests/"+m.ID+"/approve", body, app)
+		return rec.Code, rec.Body.String()
+	}
+	for body, want := range map[string]int{
+		`{"grant":"once","knows":["seen-text"]}`:                                                      400, // the word, no length
+		`{"grant":"once","knows":["seen-text"],"seen":{"textLen":26}}`:                                409, // the part a clipped sheet showed
+		`{"grant":"once","knows":["seen-text"],"seen":{"textLen":` + strconv.Itoa(len(text)+1) + `}}`: 409,
+	} {
+		c, b := approve(body)
+		if c != want {
+			t.Errorf("the app's %s: %d %s, want %d", body, c, b, want)
+		}
+		if want == 409 && (!strings.Contains(b, `"changed":"text"`) || !strings.Contains(b, `"reload":true`)) {
+			t.Errorf("the app's %s: %s, want {changed: text, reload: true}", body, b)
+		}
+		if got, _ := w.store.Request("alice", m.ID); got.State != delegation.Pending {
+			t.Fatalf("decided by %s: %s", body, got.State)
+		}
+	}
+	if c, b := approve(`{"grant":"once","knows":["seen-text"],"seen":{"textLen":` + strconv.Itoa(len(text)) + `}}`); c != 200 {
+		t.Fatalf("the app's Allow of all of the message: %d %s", c, b)
+	}
+	got, _ := w.store.Request("alice", m.ID)
+	if got.State != delegation.Approved || got.DecidedVia != "device" {
+		t.Fatalf("the message after the app's Allow: %s via %q", got.State, got.DecidedVia)
 	}
 }
