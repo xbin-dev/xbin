@@ -59,7 +59,7 @@ enum AgentDemoData {
      "tile": "apps/orders",
      "provider": "claude",
      "providerName": "Claude Code",
-     "mode": "bypassPermissions",
+     "mode": "auto",
      "asks": false,
      "net": "internet",
      "api": false,

@@ -69,10 +69,15 @@ async function sheetChecks({ page, S, check, refresh, sentTo, armed, text, shot,
     const clipNote = await text(`${SHEET} [data-row="sends"] [data-note]`);
     check(/first 4000 of 4940 characters — Show all$/.test(clipNote) && !/shown in full/.test(clipNote), `[${width}] a long body: "first 4000 of 4940 characters", not "shown in full" (${clipNote})`);
     await shot(page, `agent-chrome-clipped${tag}`, { fullPage: false });
+    // a text is allowed only once all of it was on screen (D251 review H1): Allow waits for Show all, and says so
+    await page.waitForTimeout(700); // (past the sheet's own arming)
+    check(await page.$eval(`${SHEET} button[data-allow]`, (b) => b.getAttribute('aria-disabled') === 'true') && /Show all of the text to allow it/.test(await text(`${SHEET} [data-unread]`)),
+      `[${width}] a clipped body: Allow waits for Show all`);
     await page.click(`${SHEET} [data-row="sends"] [data-show-all]`);
     await page.waitForFunction(() => /shown in full/.test(document.querySelector('bx-agent-dock').shadowRoot.querySelector('bx-agent-approve').shadowRoot.querySelector('[data-row="sends"] [data-note]').textContent));
     const whole = await page.$eval(`${SHEET} [data-row="sends"] pre`, (p) => p.textContent.length);
     check(whole === long.length, `[${width}] …Show all: the whole of it, and then "shown in full" (${whole})`);
+    check(await page.$eval(`${SHEET} button[data-allow]`, (b) => b.getAttribute('aria-disabled') === 'false'), `[${width}] …and then Allow`);
     await page.keyboard.press('Escape');
     await page.waitForFunction(() => !document.querySelector('bx-agent-dock').shadowRoot.querySelector('bx-agent-approve'));
     S.requests = S.requests.filter((r) => r.id !== 'l2'); await refresh();

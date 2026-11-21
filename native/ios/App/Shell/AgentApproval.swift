@@ -587,6 +587,9 @@ struct AgentApprovalSheet: View {
             ApprovalRow(label: "Mode") {
                 AgentTag(text: s.modeTag).accessibilityIdentifier("approval-mode-chip")
                 Text(verbatim: s.modeText).font(.callout)
+                if !s.resumed.isEmpty { // a bypass mode it ran in last, not taken (D251 review M2)
+                    Text(verbatim: s.resumed).font(.callout).foregroundStyle(XbinColor.danger).accessibilityIdentifier("approval-resumed")
+                }
                 if !s.modeName.isEmpty { Text(verbatim: s.modeName).font(XbinFont.code).foregroundStyle(XbinColor.muted) }
             }
             ApprovalRow(label: "Tile") {
@@ -634,13 +637,23 @@ struct AgentApprovalSheet: View {
     private func buttons(_ r: DelegateRequest) -> some View {
         AgentDecisionBar(deny: "Deny", allow: DelegationWords.allowLabel(r, choice: choice),
                          allowSpoken: DelegationWords.allowSpoken(r, choice: choice),
-                         armed: arming.armed, working: working,
+                         armed: arming.armed && !unread(r), working: working,
                          stopped: DelegationWords.stopLine(stop),
                          onDeny: { deny(r) },
                          onAllow: {
                              // The wider grant is never one tap: its own sheet, Go back first.
                              if r.kind == .call, choice == .tile { wider = true } else { send(r, choice: choice) }
                          })
+    }
+
+    /// A text is allowed only once all of it was on screen (D251 review H1): a
+    /// brief or a body this sheet still clips holds Allow back until Show all.
+    private func unread(_ r: DelegateRequest) -> Bool {
+        switch r.kind {
+        case .session: return DelegationWords.clipText(DelegationWords.sessionRows(r).brief, all: showAllBrief).clipped
+        case .call, .template: return DelegationWords.sends(r, all: showAll).clipped
+        default: return false
+        }
     }
 
     private var doneBar: some View {

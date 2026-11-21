@@ -415,6 +415,10 @@ public enum DelegationWords {
         /// mode on the approval (D250's `choices`): the app approves xbind's
         /// preselection, and says where the pick is. "" where none is offered.
         public var picks: String = ""
+        /// A resume whose last mode was a bypass one resumes in its coding
+        /// agent's work mode (xbind's `resumeModeNotTaken`, D251 review M2):
+        /// said, the web's words. "" otherwise.
+        public var resumed: String = ""
     }
 
     /// What the app says of a start whose coding agent, model and mode the
@@ -489,7 +493,9 @@ public enum DelegationWords {
             signInTrustWhose: whose,
             signInTrust: offer ? "To use your saved \(who) sign-in for this session, allow it on the web: it is a line you tick there"
                 + (whose.isEmpty ? "." : ", with the tile's trust line under it.") + " Allowed here, the session has no saved sign-in." : "",
-            picks: s["choices"]?.objectValue != nil ? picksOnWeb : "")
+            picks: s["choices"]?.objectValue != nil ? picksOnWeb : "",
+            resumed: (s["resumeModeNotTaken"]?.stringValue ?? "").isEmpty ? ""
+                : "It was in \(s["resumeModeNotTaken"]?.stringValue ?? ""), which skips every check; it resumes in \(nonEmpty(s["mode"]?.stringValue) ?? "its own default mode").")
     }
 
     private static func nonEmpty(_ s: String?) -> String? { (s ?? "").isEmpty ? nil : s }
