@@ -525,6 +525,11 @@ public enum DelegationWords {
     public static let unknownState = (title: "A state this app doesn't know",
                                       text: "This app is older than the workspace — open it on the web.")
 
+    /// A pending request of a kind this app can't show — a message to a
+    /// tile agent: nothing of it is drawn here, so it is never allowed here
+    /// (xbind refuses an app's Allow of a message too, D252).
+    public static let unknownKind = "This app can't show this request — decide this one on the web."
+
     // MARK: When nothing can be allowed
 
     /// Why the person can't ALLOW anything for their agent now, from

@@ -1144,7 +1144,12 @@ POST   /delegate/requests       the person's agent only. {method, path,
                                  takes, written exactly so (lower case as
                                  documented), none twice at any depth,
                                  nothing after it — else 400 (403 for a
-                                 new tile's), naming the member. A tile
+                                 new tile's), naming the member; read so
+                                 again when its ticket is used: a request
+                                 filed before (pending across the
+                                 upgrade) that doesn't read so is 403
+                                 {refusal: "ticket", reason: "bound"},
+                                 nothing run — file it again. A tile
                                  API call's body is the tile's to read:
                                  shown and sent byte for byte
 GET    /delegate/requests       the person, or their agent's page.
@@ -1295,7 +1300,9 @@ nothing decided (D251 review H1, D252). That is all xbind can hold a
 client to: a client that sends the whole length of a text it didn't show
 is believed — the rule that it shows a text before it offers Allow is
 the client's own (the web's and the app's: Show all). An approve without
-the word or the length (an older client) isn't held to it. The text a
+the word or the length (an older client) isn't held to it — except the
+app's (a device session) Allow of a message, which no app shows: 409
+"decide this one on the web", nothing decided. The text a
 card shows is xbind's — `preview.session.prompt`, `preview.message.text`
 — never a client's own reading of the body (D252). A pending request expires after 24
 hours; decided and withdrawn ones are kept a day, 200 a person at most.

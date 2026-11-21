@@ -473,6 +473,11 @@ struct AgentApprovalSheet: View {
                     .accessibilityIdentifier("approval-decided-where")
             }
         }
+        if r.isPending, r.kind == .unknown { // a kind this app can't show (a message to a tile agent, D250): decided on the web
+            Label { Text(verbatim: DelegationWords.unknownKind) } icon: { Image(systemName: "info.square") }
+                .font(.callout.weight(.semibold))
+                .accessibilityIdentifier("approval-unknown-kind")
+        }
         if r.preview["readWeb"]?.boolValue == true { AgentReadWebBanner() }
         switch r.kind {
         case .session: sessionRows(r)
@@ -652,6 +657,7 @@ struct AgentApprovalSheet: View {
         switch r.kind {
         case .session: return DelegationWords.clipText(DelegationWords.sessionRows(r).brief, all: showAllBrief).clipped
         case .call, .template: return DelegationWords.sends(r, all: showAll).clipped
+        case .unknown: return true // nothing of it is shown here: never allowed here (D252)
         default: return false
         }
     }

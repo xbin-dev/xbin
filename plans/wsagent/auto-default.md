@@ -264,8 +264,10 @@ What the work-mode default changed elsewhere, fixed in this batch:
   the session another (probed at v0.3.80–v0.3.84: filed, approved, the
   session told the other; the template sheet's rows likewise, the body
   shown below them). Fixed at both ends: xbind reads every body it
-  describes strictly when it is filed (`server.StrictDecode`; change set
-  and plan arguments too) and sends what it showed
+  describes strictly when it is filed and when its ticket is used (a
+  lenient request pending across the upgrade is refused then;
+  `server.StrictDecode`; change set and plan arguments too) and sends what
+  it showed
   (`DelegateStart.Brief`, the message ticket's text); the web and the app
   show `preview.session.prompt` and `preview.create`. Tile API calls are
   out of this class: the bytes shown are the bytes the tile gets.

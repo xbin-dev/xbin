@@ -130,15 +130,8 @@ func (s *Server) apiChangeSetNew(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 256<<10)
-	var in struct {
-		Title string `json:"title"`
-		Items []struct {
-			Kind string          `json:"kind"`
-			Args json.RawMessage `json:"args"`
-			Why  string          `json:"why"`
-		} `json:"items"`
-	}
-	if err := DecodeJSON(r, &in); err != nil || len(in.Items) == 0 {
+	var in changeSetBody
+	if err := DecodeJSON(r, &in); err != nil || in.DryRun || len(in.Items) == 0 {
 		WriteError(w, http.StatusBadRequest, "need {title, items: [{kind, args, why?}]} with at least one operation", delegationDocs)
 		return
 	}
@@ -747,4 +740,20 @@ func (s *Server) apiChangeSetUndo(w http.ResponseWriter, r *http.Request) {
 	}
 	s.delegateEvent(a.user, "changeset", undo.ID)
 	WriteJSON(w, http.StatusOK, undo)
+}
+
+// changeSetBody is POST /delegate/changesets' and POST /delegate/plans'
+// body (dryRun: a plan's only); each item's args are read strictly by its
+// kind's preview (D252).
+type changeSetBody struct {
+	Title string `json:"title"`
+	Items []struct {
+		Kind string          `json:"kind"`
+		Args json.RawMessage `json:"args"`
+		Why  string          `json:"why"`
+	} `json:"items"`
+	// DryRun: describe the plan as it would be proposed — each line in
+	// xbind's words, with what an agent may read of it — and propose
+	// nothing: no set is kept, nobody is told.
+	DryRun bool `json:"dryRun"`
 }

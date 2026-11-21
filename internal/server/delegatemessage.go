@@ -68,9 +68,7 @@ func (s *Server) messageTarget(p auth.Principal, id string) (term.SessionInfo, i
 // (its mode asks), or nothing approves it (a harness command, the
 // conversation's taint).
 func (s *Server) messagePreview(p auth.Principal, path string, body []byte) (map[string]any, string, int, string) {
-	var b struct {
-		Text string `json:"text"`
-	}
+	var b messageBody
 	if err := StrictDecode(body, &b); err != nil || strings.TrimSpace(b.Text) == "" { // read one way only (D252)
 		why := "no text"
 		if err != nil {

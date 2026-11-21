@@ -18,10 +18,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"reflect"
 	"slices"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/delegation"
 )
 
 // StrictDecode decodes raw into v, a pointer to a struct, read as
@@ -192,4 +196,66 @@ func jsonKind(t reflect.Type) string {
 		return "list"
 	}
 	return "object"
+}
+
+// The bodies of the calls a person's agent files for approval, as xbind
+// reads them (StrictDecode): a message, a page to read, a new tile — the
+// one struct each, shared by the preview, the ticket's check and (a new
+// tile) the handler. A start's is delegatedStart.
+type (
+	messageBody struct {
+		Text string `json:"text"`
+	}
+	webFetchBody struct {
+		URL string `json:"url"`
+	}
+	// TemplateNewBody is POST /templates/new's (the broker's handler).
+	TemplateNewBody struct {
+		Source string `json:"source"` // builtin name or workspace component path
+		Path   string `json:"path"`   // target component path (optional)
+		Owner  string `json:"owner"`  // as /create: "org:<id>" | "user:<id>" | "" (D24/D52)
+		// false: the instance doesn't start in the template's partition mode
+		// (PD-35 opt-out); absent or true: it does, under --isolate.
+		Partition *bool `json:"partition"`
+	}
+)
+
+// oneReading is why body, the call of a route a person's agent files for
+// approval (pattern), can be read more than one way (nil: it can't, or
+// xbind doesn't read the route's body — a tile's API).
+func oneReading(pattern string, body []byte) error {
+	var err error
+	switch {
+	case pattern == "POST /term/sessions":
+		_, err = strictStart(body)
+	case messagePatterns[pattern]:
+		err = StrictDecode(body, &messageBody{})
+	case pattern == webFetchPattern:
+		err = StrictDecode(body, &webFetchBody{})
+	case pattern == "POST /templates/new":
+		err = StrictDecode(body, &TemplateNewBody{})
+	case pattern == mcpCallPattern:
+		_, err = readMCPCall(body)
+	}
+	return err
+}
+
+// readApproved is a delegated call's body as the gate reads it (D252): with
+// a ticket, the approved request's body read one way only once more — a
+// request filed before xbind read them so (pending across the upgrade), one
+// a sheet may have shown otherwise, is refused, nothing run, the agent told
+// to file it again; a start's xbind brief resolved (startBrief).
+func (s *Server) readApproved(p auth.Principal, pattern, ticket string, body []byte) ([]byte, int, string, string) {
+	if err := oneReading(pattern, body); ticket != "" && err != nil {
+		return nil, http.StatusForbidden, "ticket", reasoned(delegation.ReasonBound, "this approval's request was filed before xbin read a request's body one way only, and its body can be read more than one way ("+
+			err.Error()+"): nothing ran — file the request again, each member once, in lower case as documented")
+	}
+	if pattern == "POST /term/sessions" {
+		resolved, _, bad := s.startBrief(p, body)
+		if bad != "" {
+			return nil, http.StatusBadRequest, "brief", bad
+		}
+		return resolved, 0, "", ""
+	}
+	return body, 0, "", ""
 }

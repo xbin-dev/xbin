@@ -6562,8 +6562,27 @@ here: cut from the old end, never reword.
     `DisallowUnknownFields` alone (neither case nor repeats).
   - **What runs is the reading shown**: an approved start is told
     `preview.session.prompt` (`term.DelegateStart.Brief`), an approved
-    message sends `preview.message.text` — never the bytes read again,
-    which also covers a lenient request pending across the upgrade.
+    message sends `preview.message.text` — never the bytes read again.
+    A request pending across the upgrade whose body doesn't read one way
+    is refused when its ticket is used (`readApproved`: refusal "ticket",
+    reason "bound", nothing run, file it again) — its sheet may have
+    shown another text; it is not sent as shown.
+  - **It is a break, said so** (the second review): uniform for every
+    delegated start (asked or unasked) and every described body — one
+    rule. Delegation is held only by sealed components (a release
+    build's: the workspace agent, whose bodies use fixed lower-case
+    keys), so the affected are a build's own delegate and a dev-mode
+    delegate writing their own bodies; a migration note says so. The
+    start's field list is one (`agentCreateBody`, embedded in
+    `delegatedStart`); the new tile's (`TemplateNewBody`) shared with the
+    broker. The app shows no message to a tile agent: xbind refuses a
+    device's Allow of one that says nothing of its text (409, "decide
+    this one on the web"), and the app now says so and holds Allow.
+  - **Who could exploit it**: not xbin's own workspace agent — the model
+    chooses values only, and keys only in grant/binding/share/limits
+    line args and MCP tool arguments, which every client shows in
+    xbind's words. A latent hole for a delegate building bodies from
+    what it is fed; fixed at both ends regardless.
   - **Clients render what xbind resolved** (`preview.session.prompt`,
     `preview.create`), never their own reading of the body — web and
     app, a vector for the hole.

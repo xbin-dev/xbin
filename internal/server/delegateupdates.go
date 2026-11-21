@@ -275,25 +275,30 @@ const (
 
 // delegatedStart is a delegated start's body as xbind reads it: these keys,
 // each once, written so (StrictDecode, D252) — what POST /term/sessions
-// takes, and a workspace agent's "brief" and "continue".
+// takes (agentCreateBody, embedded: the one field list), and a workspace
+// agent's "brief" and "continue".
 type delegatedStart struct {
-	Cwd      string            `json:"cwd"`
-	Kind     string            `json:"kind"`
-	Provider string            `json:"provider"`
-	Mode     string            `json:"mode"`
-	Model    string            `json:"model"`
-	Options  map[string]string `json:"options"`
-	Net      string            `json:"net"`
-	API      *bool             `json:"api"`
-	GPU      string            `json:"gpu"`
-	VM       bool              `json:"vm"`
-	Name     string            `json:"name"`
-	Resume   string            `json:"resume"`
-	Continue string            `json:"continue"`
-	LLM      string            `json:"llm"`
-	Signin   string            `json:"signin"`
-	Prompt   *string           `json:"prompt"`
-	Brief    json.RawMessage   `json:"brief"`
+	agentCreateBody
+	Continue string          `json:"continue"`
+	Brief    json.RawMessage `json:"brief"`
+}
+
+// strictStart is why a delegated start's body can be read more than one
+// way (nil: it can't) — itself, and the brief it names.
+func strictStart(body []byte) (delegatedStart, error) {
+	var sb delegatedStart
+	if err := StrictDecode(body, &sb); err != nil {
+		return sb, err
+	}
+	if sb.Brief != nil {
+		var r struct {
+			Template string `json:"template"`
+		}
+		if err := StrictDecode(sb.Brief, &r); err != nil {
+			return sb, fmt.Errorf("its brief: %w", err)
+		}
+	}
+	return sb, nil
 }
 
 // startBrief reads a delegated start's body strictly (delegatedStart: a body
@@ -304,14 +309,15 @@ type delegatedStart struct {
 // is returned as it is, by "". The rewrite is deterministic: the same body
 // and the same update give the same bytes (a ticket binds them).
 func (s *Server) startBrief(p auth.Principal, body []byte) ([]byte, string, string) {
-	var sb delegatedStart
-	if err := StrictDecode(body, &sb); err != nil {
+	sb, err := strictStart(body)
+	if err != nil {
 		return nil, "", "a start's body is read exactly as written — " + err.Error() + `: file it again as {"cwd", "kind": "agent", "prompt" | "brief", …}, each member once, in lower case`
 	}
 	var m map[string]json.RawMessage
 	_ = json.Unmarshal(body, &m) // (exact keys, each once: the map is the body)
+	_, prompted := m["prompt"]
 	if sb.Brief == nil {
-		if sb.Prompt != nil && strings.TrimSpace(*sb.Prompt) != "" {
+		if strings.TrimSpace(sb.Prompt) != "" {
 			return body, BriefByAgent, ""
 		}
 		return body, "", ""
@@ -319,10 +325,10 @@ func (s *Server) startBrief(p auth.Principal, body []byte) ([]byte, string, stri
 	var r struct {
 		Template string `json:"template"`
 	}
-	if StrictDecode(sb.Brief, &r) != nil || r.Template != briefTemplateUpdate {
+	if json.Unmarshal(sb.Brief, &r) != nil || r.Template != briefTemplateUpdate {
 		return nil, "", `a start's brief is {"template": "update"} (xbin's update brief for its tile), or its text as "prompt"`
 	}
-	if sb.Prompt != nil {
+	if prompted {
 		return nil, "", `a start names its brief or sends its text as "prompt" — not both`
 	}
 	tile := strings.Trim(sb.Cwd, "/")

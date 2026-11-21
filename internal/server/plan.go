@@ -403,18 +403,7 @@ func (s *Server) apiPlanNew(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, delegation.MaxSetBytes)
-	var in struct {
-		Title string `json:"title"`
-		Items []struct {
-			Kind string          `json:"kind"`
-			Args json.RawMessage `json:"args"`
-			Why  string          `json:"why"`
-		} `json:"items"`
-		// DryRun: describe the plan as it would be proposed — each line in
-		// xbind's words, with what an agent may read of it — and propose
-		// nothing: no set is kept, nobody is told.
-		DryRun bool `json:"dryRun"`
-	}
+	var in changeSetBody
 	if err := DecodeJSON(r, &in); err != nil || len(in.Items) == 0 {
 		WriteError(w, http.StatusBadRequest, "need {title, items: [{kind, args, why?}], dryRun?} with at least one line", delegationDocs)
 		return

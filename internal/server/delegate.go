@@ -806,13 +806,8 @@ func (s *Server) delegateApproval(w http.ResponseWriter, r *http.Request, p auth
 		if err != nil {
 			return nil, http.StatusRequestEntityTooLarge, "too-large", fmt.Sprintf("an approved call carries at most %d bytes", delegation.MaxBody)
 		}
-		body = b
-		if session { // xbind's update brief, named by the start: its text, as the request was filed with it (startBrief)
-			resolved, _, bad := s.startBrief(p, body)
-			if bad != "" {
-				return nil, http.StatusBadRequest, "brief", bad
-			}
-			body = resolved
+		if body, status, refusal, msg = s.readApproved(p, v.pattern, ticket, b); msg != "" { // one reading; a start's xbind brief resolved
+			return nil, status, refusal, msg
 		}
 		r.Body = io.NopCloser(bytes.NewReader(body))
 		r.ContentLength = int64(len(body))

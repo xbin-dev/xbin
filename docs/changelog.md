@@ -12,32 +12,51 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-21
 
-- **Security — a workspace agent's tile agent start could be shown with
-  one brief and told another** (v0.3.80, v0.3.81, v0.3.82, v0.3.83,
-  v0.3.84; D252). The web's and the app's approval sheets read a start's
-  brief from its body by the keys as written (`prompt`, else `brief`,
-  else `message`); xbind read the same body matching keys in any case
-  and keeping the last of two. So a start filed as `{"cwd", "kind":
-  "agent", "message": "Tidy README", "Prompt": "…"}` — or with `"prompt"`
-  twice — showed "Tidy README" and told the session the other text. A
-  workspace agent fed hostile content (a page, a file, a tool's answer)
-  could have its person approve that. The new tile sheet's Template and
-  Name rows were read the same way (the body itself was shown below
-  them). A lock-screen notification never showed a start's text. Now:
-  xbind reads every body it describes to a person — a start's, a
-  message's, a new tile's, a page's, a change set's and a plan's line
-  arguments — one way only when it is filed: one JSON object, UTF-8,
-  each member one the call takes, written exactly as documented, none
-  twice at any depth, nothing after it; anything else is refused naming
-  the member (400; 403 for a new tile's). An approved start is told,
-  and an approved message sends, the text its sheet showed — xbind's
-  reading when it was filed. The sheets show xbind's reading
-  (`preview.session.prompt`, `preview.create`), never their own reading
-  of the body.
-  **Release note:** a workspace agent that was fed hostile content could
-  get a start approved under a different text than the one shown; xbind
-  now refuses such a request when it is filed and sends only the text the
-  approval showed. What to check: nothing to migrate.
+- **Security, BREAKING for a delegate that writes its own bodies — a
+  tile agent start could be shown with one brief and told another**
+  (v0.3.80, v0.3.81, v0.3.82, v0.3.83, v0.3.84; D252;
+  [migration note](/docs/changes/2026-11-21-strict-delegated-bodies.md)).
+  The web's and the app's approval sheets read a start's brief from its
+  body by the keys as written (`prompt`, else `brief`, else `message`);
+  xbind read the same body matching keys in any case and keeping the last
+  of two. So a start filed as `{"cwd", "kind": "agent", "message": "Tidy
+  README", "Prompt": "…"}` — or with `"prompt"` twice — showed "Tidy
+  README" and told the session the other text. The web's new tile sheet
+  read its Template and Name rows the same way (the body itself was shown
+  below them); a lock-screen notification never showed a start's text.
+  **Who could send such a body:** only a delegate whose own code writes
+  the body. In a release build the one delegate is xbin's workspace agent
+  (and, on an xbind run with `--no-auth --dev`, its owner's dev delegate),
+  and it writes start, new tile, message and page bodies with fixed
+  lower-case keys — the model's words go only into values, and into the
+  arguments of grant, binding, share and limits lines and of MCP tool
+  calls, which every client shows in xbind's own words. So a workspace
+  agent fed hostile content could not produce such a body; the hole was
+  open to a delegate that builds bodies from what it is fed (a sealed
+  component of a build's own table). **Now:** xbind reads every body it
+  describes to a person — a start's (asked for or unasked), a message's,
+  a new tile's, a page's, an MCP call's, a change set's and a plan's line
+  arguments — one way only when it is filed and when its ticket is used:
+  one JSON object, UTF-8, each member one the call takes, written exactly
+  as documented, none twice at any depth, nothing after it; anything else
+  is refused naming the member (400; 403 for a new tile's), and a request
+  filed before the upgrade that doesn't read so is refused when used
+  (`refusal: "ticket"`, nothing runs: file it again). An approved start is
+  told, and an approved message sends, the text its sheet showed —
+  xbind's reading when it was filed. The web's sheets show xbind's reading
+  (a start's brief `preview.session.prompt`, a new tile's template and
+  place `preview.create`); the app shows a start's brief from
+  `preview.session.prompt`, and a new tile as its raw body (it has no
+  Template or Name rows). The app shows no message to a tile agent: it
+  says to decide that one on the web, and xbind refuses an app's Allow of
+  one (409).
+  **Release note:** a delegate that writes its own request bodies could
+  get a tile agent start approved under a different text than the one
+  shown; xbin's own workspace agent never wrote such a body. xbind now
+  reads each request one way only, and sends only the text the approval
+  showed. What to check: a delegate of your own build that writes bodies
+  with other-case, repeated or extra keys — see the migration note;
+  nothing for a workspace on xbin's own components.
 - workspace agent, after D251's second review (D252): an approve with
   `knows: ["seen-text"]` must say how much of the text was on screen when
   the person clicked (`seen.textLen`, the part shown of a clipped text;

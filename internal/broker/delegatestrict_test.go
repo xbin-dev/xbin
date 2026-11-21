@@ -8,8 +8,11 @@ package broker
 
 import (
 	"encoding/json"
+	"net/http"
 	"strings"
 	"testing"
+
+	"github.com/xbin-dev/xbin/internal/delegation"
 )
 
 func TestADelegatedCreationOrLineIsReadOneWayOnly(t *testing.T) {
@@ -55,6 +58,43 @@ func TestADelegatedCreationOrLineIsReadOneWayOnly(t *testing.T) {
 		code, out := w.do("POST", c.route, `{"title":"t","items":[`+c.item+`]}`, agentOf("bob"))
 		if code == 200 || !strings.Contains(said(out), c.says) {
 			t.Errorf("%s %s: %d %s", c.route, c.item, code, out)
+		}
+	}
+}
+
+// A new tile's request filed before the strict reading (pending across the
+// upgrade), its body one the web's sheet read otherwise, is refused when
+// its ticket is used: nothing is created (D252, the second review's 1b).
+func TestALenientCreationFiledBeforeIsRefusedWhenUsed(t *testing.T) {
+	w := changeSetWorld(t)
+	planTemplates(t, w)
+	_, alice := w.session("alice")
+	ask, _ := json.Marshal(map[string]string{"method": "POST", "path": "/api/xbin/templates/new", "body": `{"source":"blank","path":"apps/shown"}`})
+	code, body := w.do("POST", "/delegate/requests", string(ask), agentOf("alice"))
+	var shown delegation.Request
+	if json.Unmarshal([]byte(body), &shown); code != 200 {
+		t.Fatalf("an ordinary creation: %d %s", code, body)
+	}
+	for _, lenient := range []string{`{"Source":"tool","Path":"apps/made"}`, `{"source":"tool","path":"apps/made","name":"apps/shown"}`} {
+		clone := shown
+		clone.Body = ""
+		req, err := w.store.NewRequest(clone, []byte(lenient))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if code, body := w.do("POST", "/delegate/requests/"+req.ID+"/approve", `{}`, alice); code != 200 {
+			t.Fatalf("approve: %d %s", code, body)
+		}
+		code, body := w.do("POST", "/templates/new", lenient, both(agentOf("alice"), func(r *http.Request) { r.Header.Set("X-XBin-Ticket", req.ID) }))
+		var e struct{ Error, Refusal, Reason string }
+		if json.Unmarshal([]byte(body), &e); code != 403 || e.Refusal != "ticket" || e.Reason != delegation.ReasonBound || !strings.Contains(e.Error, "file the request again") {
+			t.Fatalf("%s used: %d %s", lenient, code, body)
+		}
+		if got := w.b.Users.Owner("apps/made"); got != "" {
+			t.Fatalf("%s: apps/made was created (%q)", lenient, got)
+		}
+		if _, there := w.b.Reg.Component("apps/made"); there {
+			t.Fatalf("%s: apps/made exists", lenient)
 		}
 	}
 }

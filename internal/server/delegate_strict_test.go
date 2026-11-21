@@ -45,7 +45,7 @@ func TestAStartIsReadOneWayOnly(t *testing.T) {
 		`{"Cwd":"apps/x","kind":"agent","prompt":"Tidy README"}`:                                       `unknown member "Cwd"`,
 		`{"cwd":"apps/x","kind":"agent","prompt":"Tidy README","options":{"model":"a","model":"b"}}`:   `"model" twice`,
 		`{"cwd":"apps/x","kind":"agent","prompt":{"text":"Tidy README"}}`:                              `"prompt" is an object, not a string`,
-		`{"cwd":"apps/x","kind":"agent","brief":{"Template":"update"}}`:                                `{"template": "update"}`,
+		`{"cwd":"apps/x","kind":"agent","brief":{"Template":"update"}}`:                                `its brief: an unknown member "Template"`,
 		`{"cwd":"apps/x","kind":"agent","prompt":"Tidy README"} {"prompt":"more"}`:                     "something after the JSON object",
 		"{\"cwd\":\"apps/x\",\"kind\":\"agent\",\"prompt\":\"Tidy \xff README\"}":                      "not UTF-8",
 	} {
@@ -190,5 +190,92 @@ func TestAnApprovalSaysHowMuchOfTheTextWasOnScreen(t *testing.T) {
 	old := w.ask(alice, "POST", "/api/xbin/term/sessions", startBody("apps/x", "Goal: more."))
 	if c, b := approve(old.ID, `{"grant":"once"}`); c != 200 {
 		t.Fatalf("an older client's approval: %d %s", c, b)
+	}
+}
+
+// A request filed before xbind read bodies one way only — pending across
+// the upgrade, its body one a sheet may have read otherwise — is refused
+// when its ticket is used: a ticket refusal that tells the agent to file it
+// again, nothing run, the approval unspent (D252, the second review's 1b).
+func TestARequestFiledLenientlyIsRefusedWhenUsed(t *testing.T) {
+	w := realDelegateWorld(t, "--auto-mode")
+	alice, person := delegateCred("d-alice"), w.cookie("alice")
+	shown := w.ask(alice, "POST", "/api/xbin/term/sessions", startBody("apps/x", "a", "provider", "fake"))
+	lenient := func(model delegation.Request, body string) delegation.Request {
+		t.Helper()
+		clone := model
+		clone.Body = ""
+		req, err := w.store.NewRequest(clone, []byte(body)) // (as v0.3.84 filed it: no strict reading then)
+		if err != nil {
+			t.Fatal(err)
+		}
+		w.approve(person, req.ID, "")
+		return req
+	}
+	refused := func(req delegation.Request, path, body string) {
+		t.Helper()
+		rec := w.do(w.full, "POST", path, body, alice, header(HeaderTicket, req.ID))
+		var e struct{ Error, Refusal, Reason string }
+		_ = json.Unmarshal(rec.Body.Bytes(), &e)
+		if rec.Code != 403 || e.Refusal != "ticket" || e.Reason != delegation.ReasonBound || !strings.Contains(e.Error, "file the request again") {
+			t.Fatalf("%s used: %d %s", body, rec.Code, rec.Body.String())
+		}
+		if got, _ := w.store.Request("alice", req.ID); got.State != delegation.Approved {
+			t.Errorf("%s: the approval was spent (%s)", body, got.State)
+		}
+	}
+	for _, body := range []string{
+		`{"cwd":"apps/x","kind":"agent","provider":"fake","message":"a","Prompt":"b"}`,
+		`{"cwd":"apps/x","kind":"agent","provider":"fake","prompt":"a","later":"an extra key"}`,
+	} {
+		refused(lenient(shown, body), "/api/xbin/term/sessions", body)
+	}
+	if n := len(w.s.Term.ListFor("alice", "", nil)); n != 0 {
+		t.Fatalf("%d sessions opened", n)
+	}
+	// a message the same: a session to send it to, then the lenient request
+	ok := w.ask(alice, "POST", "/api/xbin/term/sessions", startBody("apps/x", "go", "provider", "fake"))
+	w.approve(person, ok.ID, "")
+	var a struct{ ID string }
+	if rec := w.do(w.full, "POST", "/api/xbin/term/sessions", startBody("apps/x", "go", "provider", "fake"), alice, header(HeaderTicket, ok.ID)); rec.Code != 200 || json.Unmarshal(rec.Body.Bytes(), &a) != nil {
+		t.Fatalf("the start: %d %s", rec.Code, rec.Body.String())
+	}
+	briefTurnOver(t, w, a.ID)
+	path := "/api/xbin/term/sessions/" + a.ID + "/prompt"
+	m := w.ask(alice, "POST", path, `{"text":"a"}`)
+	body := `{"text":"a","Text":"b"}`
+	refused(lenient(m, body), path, body)
+	if page, _ := w.s.Term.AgentPage(a.ID, 0, 400); func() bool { raw, _ := json.Marshal(page.Events); return strings.Contains(string(raw), `"b"`) }() {
+		t.Fatal("the lenient message was sent") // (refused before anything ran: one look is enough)
+	}
+}
+
+// The app shows no message to a tile agent (it doesn't know the kind):
+// its Allow of one — which says nothing of the text — is refused, nothing
+// decided, decided on the web instead; its Allow of a start still works
+// (D252, the second review's 4).
+func TestTheAppDecidesNoMessageItCantShow(t *testing.T) {
+	w := realDelegateWorld(t, "--auto-mode")
+	alice, person := delegateCred("d-alice"), w.cookie("alice")
+	app := bearer(w.s.Auth.NewBearerSession("alice", "dev-1", "127.0.0.1").Token)
+	first := startBody("apps/x", "Goal: a game.", "provider", "fake")
+	s := w.ask(alice, "POST", "/api/xbin/term/sessions", first)
+	if rec := w.do(w.full, "POST", "/api/xbin/delegate/requests/"+s.ID+"/approve", `{"grant":"once"}`, app); rec.Code != 200 {
+		t.Fatalf("the app's Allow of a start: %d %s", rec.Code, rec.Body.String())
+	}
+	var a struct{ ID string }
+	if rec := w.do(w.full, "POST", "/api/xbin/term/sessions", first, alice, header(HeaderTicket, s.ID)); rec.Code != 200 || json.Unmarshal(rec.Body.Bytes(), &a) != nil {
+		t.Fatalf("the start: %d %s", rec.Code, rec.Body.String())
+	}
+	briefTurnOver(t, w, a.ID)
+	m := w.ask(alice, "POST", "/api/xbin/term/sessions/"+a.ID+"/prompt", `{"text":"Now add a computer player."}`)
+	if rec := w.do(w.full, "POST", "/api/xbin/delegate/requests/"+m.ID+"/approve", `{"grant":"once"}`, app); rec.Code != 409 || !strings.Contains(rec.Body.String(), "decide this one on the web") {
+		t.Fatalf("the app's Allow of a message: %d %s", rec.Code, rec.Body.String())
+	}
+	if got, _ := w.store.Request("alice", m.ID); got.State != delegation.Pending {
+		t.Fatalf("decided from the app: %s", got.State)
+	}
+	if rec := w.do(w.full, "POST", "/api/xbin/delegate/requests/"+m.ID+"/approve", `{"grant":"once","knows":["seen-text"],"seen":{"textLen":26}}`, person); rec.Code != 200 {
+		t.Fatalf("on the web: %d %s", rec.Code, rec.Body.String())
 	}
 }

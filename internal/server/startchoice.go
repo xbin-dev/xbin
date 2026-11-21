@@ -474,14 +474,20 @@ func approvalText(req delegation.Request) string {
 // seenTextRefusal is why an approval of req can't be decided for what its
 // client said of the text (""): with knows "seen-text", it must say how much
 // of a text there is was on screen (400); and from any client that says, it
-// must have been all of it (409, seenChanged "text": nothing decided).
-func seenTextRefusal(req delegation.Request, seen *seenBasis, knows []string) (int, string) {
+// must have been all of it (409, seenChanged "text": nothing decided). The
+// app (device) shows no message to a tile agent — none up to v0.3.84 knew
+// the kind, and offered Allow on a sheet without its text — so an app's
+// Allow of one that says nothing of the text is refused (409): decided on
+// the web (D252).
+func seenTextRefusal(req delegation.Request, seen *seenBasis, knows []string, device bool) (int, string) {
 	text := approvalText(req)
 	switch {
 	case text == "":
 		return 0, ""
 	case slices.Contains(knows, knowsSeenText) && (seen == nil || seen.TextLen == nil):
 		return http.StatusBadRequest, `an approval that knows "seen-text" says how much of the text was on screen when its person allowed it: seen {textLen}`
+	case device && req.Kind == delegation.KindMessage && (seen == nil || seen.TextLen == nil):
+		return http.StatusConflict, "this app can't show a message to a tile agent: decide this one on the web — nothing was decided"
 	}
 	return http.StatusConflict, textSeenRefusal(seen, text)
 }
@@ -558,7 +564,7 @@ func (s *Server) startPickFor(a delegateActor, req delegation.Request, b pickBod
 	shown, _ := req.Preview["session"].(map[string]any)
 	offered, _ := shown["continue"].(map[string]any)
 	knows := slices.Contains(b.Knows, "continue")
-	if status, why := seenTextRefusal(req, b.Seen, b.Knows); why != "" { // all of the brief on screen, or nothing (D252)
+	if status, why := seenTextRefusal(req, b.Seen, b.Knows, false); why != "" { // all of the brief on screen, or nothing (D252)
 		return nil, nil, status, why
 	}
 	if !b.picks() && !(offered != nil && knows) {

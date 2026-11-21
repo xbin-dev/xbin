@@ -487,9 +487,7 @@ func (s *Server) webRequestPreview(p auth.Principal, body []byte) (map[string]an
 	if !ok {
 		return nil, http.StatusForbidden, "a fetch is asked for under an agent session (X-XBin-Agent-Session)"
 	}
-	var in struct {
-		URL string `json:"url"`
-	}
+	var in webFetchBody
 	if StrictDecode(body, &in) != nil || strings.TrimSpace(in.URL) == "" { // read one way only (D252)
 		return nil, http.StatusBadRequest, `a fetch's body is {url: "https://…"}, exactly as it will be sent: "url" once, in lower case, nothing else`
 	}
