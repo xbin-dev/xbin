@@ -308,6 +308,8 @@ func (s *Server) judgeWait(cs delegation.ChangeSet, i int) bool {
 		return end("this now takes an admin's rights — it was yours to do when you approved it: nothing was bound")
 	case string(pv.Before) != w.Was:
 		return end(fmt.Sprintf("%s's %s was bound by someone since you approved this: nothing was changed", w.Component, w.Slot))
+	case warnedAnew(it, pv): // held to the warnings its person saw, as a line its tile provided early is (D252)
+		return end("as the tile came up, this line carries a warning it didn't when you approved it: nothing was bound — your agent can propose it again")
 	}
 	// (the bind reads the tile once more, under the lock it writes under, and records the approved role: WithBindWait)
 	status, msg, _ := s.adminCallOut(delegation.WithBindWait(context.Background(), w.PlanWait), person, pv.Call)

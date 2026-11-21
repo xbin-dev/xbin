@@ -757,3 +757,54 @@ func TestWaitingLineProvidedEarlyIsHeldToTheProposal(t *testing.T) {
 		t.Fatalf("a binding that gained a warning: %s (%s), bound %q", results(got), got.Items[2].Error, w2.binding("apps/assistant", "mcp"))
 	}
 }
+
+// covers the D251 re-review's M1 (D252) — a waiting line is held to the
+// warnings its person saw whichever way the build goes: a tile that
+// provides only after Apply (the usual, slow build) and comes up with a
+// warning the line didn't carry ends, nothing bound — as one that provided
+// before Apply reached it is stale.
+func TestAWaitingLineThatGainsAWarningIsNeverBound(t *testing.T) {
+	const later = `[
+	{"kind":"tile.create","args":{"template":"blank","path":"apps/dice"},"why":"the tool's tile"},
+	{"kind":"agent.start","args":{"tile":"apps/dice","brief":"Goal: an MCP server with roll_dice.","harness":"claude"},"why":"build it"},
+	{"kind":"binding.set","args":{"component":"apps/assistant","slot":"mcp","provider":"apps/dice"},"why":"the tool"}]`
+	const partitioned = `{"runtime":"go","partition":["user"],"provides":{"mcp":{"kind":"http","service":"mcp","role":"reader"}}}`
+	for _, early := range []bool{true, false} {
+		w := startingWorld(t)
+		_, bob := w.session("bob")
+		first := w.plan(t, "bob", `[{"kind":"tile.create","args":{"template":"assistant","path":"apps/assistant"},"why":"the assistant"}]`)
+		if done := w.approve(t, first.ID, `{"items":[1]}`, bob); results(done) != "applied" {
+			t.Fatalf("the assistant: %s", results(done))
+		}
+		build := func() { // the coding agent's work: the tool, and the assistant now keeping each person's data apart
+			w.write(map[string]string{"apps/dice/xbin.json": partitioned, "apps/dice/backend/main.go": diceMain,
+				"apps/assistant/xbin.json": `{"runtime":"go","partition":["user"],"interfaces":{"mcp":{"kind":"http","service":"mcp","multi":true}}}`})
+			w.rescan()
+		}
+		w.srv.PlanStarter = func(context.Context, auth.Principal, []byte) (string, int, string) {
+			if early {
+				build()
+			}
+			return "sess-1", 200, ""
+		}
+		cs := w.plan(t, "bob", later)
+		if l := cs.Items[2]; l.Wait == nil || len(l.Warnings) != 0 {
+			t.Fatalf("the binding as proposed: %+v", l)
+		}
+		w.approve(t, cs.ID, `{"items":[1,2,3]}`, bob)
+		if !early {
+			if got := w.set(t, "bob", cs.ID); got.Items[2].Result != delegation.ItemWaiting {
+				t.Fatalf("a slow build: the binding should wait, it is %s (%s)", got.Items[2].Result, got.Items[2].Error)
+			}
+			build()
+		}
+		w.srv.CheckPlanWaits()
+		got := w.set(t, "bob", cs.ID)
+		if r := got.Items[2].Result; r == delegation.ItemApplied || r == delegation.ItemWaiting || w.binding("apps/assistant", "mcp") != "" {
+			t.Fatalf("early %v: a binding that gained a warning: %s (%s), bound %q", early, results(got), got.Items[2].Error, w.binding("apps/assistant", "mcp"))
+		}
+		if !early && !strings.Contains(got.Items[2].Error, "warning") {
+			t.Errorf("why it ended: %q", got.Items[2].Error)
+		}
+	}
+}

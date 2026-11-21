@@ -780,12 +780,13 @@ func (s *Server) apiDelegateRequestDecide(w http.ResponseWriter, r *http.Request
 				return
 			}
 		}
-		if m, _ := cur.Preview["message"].(map[string]any); found && cur.Kind == delegation.KindMessage { // all of it on screen, or nothing (D251 review H1)
-			if text, _ := m["text"].(string); textSeenRefusal(body.Seen, text) != "" {
-				_, words, _ := strings.Cut(strings.TrimPrefix(textSeenRefusal(body.Seen, text), seenChanged), "\x00")
-				WriteJSON(w, http.StatusConflict, map[string]any{"error": words, "changed": "text", "reload": true, "docs": delegationDocs})
+		if status, why := seenTextRefusal(cur, body.Seen, body.Knows); found && cur.Kind == delegation.KindMessage && why != "" { // all of it on screen, or nothing (D251 review H1, D252)
+			if _, words, ok := strings.Cut(strings.TrimPrefix(why, seenChanged), "\x00"); ok {
+				WriteJSON(w, status, map[string]any{"error": words, "changed": "text", "reload": true, "docs": delegationDocs})
 				return
 			}
+			WriteError(w, status, why, delegationDocs)
+			return
 		}
 	}
 	device := ""

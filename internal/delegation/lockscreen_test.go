@@ -29,6 +29,8 @@ func TestLockScreenOffer(t *testing.T) {
 		"a bidi override":     func(r *Request) { r.Body = "pay ‮evil"; r.BodySize = len(r.Body) },
 		"a zero-width space":  func(r *Request) { r.Target = "/api/apps/notes/a​b" },
 		"a carriage return":   func(r *Request) { r.Body = "a\r\nb"; r.BodySize = len(r.Body) },
+		"a line separator":    func(r *Request) { r.Body = "a b c d"; r.BodySize = len(r.Body) }, // D252: a break no line count sees
+		"a paragraph sep.":    func(r *Request) { r.Body = "a b"; r.BodySize = len(r.Body) },
 		"a form content type": func(r *Request) { r.ContentType = "application/x-www-form-urlencoded" },
 		"after a web page":    func(r *Request) { r.Preview = map[string]any{"readWeb": true} },
 		"a warning":           func(r *Request) { r.Preview = map[string]any{"warnings": []any{"PUBLIC"}} },

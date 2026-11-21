@@ -434,12 +434,56 @@ type seenBasis struct {
 	// showed them (D251) — it must still be that session
 	Harness *string `json:"harness,omitempty"`
 	Mode    *string `json:"mode,omitempty"`
-	// TextLen: the length in bytes (UTF-8) of the text the client had on
-	// screen whole — a start's brief, a follow-up's, a message's (D251
-	// review H1). A text is allowed only when all of it was shown: another
-	// length — a clipped text — is refused, nothing decided. Absent (an
-	// older client): not checked.
+	// TextLen: how much of the text — a start's brief, a follow-up's, a
+	// message's — was on screen when the person clicked, in bytes (UTF-8):
+	// the part their client showed, the first lines of a clipped one (D251
+	// review H1, D252). Allowed only when that is all of it; another length
+	// is refused, nothing decided. Required with knows "seen-text"
+	// (seenTextRefusal); absent from a client without it (an older one,
+	// which holds its Allow back itself): not checked.
 	TextLen *int `json:"textLen,omitempty"`
+}
+
+// knowsSeenText is the approve's word that its seen.textLen says how much
+// of the text was on screen when its person clicked (D252): with it the
+// length is required wherever there is a text.
+const knowsSeenText = "seen-text"
+
+// basis: seen says something of what is resolved again (a sign-in, the
+// network, a continued session) — not only how much text was on screen.
+func (b *seenBasis) basis() bool {
+	return b != nil && (b.SignInID != nil || b.Net != nil || b.Harness != nil || b.Mode != nil)
+}
+
+// approvalText is the text approving req sends ("" none): a start's brief,
+// a message — as xbind read them when the request was filed.
+func approvalText(req delegation.Request) string {
+	switch req.Kind {
+	case delegation.KindSession:
+		s, _ := req.Preview["session"].(map[string]any)
+		t, _ := s["prompt"].(string)
+		return t
+	case delegation.KindMessage:
+		m, _ := req.Preview["message"].(map[string]any)
+		t, _ := m["text"].(string)
+		return t
+	}
+	return ""
+}
+
+// seenTextRefusal is why an approval of req can't be decided for what its
+// client said of the text (""): with knows "seen-text", it must say how much
+// of a text there is was on screen (400); and from any client that says, it
+// must have been all of it (409, seenChanged "text": nothing decided).
+func seenTextRefusal(req delegation.Request, seen *seenBasis, knows []string) (int, string) {
+	text := approvalText(req)
+	switch {
+	case text == "":
+		return 0, ""
+	case slices.Contains(knows, knowsSeenText) && (seen == nil || seen.TextLen == nil):
+		return http.StatusBadRequest, `an approval that knows "seen-text" says how much of the text was on screen when its person allowed it: seen {textLen}`
+	}
+	return http.StatusConflict, textSeenRefusal(seen, text)
 }
 
 // textSeenRefusal is why seen's text isn't all of text ("" it is, or the
@@ -448,7 +492,7 @@ func textSeenRefusal(seen *seenBasis, text string) string {
 	if seen == nil || seen.TextLen == nil || *seen.TextLen == len(text) {
 		return ""
 	}
-	return seenChanged + "text\x00" + fmt.Sprintf("your sheet didn't show all of the text this would send (%d of its %d bytes): show all of it, then allow — nothing was decided", *seen.TextLen, len(text))
+	return seenChanged + "text\x00" + fmt.Sprintf("not all of the text this would send was on screen (%d of its %d bytes): show all of it, then allow — nothing was decided", *seen.TextLen, len(text))
 }
 
 // seenChanged is the refusal of an approval whose sheet showed something
@@ -478,7 +522,7 @@ func seenRefusal(seen *seenBasis, preview map[string]any) string {
 }
 
 func (b pickBody) picks() bool {
-	return b.Harness != nil || b.Model != nil || b.Mode != nil || b.Remember || b.Seen != nil
+	return b.Harness != nil || b.Model != nil || b.Mode != nil || b.Remember || b.Seen.basis()
 }
 
 // choices: the body picks something of a start's (seen alone isn't a pick:
@@ -514,16 +558,16 @@ func (s *Server) startPickFor(a delegateActor, req delegation.Request, b pickBod
 	shown, _ := req.Preview["session"].(map[string]any)
 	offered, _ := shown["continue"].(map[string]any)
 	knows := slices.Contains(b.Knows, "continue")
+	if status, why := seenTextRefusal(req, b.Seen, b.Knows); why != "" { // all of the brief on screen, or nothing (D252)
+		return nil, nil, status, why
+	}
 	if !b.picks() && !(offered != nil && knows) {
-		return nil, nil, 0, "" // an older client: the start as it was shown
+		return nil, nil, 0, "" // an older client, or one that picks nothing: the start as it was shown
 	}
 	if b.Seen == nil || b.Seen.SignInID == nil || b.Seen.Net == nil {
 		// picks, and continuing, are new with D250: every client that makes them draws a sheet, and says what it
 		// showed of what is resolved again now (D250 re-review item 5) — without it, what is decided isn't held to it
 		return nil, nil, http.StatusBadRequest, `an approval that picks the coding agent, model or mode, or continues a session, says what its sheet showed: seen {signInId, net} — "" for none`
-	}
-	if prompt, _ := shown["prompt"].(string); textSeenRefusal(b.Seen, prompt) != "" {
-		return nil, nil, http.StatusConflict, textSeenRefusal(b.Seen, prompt)
 	}
 	if resume, _ := shown["resume"].(bool); resume {
 		return resumePick(req, shown, b)
