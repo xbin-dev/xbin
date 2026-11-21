@@ -17,6 +17,9 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   after it. In VM sandboxes (and, rarely, namespace ones) the keys could
   overtake the resize, so a command run by them still saw the old size;
   the sandbox-manager contract's `tty/command` check caught it.
+- terminals: **in a VM terminal (`?vm=1`), a window resize reaches the
+  guest before the keys typed after it** — a command could read them and
+  still see the old size.
 
 ## 2026-11-20
 

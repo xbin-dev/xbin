@@ -134,9 +134,16 @@ func main() { fmt.Println("probe-ok", len(os.Args)) }
 
 	t.Run("tty", func(t *testing.T) {
 		x := c.start(t, proto.Exec{Argv: []string{"sh", "-c", "stty size; read x; stty size; exit 5"}, TTY: true, Rows: 24, Cols: 80})
+		if m := x.event(t, "started"); !m.ResizeAcks {
+			t.Fatalf("started %+v: the guest doesn't say it answers resizes", m)
+		}
 		x.expect(t, x.pty, "24 80")
-		c.send(t, proto.Msg{Op: "resize", Session: x.id, Rows: 30, Cols: 100})
-		time.Sleep(100 * time.Millisecond) // the resize reaches the guest before the line does
+		// the resize rides ctl and the line the pty stream: the line goes once
+		// the guest says its PTY has the size
+		c.send(t, proto.Msg{Op: "resize", Session: x.id, Rows: 30, Cols: 100, Seq: 1})
+		if m := x.event(t, "resized"); m.Seq != 1 {
+			t.Fatalf("resized %+v, want seq 1", m)
+		}
 		_, _ = x.pty.Write([]byte("\n"))
 		x.expect(t, x.pty, "30 100")
 		if code, _, err := x.wait(t); code != 5 || err != "" {

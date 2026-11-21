@@ -176,12 +176,14 @@ type Exec struct {
 // A resize and the keys typed after it travel apart — the resize on the
 // control connection, the keys on the session's pty stream — and the agent
 // reads each on its own goroutine, so nothing on the wire orders them. A
-// host that needs the keys to see the new size (a tile sandbox's terminal:
-// the contract's "a resize reaches the terminal before the keys that follow
-// it") numbers its resizes (Seq) and holds the pty stream's next bytes until
-// every resize sent before them is answered "resized" — which the agent
-// sends after the PTY has the size. An agent that answers says so on the
-// session's "started" (ResizeAcks); a host never waits on one that doesn't.
+// host that needs the keys to see the new size — xbind for a tile
+// sandbox's terminal (the contract's "a resize reaches the terminal before
+// the keys that follow it"), the shim for a VM terminal's session 1 —
+// numbers its resizes (Seq) and holds the pty stream's next bytes until
+// every resize sent before them is answered "resized" (Resizes, resize.go)
+// — which the agent sends after the PTY has the size. An agent that answers
+// says so on the session's "started" (ResizeAcks); a host never waits on
+// one that doesn't.
 type Msg struct {
 	Op      string  `json:"op"`
 	Config  *Config `json:"config,omitempty"`
