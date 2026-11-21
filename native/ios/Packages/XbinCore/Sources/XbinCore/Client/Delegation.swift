@@ -126,13 +126,16 @@ public enum DelegateTime {
 /// creation), as xbind reads it — the only thing an approval sheet is
 /// drawn from.
 public struct DelegateRequest: Sendable, Equatable, Identifiable {
-    /// `web` and `mcp`: a web page and an MCP tool (D239). `unknown`: a
-    /// kind this app doesn't know (a newer xbind's) — never decided here,
-    /// as a state it doesn't know isn't.
-    public enum Kind: String, Sendable { case call, session, template, web, mcp, unknown }
+    /// `web` and `mcp`: a web page and an MCP tool (D239). `message`: a
+    /// text to a tile agent that acts without asking (D250; shown and
+    /// decided here since D253). `unknown`: a kind this app doesn't know (a
+    /// newer xbind's) — never decided here, as a state it doesn't know isn't.
+    public enum Kind: String, Sendable { case call, session, template, web, mcp, message, unknown }
+    /// `failed`: a start that was approved and didn't open (D250 review
+    /// L3) — tried again from the sheet where `failureRetry` says so.
     /// `unknown`: a state this app doesn't know (a newer xbind's) — never
     /// read as one that can be decided.
-    public enum State: String, Sendable { case pending, approved, denied, used, expired, withdrawn, unknown }
+    public enum State: String, Sendable { case pending, approved, denied, used, expired, withdrawn, failed, unknown }
 
     public var id: String
     public var kind: Kind
@@ -163,6 +166,13 @@ public struct DelegateRequest: Sendable, Equatable, Identifiable {
     /// "xbin" for a request xbind withdrew because the agent stopped for
     /// good (switched off, no longer the person's); "" otherwise.
     public var withdrawnBy: String
+    /// A start that failed (`failed`): xbind's words for why, and whether
+    /// the reason isn't the agent's — its person may try it again.
+    public var failureWhy: String
+    public var failureRetry: Bool
+    /// What the person picked on a start's approval (`{provider, model?,
+    /// mode?, remember?, continue?}`), nil when nothing was.
+    public var chosen: JSONValue?
 
     public init?(json: JSONValue?) {
         guard let json, let id = json["id"]?.stringValue, !id.isEmpty else { return nil }
@@ -188,9 +198,17 @@ public struct DelegateRequest: Sendable, Equatable, Identifiable {
         decidedFrom = json["decidedFrom"]?.stringValue ?? ""
         decidedDevice = json["decidedDevice"]?.stringValue ?? ""
         withdrawnBy = json["withdrawnBy"]?.stringValue ?? ""
+        failureWhy = json["failure"]?["why"]?.stringValue ?? ""
+        failureRetry = json["failure"]?["retry"]?.boolValue ?? false
+        chosen = json["chosen"].flatMap { $0.objectValue != nil ? $0 : nil }
     }
 
     public var isPending: Bool { state == .pending && kind != .unknown }
+    /// A start that failed for a reason that isn't the agent's: its person's
+    /// Try again (`POST …/retry`) is decided on the sheet, like an approval.
+    public var isRetryable: Bool { state == .failed && failureRetry && kind == .session }
+    /// The sheet decides it: it waits, or it may be tried again.
+    public var isDecidable: Bool { isPending || isRetryable }
     /// `preview.session`: the harness and mode a tile agent will run in.
     public var session: JSONValue { preview["session"] ?? .object([:]) }
     /// A session start whose mode lets the tile agent act without asking —
@@ -207,6 +225,14 @@ public struct DelegateRequest: Sendable, Equatable, Identifiable {
 
     public static func list(_ json: JSONValue?) -> [DelegateRequest] {
         (json?["requests"]?.arrayValue ?? []).compactMap { DelegateRequest(json: $0) }
+    }
+
+    /// `GET /delegate/requests?failed=1`, apart: the requests that wait,
+    /// and the starts that failed and may be tried again (an xbind before
+    /// D250 ignores the query: none failed).
+    public static func split(_ json: JSONValue?) -> (pending: [DelegateRequest], failed: [DelegateRequest]) {
+        let all = list(json)
+        return (all.filter { $0.state != .failed }, all.filter { $0.state == .failed })
     }
 }
 
@@ -475,6 +501,9 @@ public enum DelegateRoute {
 
     public static let state = APIRequest("GET", "\(base)/state")
     public static let requests = APIRequest("GET", "\(base)/requests")
+    /// The pending requests and the starts that failed and may be tried
+    /// again (D250 review L3), in one list (``DelegateRequest/split(_:)``).
+    public static let requestsAndFailed = APIRequest("GET", "\(base)/requests?failed=1")
     public static let changesets = APIRequest("GET", "\(base)/changesets")
     public static let approvals = APIRequest("GET", "\(base)/approvals")
     /// Whether a language model is connected (`{configured, host?}`).
@@ -491,6 +520,12 @@ public enum DelegateRoute {
         .json("POST", "\(base)/requests/\(seg(id))/approve", body)
     }
     public static func deny(_ id: String) -> APIRequest { .json("POST", "\(base)/requests/\(seg(id))/deny", .object([:])) }
+    /// Try again: a start that failed for a reason not the agent's is a
+    /// ticket again — `{harness?, model?, mode?, knows?, seen?}`, the picks
+    /// validated as an approval's (``StartWords/sheetBody``).
+    public static func retry(_ id: String, _ body: JSONValue) -> APIRequest {
+        .json("POST", "\(base)/requests/\(seg(id))/retry", body)
+    }
 
     /// From a notification's action (D241): Allow once — the only grant one
     /// may give — and Deny, each saying where it was decided.
@@ -531,6 +566,22 @@ public enum DelegateRoute {
         APIRequest("GET", "\(base)/audit" + (before.map { "?before=\(seg(DelegateTime.rfc3339($0)))" } ?? ""))
     }
 
+    /// The person's own saved sign-ins (metadata only): what a follow-up's
+    /// chip names a sign-in its session carries by (``savedSignInNames(_:)``).
+    public static let signins = APIRequest("GET", "/api/xbin/agent/signins")
+
+    /// `GET /agent/signins`: each saved sign-in's name by id — the person's
+    /// own labels, which a sheet shows beside "uses your … sign-in".
+    public static func savedSignInNames(_ json: JSONValue?) -> [String: String] {
+        var out: [String: String] = [:]
+        for h in json?["harnesses"]?.arrayValue ?? [] {
+            for sg in h["signins"]?.arrayValue ?? [] {
+                if let id = sg["id"]?.stringValue, !id.isEmpty, let name = sg["name"]?.stringValue, !name.isEmpty { out[id] = name }
+            }
+        }
+        return out
+    }
+
     public static let prefs = APIRequest("GET", "/api/xbin/agent/prefs")
     public static func setPrefs(_ patch: JSONValue) -> APIRequest { .json("PUT", "/api/xbin/agent/prefs", patch) }
     public static let providers = APIRequest("GET", "/api/xbin/agent/providers")
@@ -551,7 +602,7 @@ public enum DelegateRoute {
         guard p.hasPrefix("\(base)/") else { return false }
         let m = method.uppercased()
         if m == "GET" || m == "HEAD" { return p.hasPrefix("\(base)/audit") }
-        if p.hasSuffix("/approve") || p.hasSuffix("/deny") || p.hasSuffix("/reject") || p.hasSuffix("/undo") { return true }
+        if p.hasSuffix("/approve") || p.hasSuffix("/deny") || p.hasSuffix("/reject") || p.hasSuffix("/undo") || p.hasSuffix("/retry") { return true }
         if p.hasPrefix("\(base)/approvals") { return true }
         if p == "\(base)/workspace" { return true }
         // PUT /delegate/state: the page may pause; resuming and the admin opt-in are grants (xbind tells them apart)
@@ -572,6 +623,11 @@ public enum DelegateOutcome: Sendable, Equatable {
     /// (`refusal`: workspace-off, paused, held, no-agent, …). Say why where
     /// Allow was; never send it again.
     case stopped(refusal: String, message: String)
+    /// What the sheet showed changed since (409 `{changed, reload: true}`:
+    /// a sign-in, the network, the continued session, how much of the text
+    /// was on screen): nothing was decided — read the request again, show
+    /// it as it is now, and say xbind's words (D250 review L2, D252).
+    case changed(what: String, message: String)
     case failed(String)
 
     /// Reads an answer to approve / deny / apply.
@@ -584,6 +640,9 @@ public enum DelegateOutcome: Sendable, Equatable {
             return .unseen(size: Int(j["bodySize"]?.intValue ?? 0), sha256: j["bodySha256"]?.stringValue ?? "")
         }
         if r.status == 409, let refusal = j["refusal"]?.stringValue, !refusal.isEmpty { return .stopped(refusal: refusal, message: msg) }
+        if r.status == 409, j["reload"]?.boolValue == true {
+            return .changed(what: j["changed"]?.stringValue ?? "", message: j["error"]?.stringValue ?? "It changed since your sheet showed it")
+        }
         if r.status == 409 || r.status == 404 { return .gone(msg) }
         return .failed(msg)
     }

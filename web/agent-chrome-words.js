@@ -87,8 +87,15 @@ export const levelWords = (level) => LEVEL[level] || (level ? `your level: ${lev
 
 // ---- a request ---------------------------------------------------------------------------
 
+// a message to a tile agent's session (D250): its coding agent and its tile, as xbind previews them
+function msgOf(req) {
+  const m = (req && req.preview && req.preview.message) || {};
+  return { agent: String(m.providerName || m.provider || 'the tile agent'), tile: String((req && req.tile) || '').split('/').filter(Boolean).pop() || 'the tile' };
+}
+
 /** needTitle(req): a request as a row of Needs you. */
 export function needTitle(req) {
+  if (req.kind === 'message') return `Send a message to ${msgOf(req).agent} in ${msgOf(req).tile}`;
   if (req.kind === 'web') return `Read a web page on ${webOf(req).host || 'the web'}`;
   if (req.kind === 'mcp') return `Run ${mcpOf(req).tool || 'a tool'} on ${mcpOf(req).server}`;
   const t = tileOf(req).name || 'a tile';
@@ -99,6 +106,7 @@ export function needTitle(req) {
 
 /** heading(req): the sheet's heading — {before, strong, after}: the tile's name is the strong part. */
 export function heading(req) {
+  if (req.kind === 'message') return { before: `Send this message to the ${msgOf(req).agent} session in `, strong: msgOf(req).tile, after: '?' };
   if (req.kind === 'web') return { before: 'Your agent wants to read a page on ', strong: webOf(req).host || 'the web', after: '' };
   if (req.kind === 'mcp') return { before: 'Your agent wants to run ', strong: mcpOf(req).tool || 'a tool', after: ` on ${mcpOf(req).server}${mcpOf(req).outside ? ', outside this workspace' : ''}` };
   const t = tileOf(req).name || 'a tile';
@@ -221,6 +229,7 @@ export const DURATIONS = Object.freeze([{ id: 'hour', label: 'For one hour' }, {
 /** allowLabel(req, choice): the Allow button's words — they follow the choice. */
 export function allowLabel(req, choice = 'once') {
   if (req.kind === 'session') return 'Start'; // whatever its mode: the mode is a fact the sheet states (D251), not a warning
+  if (req.kind === 'message') return 'Send'; // exactly that text, once (D250)
   if (req.kind === 'template') return 'Create the tile';
   if (req.kind === 'web') return 'Read this page';
   if (req.kind === 'mcp') return choice === 'tool' ? 'Allow always' : 'Allow once';
@@ -320,11 +329,21 @@ export function settled(req) {
     case 'expired': return 'Expired — not approved within 24 hours.';
     case 'withdrawn': return req.withdrawnBy === 'xbin' ? 'Withdrawn by xbin when your agent was stopped' : 'Withdrawn by the agent';
     case 'pending': return 'Waiting for your approval';
+    case 'failed': return req.failure && req.failure.why ? `${FAILED_HEAD}: ${req.failure.why}` : FAILED_HEAD;
   }
   return UNKNOWN_STATE.page; // a newer xbind's state: never read as one that can be decided
 }
 
-const REQUEST_STATES = ['pending', 'approved', 'denied', 'used', 'expired', 'withdrawn'];
+/**
+ * FAILED_HEAD: a start that was approved and didn't open, for a reason that
+ * isn't the agent's (state failed, D250 review L3) — xbind's why follows it;
+ * where failure.retry says so, its person tries it again (TRY_AGAIN), on the
+ * sheet, with the earlier picks.
+ */
+export const FAILED_HEAD = 'Approved, but the tile agent didn’t start';
+export const TRY_AGAIN = 'Try again';
+
+const REQUEST_STATES = ['pending', 'approved', 'denied', 'used', 'expired', 'withdrawn', 'failed'];
 const SET_STATES = ['proposed', 'applying', 'applied', 'partial', 'rejected', 'expired', 'withdrawn'];
 /**
  * UNKNOWN_STATE: a request or change set in a state this chrome doesn't
@@ -700,6 +719,10 @@ export function requestCard(req, now = Date.now()) {
     case 'used': return card(settled(req), req.kind === 'call' ? `${req.method} ${req.target}` : req.kind === 'web' ? webOf(req).url : '', 'check', 'ok');
     case 'denied': case 'withdrawn': return card(settled(req), '', 'xmark', '');
     case 'expired': return card(settled(req), '', 'clock', '');
+    case 'failed': { // approved and not started, not the agent's doing: tried again on the sheet, where xbind says it may be
+      const retry = !!(req.failure && req.failure.retry);
+      return card(FAILED_HEAD, String((req.failure && req.failure.why) || ''), 'error', 'warn', retry, retry ? TRY_AGAIN : '');
+    }
   }
   return card(UNKNOWN_STATE.title, UNKNOWN_STATE.app, 'info', ''); // never one that can be decided
 }

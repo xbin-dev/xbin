@@ -17,7 +17,7 @@
  * `modeNotTaken` (the agent's suggestion), `continue` (the agent's own idle
  * session the start would continue) — and a message's preview.message.
  */
-import { needTitle, asked as askedJoined, left, toMs, clock, needChangeTitle, sessionRows, MODE_FACT, reveal } from './agent-chrome-words.js';
+import { needTitle, heading, asked as askedJoined, left, toMs, clock, needChangeTitle, sessionRows, MODE_FACT, reveal, TRY_AGAIN } from './agent-chrome-words.js';
 
 /** FROM: where a start's choice came from, as the sheet says it under each picker. */
 export const FROM = Object.freeze({
@@ -233,6 +233,22 @@ export function withSeenText(body, onScreen) {
   return { ...body, knows: [...new Set([...(body.knows || []), SEEN_TEXT])], seen: { ...(body.seen || {}), textLen: textBytes(onScreen) } };
 }
 
+/**
+ * sheetBody(req, pick, onScreen, base): what the sheet's Allow sends — base
+ * (approveBody's {grant, scope?, unseen?, signin?, trust?}) with the pick
+ * (pickBody: a start's), how much of the text it sends was on screen when
+ * its person clicked (withSeenText: a start's brief, a message — onScreen,
+ * the part shown), and for a Try again (a start that failed: POST …/retry)
+ * only what a retry takes: no grant, no continue, nothing remembered, no
+ * text length. The web's sheet and the app's send exactly this (D253).
+ */
+export function sheetBody(req, pick, onScreen, base = { grant: 'once' }) {
+  const body = { ...base, ...(pick ? pickBody(req, pick) : {}) };
+  const out = req.kind === 'message' || (req.kind === 'session' && req.state !== 'failed') ? withSeenText(body, onScreen) : body;
+  if (req.state === 'failed') { delete out.grant; delete out.scope; delete out.unseen; delete out.continue; delete out.remember; }
+  return out;
+}
+
 /** briefOf(req): what a start's session is told first — xbind's reading (preview.session.prompt), never the body's bytes (D252). */
 export function briefOf(req) {
   return sessionRows(req).brief;
@@ -269,10 +285,9 @@ export function messageOf(req) {
 /** messageView(req): the sheet's rows for a message — {heading, agent: [chips], text, why, label}. */
 export function messageView(req) {
   const m = messageOf(req);
-  const tile = String((req && req.tile) || '').split('/').filter(Boolean).pop() || 'the tile';
   return {
-    heading: { before: `Send this message to the ${m.provider} session in `, strong: tile, after: '?' },
-    title: `Send a message to ${m.provider} in ${tile}`,
+    heading: heading(req),
+    title: needTitle(req),
     agent: [m.provider, m.mode ? `mode ${m.mode}` : '', modeChip(false), m.model ? `model ${m.model}` : '', m.signInId ? `uses your ${m.provider} sign-in` : ''].filter(Boolean),
     signInId: m.signInId,
     text: m.text,
@@ -378,7 +393,7 @@ export function batch({ requests = [], failed = [], changesets = [], sessions = 
   }
   for (const r of failed) {
     if (r.state !== 'failed' || !(r.failure && r.failure.retry)) continue;
-    rows.push({ kind: 'retry', id: r.id, title: `Didn't start: ${needTitle(r)}`, chips: [], parts: [String(r.failure.why || ''), 'approved by you'].filter(Boolean), action: 'Try again', review: false, at: toMs(r.created) });
+    rows.push({ kind: 'retry', id: r.id, title: `Didn't start: ${needTitle(r)}`, chips: [], parts: [String(r.failure.why || ''), 'approved by you'].filter(Boolean), action: TRY_AGAIN, review: false, at: toMs(r.created) });
   }
   for (const c of changesets) {
     for (const it of c.state === 'proposed' ? [] : c.items || []) {
@@ -402,6 +417,60 @@ export function batch({ requests = [], failed = [], changesets = [], sessions = 
       permits: !(s.questions > 0) && (s.pending > 0 || s.status === 'waiting_permission'), agentName: name });
   }
   return rows.sort((a, b) => a.at - b.at);
+}
+
+// ---- the sheet's own words, and the app's row (D253) ---------------------------------------------
+
+/**
+ * SHEET: the words xbin's approval sheet says around a text it sends — the
+ * web's and the app's (D253): what holds Allow back while some of the text
+ * isn't on screen, what is sent, and the rows of a message.
+ */
+export const SHEET = Object.freeze({
+  unread: 'Show all of the text to allow it',
+  reachEnd: 'Scroll to the end of the text to allow it',
+  sent: 'sent exactly like this',
+  sentOnce: 'sent exactly like this, once',
+  whereItGoes: 'Where it goes',
+  agentRow: 'Tile agent',
+  messageRow: 'Message',
+  details: 'Details',
+});
+
+/**
+ * sheetHeading(req, view): the sheet's heading — {before, strong, after}:
+ * a message's; a start the person continues (view.continuing: startView's)
+ * "Continue the session in …?"; a start that failed and may be tried again
+ * "Try again to start a tile agent in …?"; else the request's own heading.
+ */
+export function sheetHeading(req, view = null) {
+  const h = heading(req);
+  if (req.kind !== 'session') return h;
+  if (view && view.continuing) return { before: 'Continue the session in ', strong: h.strong, after: '?' };
+  if (req.state === 'failed' && req.failure && req.failure.retry) return { before: 'Try again to start a tile agent in ', strong: h.strong, after: '?' };
+  return h;
+}
+
+/**
+ * APP_ROW_LINES, APP_ROW_CHARS: a follow-up the xbin app allows on its Needs
+ * you row (D253) — one inPlace allows, short enough for a phone's list row
+ * to show whole at an ordinary text size: at most 6 lines and 400
+ * characters. Any other opens the sheet (and the app's row never offers
+ * Send at an accessibility text size).
+ */
+export const APP_ROW_LINES = 6;
+export const APP_ROW_CHARS = 400;
+
+/** appRowFits(text): the app's row shows all of text (APP_ROW_LINES, APP_ROW_CHARS; lines at the breaks a sheet draws as breaks). */
+export function appRowFits(text) {
+  const t = String(text ?? '');
+  return t.split('\n').length <= APP_ROW_LINES && [...t].length <= APP_ROW_CHARS;
+}
+
+/** appInPlace(req): inPlace(req) where the app's row may allow it — its text fits the row (appRowFits) — else null. */
+export function appInPlace(req) {
+  const x = inPlace(req);
+  return x && appRowFits(x.text) ? x : null;
 }
 
 /** batchTitle(rows): the batch's title and its count, apart: {title: 'Waiting for you', count}. */

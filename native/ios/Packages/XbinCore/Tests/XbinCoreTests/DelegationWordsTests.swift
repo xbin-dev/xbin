@@ -372,6 +372,11 @@ import Testing
         #expect(body(DelegateRoute.setPaused(false)) == ["paused": false])
         #expect(DelegateRoute.agentSessions(ids: ["a_1", "b/../c", "ok-2"]).path == "/api/xbin/term/sessions?origin=agent&compact=1&ids=a_1,ok-2")
         #expect(DelegateRoute.sealedComponents.path.hasSuffix("?sealed=1"))
+        // a start that failed, tried again (D250 review L3; the app's since D253), and the list that holds them
+        let retry = DelegateRoute.retry("rq.1", ["harness": "codex"])
+        #expect(retry.method == "POST" && retry.path == "/api/xbin/delegate/requests/rq%2E1/retry" && body(retry) == ["harness": "codex"])
+        #expect(DelegateRoute.requestsAndFailed.method == "GET" && DelegateRoute.requestsAndFailed.path == "/api/xbin/delegate/requests?failed=1")
+        #expect(!DelegateRoute.isGrant(method: "GET", path: DelegateRoute.requestsAndFailed.path))
     }
 
     @Test func outcomes() {
@@ -385,6 +390,12 @@ import Testing
         #expect(DelegateOutcome.read(json(403, ["error": "not yours"])) == .failed("not yours"))
         // the agent is stopped: why, never "it no longer waits"
         #expect(DelegateOutcome.read(json(409, ["error": "you paused your agent", "refusal": "paused"])) == .stopped(refusal: "paused", message: "you paused your agent"))
+        // what the sheet showed changed since: nothing decided — the sheet looks again and says xbind's words (D250 review L2, D252)
+        #expect(DelegateOutcome.read(json(409, ["error": "not all of the text was on screen", "changed": "text", "reload": true]))
+            == .changed(what: "text", message: "not all of the text was on screen"))
+        #expect(DelegateOutcome.read(json(409, ["error": "the session changed", "changed": "session", "reload": true])) == .changed(what: "session", message: "the session changed"))
+        // the decide-on-the-web refusal of an older app's message Allow is a 409 without reload: as before
+        #expect(DelegateOutcome.read(json(409, ["error": "decide this one on the web"])) == .gone("decide this one on the web"))
     }
 
     /// Which routes are grants — what a tile's credential must never carry
@@ -393,6 +404,7 @@ import Testing
         for (m, p) in [("POST", "/api/xbin/delegate/requests/r1/approve"), ("POST", "/api/xbin/delegate/requests/r1/deny"),
                        ("POST", "/api/xbin/delegate/changesets/c1/approve?x=1"), ("POST", "/api/xbin/delegate/changesets/c1/reject"),
                        ("POST", "/api/xbin/delegate/changesets/c1/undo"), ("DELETE", "/api/xbin/delegate/approvals/a1"),
+                       ("POST", "/api/xbin/delegate/requests/r1/retry"),
                        ("POST", "/api/xbin/delegate/approvals"), ("PUT", "/api/xbin/delegate/state"),
                        ("PUT", "/api/xbin/delegate/workspace"), ("GET", "/api/xbin/delegate/audit")] {
             #expect(DelegateRoute.isGrant(method: m, path: p), "\(m) \(p)")

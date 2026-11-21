@@ -238,3 +238,48 @@ test('a coding agent with no mode that asks (OpenCode): an ordinary choice — t
   assert.ok(!/asks you/.test(JSON.stringify(v)), `no word that it asks you anywhere on the sheet: ${JSON.stringify(v).match(/.{60}asks you.{20}/)}`);
   assert.deepEqual([v.remember.shown, v.remember.keepsMode], [true, true]);
 });
+
+test('the sheet\'s heading, a message\'s title and the failed state, from one table (D253)', async () => {
+  const W = await import('../web/agent-chrome-words.js');
+  const msg = { id: 'rq_m', kind: 'message', tile: 'apps/eui', state: 'pending', preview: { message: { session: 'ts-1', provider: 'opencode', providerName: 'OpenCode', mode: 'build', text: 'Fix it.' } } };
+  assert.deepEqual(S.sheetHeading(msg), { before: 'Send this message to the OpenCode session in ', strong: 'eui', after: '?' });
+  assert.deepEqual([W.needTitle(msg), W.allowLabel(msg), W.allowSpoken(msg)], ['Send a message to OpenCode in eui', 'Send', 'Send'], 'the chrome\'s own words know a message');
+  assert.deepEqual([S.messageView(msg).heading, S.messageView(msg).title], [W.heading(msg), W.needTitle(msg)]);
+  const req = start();
+  assert.deepEqual(S.sheetHeading(req, S.startView(req, S.pickOf(req))), { before: 'Start a tile agent in ', strong: 'Eui', after: '?' });
+  const cont = start({ continue: { session: 'ts-1', provider: 'opencode', providerName: 'OpenCode', mode: 'build', asks: false } });
+  assert.equal(S.sheetHeading(cont, S.startView(cont, S.pickOf(cont))).before, 'Continue the session in ');
+  const failed = { ...start(), state: 'failed', failure: { why: 'the tile\'s sandbox didn\'t start', retry: true }, chosen: { provider: 'codex', model: '', mode: 'agent' } };
+  assert.equal(S.sheetHeading(failed, S.startView(failed, S.pickOf(failed))).before, 'Try again to start a tile agent in ');
+  assert.equal(W.settled(failed), 'Approved, but the tile agent didn’t start: the tile\'s sandbox didn\'t start', 'never "a state this page doesn\'t know"');
+  assert.deepEqual(W.requestCard(failed), { head: 'Approved, but the tile agent didn’t start', what: 'Start a tile agent in Eui', line: 'the tile\'s sandbox didn\'t start', glyph: 'error', tone: 'warn', waits: true, button: 'Try again' });
+  assert.deepEqual([W.requestCard({ ...failed, failure: { why: 'refused', retry: false } }).waits, W.knownState(failed)], [false, true]);
+  noDot([S.SHEET, S.sheetHeading(msg)], 'the sheet\'s words');
+});
+
+test('what the sheet\'s Allow sends: the pick, all of the text, and for a Try again only what a retry takes (D253)', () => {
+  const req = start();
+  let pick = S.choose(S.pickOf(req), req, 'mode', 'agent');
+  assert.deepEqual(S.sheetBody(req, pick, 'Goal: tic tac toe'), { grant: 'once', knows: ['continue', 'seen-text'], seen: { signInId: '', net: '', textLen: 17 }, harness: 'codex', model: '', mode: 'agent', remember: true });
+  assert.deepEqual(S.sheetBody(req, pick, 'Goal'), { grant: 'once', knows: ['continue', 'seen-text'], seen: { signInId: '', net: '', textLen: 4 }, harness: 'codex', model: '', mode: 'agent', remember: true }, 'the part shown: xbind refuses it');
+  const failed = { ...req, state: 'failed', failure: { why: 'x', retry: true }, chosen: { provider: 'gemini', model: '', mode: 'default', continue: true } };
+  pick = S.pickOf(failed);
+  assert.deepEqual(S.sheetBody(failed, pick, 'Goal: tic tac toe'), { knows: ['continue'], seen: { signInId: 'si_1', net: '' }, harness: 'gemini', model: '', mode: 'default' }, 'no grant, no length, no tick, nothing remembered');
+  const msg = { id: 'rq_m', kind: 'message', tile: 'apps/eui', state: 'pending', preview: { message: { session: 'ts-1', provider: 'opencode', text: 'Fix it.' } } };
+  assert.deepEqual(S.sheetBody(msg, null, 'Fix it.'), { grant: 'once', knows: ['seen-text'], seen: { textLen: 7 } });
+  assert.deepEqual(S.sheetBody({ kind: 'call' }, null, '', { grant: 'hour', scope: 'call' }), { grant: 'hour', scope: 'call' }, 'a call: as approveBody made it');
+  // an older xbind's start (no choices): the brief's length only
+  assert.deepEqual(S.sheetBody(start({ choices: undefined }), S.pickOf(req), 'ab'), { grant: 'once', knows: ['seen-text'], seen: { textLen: 2 } });
+});
+
+test('the app\'s row: a follow-up inPlace allows, short enough for a phone\'s list row (D253)', () => {
+  const msg = (text) => ({ id: 'rq_m', kind: 'message', tile: 'apps/eui', state: 'pending', preview: { message: { session: 'ts-1', provider: 'opencode', providerName: 'OpenCode', mode: 'build', text } } });
+  assert.ok(S.appInPlace(msg('Fix the stray O.')));
+  assert.equal(S.appInPlace(msg(Array(7).fill('a').join('\n'))), null, 'seven lines: the sheet');
+  assert.ok(S.appInPlace(msg(Array(6).fill('a').join('\n'))));
+  assert.equal(S.appInPlace(msg('x'.repeat(401))), null, 'over 400 characters: the sheet');
+  assert.ok(S.appInPlace(msg('😀'.repeat(400))), 'characters, not bytes');
+  assert.ok(S.inPlace(msg('x'.repeat(1000))) && !S.appInPlace(msg('x'.repeat(1000))), 'the web\'s row takes it, the app\'s doesn\'t');
+  assert.equal(S.appInPlace(msg('a‮b')), null, 'what inPlace refuses, the app refuses');
+  assert.equal(S.appInPlace(start()), null);
+});

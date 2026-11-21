@@ -200,8 +200,18 @@ public enum DelegationWords {
         case .session: return r.isResume ? "Continue the tile agent in \(t)" : "Start a tile agent in \(t)"
         case .template: return "Create a tile"
         case .call: return "Approve a change to \(t)"
+        case .message: return "Send a message to \(messageAgent(r)) in \(messageTile(r))"
         case .web, .mcp, .unknown: return netNeedTitle(r)
         }
+    }
+
+    // a message to a tile agent's session (D250): its coding agent and its tile, as xbind previews them (the web's msgOf)
+    static func messageAgent(_ r: DelegateRequest) -> String {
+        let m = r.preview["message"]
+        return nonEmpty(m?["providerName"]?.stringValue) ?? nonEmpty(m?["provider"]?.stringValue) ?? "the tile agent"
+    }
+    static func messageTile(_ r: DelegateRequest) -> String {
+        r.tilePath.split(separator: "/", omittingEmptySubsequences: true).last.map(String.init) ?? "the tile"
     }
 
     public static func heading(_ r: DelegateRequest) -> ApprovalHeading {
@@ -212,6 +222,7 @@ public enum DelegationWords {
                               : ApprovalHeading(before: "Start a tile agent in ", strong: t, after: "?")
         case .template: return ApprovalHeading(before: "Your agent wants to create a tile", strong: "", after: "")
         case .call: return ApprovalHeading(before: "Your agent wants to change something in ", strong: t, after: "")
+        case .message: return ApprovalHeading(before: "Send this message to the \(messageAgent(r)) session in ", strong: messageTile(r), after: "?")
         case .web, .mcp, .unknown: return netHeading(r)
         }
     }
@@ -333,6 +344,7 @@ public enum DelegationWords {
     public static func allowLabel(_ r: DelegateRequest, choice: GrantChoice.ID = .once) -> String {
         switch r.kind {
         case .session: return "Start" // whatever its mode: the mode is a fact the sheet states (D251)
+        case .message: return "Send" // exactly that text, once (D250)
         case .template: return "Create the tile"
         case .web, .mcp, .unknown: return netAllowLabel(r, choice: choice)
         case .call:
@@ -515,9 +527,16 @@ public enum DelegationWords {
         case .expired: return "Expired — not approved within 24 hours."
         case .withdrawn: return r.withdrawnBy == "xbin" ? "Withdrawn by xbin when your agent was stopped" : "Withdrawn by the agent"
         case .pending: return "Waiting for your approval"
+        case .failed: return r.failureWhy.isEmpty ? failedHead : "\(failedHead): \(r.failureWhy)"
         case .unknown: return unknownState.text
         }
     }
+
+    /// A start that was approved and didn't open, for a reason that isn't
+    /// the agent's (the web's FAILED_HEAD); its person tries it again on the
+    /// sheet (``tryAgain``) where xbind says it may be.
+    public static let failedHead = "Approved, but the tile agent didn’t start"
+    public static let tryAgain = "Try again"
 
     /// A request or change set in a state this app doesn't know (a newer
     /// xbind's): never read as one that can be decided — no Allow, no
@@ -598,6 +617,10 @@ public enum DelegationWords {
             return RequestCard(head: settled(r, zone: zone), what: what, line: "", glyph: "xmark", tone: "", waits: false, button: "")
         case .expired:
             return RequestCard(head: settled(r, zone: zone), what: what, line: "", glyph: "clock", tone: "", waits: false, button: "")
+        case .failed:
+            // approved and not started, not the agent's doing: tried again on the sheet, where xbind says it may be
+            return RequestCard(head: failedHead, what: what, line: r.failureWhy, glyph: "error", tone: "warn", waits: r.failureRetry,
+                               button: r.failureRetry ? tryAgain : "")
         case .unknown:
             return RequestCard(head: unknownState.title, what: what, line: unknownState.text, glyph: "info", tone: "", waits: false, button: "")
         }
@@ -1089,18 +1112,47 @@ public enum DelegationWords {
 /// What waits for the person because of their agent — the rows the app's
 /// inbox adds above the sessions (the web tray's `needs`), oldest first.
 public struct AgentNeed: Sendable, Equatable, Identifiable {
-    public enum Kind: String, Sendable { case request, changeset }
+    /// `retry`: a start that was approved and didn't open, which its person
+    /// tries again on the sheet (D250 review L3; the app's since D253).
+    public enum Kind: String, Sendable { case request, changeset, retry }
     public var kind: Kind
     public var id: String
     public var title: String
     public var note: String
     public var at: Date?
+    /// A follow-up the app's row allows (D253; ``StartWords/appInPlace(_:)``):
+    /// its text whole on the row, Send beside Deny and Review…. nil: the
+    /// row's Review… opens the sheet.
+    public var inline: InPlace?
+    /// The row's facts, each an element of its own (an in-place follow-up's
+    /// session, the asked and expires times; a Try again's why).
+    public var chips: [String] = []
+    public var parts: [String] = []
+    public var signInId: String = ""
 
-    public static func rows(requests: [DelegateRequest], changesets: [AdminChangeSet], now: Date = Date(), zone: TimeZone = .current) -> [AgentNeed] {
+    public init(kind: Kind, id: String, title: String, note: String, at: Date?, inline: InPlace? = nil, chips: [String] = [], parts: [String] = [], signInId: String = "") {
+        self.kind = kind
+        self.id = id
+        self.title = title
+        self.note = note
+        self.at = at
+        self.inline = inline
+        self.chips = chips
+        self.parts = parts
+        self.signInId = signInId
+    }
+
+    public static func rows(requests: [DelegateRequest], changesets: [AdminChangeSet], failed: [DelegateRequest] = [], now: Date = Date(), zone: TimeZone = .current) -> [AgentNeed] {
         var rows: [AgentNeed] = []
         for r in requests where r.isPending {
-            rows.append(AgentNeed(kind: .request, id: r.id, title: DelegationWords.needTitle(r),
-                                  note: DelegationWords.asked(created: r.created, expires: r.expires, now: now, zone: zone), at: r.created))
+            let inline = StartWords.appInPlace(r)
+            rows.append(AgentNeed(kind: .request, id: r.id, title: inline?.title ?? DelegationWords.needTitle(r),
+                                  note: DelegationWords.asked(created: r.created, expires: r.expires, now: now, zone: zone), at: r.created,
+                                  inline: inline, chips: inline?.chips ?? [], parts: StartWords.askedParts(created: r.created, expires: r.expires, now: now, zone: zone),
+                                  signInId: inline == nil ? "" : StartWords.signInIdOf(r)))
+        }
+        for b in StartWords.batch(requests: [], failed: failed, now: now, zone: zone) {
+            rows.append(AgentNeed(kind: .retry, id: b.id, title: b.title, note: "", at: b.at, parts: b.parts))
         }
         for c in changesets where c.isProposed {
             let w = DelegationWords.needChangeTitle(c)
