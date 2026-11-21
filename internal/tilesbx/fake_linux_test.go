@@ -38,6 +38,8 @@ type fakeLauncher struct {
 	// this long: a resize's longer way to the agent's control loop (a VM's,
 	// through its shim and the vsock) than its keys' down their stream
 	slowResize time.Duration
+	// dropResized: its agent's "resized" answers never reach xbind
+	dropResized bool
 	// onSignal is how its processes take a signal other than SIGKILL (nil:
 	// they ignore it) — a VM's shim exits 129 on SIGHUP.
 	onSignal func(p *fakeProc, s os.Signal)
@@ -63,7 +65,7 @@ func (f *fakeLauncher) Start(spec *sandbox.Spec, o LaunchOpts) (Proc, error) {
 		f.mod(&opts)
 	}
 	p.core = agentcore.New(opts)
-	slow := f.slowResize
+	slow, drop := f.slowResize, f.dropResized
 	// Core.Serve's loop, with each connection's handler counted: they run
 	// in this test process, so quiesce can wait for them (a real agent's
 	// threads end with its process).
@@ -75,8 +77,8 @@ func (f *fakeLauncher) Start(spec *sandbox.Spec, o LaunchOpts) (Proc, error) {
 			}
 			go func() {
 				defer p.handlers.Done()
-				if slow > 0 {
-					p.core.Handle(slowResizeConn{conn, slow})
+				if slow > 0 || drop {
+					p.core.Handle(slowResizeConn{conn, slow, drop})
 					return
 				}
 				p.core.Handle(conn)
@@ -89,18 +91,27 @@ func (f *fakeLauncher) Start(spec *sandbox.Spec, o LaunchOpts) (Proc, error) {
 }
 
 // slowResizeConn is an agent's connection whose reads that carry a
-// resize line return d late (fakeLauncher.slowResize).
+// resize line return d late (fakeLauncher.slowResize), and whose
+// "resized" lines are dropped with drop (dropResized).
 type slowResizeConn struct {
 	net.Conn
-	d time.Duration
+	d    time.Duration
+	drop bool
 }
 
 func (c slowResizeConn) Read(p []byte) (int, error) {
 	n, err := c.Conn.Read(p)
-	if bytes.Contains(p[:n], []byte(`"op":"resize"`)) {
+	if c.d > 0 && bytes.Contains(p[:n], []byte(`"op":"resize"`)) {
 		time.Sleep(c.d)
 	}
 	return n, err
+}
+
+func (c slowResizeConn) Write(p []byte) (int, error) {
+	if c.drop && bytes.Contains(p, []byte(`"op":"resized"`)) { // the agent writes a line at a time
+		return len(p), nil
+	}
+	return c.Conn.Write(p)
 }
 
 func (c slowResizeConn) CloseWrite() error {

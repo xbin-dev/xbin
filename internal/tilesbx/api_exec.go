@@ -265,7 +265,7 @@ func (m *Manager) ServeStdin(w http.ResponseWriter, r *http.Request) {
 		n, err := body.Read(buf)
 		if n > 0 {
 			m.touch(e.r) // input is activity
-			if werr := e.writeIn(buf[:n]); werr != nil {
+			if werr := e.writeIn(r.Context(), buf[:n]); werr != nil {
 				writeErr(w, werr)
 				return
 			}

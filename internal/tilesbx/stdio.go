@@ -242,7 +242,7 @@ func (s *stdioSock) stdin(m *Manager, p []byte) {
 	}
 	m.touch(e.r) // input is activity
 	for len(p) > 0 && s.ctx.Err() == nil {
-		n, err := e.writeInN(p, stdioInTry)
+		n, err := e.writeInN(s.ctx, p, stdioInTry)
 		p = p[n:]
 		var re *Error
 		switch {

@@ -238,6 +238,57 @@ func TestTTYResizeBeforeKeys(t *testing.T) {
 	tc.until("")
 }
 
+// Input held for a resize's answer that never comes holds nothing else: a
+// stop ends the wait at once (not after inWait), the exec ends killed and
+// uncounted, its terminal says exit, and the input lock is free again.
+func TestTTYResizeUnansweredStop(t *testing.T) {
+	fe := newFakeEnv(t)
+	fe.l.dropResized = true
+	fe.create(ns("sb-1"))
+	fe.want(fe.do(mgr, "POST", "/sandboxes/sb-1/start", nil), http.StatusOK, "")
+	q := url.Values{"cmd": {`echo ready; read a; echo "got:$a"; sleep 100`}, "rows": {"10"}, "cols": {"20"}}
+	tc, _ := dialTTY(t, fe.server(mgr), "/sandboxes/sb-1/tty?"+q.Encode())
+	tc.until("ready")
+	x := fe.execList("sb-1")[0]
+	e := fe.box("sb-1").execs.get(x.ID)
+	if err := tc.c.WriteMessage(websocket.TextMessage, []byte(`{"op":"resize","cols":100,"rows":40}`)); err != nil {
+		t.Fatal(err)
+	}
+	tc.send("hi\r")
+	held := func() bool { // the input's writer holds inMu while it waits
+		if e.inMu.TryLock() {
+			e.inMu.Unlock()
+			return false
+		}
+		return true
+	}
+	for deadline := time.Now().Add(10 * time.Second); !held(); time.Sleep(5 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the keys were never held for the resize's answer")
+		}
+	}
+	start := time.Now()
+	fe.want(fe.do(mgr, "POST", "/sandboxes/sb-1/stop", nil), http.StatusOK, "")
+	if d := time.Since(start); d > inWait/2 {
+		t.Fatalf("the stop took %s: it waited out the held input", d)
+	}
+	if x := fe.execGet("sb-1", x.ID); x.State != ExecKilled || x.Signal != "KILL" {
+		t.Fatalf("after the stop: %+v", x)
+	}
+	if n := fe.get("sb-1").ExecsRunning; n != 0 {
+		t.Fatalf("execsRunning after the stop: %d", n)
+	}
+	tc.until("")
+	for deadline := time.Now().Add(10 * time.Second); held(); time.Sleep(5 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the input's writer still waits after the stop")
+		}
+	}
+	if strings.Contains(tc.out.String(), "got:hi") {
+		t.Fatalf("the keys reached a terminal whose resize was never answered: %q", tc.out.String())
+	}
+}
+
 // D88: a tty exec claimed for a user with noTerminal is refused — at its
 // start and at every attach, the attach's own forUser too — and switching
 // noTerminal on kills the tty execs claimed for that user, and those they

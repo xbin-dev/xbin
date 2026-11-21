@@ -14,6 +14,7 @@ package tilesbx
 // incident: the run is ended (lost).
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net"
@@ -282,7 +283,7 @@ func (a *agentClient) Exec(ex proto.Exec) (*agentSession, map[string]net.Conn, e
 	}
 	ex.Session = a.next
 	a.next++
-	s := &agentSession{id: ex.Session, started: make(chan struct{}), done: make(chan struct{})}
+	s := &agentSession{id: ex.Session, started: make(chan struct{}), done: make(chan struct{}), logf: a.logf}
 	a.sessions[s.id] = s
 	a.mu.Unlock()
 	streams := map[string]net.Conn{}
@@ -365,6 +366,7 @@ type agentSession struct {
 	// ResizeAcks): their numbers, and a channel closed (and replaced) at
 	// every answer
 	resizeAcks bool
+	logf       func(string, ...any) // the client's (nil: none)
 	resizeSeq  uint64
 	resizing   map[uint64]struct{}
 	resized    chan struct{}
@@ -398,13 +400,16 @@ func (s *agentSession) endResize(seq uint64) {
 	s.resized = make(chan struct{})
 }
 
-// AwaitResizes waits until every resize sent before the call is answered —
-// at most d, and not past the session's end — so input written next reaches
-// the terminal after them. With none outstanding it returns at once: a
-// keystroke costs no round trip, only the first after a resize waits for
-// one. Past d the agent isn't answering its control connection; those
-// resizes are given up (nothing waits for them again) and the input goes on.
-func (s *agentSession) AwaitResizes(d time.Duration) {
+// AwaitResizes waits until every resize sent before the call is answered,
+// so input written next reaches the terminal after them. With none
+// outstanding it returns at once: a keystroke costs no round trip, only the
+// first after a resize waits for one. The wait ends with the session — its
+// exit, a stop, the control connection lost (agentClient.Close finishes
+// every session) — and the input goes on to fail or not as the stream
+// says; ctx ending (the writer went away) answers ctx's error. Past d the
+// agent isn't answering its control connection: those resizes are given up
+// (logged; nothing waits for them again) and the input goes on.
+func (s *agentSession) AwaitResizes(ctx context.Context, d time.Duration) error {
 	s.mu.Lock()
 	upto := s.resizeSeq
 	s.mu.Unlock()
@@ -421,7 +426,7 @@ func (s *agentSession) AwaitResizes(d time.Duration) {
 		ch := s.resized
 		s.mu.Unlock()
 		if !waiting {
-			return
+			return nil
 		}
 		if t == nil {
 			t = time.NewTimer(d)
@@ -430,7 +435,9 @@ func (s *agentSession) AwaitResizes(d time.Duration) {
 		select {
 		case <-ch:
 		case <-s.done:
-			return
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
 		case <-t.C:
 			s.mu.Lock()
 			for seq := range s.resizing {
@@ -439,7 +446,10 @@ func (s *agentSession) AwaitResizes(d time.Duration) {
 				}
 			}
 			s.mu.Unlock()
-			return
+			if s.logf != nil {
+				s.logf("session %d: the agent didn't answer a resize within %s; its input goes on", s.id, d)
+			}
+			return nil
 		}
 	}
 }
