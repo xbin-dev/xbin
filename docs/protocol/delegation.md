@@ -939,7 +939,17 @@ GET    /delegate/state          the person, their agent's page, or their
                                  why not. contextBudget: how much of a
                                  conversation the agent keeps, tokens —
                                  the workspace's setting in force
-                                 (§The context budget)
+                                 (§The context budget). takes: what an
+                                 approve and a Try again may carry beyond
+                                 v0.3.84's — "seen-text" (seen.textLen),
+                                 "seen-session" (a continue's seen.harness
+                                 and mode), "retry-continue" (a Try
+                                 again's continue), "device-message" (an
+                                 app that says seen-text decides a
+                                 message); absent on an older xbind. A
+                                 client newer than its xbind sends only
+                                 what is listed, and declines what that
+                                 xbind can't hold it to (D253)
 PUT    /delegate/state          the person, or their agent's page —
                                  which may send {paused: true} and nothing
                                  else (403). {paused?, adminChanges?, web?,
@@ -1230,11 +1240,22 @@ POST   /delegate/requests/<id>/deny
 POST   /delegate/requests/<id>/retry
                                  the person, in their own session, app or
                                  device.
-                                 {harness?, model?, mode?, signin?: true,
-                                 trust?: true, seen?} — the sheet again,
+                                 {harness?, model?, mode?, continue?,
+                                 knows?, signin?: true, trust?: true,
+                                 seen?} — the sheet again,
                                  its earlier picks preselected; validated
                                  as an approval's, and no earlier tick
                                  carried over (signin only as ticked now).
+                                 continue: true continues the session the
+                                 start offers, only with seen {harness,
+                                 mode} as the sheet showed it (400
+                                 without; 409 {changed, reload} where it
+                                 is otherwise now); a body that picks and
+                                 says no continue: true opens a new
+                                 session — never the offered one by
+                                 default, as a first approval's continue
+                                 does; an empty body repeats the first
+                                 approval's choice (D253).
                                  A start that failed to open for a reason
                                  that isn't the agent's (state failed,
                                  failure.retry) is a ticket again, for 15
@@ -1301,12 +1322,13 @@ nothing decided (D251 review H1, D252). That is all xbind can hold a
 client to: a client that sends the whole length of a text it didn't show
 is believed — the rule that it shows a text before it offers Allow is
 the client's own (the web's and the app's: Show all). An approve without
-the word or the length (an older client) isn't held to it — except a
-device session's (an app's) Allow of a message without the word: the
-app up to v0.3.84 showed no message, so that is 409 "decide this one on
-the web", nothing decided, a length without the word too. An app that
-shows a message (D253) says `seen-text` and the whole length, and is
-allowed as the web is. The text a
+the word or the length (an older client) isn't held to it — except an
+app's Allow of a message without the word — from any session the app
+holds: its device's, or the password/SSO one before a device is
+enrolled: the app up to v0.3.84 showed no message, so that is 409
+"decide this one on the web", nothing decided, a length without the
+word too. An app that shows a message (D253) says `seen-text` and the
+whole length, and is allowed as the web is. The text a
 card shows is xbind's — `preview.session.prompt`, `preview.message.text`
 — never a client's own reading of the body (D252). A pending request expires after 24
 hours; decided and withdrawn ones are kept a day, 200 a person at most.

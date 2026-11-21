@@ -223,6 +223,7 @@ func (s *Server) delegateStateView(a delegateActor) map[string]any {
 		// the web and MCP (D239): the person's own settings, and what the
 		// workspace policy lets them turn on
 		"web": st.Web, "mcp": st.MCP, "mcpReadOnly": st.MCPReadOnly, "net": s.netForPerson(a.user), "contextBudget": s.Delegation.NetPolicy().ContextBudget, // D246
+		"takes": approveTakes, // what an approve and a Try again may say beyond v0.3.84's (D253)
 	}
 	// what xbin's own chrome draws its states from (agentpage.go; D232)
 	if !ws.At.IsZero() {
@@ -783,7 +784,7 @@ func (s *Server) apiDelegateRequestDecide(w http.ResponseWriter, r *http.Request
 				return
 			}
 		}
-		if status, why := seenTextRefusal(cur, body.Seen, body.Knows, a.p.Via == "device"); found && cur.Kind == delegation.KindMessage && why != "" { // all of it on screen, or nothing (D251 review H1, D252)
+		if status, why := seenTextRefusal(cur, body.Seen, body.Knows, heldByApp(a.p)); found && cur.Kind == delegation.KindMessage && why != "" { // all of it on screen, or nothing (D251 review H1, D252)
 			if _, words, ok := strings.Cut(strings.TrimPrefix(why, seenChanged), "\x00"); ok {
 				WriteJSON(w, status, map[string]any{"error": words, "changed": "text", "reload": true, "docs": delegationDocs})
 				return

@@ -318,11 +318,22 @@ func (s *Server) apiDelegateRequestRetry(w http.ResponseWriter, r *http.Request)
 	var body struct {
 		signinTickBody
 		Harness, Model, Mode *string
-		Knows                []string
-		Seen                 *seenBasis
+		// Continue: the sheet continues the session the start offers (true) or
+		// starts a new one (false). A Try again continues only when it says so,
+		// held to the session its sheet showed (seen harness, mode); a body that
+		// picks and doesn't say opens a new session — never the offered one by
+		// default, as a first approval's would (D253)
+		Continue *bool
+		Knows    []string
+		Seen     *seenBasis
 	}
 	if r.ContentLength != 0 && DecodeJSON(r, &body) != nil {
-		WriteError(w, http.StatusBadRequest, `need {harness?, model?, mode?, signin?: true, trust?: true, shown?, knows?, seen?}`, delegationDocs)
+		WriteError(w, http.StatusBadRequest, `need {harness?, model?, mode?, continue?, signin?: true, trust?: true, shown?, knows?, seen?}`, delegationDocs)
+		return
+	}
+	cont := body.Continue != nil && *body.Continue
+	if cont && (body.Seen == nil || body.Seen.Harness == nil || body.Seen.Mode == nil) {
+		WriteError(w, http.StatusBadRequest, "a Try again that continues a session says which, as its sheet showed it: seen {signInId, net, harness, mode}", delegationDocs)
 		return
 	}
 	cur, found := s.Delegation.Request(a.user, r.PathValue("id"))
@@ -340,10 +351,16 @@ func (s *Server) apiDelegateRequestRetry(w http.ResponseWriter, r *http.Request)
 	}
 	var chosen *delegation.StartChoice
 	var redrawn map[string]any
-	if pb := (pickBody{Harness: body.Harness, Model: body.Model, Mode: body.Mode, Knows: body.Knows, Seen: body.Seen, Signin: body.Signin}); pb.picks() {
+	if pb := (pickBody{Harness: body.Harness, Model: body.Model, Mode: body.Mode, Continue: &cont, Knows: body.Knows, Seen: body.Seen, Signin: body.Signin}); pb.picks() || cont {
 		var status int
 		var why string
 		if chosen, redrawn, status, why = s.startPickFor(a, cur, pb); why != "" {
+			// what the sheet showed changed since: 409 {changed, reload}, as an approve answers it (D250 review L2) —
+			// it was xbind's raw refusal, which a client couldn't tell from any other
+			if what, words, ok := strings.Cut(strings.TrimPrefix(why, seenChanged), "\x00"); ok && strings.HasPrefix(why, seenChanged) {
+				WriteJSON(w, status, map[string]any{"error": words, "changed": what, "reload": true, "docs": delegationDocs})
+				return
+			}
 			WriteError(w, status, why, delegationDocs)
 			return
 		}

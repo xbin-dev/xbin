@@ -12,6 +12,22 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-21
 
+- **Workspace agent: Try again no longer continues a session its sheet
+  started anew** (D253). A start that offered the agent's own session,
+  approved as a new session instead and failed, continued the offered
+  session when its person tried it again (the retry took no `continue`,
+  and absent meant continue). `POST /delegate/requests/<id>/retry` now
+  takes `continue`: true continues, held to the session shown (`seen
+  {harness, mode}`, 400 without, 409 `{changed, reload}` otherwise); a
+  body that picks without it opens a new session; a stale sheet's retry
+  answers 409 `{changed, reload}` as an approve does. The web's and the
+  app's sheets say `continue` either way, and hide Remember on a Try
+  again (a retry remembers nothing) and a new start's Network and Other
+  tiles rows on a continue. `GET /delegate/state` gains `takes`: what an
+  approve and a Try again may carry beyond v0.3.84's — the app sends an
+  older xbind only what it takes and declines what it can't hold to the
+  sheet. The device rule for a message covers every session the app
+  holds (its password/SSO one before a device is enrolled too).
 - **xbin app — the workspace agent's approvals as on the web** (D253):
   a tile agent's start is picked on the app's sheet (Coding agent, Model,
   Mode, where each came from, Remember for this tile); a follow-up

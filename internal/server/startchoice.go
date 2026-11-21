@@ -479,8 +479,24 @@ func approvalText(req delegation.Request) string {
 // know the kind, and offered Allow on a sheet without its text — so an
 // app's Allow of one without the word is refused (409): decided on the web
 // (D252). An app that shows the message says so with the word, and is held
-// to the whole length like any client (D253).
-func seenTextRefusal(req delegation.Request, seen *seenBasis, knows []string, device bool) (int, string) {
+// to the whole length like any client (D253). app: the caller is the app —
+// any session it holds, its device's or the password/SSO one it signs in
+// with before a device is enrolled (heldByApp).
+//
+// approveTakes is what this xbind takes of an approve's and a Try again's
+// body beyond v0.3.84's — said in GET /delegate/state (`takes`), so a
+// client newer than its xbind sends only what it takes and declines what
+// it can't have honoured, rather than send and strip (D253): seen-text
+// (seen.textLen, D252), seen-session (a continue's seen.harness and mode,
+// D251), retry-continue (a Try again's continue), device-message (an app
+// that says seen-text decides a message).
+var approveTakes = []string{knowsSeenText, "seen-session", "retry-continue", "device-message"}
+
+// heldByApp: p is a session the xbin app holds — a bearer session, its
+// device's ("device") or its password/SSO one before a device is enrolled
+// ("app"); a browser's is "session" (auth sessions.go).
+func heldByApp(p auth.Principal) bool { return p.Via == "device" || p.Via == "app" }
+func seenTextRefusal(req delegation.Request, seen *seenBasis, knows []string, app bool) (int, string) {
 	text := approvalText(req)
 	says := slices.Contains(knows, knowsSeenText)
 	switch {
@@ -488,7 +504,7 @@ func seenTextRefusal(req delegation.Request, seen *seenBasis, knows []string, de
 		return 0, ""
 	case says && (seen == nil || seen.TextLen == nil):
 		return http.StatusBadRequest, `an approval that knows "seen-text" says how much of the text was on screen when its person allowed it: seen {textLen}`
-	case device && req.Kind == delegation.KindMessage && !says:
+	case app && req.Kind == delegation.KindMessage && !says:
 		return http.StatusConflict, "this app can't show a message to a tile agent: decide this one on the web — nothing was decided"
 	}
 	return http.StatusConflict, textSeenRefusal(seen, text)
