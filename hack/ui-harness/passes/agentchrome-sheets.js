@@ -182,7 +182,7 @@ async function signinChecks({ page, S, check, refresh, sentTo, armed, text, shot
     await ctx.route('**/api/xbin/agent/signins', list);
     const start = (id, session) => ({ id, user: 'admin', agent: 'system/agent', kind: 'session', method: 'POST', target: '/api/xbin/term/sessions', tile: 'apps/crawler', body: JSON.stringify({ prompt: 'Fix the export test.' }),
       bodyShown: 30, bodySize: 30, summary: 'I will fix the export', state: 'pending', created: iso(-500), expires: iso(86390000),
-      preview: { class: 'session', tile: 'apps/crawler', session: { tile: 'apps/crawler', provider: 'claude', providerName: 'Claude Code', mode: 'default', asks: true, net: 'none', api: true, ...session } } });
+      preview: { class: 'session', tile: 'apps/crawler', session: { tile: 'apps/crawler', provider: 'claude', providerName: 'Claude Code', mode: 'default', asks: true, net: 'none', api: true, prompt: 'Fix the export test.', ...session } } });
     const row = `${SHEET} [data-row="signin"]`;
     // a session the workspace agent starts never has the person's sign-in unless they tick it, each time: the sheet says what the session runs
     // on as it stands and OFFERS the sign-in — a warned line of xbin's own, unticked; its label is the person's own list's (the id is xbind's),

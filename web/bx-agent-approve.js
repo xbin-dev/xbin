@@ -55,7 +55,7 @@ import { agentStore } from '/vendor/agent-chrome-store.js';
 import '/vendor/agent-signin.js';
 import { uncovered } from '/vendor/agent-armed.js';
 import { trustWords, offerWords } from '/vendor/agent-signins.js';
-import { pickOf, picked, startView, choose, contChoice, pickBody, messageView, askedParts, textBytes } from '/vendor/agent-start-words.js';
+import { pickOf, picked, startView, choose, contChoice, pickBody, messageView, askedParts, withSeenText } from '/vendor/agent-start-words.js';
 import {
   CHOICES, DURATIONS, heading, tile, levelWords, sends, undoWords, grantChoices, allowLabel, allowSpoken, approveBody, widerWords, sessionRows, settled,
   stopRefusal, stopWords, reveal, HIDDEN_NOTE, clipText, clipNote, ownerWords, webRows, mcpRows, READ_WEB,
@@ -96,6 +96,13 @@ export { uncovered }; // (/vendor/agent-armed.js: shared with the sign-in card's
  * read-only. A start that would begin signed out with nothing saved gets
  * the chrome's sign-in card. Nothing where neither is the case.
  */
+/**
+ * signinName(id): which saved sign-in a follow-up's session carries, as a
+ * chip of its own — its label from the person's own list, by id (never a
+ * name in the request); nothing when it carries none.
+ */
+export const signinName = (id) => (id ? html`<span class="chip" data-signin-name><bx-agent-signin view="name" sid=${id}></bx-agent-signin></span>` : nothing);
+
 export const signinRow = (r, ticks = null) => {
   if (!r.signin) return nothing;
   if (!r.signin.offer) {
@@ -231,12 +238,16 @@ export class BxAgentApprove extends LitElement {
   // a text is allowed only once all of it was on screen (D251 review H1): whether this sheet still clips one
   _unread(req) {
     switch (req.kind) {
-      case 'session': return clipText(sessionRows(this._pick ? picked(req, this._pick) : req).brief, this._allBrief).clipped;
-      case 'message': return clipText(messageView(req).text, this._all).clipped;
+      case 'session': case 'message': return this._onScreen(req).clipped;
       case 'mcp': return clipText(mcpRows(req).arguments, this._all).clipped;
       case 'call': case 'template': return sends(req, this._all).clipped;
     }
     return false;
+  }
+
+  // the text an approval sends (a start's brief, a message) as this sheet shows it now: {text: the part on screen, clipped}
+  _onScreen(req) {
+    return req.kind === 'message' ? clipText(messageView(req).text, this._all) : clipText(sessionRows(this._pick ? picked(req, this._pick) : req).brief, this._allBrief);
   }
 
   async _allow(e) {
@@ -246,7 +257,8 @@ export class BxAgentApprove extends LitElement {
     if (req.kind === 'call' && this._choice === 'tile' && this._step === 'main') { this._step = 'wider'; this._arm(); return; }
     this._busy = true; this._err = '';
     const body = { ...approveBody(picked(req, this._pick || {}), this._choice, this._duration || CHOICES.duration[this._choice], this._ticks), ...(this._pick ? pickBody(req, this._pick) : {}) };
-    if (req.kind === 'message') body.seen = { textLen: textBytes(messageView(req).text) }; // all of it was on screen (D251 review H1)
+    // how much of the text was on screen when the person clicked: xbind allows only all of it (D251 review H1, D252)
+    if (req.kind === 'message' || (req.kind === 'session' && req.state !== 'failed')) Object.assign(body, withSeenText(body, this._onScreen(req).text));
     if (req.state === 'failed') { delete body.grant; delete body.scope; delete body.unseen; delete body.continue; delete body.remember; }
     const r = req.state === 'failed' ? await this.store.retry(req.id, body) : await this.store.approve(req.id, body);
     this._busy = false;
@@ -371,7 +383,7 @@ export class BxAgentApprove extends LitElement {
     };
     return html`${v && v.cont ? html`<div class="cont" role="radiogroup" aria-label="Where it goes" data-continue>
         ${/* a switch drops a tick that was the other choice's (D250 review L1); continuing is one plain approval (D251) */ ''}<label class=${v.continuing ? 'on' : ''}><input type="radio" name="cont" data-cont="continue" .checked=${v.continuing} @change=${() => { this._pick = contChoice(this._pick, req, true); this._ticks = {}; }}>
-          <span><b>${v.cont.label}</b><span class="chips" data-cont-chips>${v.cont.chips.map((c) => html`<span class="chip">${c}</span>`)}</span></span></label>
+          <span><b>${v.cont.label}</b><span class="chips" data-cont-chips>${v.cont.chips.map((c) => html`<span class="chip">${c}</span>`)}${signinName(v.cont.signInId)}</span></span></label>
         <label class=${v.continuing ? '' : 'on'}><input type="radio" name="cont" data-cont="new" .checked=${!v.continuing} @change=${() => { this._pick = contChoice(this._pick, req, false); this._ticks = {}; }}>
           <span>${v.cont.sub}</span></label></div>` : nothing}
       <dl class="rows">
@@ -409,7 +421,7 @@ export class BxAgentApprove extends LitElement {
     const t = clipText(m.text, this._all);
     return html`<dl class="rows">
         ${this._tileRow(req)}
-        <dt>Tile agent</dt><dd><span class="chips">${m.agent.map((c) => html`<span class="chip">${c}</span>`)}</span></dd>
+        <dt>Tile agent</dt><dd><span class="chips">${m.agent.map((c) => html`<span class="chip">${c}</span>`)}${signinName(m.signInId)}</span></dd>
         <dt>Message</dt><dd>${hiddenLine(m.text)}<pre class="body" tabindex="-1" data-row="message">${shown(t.text)}${t.clipped ? '…' : ''}</pre>
           <div class="small muted">${t.clipped ? html`${clipNote(t)} — <button class="link" data-show-all @click=${() => this._showAll('_all')}>Show all</button> ` : nothing}sent exactly like this, once</div></dd>
       </dl>
@@ -461,12 +473,12 @@ export class BxAgentApprove extends LitElement {
   }
 
   _template(req) {
-    let b = {};
-    try { b = JSON.parse(req.body || '{}') || {}; } catch { /* shown raw below */ }
+    // what is created is xbind's reading of the body (preview.create), never this sheet's own (D252)
+    const c = (req.preview && req.preview.create) || {};
     const s = sends(req, this._all);
     return html`<dl class="rows">
-        <dt>Template</dt><dd class="mono">${b.source || b.template || '(the default)'}</dd>
-        <dt>Name and place</dt><dd class="mono">${b.path || b.name || req.target}</dd>
+        <dt>Template</dt><dd class="mono" data-row="template">${c.template ? shown(String(c.template)) : '(the default)'}</dd>
+        <dt>Name and place</dt><dd class="mono" data-row="path">${c.path ? shown(String(c.path)) : '(xbin picks it)'}</dd>
         <dt>Owner</dt><dd data-row="owner">${ownerWords(req)}</dd>
         <dt>Sends</dt><dd>${hiddenLine(req.body)}<pre class="body" tabindex="-1">${shown(s.text)}${s.clipped ? '…' : ''}</pre>
           <div class="small muted" data-note>${s.note}${s.clipped ? html` — <button class="link" data-show-all @click=${() => this._showAll('_all')}>Show all</button>` : nothing}</div></dd>

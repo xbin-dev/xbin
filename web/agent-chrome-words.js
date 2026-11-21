@@ -154,11 +154,14 @@ export function sends(req, all = false) {
  * characters but newline and tab, and every format character (Unicode Cf) —
  * the bidi embeddings, overrides and isolates (U+202A–202E, U+2066–2069),
  * the zero-width ones (U+200B–200F), the word joiner (U+2060), the byte
- * order mark (U+FEFF) and the rest. Drawn as they are they reorder or hide
- * what the person reads; a sheet shows each as a visible escape, ⟨U+202E⟩,
- * never interpreted.
+ * order mark (U+FEFF) and the rest — and the line and paragraph separators
+ * (U+2028, U+2029: Zl, Zp), line breaks no one types that a sheet's lines
+ * and a row's count of them would read differently (D252). Drawn as they
+ * are they reorder or hide what the person reads; a sheet shows each as a
+ * visible escape, ⟨U+202E⟩, never interpreted. A carriage return, U+0085, a
+ * vertical tab and a form feed are Cc: escaped, never a line break either.
  */
-const HIDDEN = /[\p{Cc}\p{Cf}]/u;
+const HIDDEN = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u;
 const hidden = (c) => c !== '\n' && c !== '\t' && HIDDEN.test(c);
 /** HIDDEN_NOTE: the line above text that holds any. */
 export const HIDDEN_NOTE = 'contains hidden characters — shown as ⟨U+…⟩';
@@ -283,8 +286,9 @@ export function sessionRows(req) {
   // what it signs in with, as xbind read it when the request was filed (D230): a saved sign-in is named; none at all is said, with the harness to sign in to
   const cred = s.signIn === 'needed' ? ''
     : s.credentials === 'own' ? ', on your own sign-in' : s.credentials === 'connector' || s.model ? ", through the workspace's connector" : '';
-  let brief = '';
-  try { const b = JSON.parse(req.body || '{}'); brief = String(b.prompt ?? b.brief ?? b.message ?? ''); } catch { brief = String(req.body || ''); }
+  // what the session will be told is xbind's reading of the body (preview.session.prompt) — never this chrome's own
+  // reading of the bytes, which a body with a key in another case or twice could make another text (D252)
+  const brief = typeof s.prompt === 'string' ? s.prompt : '';
   return {
     agent: `${who}${model}${cred}`,
     // a saved sign-in is OFFERED (xbind's signInId), never used by itself: the sheet's own line, unticked — the label drawn by the chrome

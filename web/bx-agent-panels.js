@@ -37,11 +37,11 @@ import { LitElement, html, css, nothing, repeat } from '/vendor/lit-all.min.js';
 import '/vendor/bx-icons.js';
 import { chromeCss } from '/vendor/agent-chrome-css.js';
 import { agentStore } from '/vendor/agent-chrome-store.js';
-import { WidenGuard, shown, hiddenLine } from '/vendor/bx-agent-approve.js';
+import { WidenGuard, shown, hiddenLine, signinName } from '/vendor/bx-agent-approve.js';
 import { uncovered } from '/vendor/agent-armed.js';
 import '/vendor/bx-agent-permits.js';
 import { standingRow, STANDING_NOTE, didByDay, DID_FILTERS, DID_NOTE, clock, stateWords, setupSteps, SETUP_INTRO, dockState, sessionModes, notOffered, MODE_DEFAULT, netPrefs, CHOICES } from '/vendor/agent-chrome-words.js';
-import { batch, batchTitle, rowText } from '/vendor/agent-start-words.js';
+import { batch, batchTitle, rowText, withSeenText } from '/vendor/agent-start-words.js';
 
 // an element that draws the store: it subscribes while it is in the page
 class StoreView extends LitElement {
@@ -65,8 +65,14 @@ export class BxAgentNeeds extends StoreView {
     pre.body.row { margin: 2px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 40vh; overflow: auto; }
     .opening { margin-top: 4px; }`];
 
-  constructor() { super(); this._err = ''; this._busy = ''; this._all = new Set(); this._shownAt = new WeakMap(); this._order = ''; }
-  connectedCallback() { super.connectedCallback(); this.store.readSessions(); }
+  // _over: the rows whose text box overflows as laid out now (measured after each render and on every resize — a row
+  // not measured yet counts as overflowing); _end: the shown-whole rows whose box was scrolled to its end (D252)
+  constructor() { super(); this._err = ''; this._busy = ''; this._all = new Set(); this._shownAt = new WeakMap(); this._order = ''; this._over = new Map(); this._end = new Set(); this._fitsWas = new Map(); }
+  connectedCallback() {
+    super.connectedCallback(); this.store.readSessions();
+    this._ro = new ResizeObserver(() => this._measure());
+  }
+  disconnectedCallback() { super.disconnectedCallback(); this._ro?.disconnect(); this._ro = null; }
   /** rearm(): every permission card, and every row's Send and Deny, waits again (something brought the tray into view — a page's message may). */
   rearm() { for (const p of this.renderRoot.querySelectorAll('bx-agent-permits')) p.rearm(); this._shownAt = new WeakMap(); this.requestUpdate(); }
   // when each row's Send and Deny came into view: they answer as Allow on the sheet does — not before CHOICES.armMs.
@@ -76,7 +82,42 @@ export class BxAgentNeeds extends StoreView {
     const order = batch(this.store).map((r) => `${r.kind}:${r.id}`).join(' ');
     if (order !== this._order) { this._order = order; this._shownAt = new WeakMap(); }
   }
-  updated() { for (const el of this.renderRoot.querySelectorAll('button[data-send], button[data-deny]')) if (!this._shownAt.has(el)) this._shownAt.set(el, performance.now()); }
+  updated() {
+    for (const el of this.renderRoot.querySelectorAll('button[data-send], button[data-deny]')) if (!this._shownAt.has(el)) this._shownAt.set(el, performance.now());
+    for (const el of this.renderRoot.querySelectorAll('pre[data-inline-text]')) {
+      this._ro?.observe(el);
+      // a Send that becomes clickable (its text scrolled to the end, or the box now showing all of it) waits as a new one
+      const li = el.closest('li'), fits = el.dataset.fits, send = li.querySelector('button[data-send]');
+      if (fits === 'yes' && this._fitsWas.get(li.dataset.id) !== 'yes' && send) this._shownAt.set(send, performance.now());
+      this._fitsWas.set(li.dataset.id, fits);
+    }
+    this._measure();
+  }
+  // whether each row's text box overflows as it is laid out now — a row whose text the counting calls whole still
+  // offers Show all, not Send, when its box doesn't show all of it on this screen (D252)
+  _measure() {
+    let changed = false;
+    for (const el of this.renderRoot.querySelectorAll('li[data-id] pre[data-inline-text]')) {
+      // (not laid out — the tray hidden: not known to fit, so not offered)
+      const id = el.closest('li').dataset.id, over = el.clientHeight === 0 || el.scrollHeight > el.clientHeight + 1;
+      if (this._over.get(id) !== over) { this._over.set(id, over); changed = true; }
+      if (!over) this._atEnd(el, id);
+    }
+    if (changed) this.requestUpdate();
+  }
+  _atEnd(el, id) {
+    if (this._end.has(id) || el.scrollTop + el.clientHeight < el.scrollHeight - 2) return;
+    this._end = new Set([...this._end, id]);
+  }
+  // a row's state for Send: 'send' — all of its text is on screen (it fits its box, or it was shown whole and its box
+  // scrolled to its end); 'scroll' — shown whole in a box that must be scrolled to its end first; 'show' — Show all first
+  _sendable(r) {
+    const all = this._all.has(r.id), over = this._over.get(r.id) !== false;
+    if (!rowText(r.inline.text, all, r.inline.byXbin).whole) return 'show';
+    if (!over) return 'send';
+    if (!all) return 'show';
+    return this._end.has(r.id) ? 'send' : 'scroll';
+  }
   _armedClick(e) {
     const el = e.currentTarget, at = this._shownAt.get(el);
     return e.isTrusted && !this._busy && at != null && performance.now() - at >= CHOICES.armMs && document.hasFocus() && uncovered(el);
@@ -91,9 +132,10 @@ export class BxAgentNeeds extends StoreView {
   // that has their attention — never Enter, never a script. What the row showed changed since: its sheet shows it as it
   // is now (nothing was decided)
   async _send(e, r) {
-    if (!this._armedClick(e) || !rowText(r.inline.text, this._all.has(r.id)).whole) return; // all of it on screen, or no Send (D251 review H1)
+    if (!this._armedClick(e) || this._sendable(r) !== 'send') return; // all of it on screen, or no Send (D251 review H1, D252)
     this._busy = r.id; this._err = '';
-    const res = await this.store.approve(r.id, r.inline.body);
+    // with how much of the text was on screen when its person clicked: xbind allows only all of it (D252)
+    const res = await this.store.approve(r.id, withSeenText(r.inline.body, rowText(r.inline.text, this._all.has(r.id), r.inline.byXbin).shown));
     this._busy = '';
     if (res.ok || res.gone) return;
     if (res.changed) { this.fire('bx-agent-review', { kind: 'request', id: r.id }); return; }
@@ -111,10 +153,13 @@ export class BxAgentNeeds extends StoreView {
   // the follow-up's text: whole when it fits the row (rowText) or once Show all — the goal first, the brief's
   // standing first paragraph after it — else its first lines and how long it is
   _inline(r) {
-    const t = rowText(r.inline.text, this._all.has(r.id));
-    return html`${hiddenLine(r.inline.text)}<pre class="body row small" data-inline-text data-whole=${t.whole ? 'yes' : 'no'} tabindex="-1">${shown(t.lead)}${t.whole ? '' : '…'}</pre>
+    const t = rowText(r.inline.text, this._all.has(r.id), r.inline.byXbin);
+    const state = this._sendable(r);
+    return html`${hiddenLine(r.inline.text)}<pre class="body row small" data-inline-text data-whole=${t.whole ? 'yes' : 'no'} data-fits=${state === 'send' ? 'yes' : 'no'} tabindex="-1"
+        @scroll=${(e) => { const was = this._end.has(r.id); this._atEnd(e.currentTarget, r.id); if (!was && this._end.has(r.id)) this.requestUpdate(); }}>${shown(t.lead)}${t.whole ? '' : '…'}</pre>
       ${t.whole && t.opening ? html`<div class="small muted opening" data-inline-opening>It opens with: ${shown(t.opening)}</div>` : nothing}
-      ${t.note ? html`<span class="small muted" data-inline-note>${t.note}</span>` : nothing}`;
+      ${t.note ? html`<span class="small muted" data-inline-note>${t.note}</span>` : nothing}
+      ${state === 'scroll' ? html`<span class="small muted" data-inline-scroll>Scroll to the end of the text to send it</span>` : nothing}`;
   }
 
   // Show all: the whole text, in place; Send comes in its place (armed a moment after it shows)
@@ -134,14 +179,14 @@ export class BxAgentNeeds extends StoreView {
       ${rows.length ? html`<ul class="list" aria-label=${t.title}>${repeat(rows, (r) => `${r.kind}:${r.id}`, (r) => html`<li data-kind=${r.kind} data-id=${r.id} class=${r.inline ? 'inl' : ''}
           data-inline=${r.inline ? r.inline.kind : nothing}>
         <span class="tx"><b>${r.title}</b>
-          ${r.chips.length ? html`<span class="chips" data-chips>${r.chips.map((c) => html`<span class="chip">${c}</span>`)}</span>` : nothing}
+          ${r.chips.length ? html`<span class="chips" data-chips>${r.chips.map((c) => html`<span class="chip">${c}</span>`)}${signinName(r.signInId)}</span>` : nothing}
           ${r.inline ? this._inline(r) : nothing}
           ${r.parts.length ? html`<span class="parts small muted" data-parts>${r.parts.map((p) => html`<span>${p}</span>`)}</span>` : nothing}
           ${r.permits ? html`<bx-agent-permits data-permits .session=${r.id} .agentName=${r.agentName} @bx-agent-permitted=${() => this.store.readSessions()}></bx-agent-permits>` : nothing}</span>
         ${r.inline ? html`<span class="acts"><button data-act @click=${() => this._act(r)}>Review…</button>
             <button data-deny ?disabled=${this._busy === r.id} @click=${(e) => this._deny(e, r)} @keydown=${(e) => { if (e.key === 'Enter') e.preventDefault(); }}>Deny</button>
-            ${rowText(r.inline.text, this._all.has(r.id)).whole
-              ? html`<button class="primary" data-send ?disabled=${this._busy === r.id} @click=${(e) => this._send(e, r)} @keydown=${(e) => { if (e.key === 'Enter') e.preventDefault(); }}>${r.action}</button>`
+            ${this._sendable(r) !== 'show'
+              ? html`<button class="primary" data-send ?disabled=${this._busy === r.id || this._sendable(r) !== 'send'} @click=${(e) => this._send(e, r)} @keydown=${(e) => { if (e.key === 'Enter') e.preventDefault(); }}>${r.action}</button>`
               : html`<button class="primary" data-inline-all @click=${(e) => this._showAll(e, r)}>Show all</button>`}</span>`
           : r.kind === 'retry' ? html`<button data-retry @click=${() => this.fire('bx-agent-review', { kind: 'request', id: r.id })}>${r.action}</button>`
           : html`<button data-act @click=${() => this._act(r)}>${r.action}</button>`}</li>`)}</ul>`

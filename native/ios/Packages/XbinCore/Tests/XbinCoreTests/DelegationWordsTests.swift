@@ -62,6 +62,11 @@ import Testing
             #expect(DelegationWords.allowSpoken(r, choice: .tool) == c["tool"]?[1]?.stringValue, "\(id) tool")
             #expect(DelegationWords.approveBody(r, choice: .tool) == c["tool"]?[2], "\(id) tool")
             #expect(DelegationWords.approveBody(r, choice: .tool, duration: "hour") == c["tool"]?[3], "\(id) tool, an hour")
+            // a start's Allow says how much of its brief was on screen — clipped, and after Show all (D252)
+            if let want = c["seenBodies"], !want.isNull {
+                let seen = [false, true].map { DelegationWords.approveBody(r, choice: .once, onScreen: DelegationWords.clipText(DelegationWords.sessionRows(r).brief, all: $0).text) }
+                #expect(JSONValue.array(seen) == want, "\(id) seen")
+            }
             if let want = c["net"], !want.isNull {
                 if r.kind == .web {
                     let w = DelegationWords.webRows(r)

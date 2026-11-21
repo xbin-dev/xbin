@@ -666,8 +666,10 @@ struct AgentApprovalSheet: View {
     private func send(_ r: DelegateRequest, choice: GrantChoice.ID) {
         working = true
         problem = nil
+        // a start's brief as it is on screen now (all of it, once Show all): xbind allows only all of it (D252)
+        let onScreen = r.kind == .session ? DelegationWords.clipText(DelegationWords.sessionRows(r).brief, all: showAllBrief).text : nil
         Task {
-            let out = await workspace.agent.approve(r, choice: choice, duration: duration)
+            let out = await workspace.agent.approve(r, choice: choice, duration: duration, onScreen: onScreen)
             working = false
             settle(out, allowed: true)
         }

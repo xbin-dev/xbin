@@ -56,10 +56,11 @@ const callReq = (id, x = {}) => ({ id, user: 'admin', agent: 'system/agent', kin
   preview: { class: 'write', tile: 'apps/crawler', level: 'write', standing: { call: 'POST to /api/apps/crawler/links/rebuild on Crawler, whatever it sends, without asking again.', tile: 'Any create, change or delete in Crawler that you could do yourself, without asking again.' } },
   state: 'pending', created: iso(-120000), expires: iso(86280000), ...x });
 const sessionReq = (id, asks) => ({ id, user: 'admin', agent: 'system/agent', kind: 'session', method: 'POST', target: '/api/xbin/term/sessions', tile: 'apps/crawler', body: JSON.stringify({ prompt: 'Fix the export test.\nLeave the schema alone.' }),
-  bodyShown: 60, bodySize: 60, summary: 'I will fix the export', preview: { class: 'session', tile: 'apps/crawler', session: { tile: 'apps/crawler', provider: 'claude', providerName: 'Claude Code', mode: asks ? 'default' : 'bypassPermissions', asks, net: 'none', api: true, model: 'sonnet' } },
+  bodyShown: 60, bodySize: 60, summary: 'I will fix the export', preview: { class: 'session', tile: 'apps/crawler', session: { tile: 'apps/crawler', provider: 'claude', providerName: 'Claude Code', mode: asks ? 'default' : 'bypassPermissions', asks, net: 'none', api: true, model: 'sonnet',
+    prompt: 'Fix the export test.\nLeave the schema alone.' } },
   state: 'pending', created: iso(-60000), expires: iso(86340000) });
 const templateReq = (id) => ({ id, user: 'admin', agent: 'system/agent', kind: 'template', method: 'POST', target: '/api/xbin/templates/new', body: JSON.stringify({ source: 'counter-go', path: 'apps/tally' }), bodyShown: 44, bodySize: 44,
-  summary: 'A tally tile', preview: { class: 'template', owner: 'admin' }, state: 'pending', created: iso(-30000), expires: iso(86370000) });
+  summary: 'A tally tile', preview: { class: 'template', owner: 'admin', create: { template: 'counter-go', path: 'apps/tally', owner: 'user:admin' } }, state: 'pending', created: iso(-30000), expires: iso(86370000) });
 const changeSet = (id) => ({ id, user: 'admin', agent: 'system/agent', title: 'Wire the export <b>NOW</b>', state: 'proposed', created: iso(-600000), expires: iso(6 * 86400000), items: [
   { n: 1, kind: 'grant.add', args: {}, line: 'Give Crawler read access to Orders', before: 'no grant', after: 'apps/crawler → apps/orders: read', effects: ['Crawler restarts (about 3 s).'], why: 'It needs the orders', inverse: {} },
   { n: 2, kind: 'binding.set', args: {}, line: "Publish Crawler's export at export.example", before: 'not connected', after: 'host export.example', warnings: ['PUBLIC: anyone on the internet can reach /export'] },

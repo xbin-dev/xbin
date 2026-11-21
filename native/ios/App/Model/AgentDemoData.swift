@@ -64,6 +64,7 @@ enum AgentDemoData {
      "net": "internet",
      "api": false,
      "model": "",
+     "prompt": "Goal: add CSV export.\nDone when: the export test passes.",
      "credentials": "own"
     }
    }
@@ -93,7 +94,8 @@ enum AgentDemoData {
      "mode": "acceptEdits",
      "net": "none",
      "api": true,
-     "model": "sonnet"
+     "model": "sonnet",
+     "prompt": "Goal: export the ‮invoices‬.\nDone when: the test passes."
     }
    }
   },
@@ -123,7 +125,8 @@ enum AgentDemoData {
      "asks": true,
      "net": "none",
      "api": true,
-     "model": "sonnet"
+     "model": "sonnet",
+     "prompt": "Goal: add CSV export.\nDone when: the export test passes."
     }
    }
   }

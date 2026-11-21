@@ -108,7 +108,12 @@ function rememberWords(continuing, hs, h, pick) {
 /** modeChip(asks): a mode as the one fact the sheet, the batch and the app show of it (D251). */
 export const modeChip = (asks) => (asks ? 'asks before acting' : 'acts without asking');
 
-/** contChips(c): a session the start (or a message) goes to, as its facts — coding agent, model, mode, the sign-in it carries. */
+/**
+ * contChips(c): a session the start (or a message) goes to, as its facts —
+ * coding agent, model, mode, the sign-in it carries. Which saved sign-in
+ * that is, the chrome draws beside them as an element of its own, from the
+ * person's own list by its id (signInIdOf).
+ */
 export function contChips(c) {
   const name = (c && (c.providerName || c.provider)) || 'the tile agent';
   return [name, c && c.model ? `model ${c.model}` : '', modeChip(!!(c && c.asks === true)), c && c.signInId ? `uses your ${name} sign-in` : ''].filter(Boolean);
@@ -157,7 +162,7 @@ export function startView(req, pick) {
     pickers,
     // continuing: one plain approval (D251) — the session's facts as chips, the sign-in it carries one of them
     cont: c ? { session: c.session, label: `Continue the ${c.providerName || c.provider} session${c.started ? ` from ${clock(toMs(c.started))}` : ''} with this follow-up`,
-      sub: 'Start a new session instead', chips: contChips(c) } : null,
+      sub: 'Start a new session instead', chips: contChips(c), signInId: String(c.signInId || '') } : null,
     continuing,
     remember: s.resume ? { shown: false, label: '', note: '', keepsMode: false } : rememberWords(continuing, hs, h, pick),
     asks,
@@ -193,8 +198,8 @@ export function pickBody(req, pick) {
   // seen: what this sheet shows of what xbind resolves again when it is decided — the sign-in it offers, the
   // network — held to it there: a change since is refused, nothing decided, and the sheet looks again (D250 review L2)
   const ps = sess(picked(req, pick));
-  // textLen: all of what it would be told was on screen (D251 review H1) — the sheet allows only then
-  const out = { knows: ['continue'], seen: { signInId: String(ps.signInId || ''), net: String(ps.net || ''), textLen: textBytes(briefOf(req)) } };
+  // (how much of what it would be told was on screen is the caller's to say: withSeenText — D252)
+  const out = { knows: ['continue'], seen: { signInId: String(ps.signInId || ''), net: String(ps.net || '') } };
   if (s.resume) { // a resume picks its mode again, nothing else (D251 review M2)
     out.mode = pick.mode;
     return out;
@@ -215,10 +220,22 @@ export function pickBody(req, pick) {
 /** textBytes(text): its length as xbind counts it — UTF-8 bytes (seen.textLen, D251 review H1). */
 export const textBytes = (text) => new TextEncoder().encode(String(text ?? '')).length;
 
-/** briefOf(req): what a start's session is told first, as xbind previews it (its prompt), else as its body says. */
+/**
+ * SEEN_TEXT: the approve's word (knows) that its seen.textLen is how much of
+ * the text — a start's brief, a follow-up, a message — was on screen when
+ * its person clicked: with it xbind requires the length, and allows only a
+ * text that was all on screen (D252).
+ */
+export const SEEN_TEXT = 'seen-text';
+
+/** withSeenText(body, onScreen): an approve body that says how much of the text was on screen (onScreen: the part shown) when its person clicked. */
+export function withSeenText(body, onScreen) {
+  return { ...body, knows: [...new Set([...(body.knows || []), SEEN_TEXT])], seen: { ...(body.seen || {}), textLen: textBytes(onScreen) } };
+}
+
+/** briefOf(req): what a start's session is told first — xbind's reading (preview.session.prompt), never the body's bytes (D252). */
 export function briefOf(req) {
-  const p = sess(req).prompt;
-  return typeof p === 'string' ? p : sessionRows(req).brief;
+  return sessionRows(req).brief;
 }
 
 /**
@@ -233,6 +250,14 @@ export function startChips(req) {
 }
 
 // ---- a message to a tile agent that acts without asking ---------------------------------------------
+
+/** signInIdOf(req): the saved sign-in a follow-up's session carries — a message's, a continue's — by id: the chrome names it from the person's own list ('' none). */
+export function signInIdOf(req) {
+  if (!req) return '';
+  if (req.kind === 'message') return messageOf(req).signInId;
+  const c = sess(req).continue;
+  return req.kind === 'session' && c && c.session ? String(c.signInId || '') : '';
+}
 
 /** messageOf(req): a message request as xbind previews it — {session, provider, name, mode, model, text, signInId}. */
 export function messageOf(req) {
@@ -249,6 +274,7 @@ export function messageView(req) {
     heading: { before: `Send this message to the ${m.provider} session in `, strong: tile, after: '?' },
     title: `Send a message to ${m.provider} in ${tile}`,
     agent: [m.provider, m.mode ? `mode ${m.mode}` : '', modeChip(false), m.model ? `model ${m.model}` : '', m.signInId ? `uses your ${m.provider} sign-in` : ''].filter(Boolean),
+    signInId: m.signInId,
     text: m.text,
     why: 'Send sends exactly this text to this session, once. It isn\'t sent if the session\'s mode or coding agent changed since.',
     label: 'Send',
@@ -269,41 +295,48 @@ export const ROW_FIT_CHARS = 1200;
 export const ROW_LINES = 3;
 export const ROW_CHARS = 280;
 
-// xbin's workspace agent opens every brief with this line: the row leads with what follows (the goal), and shows
-// the line after it, once the text is shown whole
+// xbin's update brief opens with this line: the row leads with what follows (the goal), and shows the line after
+// it, once the text is shown whole — only where xbind says xbin wrote it (briefBy), never by what the text says
 const BRIEF_OPENING = 'This is a piece of work in this tile, handed to you by ';
 
 /**
- * rowText(text, all): a follow-up's text as its batch row shows it —
- * {whole, lead, opening, note}. whole: all of it is shown (it fits, or
- * all) — lead, then opening (a brief's first paragraph, the agent's
- * standing words, moved after the goal; '' when there is none) — and Send
- * may be offered; otherwise lead is its first lines and note says how long
- * the text is.
+ * rowText(text, all, byXbin): a follow-up's text as its batch row shows it
+ * — {whole, lead, opening, note, shown}. whole: all of it is shown (it
+ * fits, or all) — lead, then opening (xbin's own brief's first paragraph,
+ * its standing words, moved after the goal — only when byXbin: xbind says
+ * xbin wrote it; '' otherwise) — and Send may be offered; otherwise lead is
+ * its first lines and note says how long the text is. shown: the part of
+ * the text on screen (all of it, or the first lines), what withSeenText
+ * counts. Fitting counts lines at the line breaks a sheet draws as breaks
+ * (\n: the others are drawn as escapes, reveal); whether it fits its box
+ * on this screen is the row's to measure.
  */
-export function rowText(text, all = false) {
+export function rowText(text, all = false, byXbin = false) {
   const t = String(text ?? '');
   const chars = [...t].length, lines = t.split('\n').length;
   let lead = t, opening = '';
   const cut = t.indexOf('\n\n');
-  if (t.startsWith(BRIEF_OPENING) && cut > 0) {
+  if (byXbin && t.startsWith(BRIEF_OPENING) && cut > 0) {
     opening = t.slice(0, cut);
     lead = t.slice(cut).replace(/^\n+/, '');
   }
   const size = `${lines} ${lines === 1 ? 'line' : 'lines'}, ${chars.toLocaleString('en-US')} characters`;
-  if (all || (lines <= ROW_FIT_LINES && chars <= ROW_FIT_CHARS)) return { whole: true, lead, opening, note: all && (lines > ROW_FIT_LINES || chars > ROW_FIT_CHARS) ? size : '' };
+  if (all || (lines <= ROW_FIT_LINES && chars <= ROW_FIT_CHARS)) return { whole: true, lead, opening, note: all && (lines > ROW_FIT_LINES || chars > ROW_FIT_CHARS) ? size : '', shown: t };
   let head = [...lead.split('\n').slice(0, ROW_LINES).join('\n')];
   if (head.length > ROW_CHARS) head = head.slice(0, ROW_CHARS);
-  return { whole: false, lead: head.join(''), opening: '', note: `${size}: show all of it to send it` };
+  return { whole: false, lead: head.join(''), opening: '', note: `${size}: show all of it to send it`, shown: head.join('') };
 }
 
 /**
  * inPlace(req): a follow-up its person can allow on its batch row — a
  * message to a tile agent's session, or a start that continues the agent's
  * own session there (D251 B2): {kind: 'message' | 'continue', title, chips,
- * text, body} — body is what Send sends (POST …/approve), what the sheet
- * sends for it as preselected, with the length of the whole text it showed
- * (seen.textLen). null for anything else, and for one the sheet must show:
+ * text, byXbin, body} — body is what Send sends (POST …/approve), what the
+ * sheet sends for it as preselected; the row adds how much of the text was
+ * on screen when its person clicked (withSeenText, rowText(…).shown);
+ * byXbin: xbind says xbin wrote the text (its update brief), so the row may
+ * move its opening line (rowText). null for anything else, and for one the
+ * sheet must show:
  * text that holds hidden characters, a conversation that read the web, a
  * start xbind offers no choices for.
  */
@@ -312,13 +345,13 @@ export function inPlace(req) {
   const tile = String(req.tile || '').split('/').filter(Boolean).pop() || 'the tile';
   if (req.kind === 'message') {
     const m = messageView(req);
-    return !m.text || reveal(m.text).hidden ? null : { kind: 'message', title: m.title, chips: m.agent, text: m.text, body: { grant: 'once', seen: { textLen: textBytes(m.text) } } };
+    return !m.text || reveal(m.text).hidden ? null : { kind: 'message', title: m.title, chips: m.agent, text: m.text, byXbin: false, body: { grant: 'once' } };
   }
   const s = sess(req), c = s.continue && s.continue.session ? s.continue : null;
   if (req.kind !== 'session' || !c || s.resume || !harnessesOf(s).length) return null;
   const text = briefOf(req);
   if (!text || reveal(text).hidden) return null;
-  return { kind: 'continue', title: `Continue the ${c.providerName || c.provider} session in ${tile}`, chips: contChips(c), text,
+  return { kind: 'continue', title: `Continue the ${c.providerName || c.provider} session in ${tile}`, chips: contChips(c), text, byXbin: s.briefBy === 'xbin',
     body: { grant: 'once', ...pickBody(req, pickOf(req)) } };
 }
 
@@ -340,8 +373,8 @@ export function batch({ requests = [], failed = [], changesets = [], sessions = 
     if (r.state !== 'pending') continue;
     const inline = inPlace(r);
     const title = inline ? inline.title : r.kind === 'message' ? messageView(r).title : needTitle(r);
-    rows.push({ kind: 'request', id: r.id, title, chips: inline ? inline.chips : startChips(r), parts: askedParts(r, now), action: inline ? 'Send' : 'Review…', review: true, at: toMs(r.created),
-      ...(inline ? { inline } : {}) });
+    rows.push({ kind: 'request', id: r.id, title, chips: inline ? inline.chips : startChips(r), signInId: signInIdOf(r), parts: askedParts(r, now), action: inline ? 'Send' : 'Review…', review: true,
+      at: toMs(r.created), ...(inline ? { inline } : {}) });
   }
   for (const r of failed) {
     if (r.state !== 'failed' || !(r.failure && r.failure.retry)) continue;

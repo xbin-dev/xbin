@@ -265,11 +265,12 @@ public enum DelegationWords {
     /// Whether `c` is never drawn as it is in the agent's text: a control
     /// character but newline and tab, or any format character (Cf) — the
     /// bidi embeddings, overrides and isolates, the zero-width ones, the
-    /// word joiner, the byte order mark (the web's `reveal`).
+    /// word joiner, the byte order mark — or the line and paragraph
+    /// separators, U+2028 and U+2029 (D252) (the web's `reveal`).
     public static func isHidden(_ c: Unicode.Scalar) -> Bool {
         if c == "\n" || c == "\t" { return false }
         switch c.properties.generalCategory {
-        case .control, .format: return true
+        case .control, .format, .lineSeparator, .paragraphSeparator: return true
         default: return false
         }
     }
@@ -351,10 +352,18 @@ public enum DelegationWords {
     }
 
     /// What `POST …/approve` sends: `{grant, scope?, unseen?}`. A body
-    /// nobody could read is approved only by saying so.
-    public static func approveBody(_ r: DelegateRequest, choice: GrantChoice.ID = .once, duration: String = "") -> JSONValue {
+    /// nobody could read is approved only by saying so. `onScreen`: a
+    /// start's brief as the sheet showed it when the person tapped (all of
+    /// it, or its clipped part) — said as `seen.textLen` with `knows:
+    /// ["seen-text"]`: xbind allows only a brief that was all on screen
+    /// (D252; the web's withSeenText).
+    public static func approveBody(_ r: DelegateRequest, choice: GrantChoice.ID = .once, duration: String = "", onScreen: String? = nil) -> JSONValue {
         var o: [String: JSONValue] = [:]
         if sends(r).binary { o["unseen"] = true }
+        if r.kind == .session, let onScreen {
+            o["knows"] = .array([.string("seen-text")])
+            o["seen"] = .object(["textLen": .int(Int64(onScreen.utf8.count))])
+        }
         let tool = r.kind == .mcp && choice == .tool // an MCP tool: always, this tool (D239)
         if !tool, r.kind != .call || choice == .once {
             o["grant"] = "once"
@@ -469,13 +478,9 @@ public enum DelegationWords {
         let cred = signIn == "saved" || signIn == "needed" ? ""
             : credentials == "own" ? ", on your own sign-in"
             : credentials == "connector" || !modelName.isEmpty ? ", through the workspace's connector" : ""
-        var brief = ""
-        if let b = try? JSONValue(parsing: r.body.isEmpty ? "{}" : r.body), b.objectValue != nil {
-            brief = b["prompt"]?.stringValue ?? b["brief"]?.stringValue ?? b["message"]?.stringValue ?? ""
-        } else {
-            brief = r.body
-        }
-        if brief.isEmpty { brief = s["prompt"]?.stringValue ?? "" }
+        // what the session will be told is xbind's reading of the body (preview.session.prompt) — never the app's own
+        // reading of the bytes, which a body with a key in another case or twice could make another text (D252)
+        let brief = s["prompt"]?.stringValue ?? ""
         let net = s["net"]?.stringValue ?? ""
         return SessionRows(
             agent: "\(who)\(model)\(cred)",
