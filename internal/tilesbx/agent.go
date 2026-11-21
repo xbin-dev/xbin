@@ -40,7 +40,9 @@ type agentClient struct {
 	fac    *sandbox.Factory
 	ctl    *proto.Conn
 	sendMu sync.Mutex // one control line at a time
-	logf   func(string, ...any)
+	// sendWait bounds a control line's send (0: ctlSendWait); set before use
+	sendWait time.Duration
+	logf     func(string, ...any)
 
 	mu       sync.Mutex
 	next     int // the next session id
@@ -170,9 +172,21 @@ func (a *agentClient) send(m proto.Msg) error {
 	return nil
 }
 
-// ctlSendWait bounds a control line's send (an exec, a signal, a resize);
-// a variable for the tests.
-var ctlSendWait = 10 * time.Second
+// ctlSendWait bounds a control line's send (an exec, a signal, a resize),
+// unless the client sets its own (sendWait). A constant: a test that wants
+// a shorter bound sets it on its own client, never for the package — an
+// exec's timeout sends its KILL termGrace after the TERM, past the end of
+// the test that started it, and would read a package variable while the
+// next test writes it.
+const ctlSendWait = 10 * time.Second
+
+// ctlWait is this client's bound on a control line's send.
+func (a *agentClient) ctlWait() time.Duration {
+	if a.sendWait > 0 {
+		return a.sendWait
+	}
+	return ctlSendWait
+}
 
 // sendWithin is send, bounded by d: the agent runs a sync inline in its
 // control loop, so over a wedged root it stops reading, and a line past the
@@ -301,7 +315,7 @@ func (a *agentClient) Exec(ex proto.Exec) (*agentSession, map[string]net.Conn, e
 		}
 		streams[name] = c
 	}
-	if err := a.sendWithin(proto.Msg{Op: "exec", Exec: &ex}, ctlSendWait); err != nil {
+	if err := a.sendWithin(proto.Msg{Op: "exec", Exec: &ex}, a.ctlWait()); err != nil {
 		return fail(err)
 	}
 	return s, streams, nil
@@ -316,7 +330,7 @@ func (a *agentClient) abandon(s *agentSession, why string) {
 // Signal signals a session (group: its whole process group). Bounded, as
 // every control line but a sync is (sendWithin).
 func (a *agentClient) Signal(session, sig int, group bool) error {
-	return a.sendWithin(proto.Msg{Op: "signal", Session: session, Signal: sig, Group: group}, ctlSendWait)
+	return a.sendWithin(proto.Msg{Op: "signal", Session: session, Signal: sig, Group: group}, a.ctlWait())
 }
 
 // Resize resizes a tty session's terminal (bounded). The resize goes on
@@ -326,7 +340,7 @@ func (a *agentClient) Signal(session, sig int, group bool) error {
 // the keys sent after it see the new size.
 func (a *agentClient) Resize(s *agentSession, rows, cols uint16) error {
 	seq := s.beginResize()
-	err := a.sendWithin(proto.Msg{Op: "resize", Session: s.id, Rows: rows, Cols: cols, Seq: seq}, ctlSendWait)
+	err := a.sendWithin(proto.Msg{Op: "resize", Session: s.id, Rows: rows, Cols: cols, Seq: seq}, a.ctlWait())
 	if err != nil && seq > 0 {
 		s.endResize(seq) // it may never have gone: nothing waits for its answer
 	}

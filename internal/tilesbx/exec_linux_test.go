@@ -558,12 +558,9 @@ func (fe *fakeEnv) server(p auth.Principal) *httptest.Server {
 // A control line the agent never reads is bounded: a signal or an exec
 // answers unavailable instead of hanging its request.
 func TestControlSendsBounded(t *testing.T) {
-	old := ctlSendWait
-	ctlSendWait = 200 * time.Millisecond
-	defer func() { ctlSendWait = old }()
 	ours, theirs := net.Pipe() // unbuffered: nothing gets through while nobody reads
 	defer theirs.Close()
-	a := &agentClient{ctl: proto.NewConn(ours, nil), sessions: map[int]*agentSession{}, next: firstSession,
+	a := &agentClient{ctl: proto.NewConn(ours, nil), sendWait: 200 * time.Millisecond, sessions: map[int]*agentSession{}, next: firstSession,
 		ready: make(chan struct{}), gone: make(chan struct{}), logf: func(string, ...any) {}}
 	defer a.Close()
 	for name, send := range map[string]func() error{
