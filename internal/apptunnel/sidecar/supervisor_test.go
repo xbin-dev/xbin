@@ -352,20 +352,39 @@ func TestSupervisorOnState(t *testing.T) {
 }
 
 // A second Start restarts the process with the new config.
-func TestSupervisorSecondStartRestarts(t *testing.T) {
-	s := fakeSupervisor(t)
+func TestSupervisorSecondStartRestarts(t *testing.T) { secondStartRestarts(t) }
+
+// The same when the new process comes up where the old one was. A fake
+// ticket is its listener's address, and the kernel may hand the port just
+// freed to the next listener: both were on :39231 in `make integration`
+// on 2026-11-27, and the test, which told the new process by a ticket that
+// differs, timed out. Here both are made to listen on one port.
+func TestSupervisorSecondStartRestartsOnTheSamePort(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := ln.Addr().String()
+	ln.Close()
+	secondStartRestarts(t, "FAKEIROH_LISTEN="+addr)
+}
+
+func secondStartRestarts(t *testing.T, env ...string) {
+	s := fakeSupervisor(t, env...)
 	ctx := context.Background()
 	if err := s.Start(ctx, Config{Key: testKey(1), Relay: wire.Relay{Mode: "disabled"}}); err != nil {
 		t.Fatal(err)
 	}
-	first := waitState(t, s, StateRunning).Ticket
+	waitState(t, s, StateRunning)
 	if err := s.Start(ctx, Config{Key: testKey(1), Relay: wire.Relay{Mode: "disabled"}, Allow: []string{endpointOf(testKey(2))}}); err != nil {
 		t.Fatal(err)
 	}
+	// running after the one restart is the new process's ready: the count
+	// goes up as the state turns to starting, under one lock
 	var st Status
 	waitFor(t, "a new process", func() bool {
 		st = s.Status()
-		return st.State == StateRunning && st.Ticket != first && st.Restarts == 1
+		return st.State == StateRunning && st.Restarts == 1
 	})
 	c, _, err := fakeiroh.Dial(st.Ticket, wire.ALPNTunnelName, endpointOf(testKey(2)))
 	if err != nil {
