@@ -13,3 +13,12 @@
 # The gate scans the Go this checkout builds; Go a bundle carries prebuilt
 # (bin/gocryptfs, hack/helpers.sha256) or the rootfs installs (gopls, dlv)
 # isn't scanned, so nothing here can speak for it.
+
+# gorilla/websocket makes its mask key with math/rand. A mask key is made for
+# a CLIENT's frames only (conn.go: !c.isServer); xbind and bx only upgrade —
+# TestGorillaIsServerSideOnly (internal/wsinterop) fails if shipped code ever
+# dials. No tagged gorilla has the fix (v1.5.3 is the latest; the fix sits 14
+# untagged commits on, with server-side changes among them): remove these with
+# the next tagged gorilla/websocket.
+GO-2026-6278 xbind # server side only: no mask key is ever made (see above)
+GO-2026-6278 xbind/arm64 # the same
