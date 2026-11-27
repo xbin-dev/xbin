@@ -79,8 +79,8 @@ test('a start that would continue the agent\'s own idle session: continue first,
   assert.match(v.cont.label, /^Continue the OpenCode session from \d\d:\d\d with this follow-up$/);
   assert.deepEqual(v.cont.chips, ['OpenCode', 'model m1', 'acts without asking']);
   assert.deepEqual([v.pickers.length, v.label, v.asks, v.remember.shown, v.needsTick], [0, 'Send', false, false, undefined]);
-  assert.deepEqual(S.pickBody(req, pick), { knows: ['continue'], seen: { signInId: '', net: '', harness: 'opencode', mode: 'build' } },
-    'continuing: the session keeps its own — held to it as shown (D251)');
+  assert.deepEqual(S.pickBody(req, pick), { knows: ['continue'], continue: true, seen: { signInId: '', net: '', harness: 'opencode', mode: 'build' } },
+    'continuing: the session keeps its own — held to it as shown (D251), and said (D253)');
   const anew = S.contChoice(pick, req, false);
   const fresh = S.startView(req, anew);
   assert.deepEqual([anew.harness, fresh.continuing, fresh.pickers.length, fresh.label], ['codex', false, 3, 'Start'], 'a new session: on what xbind preselected for one');
@@ -156,6 +156,20 @@ test('continuing a session that carries the person\'s saved sign-in: one plain a
   noDot(v, 'a continue with a sign-in');
 });
 
+test('a continue shows the session\'s own reach — its network, whether it calls tile APIs — as xbind recorded it; none where xbind said none (D253, the re-review\'s 3)', () => {
+  const c = { session: 'ts-1', provider: 'claude', providerName: 'Claude Code', mode: 'auto', asks: false, model: 'opus' };
+  assert.deepEqual(S.contChips({ ...c, net: 'none', netLabel: 'offline', api: true }), ['Claude Code', 'model opus', 'acts without asking', 'its model only', 'can call no other tile'],
+    'offline, xbind is out of its reach: a tile-API token calls nothing');
+  assert.deepEqual(S.contChips({ ...c, net: 'internet', netLabel: 'internet', api: true }).slice(3), ['internet', 'can call tile APIs']);
+  assert.deepEqual(S.contChips({ ...c, net: 'internet', netLabel: 'internet', api: false }), ['Claude Code', 'model opus', 'acts without asking', 'internet', 'can call no other tile']);
+  assert.deepEqual(S.contChips({ ...c, net: 'set:docs', netLabel: 'Docs sites', api: true }).slice(3), ['network Docs sites', 'can call tile APIs']);
+  assert.deepEqual(S.contChips({ ...c, net: 'org', netLabel: '', api: true }).slice(3), ['network org', 'can call tile APIs']);
+  assert.deepEqual(S.contChips(c), ['Claude Code', 'model opus', 'acts without asking'], 'a request filed before: nothing said');
+  const req = start({ continue: { ...c, net: 'none', netLabel: 'offline', api: false } });
+  assert.deepEqual(S.startView(req, S.pickOf(req)).cont.chips.slice(3), ['its model only', 'can call no other tile']);
+  assert.deepEqual(S.startChips(req).slice(3), ['its model only', 'can call no other tile']);
+});
+
 test('a follow-up on its batch row: whole when it fits, Send at once; a long one only after Show all (D251 review H1)', () => {
   const brief = "This is a piece of work in this tile, handed to you by ada's workspace agent on their behalf.\n\nGoal: Add a computer player.\nDone when: one can play it.";
   const cont = start({ continue: { session: 'ts-1', provider: 'claude', providerName: 'Claude Code', mode: 'auto', asks: false, model: 'opus', signInId: 'si_9' }, prompt: brief },
@@ -163,11 +177,11 @@ test('a follow-up on its batch row: whole when it fits, Send at once; a long one
   const msg = { id: 'rq_m', kind: 'message', tile: 'apps/eui', state: 'pending', created: at('10:49:00'), preview: { message: { session: 'ts-1', provider: 'opencode', providerName: 'OpenCode', mode: 'build', text: 'Fix the stray O.' } } };
   const c = S.inPlace(cont), m = S.inPlace(msg);
   assert.deepEqual([c.kind, c.title, c.chips, c.text], ['continue', 'Continue the Claude Code session in eui', ['Claude Code', 'model opus', 'acts without asking', 'uses your Claude Code sign-in'], brief]);
-  assert.deepEqual(c.body, { grant: 'once', knows: ['continue'], seen: { signInId: 'si_9', net: '', harness: 'claude', mode: 'auto' } }, 'what the sheet sends for it');
+  assert.deepEqual(c.body, { grant: 'once', knows: ['continue'], continue: true, seen: { signInId: 'si_9', net: '', harness: 'claude', mode: 'auto' } }, 'what the sheet sends for it');
   assert.deepEqual([m.kind, m.chips, m.body], ['message', ['OpenCode', 'mode build', 'acts without asking'], { grant: 'once' }]);
   assert.equal(c.byXbin, false, 'the agent wrote it: xbind says no other');
   // Send says how much of the text was on screen when the person clicked — all of it, or the part shown (D252)
-  assert.deepEqual(S.withSeenText(c.body, brief), { grant: 'once', knows: ['continue', S.SEEN_TEXT], seen: { signInId: 'si_9', net: '', harness: 'claude', mode: 'auto', textLen: S.textBytes(brief) } });
+  assert.deepEqual(S.withSeenText(c.body, brief), { grant: 'once', knows: ['continue', S.SEEN_TEXT], continue: true, seen: { signInId: 'si_9', net: '', harness: 'claude', mode: 'auto', textLen: S.textBytes(brief) } });
   assert.deepEqual(S.withSeenText(m.body, 'Fix the'), { grant: 'once', knows: ['seen-text'], seen: { textLen: 7 } }, 'a clipped text: its part, which xbind refuses');
   // it fits (12 lines, 1,200 characters): whole, as it is — the opening line moved after the goal only for xbin's own brief
   assert.deepEqual(S.rowText(brief), { whole: true, lead: brief, opening: '', note: '', shown: brief }, 'the agent\'s text that opens like xbin\'s brief: as it is (D252)');
@@ -237,4 +251,76 @@ test('a coding agent with no mode that asks (OpenCode): an ordinary choice — t
   assert.match(v.fact, /^It edits files and runs commands in this tile's sandbox without asking you/);
   assert.ok(!/asks you/.test(JSON.stringify(v)), `no word that it asks you anywhere on the sheet: ${JSON.stringify(v).match(/.{60}asks you.{20}/)}`);
   assert.deepEqual([v.remember.shown, v.remember.keepsMode], [true, true]);
+});
+
+test('the sheet\'s heading, a message\'s title and the failed state, from one table (D253)', async () => {
+  const W = await import('../web/agent-chrome-words.js');
+  const msg = { id: 'rq_m', kind: 'message', tile: 'apps/eui', state: 'pending', preview: { message: { session: 'ts-1', provider: 'opencode', providerName: 'OpenCode', mode: 'build', text: 'Fix it.' } } };
+  assert.deepEqual(S.sheetHeading(msg), { before: 'Send this message to the OpenCode session in ', strong: 'eui', after: '?' });
+  assert.deepEqual([W.needTitle(msg), W.allowLabel(msg), W.allowSpoken(msg)], ['Send a message to OpenCode in eui', 'Send', 'Send'], 'the chrome\'s own words know a message');
+  assert.deepEqual([S.messageView(msg).heading, S.messageView(msg).title], [W.heading(msg), W.needTitle(msg)]);
+  const req = start();
+  assert.deepEqual(S.sheetHeading(req, S.startView(req, S.pickOf(req))), { before: 'Start a tile agent in ', strong: 'Eui', after: '?' });
+  const cont = start({ continue: { session: 'ts-1', provider: 'opencode', providerName: 'OpenCode', mode: 'build', asks: false } });
+  assert.equal(S.sheetHeading(cont, S.startView(cont, S.pickOf(cont))).before, 'Continue the session in ');
+  const failed = { ...start(), state: 'failed', failure: { why: 'the tile\'s sandbox didn\'t start', retry: true }, chosen: { provider: 'codex', model: '', mode: 'agent' } };
+  assert.equal(S.sheetHeading(failed, S.startView(failed, S.pickOf(failed))).before, 'Try again to start a tile agent in ');
+  assert.equal(W.settled(failed), 'Approved, but the tile agent didn’t start: the tile\'s sandbox didn\'t start', 'never "a state this page doesn\'t know"');
+  assert.deepEqual(W.requestCard(failed), { head: 'Approved, but the tile agent didn’t start', what: 'Start a tile agent in Eui', line: 'the tile\'s sandbox didn\'t start', glyph: 'error', tone: 'warn', waits: true, button: 'Try again' });
+  assert.deepEqual([W.requestCard({ ...failed, failure: { why: 'refused', retry: false } }).waits, W.knownState(failed)], [false, true]);
+  noDot([S.SHEET, S.sheetHeading(msg)], 'the sheet\'s words');
+});
+
+test('what the sheet\'s Allow sends: the pick, all of the text, and for a Try again only what a retry takes (D253)', () => {
+  const req = start();
+  let pick = S.choose(S.pickOf(req), req, 'mode', 'agent');
+  assert.deepEqual(S.sheetBody(req, pick, 'Goal: tic tac toe'), { grant: 'once', knows: ['continue', 'seen-text'], seen: { signInId: '', net: '', textLen: 17 }, harness: 'codex', model: '', mode: 'agent', remember: true });
+  assert.deepEqual(S.sheetBody(req, pick, 'Goal'), { grant: 'once', knows: ['continue', 'seen-text'], seen: { signInId: '', net: '', textLen: 4 }, harness: 'codex', model: '', mode: 'agent', remember: true }, 'the part shown: xbind refuses it');
+  const failed = { ...req, state: 'failed', failure: { why: 'x', retry: true }, chosen: { provider: 'gemini', model: '', mode: 'default', continue: true } };
+  pick = S.pickOf(failed);
+  assert.deepEqual(S.sheetBody(failed, pick, 'Goal: tic tac toe'), { knows: ['continue', 'seen-text'], seen: { signInId: 'si_1', net: '', textLen: 17 }, harness: 'gemini', model: '', mode: 'default' },
+    'no grant, no tick, nothing remembered — and all of the brief on screen, as an approve says it (the re-review\'s 2)');
+  const msg = { id: 'rq_m', kind: 'message', tile: 'apps/eui', state: 'pending', preview: { message: { session: 'ts-1', provider: 'opencode', text: 'Fix it.' } } };
+  assert.deepEqual(S.sheetBody(msg, null, 'Fix it.'), { grant: 'once', knows: ['seen-text'], seen: { textLen: 7 } });
+  assert.deepEqual(S.sheetBody({ kind: 'call' }, null, '', { grant: 'hour', scope: 'call' }), { grant: 'hour', scope: 'call' }, 'a call: as approveBody made it');
+  // an older xbind's start (no choices): the brief's length only
+  assert.deepEqual(S.sheetBody(start({ choices: undefined }), S.pickOf(req), 'ab'), { grant: 'once', knows: ['seen-text'], seen: { textLen: 2 } });
+});
+
+test('the app\'s row: a follow-up inPlace allows, short enough for a phone\'s list row (D253)', () => {
+  const msg = (text) => ({ id: 'rq_m', kind: 'message', tile: 'apps/eui', state: 'pending', preview: { message: { session: 'ts-1', provider: 'opencode', providerName: 'OpenCode', mode: 'build', text } } });
+  assert.ok(S.appInPlace(msg('Fix the stray O.')));
+  assert.equal(S.appInPlace(msg(Array(7).fill('a').join('\n'))), null, 'seven lines: the sheet');
+  assert.ok(S.appInPlace(msg(Array(6).fill('a').join('\n'))));
+  assert.equal(S.appInPlace(msg('x'.repeat(401))), null, 'over 400 characters: the sheet');
+  assert.ok(S.appInPlace(msg('😀'.repeat(400))), 'characters, not bytes');
+  assert.ok(S.inPlace(msg('x'.repeat(1000))) && !S.appInPlace(msg('x'.repeat(1000))), 'the web\'s row takes it, the app\'s doesn\'t');
+  assert.equal(S.appInPlace(msg('a‮b')), null, 'what inPlace refuses, the app refuses');
+  assert.equal(S.appInPlace(start()), null);
+});
+
+test('Try again says what its sheet shows: a new session stays a new session, a continue is said and held to the session (D253, the review\'s H1); it remembers nothing (L1)', () => {
+  const cont = { session: 'ts-1', provider: 'claude', providerName: 'Claude Code', mode: 'auto', asks: false, model: 'opus', signIn: 'saved', signInId: 'si_9' };
+  const hs = [{ id: 'claude', name: 'Claude Code', defaultMode: 'auto', modelsKnown: false, signIn: 'connector', signInId: 'si_9',
+    modes: [{ id: 'default', name: 'Manual', asks: true }, { id: 'auto', name: 'Auto', asks: false }], models: [{ id: '' }] }];
+  // the first approval started a new session in a mode that asks; it failed; the card still offers ts-1
+  const failed = { ...start({ provider: 'claude', providerName: 'Claude Code', mode: 'default', asks: true, continue: cont, choices: { harnesses: hs } }),
+    state: 'failed', failure: { why: 'x', retry: true }, chosen: { provider: 'claude', model: '', mode: 'default' } };
+  let pick = S.pickOf(failed);
+  const v = S.startView(failed, pick);
+  assert.deepEqual([pick.cont, v.continuing, v.label, v.modeChip], [false, false, 'Start', 'asks before acting'], 'the sheet shows a new session');
+  assert.deepEqual(S.sheetBody(failed, pick, 'Goal: tic tac toe'), { knows: ['continue', S.SEEN_TEXT], continue: false, seen: { signInId: 'si_9', net: '', textLen: 17 }, harness: 'claude', model: '', mode: 'default' },
+    'what it sends says so: absent, xbind opened the offered session — and how much of the brief was on screen, as an approve says it (the re-review\'s 2)');
+  assert.equal(v.remember.shown, false, 'no Remember on a Try again: a retry remembers nothing');
+  pick = S.contChoice(pick, failed, true);
+  assert.deepEqual(S.sheetBody(failed, pick, 'Goal: tic tac toe'), { knows: ['continue', S.SEEN_TEXT], continue: true, seen: { signInId: 'si_9', net: '', harness: 'claude', mode: 'auto', textLen: 17 } },
+    'continuing on a Try again: said, with the session as shown');
+  assert.deepEqual(S.sheetBody(failed, pick, 'Goal: tic'), { knows: ['continue', S.SEEN_TEXT], continue: true, seen: { signInId: 'si_9', net: '', harness: 'claude', mode: 'auto', textLen: 9 } },
+    'the part on screen of a brief it clipped: xbind refuses it, nothing decided');
+  assert.equal(S.sheetBody({ ...failed, preview: { session: { ...failed.preview.session, continue: undefined } } }, S.pickOf(failed), '').continue, undefined, 'nothing offered: nothing to say');
+  // the first approval: a new session instead says continue false — the sheet, the row and Review all all build it here
+  const pending = start({ continue: cont, choices: { harnesses: hs } });
+  assert.equal(S.sheetBody(pending, S.contChoice(S.pickOf(pending), pending, false), 'Goal: tic tac toe').continue, false);
+  assert.equal(S.sheetBody(pending, S.pickOf(pending), 'Goal: tic tac toe').continue, true);
+  assert.match(S.SHEET.olderXbind, /older than this app/);
 });

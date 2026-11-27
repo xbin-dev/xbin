@@ -12,6 +12,58 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-21
 
+- **Workspace agent: an approval of a long text, and a Try again of a
+  continue, from a sheet older than xbind** (D253). A client that
+  doesn't say `knows: ["seen-text"]` — every one up to v0.3.84 — showed
+  the first 4000 characters of a text until Show all and said nothing of
+  it: an approve or a Try again of a start's brief, a continue's or a
+  message longer than that is now 409 `{changed: "text", reload: true}`,
+  nothing decided ("reload this page"; the app: "update the app, or
+  decide this one on the web"); shorter texts are decided as before. The
+  web's and the app's Try again now say how much of the brief was on
+  screen, as an approve does. A v0.3.84 page's Try again of a continue
+  (`knows: ["continue"]`, no `continue`, no pick) is 409 `{changed:
+  "session", reload: true}`, nothing decided or spent — it opened a new
+  session; so is `continue: true` where no session is offered or without
+  `knows: ["continue"]`, on an approve too. `preview.session.continue`
+  gains the session's own reach from xbind's record of it — `net`,
+  `netLabel`, `api` — shown as chips ("its model only" or its network,
+  "can call tile APIs" or "can call no other tile") where the sheet hides
+  a new session's Network and Other tiles rows
+  ([delegation](/docs/protocol/delegation.md)).
+- **Workspace agent: Try again no longer continues a session its sheet
+  started anew** (D253). A start that offered the agent's own session,
+  approved as a new session instead and failed, continued the offered
+  session when its person tried it again (the retry took no `continue`,
+  and absent meant continue). `POST /delegate/requests/<id>/retry` now
+  takes `continue`: true continues, held to the session shown (`seen
+  {harness, mode}`, 400 without, 409 `{changed, reload}` otherwise); a
+  body that picks without it opens a new session; a stale sheet's retry
+  answers 409 `{changed, reload}` as an approve does. The web's and the
+  app's sheets say `continue` either way, and hide Remember on a Try
+  again (a retry remembers nothing) and a new start's Network and Other
+  tiles rows on a continue. `GET /delegate/state` gains `takes`: what an
+  approve and a Try again may carry beyond v0.3.84's — the app sends an
+  older xbind only what it takes and declines what it can't hold to the
+  sheet. The device rule for a message covers every session the app
+  holds (its password/SSO one before a device is enrolled too).
+- **xbin app — the workspace agent's approvals as on the web** (D253):
+  a tile agent's start is picked on the app's sheet (Coding agent, Model,
+  Mode, where each came from, Remember for this tile); a follow-up
+  continues the agent's own session with **Send**, or starts a new one;
+  a message to a tile agent that acts without asking is shown whole and
+  sent from the app; a short follow-up is sent from its Needs you row;
+  a start that didn't open is **Try again**. The app sends what the web
+  sends (`harness`, `model`, `mode`, `remember`, `continue`, `knows`,
+  `seen`) and reads `GET /delegate/requests?failed=1` and
+  `GET /agent/signins`. **xbind:** a device's Allow of a message is now
+  refused by the missing `knows: ["seen-text"]`, not by a missing length:
+  an app that says it and sends the whole length is allowed (as the web
+  is), one that doesn't is refused in the same words as before ("decide
+  this one on the web") — a length without the word too. `POST
+  /delegate/requests/<id>/retry` is documented as the app's and the
+  device's too, as it already answered them
+  ([delegation](/docs/protocol/delegation.md)).
 - **Security, BREAKING for a delegate that writes its own bodies — a
   tile agent start could be shown with one brief and told another**
   (v0.3.80, v0.3.81, v0.3.82, v0.3.83, v0.3.84; D252;

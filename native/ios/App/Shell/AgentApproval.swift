@@ -23,6 +23,15 @@ import XbinRenderer
 //   - A tile agent's start leads with its mode, a neutral tag and one plain
 //     line: acting without asking is the ordinary default (D251), never a
 //     warning; its Allow is the ordinary primary "Start".
+//   - Where xbind offers a pick (D250's `choices`), the start is PICKED here
+//     as on the web (D253): Coding agent, Model and Mode — each with where
+//     its value came from, its own element — "Remember for this tile", the
+//     mode's chip and its plain line; a follow-up continues the agent's own
+//     session first ("Send"), "Start a new session instead" the second
+//     choice. A message to a tile agent is shown whole and sent with Send.
+//     What the sheet sends is StartWords.sheetBody — the web's, by vectors.
+//   - A text is allowed only once all of it has been on screen: a clipped
+//     one after Show all, a message once its end has been in view too.
 //   - What WIDENS the grant is armed like Allow (the web chrome's
 //     WidenGuard): a standing choice, "until I take it back" — dimmed and
 //     inert for 600 ms after the sheet shows, while another sheet covers it
@@ -305,6 +314,9 @@ struct AgentDecisionBar: View {
     /// held, no agent): said in the place of Allow, and Deny is the filled
     /// button. "": Allow is there.
     var stopped: String = ""
+    /// What holds Allow back for now ("Show all of the text to allow it"),
+    /// said above the buttons; "" none.
+    var note: String = ""
     let onDeny: () -> Void
     let onAllow: () -> Void
     @Environment(\.dynamicTypeSize) private var typeSize
@@ -317,9 +329,18 @@ struct AgentDecisionBar: View {
         let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(spacing: 8)) : AnyLayout(HStackLayout(spacing: 10))
         Group {
             if stopped.isEmpty {
-                layout {
-                    denyButton
-                    allowButton
+                VStack(spacing: 6) {
+                    if !note.isEmpty {
+                        Text(verbatim: note).font(.caption).foregroundStyle(XbinColor.muted)
+                            .frame(maxWidth: .infinity, alignment: .trailing).multilineTextAlignment(.trailing)
+                            // (chrome, like the trusted bar: at the largest sizes the text it is about keeps the room)
+                            .dynamicTypeSize(...DynamicTypeSize.accessibility2)
+                            .accessibilityIdentifier("\(id)-note")
+                    }
+                    layout {
+                        denyButton
+                        allowButton
+                    }
                 }
             } else {
                 // why nothing can be allowed, the whole width, and Deny under it
@@ -390,6 +411,11 @@ struct AgentApprovalSheet: View {
     @State private var wider = false
     @State private var showAll = false
     @State private var showAllBrief = false
+    /// A start's coding agent, model and mode as the person picks them here
+    /// (D250, the app's since D253); nil for anything but a start.
+    @State private var pick: StartPick?
+    /// A message's end has been on screen (the whole-text rule, D253).
+    @State private var reachedEnd = false
     /// A 409's refusal: the agent stopped while the sheet was open.
     @State private var refusal = ""
     /// Where a request that no longer waits was decided ("on the web",
@@ -408,7 +434,7 @@ struct AgentApprovalSheet: View {
                         .padding(.horizontal, 14).padding(.vertical, 14)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                if r.isPending { buttons(r) } else { doneBar }
+                if r.isDecidable { buttons(r) } else { doneBar }
             } else if loaded {
                 AgentStateView(title: "Nothing to approve", text: AgentNoticeWords.gone404, more: "", retry: nil)
                 doneBar
@@ -422,8 +448,10 @@ struct AgentApprovalSheet: View {
         .interactiveDismissDisabled(working)
         .task(id: id) {
             request = await workspace.agent.request(id)
+            pick = request.flatMap { $0.kind == .session ? StartWords.pickOf($0) : nil }
             loaded = true
-            if let r = request, !r.isPending { place = await AgentNotifications.shared.placeOf(r, in: workspace) }
+            if let r = request { await workspace.agent.readSignInNames(for: [StartWords.signInIdOf(r)]) }
+            if let r = request, !r.isDecidable { place = await AgentNotifications.shared.placeOf(r, in: workspace) }
             duration = AgentChoices.duration(for: choice)
             arming.arm(settle: 0.4) // the sheet's own slide comes first
             widen.arm(settle: 0.4)
@@ -435,8 +463,9 @@ struct AgentApprovalSheet: View {
             duration = AgentChoices.duration(for: c)
             arming.arm()
         }
-        // (what Allow means changed with the duration too)
+        // (what Allow means changed with the duration too — and with a start's pick)
         .onChange(of: duration) { _, _ in arming.arm() }
+        .onChange(of: pick) { _, _ in arming.arm() }
         // Something covers the sheet: nothing under it is armed.
         .onChange(of: wider) { _, up in
             if up { arming.disarm(); widen.disarm() } else { arming.arm(); widen.arm() }
@@ -459,12 +488,13 @@ struct AgentApprovalSheet: View {
     }
 
     @ViewBuilder private func content(_ r: DelegateRequest) -> some View {
-        let h = DelegationWords.heading(r)
+        // a start's heading says whether it continues a session or is tried again (the web's sheetHeading)
+        let h = r.kind == .session && r.isDecidable ? StartWords.sheetHeading(r, StartWords.startView(r, pick ?? StartWords.pickOf(r))) : StartWords.sheetHeading(r)
         Text(AgentReveal.heading(h)) // a tile's or a tool's name is never drawn as it came (reveal)
             .accessibilityLabel(Text(verbatim: DelegationWords.revealed(h.plain)))
             .accessibilityAddTraits(.isHeader)
             .accessibilityIdentifier("approval-heading")
-        if !r.isPending {
+        if !r.isDecidable {
             Label { Text(verbatim: r.kind == .unknown ? DelegationWords.unknownState.text : DelegationWords.settled(r)) } icon: { Image(systemName: "info.square") }
                 .font(.callout.weight(.semibold))
                 .accessibilityIdentifier("approval-settled")
@@ -473,7 +503,7 @@ struct AgentApprovalSheet: View {
                     .accessibilityIdentifier("approval-decided-where")
             }
         }
-        if r.isPending, r.kind == .unknown { // a kind this app can't show (a message to a tile agent, D250): decided on the web
+        if r.isPending, r.kind == .unknown { // a kind this app can't show (a newer xbind's): decided on the web
             Label { Text(verbatim: DelegationWords.unknownKindOnWeb) } icon: { Image(systemName: "info.square") }
                 .font(.callout.weight(.semibold))
                 .accessibilityIdentifier("approval-unknown-kind")
@@ -481,6 +511,7 @@ struct AgentApprovalSheet: View {
         if r.preview["readWeb"]?.boolValue == true { AgentReadWebBanner() }
         switch r.kind {
         case .session: sessionRows(r)
+        case .message: messageRows(r)
         case .call, .template: callRows(r)
         case .web, .mcp: AgentNetRows(request: r)
         case .unknown: EmptyView() // a newer xbind's kind: said above, never decided here
@@ -497,7 +528,7 @@ struct AgentApprovalSheet: View {
     private func footer(_ r: DelegateRequest) -> String {
         let asked = DelegationWords.asked(created: r.created, expires: r.isPending ? r.expires : nil)
         if r.kind == .call || r.kind == .mcp { return asked }
-        return [asked, r.kind == .web ? "asked every time" : "asked every time · change in Preferences"].filter { !$0.isEmpty }.joined(separator: " · ")
+        return [asked, r.kind == .web || r.kind == .message ? "asked every time" : "asked every time · change in Preferences"].filter { !$0.isEmpty }.joined(separator: " · ")
     }
 
     // MARK: A tile call, a tile's creation
@@ -584,29 +615,56 @@ struct AgentApprovalSheet: View {
 
     // MARK: A tile agent's start
 
+    /// The start as picked so far (the request itself without choices).
+    private func picked(_ r: DelegateRequest) -> DelegateRequest {
+        guard r.kind == .session, let pick else { return r }
+        return StartWords.picked(r, pick)
+    }
+
     @ViewBuilder private func sessionRows(_ r: DelegateRequest) -> some View {
-        let s = DelegationWords.sessionRows(r)
+        let p = pick ?? StartWords.pickOf(r)
+        let v = StartWords.startView(r, p)
+        let s = DelegationWords.sessionRows(StartWords.picked(r, p))
         let t = DelegationWords.tile(r)
+        if let cont = v.cont, r.isDecidable { AgentContinueChoice(cont: cont, continuing: v.continuing, signInName: workspace.agent.signInName(cont.signInId)) { yes in
+            pick = StartWords.contChoice(p, r, yes)
+        } }
         VStack(alignment: .leading, spacing: 0) {
-            // The mode leads: it is what stands between the brief and a change.
-            ApprovalRow(label: "Mode") {
-                AgentTag(text: s.modeTag).accessibilityIdentifier("approval-mode-chip")
-                Text(verbatim: s.modeText).font(.callout)
-                if !s.resumed.isEmpty { // a bypass mode it ran in last, not taken (D251 review M2)
-                    Text(verbatim: s.resumed).font(.callout).foregroundStyle(XbinColor.danger).accessibilityIdentifier("approval-resumed")
+            if !v.pickers.isEmpty, r.isDecidable {
+                // the person's pick (D250, D253): each picker, where its value came from, the mode's chip and line
+                ForEach(v.pickers) { pk in
+                    AgentPickerRow(picker: pk, modeChip: pk.id == "mode" ? v.modeChip : "", fact: pk.id == "mode" ? v.fact : "") { value in
+                        pick = StartWords.choose(p, r, field: pk.id, value: value)
+                    }
                 }
-                if !s.modeName.isEmpty { Text(verbatim: s.modeName).font(XbinFont.code).foregroundStyle(XbinColor.muted) }
+                if v.remember.shown {
+                    AgentRememberRow(label: v.remember.label, note: v.remember.note, on: p.remember) { on in
+                        var next = p
+                        next.remember = on
+                        pick = next
+                    }
+                }
+            } else if !v.continuing {
+                // The mode leads: it is what stands between the brief and a change.
+                ApprovalRow(label: "Mode") {
+                    AgentTag(text: s.modeTag).accessibilityIdentifier("approval-mode-chip")
+                    Text(verbatim: s.modeText).font(.callout)
+                    if !s.resumed.isEmpty { // a bypass mode it ran in last, not taken (D251 review M2)
+                        Text(verbatim: s.resumed).font(.callout).foregroundStyle(XbinColor.danger).accessibilityIdentifier("approval-resumed")
+                    }
+                    if !s.modeName.isEmpty { Text(verbatim: s.modeName).font(XbinFont.code).foregroundStyle(XbinColor.muted) }
+                }
             }
             ApprovalRow(label: "Tile") {
                 Text(AgentReveal.attributed(t.name, font: .body.weight(.semibold)))
                 Text(AgentReveal.attributed([t.path, t.org].filter { !$0.isEmpty }.joined(separator: " · "), font: XbinFont.code)).foregroundStyle(XbinColor.muted)
             }
-            ApprovalRow(label: "Coding agent") {
-                Text(verbatim: s.agent).font(.callout)
-                if !s.picks.isEmpty { Text(verbatim: s.picks).font(.caption).foregroundStyle(XbinColor.muted).accessibilityIdentifier("approval-picks") }
+            if v.pickers.isEmpty, !v.continuing {
+                ApprovalRow(label: "Coding agent") { Text(verbatim: s.agent).font(.callout) }
             }
-            if !s.signIn.isEmpty {
-                // what the session runs on, in xbin's words (D230): a saved sign-in goes in only by a tick on the web's sheet
+            if !s.signIn.isEmpty, !v.continuing {
+                // what the session runs on, in xbin's words (D230) — the coding agent PICKED's offer: a saved sign-in goes
+                // in only by a tick on the web's sheet
                 ApprovalRow(label: "Sign-in") {
                     Text(verbatim: s.signIn).font(.callout)
                     if !s.signInHolds.isEmpty { Text(verbatim: s.signInHolds).font(.callout).foregroundStyle(XbinColor.muted) }
@@ -618,12 +676,14 @@ struct AgentApprovalSheet: View {
                 }
                 .accessibilityIdentifier("approval-signin")
             }
-            ApprovalRow(label: "Network") { Text(verbatim: s.network).font(.callout) }
-            ApprovalRow(label: "Other tiles") { Text(verbatim: s.others).font(.callout) }
+            if !v.continuing { // (a new start's: a continued session keeps its own, which its chips say)
+                ApprovalRow(label: "Network") { Text(verbatim: s.network).font(.callout) }
+                ApprovalRow(label: "Other tiles") { Text(verbatim: s.others).font(.callout) }
+            }
         }
         let brief = DelegationWords.clipText(s.brief, all: showAllBrief)
         VStack(alignment: .leading, spacing: 4) {
-            Text("What it will be told — sent exactly like this").font(.caption.weight(.semibold)).foregroundStyle(XbinColor.muted)
+            Text(verbatim: "What it will be told — \(StartWords.Sheet.sent)").font(.caption.weight(.semibold)).foregroundStyle(XbinColor.muted)
             if !s.briefBy.isEmpty { Text(verbatim: s.briefBy).font(.caption).accessibilityIdentifier("approval-brief-by") }
             AgentHiddenNote(text: s.brief)
             Text(AgentReveal.attributed(s.brief.isEmpty ? "Nothing: it starts without a first message." : brief.clipped ? brief.text + "…" : brief.text, font: XbinFont.code))
@@ -633,30 +693,101 @@ struct AgentApprovalSheet: View {
             if brief.clipped { Text(verbatim: DelegationWords.clipNote(brief)).font(.caption).foregroundStyle(XbinColor.muted) }
         }
         .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("approval-brief")
         if brief.clipped { Button("Show all") { showAllBrief = true }.font(.caption).accessibilityIdentifier("approval-brief-show-all") }
+        AgentDetails(call: v.details)
         Text(verbatim: s.comes).font(.callout).foregroundStyle(XbinColor.muted)
+    }
+
+    // MARK: A message to a tile agent
+
+    /// A message to a tile agent that acts without asking (D250; decided
+    /// here since D253): the whole text, sent exactly so, once — one plain
+    /// approval, the session's facts as chips (D251).
+    @ViewBuilder private func messageRows(_ r: DelegateRequest) -> some View {
+        let m = StartWords.messageView(r)
+        let t = DelegationWords.tile(r)
+        let text = DelegationWords.clipText(m.text, all: showAll)
+        VStack(alignment: .leading, spacing: 0) {
+            ApprovalRow(label: "Tile") {
+                Text(AgentReveal.attributed(t.name, font: .body.weight(.semibold)))
+                Text(AgentReveal.attributed(t.path, font: XbinFont.code)).foregroundStyle(XbinColor.muted)
+            }
+            AgentLabelledChips(label: StartWords.Sheet.agentRow, chips: m.agent, signInName: workspace.agent.signInName(m.signInId))
+                .accessibilityIdentifier("approval-message-agent")
+        }
+        VStack(alignment: .leading, spacing: 4) {
+            Text(verbatim: "\(StartWords.Sheet.messageRow) — \(StartWords.Sheet.sentOnce)").font(.caption.weight(.semibold)).foregroundStyle(XbinColor.muted)
+            AgentHiddenNote(text: m.text)
+            Text(AgentReveal.attributed(text.clipped ? text.text + "…" : text.text, font: XbinFont.code))
+                .textSelection(.enabled)
+                .padding(8).frame(maxWidth: .infinity, alignment: .leading)
+                .background(XbinColor.surface2, in: .xbinPlate)
+            if text.clipped { Text(verbatim: DelegationWords.clipNote(text)).font(.caption).foregroundStyle(XbinColor.muted) }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("approval-message")
+        if text.clipped {
+            Button("Show all") { showAll = true; reachedEnd = false }.font(.caption).accessibilityIdentifier("approval-message-show-all")
+        } else {
+            // the end of the text: once it has been in view, all of it has been on screen (the whole-text rule, D253)
+            Color.clear.frame(height: 1)
+                .onScrollVisibilityChange(threshold: 0.5) { seen in if seen { reachedEnd = true } }
+                .accessibilityHidden(true)
+        }
+        Text(verbatim: m.why).font(.callout).foregroundStyle(XbinColor.muted)
+        AgentDetails(call: "\(r.method) \(r.target)")
     }
 
     // MARK: Deciding
 
     private func buttons(_ r: DelegateRequest) -> some View {
-        AgentDecisionBar(deny: "Deny", allow: DelegationWords.allowLabel(r, choice: choice),
-                         allowSpoken: DelegationWords.allowSpoken(r, choice: choice),
-                         armed: arming.armed && !unread(r), working: working,
-                         stopped: DelegationWords.stopLine(stop),
-                         onDeny: { deny(r) },
-                         onAllow: {
-                             // The wider grant is never one tap: its own sheet, Go back first.
-                             if r.kind == .call, choice == .tile { wider = true } else { send(r, choice: choice) }
-                         })
+        let v = r.kind == .session ? StartWords.startView(r, pick ?? StartWords.pickOf(r)) : nil
+        let label = r.isRetryable ? DelegationWords.tryAgain : v?.label ?? DelegationWords.allowLabel(r, choice: choice)
+        let held = unread(r)
+        // an older xbind that couldn't hold this to what the sheet shows: declined here, never sent otherwise (D253)
+        let older = StartWords.olderRefusal(r, pick: pick, takes: workspace.agent.takes)
+        return AgentDecisionBar(deny: "Deny", allow: label,
+                                allowSpoken: v != nil || r.kind == .message ? label : DelegationWords.allowSpoken(r, choice: choice),
+                                armed: arming.armed && !held && older.isEmpty, working: working,
+                                stopped: DelegationWords.stopLine(stop),
+                                note: !older.isEmpty ? older : held && r.kind != .unknown ? (clipped(r) ? StartWords.Sheet.unread : StartWords.Sheet.reachEnd) : "",
+                                onDeny: { deny(r) },
+                                onAllow: {
+                                    // The wider grant is never one tap: its own sheet, Go back first.
+                                    if r.kind == .call, choice == .tile { wider = true } else { send(r, choice: choice) }
+                                })
     }
 
-    /// A text is allowed only once all of it was on screen (D251 review H1): a
-    /// brief or a body this sheet still clips holds Allow back until Show all.
+    /// The text an approval sends (a start's brief, a message) as this sheet
+    /// shows it now: the part on screen, and whether it is clipped.
+    private func onScreen(_ r: DelegateRequest) -> (text: String, clipped: Bool) {
+        switch r.kind {
+        case .session:
+            let c = DelegationWords.clipText(DelegationWords.sessionRows(picked(r)).brief, all: showAllBrief)
+            return (c.text, c.clipped)
+        case .message:
+            let c = DelegationWords.clipText(StartWords.messageView(r).text, all: showAll)
+            return (c.text, c.clipped)
+        default: return ("", false)
+        }
+    }
+
+    private func clipped(_ r: DelegateRequest) -> Bool {
+        switch r.kind {
+        case .session, .message: return onScreen(r).clipped
+        case .call, .template: return DelegationWords.sends(r, all: showAll).clipped
+        default: return false
+        }
+    }
+
+    /// A text is allowed only once all of it was on screen (D251 review H1):
+    /// a brief or a body this sheet still clips holds Allow back until Show
+    /// all; a message also until its end has been in view (D253).
     private func unread(_ r: DelegateRequest) -> Bool {
         switch r.kind {
-        case .session: return DelegationWords.clipText(DelegationWords.sessionRows(r).brief, all: showAllBrief).clipped
-        case .call, .template: return DelegationWords.sends(r, all: showAll).clipped
+        case .session, .call, .template: return clipped(r)
+        case .message: return clipped(r) || !reachedEnd
         case .unknown: return true // nothing of it is shown here: never allowed here (D252)
         default: return false
         }
@@ -672,10 +803,21 @@ struct AgentApprovalSheet: View {
     private func send(_ r: DelegateRequest, choice: GrantChoice.ID) {
         working = true
         problem = nil
-        // a start's brief as it is on screen now (all of it, once Show all): xbind allows only all of it (D252)
-        let onScreen = r.kind == .session ? DelegationWords.clipText(DelegationWords.sessionRows(r).brief, all: showAllBrief).text : nil
+        if r.kind == .session || r.kind == .message {
+            // the pick, and the text as it is on screen now (all of it, once Show all): xbind allows only all of it
+            // (D252) — a Try again only what a retry takes; the web's sheet sends the same (sheetBody, D253)
+            let takes = workspace.agent.takes
+            guard StartWords.olderRefusal(r, pick: pick, takes: takes).isEmpty else { working = false; return }
+            let body = StartWords.sheetBody(r, pick: pick, onScreen: onScreen(r).text, base: DelegationWords.approveBody(picked(r), choice: .once), takes: takes)
+            Task {
+                let out = r.isRetryable ? await workspace.agent.retry(id: r.id, body: body) : await workspace.agent.approve(id: r.id, body: body)
+                working = false
+                settle(out, allowed: true)
+            }
+            return
+        }
         Task {
-            let out = await workspace.agent.approve(r, choice: choice, duration: duration, onScreen: onScreen)
+            let out = await workspace.agent.approve(r, choice: choice, duration: duration)
             working = false
             settle(out, allowed: true)
         }
@@ -707,6 +849,20 @@ struct AgentApprovalSheet: View {
         case .stopped(let why, _):
             // stopped meanwhile: the reason shows where Allow was, and nothing is sent again
             refusal = why
+        case .changed(_, let why):
+            // what the sheet showed changed since (D250 review L2): nothing was decided — read the request again, show
+            // it as it is now (the picks, Show all and the delay start over), and say what changed, in xbind's words
+            Task {
+                guard let fresh = await workspace.agent.request(id) else { problem = "It no longer waits: \(why)"; return }
+                request = fresh
+                pick = fresh.kind == .session ? StartWords.pickOf(fresh) : nil
+                showAll = false
+                showAllBrief = false
+                reachedEnd = false
+                choice = .once
+                problem = why
+                arming.arm()
+            }
         }
     }
 

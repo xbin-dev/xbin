@@ -303,6 +303,10 @@ async function approvalsUx(browser) {
     const contChips = await page.$$eval(`${SHEET} [data-continue] .chip`, (cs) => cs.map((c) => c.textContent.trim()));
     check(contChips.includes('Fake agent (tests)') && contChips.includes('acts without asking') && contChips.some((c) => /^model /.test(c)) && !contChips.some((c) => c.includes('·')),
       `the session continued is shown as its facts, each an element (${JSON.stringify(contChips)})`);
+    // …and its own reach, from xbind's record of the session — the sheet hides a new session's Network and Other tiles
+    // rows while it continues one (D253 re-review 3)
+    check(contChips.some((c) => /^(its model only|internet|network .+)$/.test(c)) && contChips.some((c) => /^can call (tile APIs|no other tile)$/.test(c)),
+      `the session continued says its own network and tile reach (${JSON.stringify(contChips)})`);
     // one plain approval (D251): Send, no tick, no warning
     check(await page.$eval(`${SHEET} button[data-allow]`, (b) => b.textContent.trim()) === 'Send' && !(await page.$(`${SHEET} [data-cont-signin]`)) && !(await page.$(`${SHEET} [data-danger]`)),
       'continuing: Send, no sign-in tick, no warning');

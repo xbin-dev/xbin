@@ -342,7 +342,7 @@ struct AgentChangeSetSheet: View {
         case .gone(let why):
             problem = "It no longer waits: \(why)"
             Task { set = await workspace.agent.changeset(id) }
-        case .failed(let why):
+        case .failed(let why), .changed(_, let why): // (a change set's apply is never answered with reload; said if it were)
             problem = why
         case .unseen:
             problem = "xbin refused it."

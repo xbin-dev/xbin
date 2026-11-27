@@ -17,7 +17,7 @@
  * `modeNotTaken` (the agent's suggestion), `continue` (the agent's own idle
  * session the start would continue) — and a message's preview.message.
  */
-import { needTitle, asked as askedJoined, left, toMs, clock, needChangeTitle, sessionRows, MODE_FACT, reveal } from './agent-chrome-words.js';
+import { needTitle, heading, asked as askedJoined, left, toMs, clock, needChangeTitle, sessionRows, MODE_FACT, reveal, TRY_AGAIN } from './agent-chrome-words.js';
 
 /** FROM: where a start's choice came from, as the sheet says it under each picker. */
 export const FROM = Object.freeze({
@@ -104,19 +104,38 @@ function rememberWords(continuing, hs, h, pick) {
     : 'Your next start here preselects what you changed.';
   return { shown: !continuing && hs.length > 0 && !!h, label: 'Remember for this tile', note, keepsMode: !!(mode && !mode.explicit) };
 }
+const NO_REMEMBER = Object.freeze({ shown: false, label: '', note: '', keepsMode: false });
 
 /** modeChip(asks): a mode as the one fact the sheet, the batch and the app show of it (D251). */
 export const modeChip = (asks) => (asks ? 'asks before acting' : 'acts without asking');
 
 /**
  * contChips(c): a session the start (or a message) goes to, as its facts —
- * coding agent, model, mode, the sign-in it carries. Which saved sign-in
- * that is, the chrome draws beside them as an element of its own, from the
- * person's own list by its id (signInIdOf).
+ * coding agent, model, mode, the sign-in it carries, and its own reach as
+ * xbind recorded it (reachChips). Which saved sign-in that is, the chrome
+ * draws beside them as an element of its own, from the person's own list
+ * by its id (signInIdOf).
  */
 export function contChips(c) {
   const name = (c && (c.providerName || c.provider)) || 'the tile agent';
-  return [name, c && c.model ? `model ${c.model}` : '', modeChip(!!(c && c.asks === true)), c && c.signInId ? `uses your ${name} sign-in` : ''].filter(Boolean);
+  return [name, c && c.model ? `model ${c.model}` : '', modeChip(!!(c && c.asks === true)), c && c.signInId ? `uses your ${name} sign-in` : '', ...reachChips(c)].filter(Boolean);
+}
+
+/**
+ * reachChips(c): a continued session's own reach, from xbind's record of
+ * it (continue.net, netLabel, api) — in place of a new session's Network
+ * and Other tiles rows, which the sheet hides while it continues one: its
+ * network ("its model only" offline), and whether it can call tile APIs
+ * (a token, and a network that reaches xbind: offline it can't). Nothing
+ * where xbind said nothing (a request filed before D253).
+ */
+export function reachChips(c) {
+  if (!c) return [];
+  const net = typeof c.net === 'string' ? c.net : null;
+  const label = (typeof c.netLabel === 'string' && c.netLabel) || net || '';
+  const where = net === null ? '' : net === 'none' ? 'its model only' : label === 'internet' ? 'internet' : label ? `network ${label}` : '';
+  const api = typeof c.api !== 'boolean' ? '' : c.api && net !== 'none' ? 'can call tile APIs' : 'can call no other tile';
+  return [where, api].filter(Boolean);
 }
 
 export function startView(req, pick) {
@@ -164,7 +183,8 @@ export function startView(req, pick) {
     cont: c ? { session: c.session, label: `Continue the ${c.providerName || c.provider} session${c.started ? ` from ${clock(toMs(c.started))}` : ''} with this follow-up`,
       sub: 'Start a new session instead', chips: contChips(c), signInId: String(c.signInId || '') } : null,
     continuing,
-    remember: s.resume ? { shown: false, label: '', note: '', keepsMode: false } : rememberWords(continuing, hs, h, pick),
+    // a resume picks its mode only; a Try again remembers nothing (a retry takes no remember: D253)
+    remember: s.resume || req.state === 'failed' ? NO_REMEMBER : rememberWords(continuing, hs, h, pick),
     asks,
     modeChip: modeChip(asks),
     fact: asks ? '' : MODE_FACT,
@@ -188,7 +208,9 @@ export function choose(pick, req, field, value) {
 
 /**
  * pickBody(req, pick): what the approval sends of the pick (POST …/approve):
- * {harness, model, mode, remember?, continue: false?, knows: ['continue']} —
+ * {harness, model, mode, remember?, continue: false?, knows: ['continue']}
+ * — continuing the offered session: {continue: true, seen: {…, harness,
+ * mode}}, nothing picked —
  * only for a start with choices; {} for anything else, and for an older
  * xbind's start (it takes no pick).
  */
@@ -206,9 +228,11 @@ export function pickBody(req, pick) {
   }
   const c = s.continue && s.continue.session ? s.continue : null;
   if (c && pick.cont && pick.harness === c.provider) {
-    // continuing: the session keeps its own — held to it as shown: its coding agent and mode (D251)
+    // continuing: the session keeps its own — held to it as shown: its coding agent and mode (D251); said, not
+    // left to a default (a Try again continues only when told: D253)
     out.seen.harness = String(c.provider || '');
     out.seen.mode = String(c.mode ?? '');
+    out.continue = true;
     return out;
   }
   if (c) out.continue = false;
@@ -231,6 +255,26 @@ export const SEEN_TEXT = 'seen-text';
 /** withSeenText(body, onScreen): an approve body that says how much of the text was on screen (onScreen: the part shown) when its person clicked. */
 export function withSeenText(body, onScreen) {
   return { ...body, knows: [...new Set([...(body.knows || []), SEEN_TEXT])], seen: { ...(body.seen || {}), textLen: textBytes(onScreen) } };
+}
+
+/**
+ * sheetBody(req, pick, onScreen, base): what the sheet's Allow sends — base
+ * (approveBody's {grant, scope?, unseen?, signin?, trust?}) with the pick
+ * (pickBody: a start's), how much of the text it sends was on screen when
+ * its person clicked (withSeenText: a start's brief, a message — onScreen,
+ * the part shown; a Try again's too: xbind holds it to all of a brief as
+ * an approve), and for a Try again (a start that failed: POST …/retry)
+ * only what a retry takes: no grant, nothing remembered — and continue as
+ * its sheet shows it, said either way where the start offers a session
+ * (xbind continues one on a Try again only when told).
+ * The web's sheet and the app's send exactly this (D253).
+ */
+export function sheetBody(req, pick, onScreen, base = { grant: 'once' }) {
+  const body = { ...base, ...(pick ? pickBody(req, pick) : {}) };
+  const out = req.kind === 'message' || req.kind === 'session' ? withSeenText(body, onScreen) : body;
+  // (a Try again keeps the pick's continue — true or false, as its sheet shows: absent, xbind opens a new session)
+  if (req.state === 'failed') { delete out.grant; delete out.scope; delete out.unseen; delete out.remember; }
+  return out;
 }
 
 /** briefOf(req): what a start's session is told first — xbind's reading (preview.session.prompt), never the body's bytes (D252). */
@@ -269,10 +313,9 @@ export function messageOf(req) {
 /** messageView(req): the sheet's rows for a message — {heading, agent: [chips], text, why, label}. */
 export function messageView(req) {
   const m = messageOf(req);
-  const tile = String((req && req.tile) || '').split('/').filter(Boolean).pop() || 'the tile';
   return {
-    heading: { before: `Send this message to the ${m.provider} session in `, strong: tile, after: '?' },
-    title: `Send a message to ${m.provider} in ${tile}`,
+    heading: heading(req),
+    title: needTitle(req),
     agent: [m.provider, m.mode ? `mode ${m.mode}` : '', modeChip(false), m.model ? `model ${m.model}` : '', m.signInId ? `uses your ${m.provider} sign-in` : ''].filter(Boolean),
     signInId: m.signInId,
     text: m.text,
@@ -378,7 +421,7 @@ export function batch({ requests = [], failed = [], changesets = [], sessions = 
   }
   for (const r of failed) {
     if (r.state !== 'failed' || !(r.failure && r.failure.retry)) continue;
-    rows.push({ kind: 'retry', id: r.id, title: `Didn't start: ${needTitle(r)}`, chips: [], parts: [String(r.failure.why || ''), 'approved by you'].filter(Boolean), action: 'Try again', review: false, at: toMs(r.created) });
+    rows.push({ kind: 'retry', id: r.id, title: `Didn't start: ${needTitle(r)}`, chips: [], parts: [String(r.failure.why || ''), 'approved by you'].filter(Boolean), action: TRY_AGAIN, review: false, at: toMs(r.created) });
   }
   for (const c of changesets) {
     for (const it of c.state === 'proposed' ? [] : c.items || []) {
@@ -402,6 +445,63 @@ export function batch({ requests = [], failed = [], changesets = [], sessions = 
       permits: !(s.questions > 0) && (s.pending > 0 || s.status === 'waiting_permission'), agentName: name });
   }
   return rows.sort((a, b) => a.at - b.at);
+}
+
+// ---- the sheet's own words, and the app's row (D253) ---------------------------------------------
+
+/**
+ * SHEET: the words xbin's approval sheet says around a text it sends — the
+ * web's and the app's (D253): what holds Allow back while some of the text
+ * isn't on screen, what is sent, and the rows of a message.
+ */
+export const SHEET = Object.freeze({
+  unread: 'Show all of the text to allow it',
+  reachEnd: 'Scroll to the end of the text to allow it',
+  sent: 'sent exactly like this',
+  sentOnce: 'sent exactly like this, once',
+  whereItGoes: 'Where it goes',
+  agentRow: 'Tile agent',
+  messageRow: 'Message',
+  details: 'Details',
+  opensWith: 'It opens with: ', // (a row: xbin's own brief's opening paragraph, after the goal — rowText)
+  // the app's, where its workspace's xbind is older than what it would have to say (GET /delegate/state takes)
+  olderXbind: "This workspace's xbin is older than this app: what this sheet shows can't be sent as it shows it. Update xbin, or decide this one on the web.",
+});
+
+/**
+ * sheetHeading(req, view): the sheet's heading — {before, strong, after}:
+ * a message's; a start the person continues (view.continuing: startView's)
+ * "Continue the session in …?"; a start that failed and may be tried again
+ * "Try again to start a tile agent in …?"; else the request's own heading.
+ */
+export function sheetHeading(req, view = null) {
+  const h = heading(req);
+  if (req.kind !== 'session') return h;
+  if (view && view.continuing) return { before: 'Continue the session in ', strong: h.strong, after: '?' };
+  if (req.state === 'failed' && req.failure && req.failure.retry) return { before: 'Try again to start a tile agent in ', strong: h.strong, after: '?' };
+  return h;
+}
+
+/**
+ * APP_ROW_LINES, APP_ROW_CHARS: a follow-up the xbin app allows on its Needs
+ * you row (D253) — one inPlace allows, short enough for a phone's list row
+ * to show whole at an ordinary text size: at most 6 lines and 400
+ * characters. Any other opens the sheet (and the app's row never offers
+ * Send at an accessibility text size).
+ */
+export const APP_ROW_LINES = 6;
+export const APP_ROW_CHARS = 400;
+
+/** appRowFits(text): the app's row shows all of text (APP_ROW_LINES, APP_ROW_CHARS; lines at the breaks a sheet draws as breaks). */
+export function appRowFits(text) {
+  const t = String(text ?? '');
+  return t.split('\n').length <= APP_ROW_LINES && [...t].length <= APP_ROW_CHARS;
+}
+
+/** appInPlace(req): inPlace(req) where the app's row may allow it — its text fits the row (appRowFits) — else null. */
+export function appInPlace(req) {
+  const x = inPlace(req);
+  return x && appRowFits(x.text) ? x : null;
 }
 
 /** batchTitle(rows): the batch's title and its count, apart: {title: 'Waiting for you', count}. */

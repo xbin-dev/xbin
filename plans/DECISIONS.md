@@ -6598,3 +6598,108 @@ here: cut from the old end, never reword.
     The row moves an opening line only for xbin's own brief (`briefBy`).
   - A waiting binding is held to the warnings its person saw on the
     normal (slow-build) path too, as an early one was (M1).
+
+- **D253 — The app decides the workspace agent's approvals as the web
+  does: the pickers, continuing, messages, Send from Needs you, Try again
+  (2026-11-21; the owner: "yeah build that"; D250–D252 on iOS).** The app
+  showed what xbind preselected for a start and approved only that, opened
+  a new session for every follow-up, and couldn't decide a message (xbind
+  refused a device's Allow of one; the app said "decide this one on the
+  web"). So:
+  - **One set of words and rules, held by vectors.** What the sheet and
+    the rows decide by — the pick (`pickOf`, `choose`, `contChoice`,
+    `picked`), the view (`startView`: each picker, where it came from, the
+    mode's chip and line, Remember), the approve's body (`sheetBody`:
+    `approveBody` + `pickBody` + `withSeenText`; a Try again only what a
+    retry takes), `messageView`, `rowText`, `inPlace`, `batch` — is the
+    web's agent-start-words.js, ported to XbinCore (`StartWords`) and held
+    to it by `start-words.json` (native/tools/delegation-words.mjs
+    `--start-words`): every start case played step by step. The web's
+    sheet now builds its body with the same `sheetBody` and takes its
+    inline words (the headings, Try again, Show all…) from the same table
+    (`SHEET`, `sheetHeading`, `FAILED_HEAD`, `TRY_AGAIN`) — one copy.
+  - **The pickers** are menus whose option is the web's select's; the
+    sign-in line and the trust line stay as they were in the app (a saved
+    sign-in is ticked on the web only, D230/D245), drawn for the coding
+    agent picked. A bypass mode the person picks keeps the web's note,
+    warned. Remember ticks itself on a pick, as on the web.
+  - **A message's whole-text rule in the app** is stricter than the web's
+    sheet: Allow after Show all on a clipped text, and once the end of the
+    text has been in view (a phone shows a long text over several
+    screens; the web's sheet is tall). A start's brief keeps the web
+    sheet's rule (Show all) — its rows come first, and a reach-the-end
+    rule there would hold every start of a long brief behind a scroll on
+    a phone; the brief is shown and Allow is armed late as before.
+  - **Send from Needs you** only where the row shows the whole text on a
+    phone: the web's `inPlace` AND at most 6 lines and 400 characters
+    (`APP_ROW_LINES`, `APP_ROW_CHARS`, `appInPlace` — in the shared table,
+    so both say which), and not at an accessibility text size; any other
+    follow-up's row opens the sheet. Rejected: the web's 12 lines and
+    1,200 characters (a phone's list row is then a screen of text above
+    its buttons) and a Show all on the row (the sheet is that).
+  - **xbind's device rule keys on the word, not the length**: a device's
+    Allow of a message without `knows: ["seen-text"]` is refused as before
+    (an app up to v0.3.84, which showed no message), a length without the
+    word too; with the word it is held to the whole length like any
+    client. Test: `TestTheAppDecidesAMessageItShows` (and the older app's
+    refusal, `TestTheAppDecidesNoMessageItCantShow`, red without the rule).
+  - **Older apps and older xbinds.** An app before this reads `failed` and
+    `message` as a state and a kind it doesn't know (no Allow, "open it on
+    the web") and never reads `?failed=1`. This app against v0.3.84
+    (choices, continue, no `seen.textLen`, no continue `seen.harness`)
+    and v0.3.83 (no `knows`, no `seen`): those xbinds read an approve
+    strictly and answer a field they don't know with 400 "need {…}", so
+    the app sends the body once more without what they don't know
+    (`olderXbindBody`: the text's length, a continue's session facts, the
+    word) — its own whole-text rule holds anyway. Master's app sent
+    `seen.textLen` for every start since D252 and would have been refused
+    by them; this also fixes that. A start without `choices` shows no
+    pickers and sends what it did.
+  - **Lock-screen Allow once** stays a tile call's only.
+  - **The review of 2026-11-21** (each fixed red first): H1 — Try again
+    continued the offered session after its person had started a new one
+    (the retry took no `continue`, absent meant continue, and the
+    clients dropped it): the retry takes `continue`, continues only on
+    true with the session's `seen`, and both clients say it either way.
+    M1 — the app no longer sends an older xbind a body, takes its 400 and
+    sends it stripped: `GET /delegate/state` says what an approve takes
+    (`takes`), the app builds for that and declines what that xbind
+    couldn't hold to the sheet (a message, a continue, a Try again of a
+    start offering a session) with "update xbin, or decide on the web".
+    Rejected: reading the 400's need-list (a guess at a string, and a
+    current xbind's strict refusal looks the same). L1 — no Remember on a
+    Try again. L2 — a continue hides a new start's Network and Other
+    tiles (and, on the web, Coding agent) rows. L3 — the follow-up
+    fixture said xbin wrote an agent's text; an xbin brief fixture of its
+    own. L4 — the rows re-arm on every row's change, waiting sessions
+    too. L5 — the device rule is every session the app holds (Via device
+    or app: a bearer session; a browser's is "session"). L6 — the
+    message test fails without the rule (an "app" session's Allow
+    without the word).
+  - **The re-review of 2026-11-21** (each red first): 0 — `make check`
+    was red on the size budget: what the agent's page may ask of the
+    chrome (`pageMessage`, `plainDraft`, `contextMessage`…) is its own
+    module, agent-page-words.js, re-exported by agent-chrome-words.js
+    (the vectors byte-identical). 1 — a v0.3.84 page left open across the
+    upgrade preselects the continue on a failed follow-up and its Try
+    again says `knows: ["continue"]` and no `continue`: read as a new
+    session, it opened one the sheet didn't show. Such a body (no
+    continue, no pick, where a session is offered) is 409 `{changed:
+    "session", reload}`, nothing decided or spent; `continue: true` where
+    none is offered or without the word too, on an approve as well —
+    never a new session opened quietly. 2 — the whole-text rule had a
+    hole: a client without `seen-text` (a page or an app up to v0.3.84)
+    showed the first 4000 characters (code points: its CLIP) of a brief
+    or a message until Show all, and said nothing. Every approve and Try
+    again without the word of a text longer than that is now 409
+    `{changed: "text", reload}`; texts that fit are decided as before
+    (L5's exemption of a browser held for those only). The rule is one
+    for every client; only its words key on the session type — bearer
+    (the app): "update the app, or decide this one on the web"; cookie
+    (a browser): "reload this page". The clients' Try again now sends
+    the length too. 3 — a continue hid a new start's Network and Other
+    tiles rows and said nothing of the session's own: `continuable`
+    now carries xbind's record of it (`net`, `netLabel`, `api`), shown as
+    chips (`reachChips`); offline it calls no tile (xbind is out of its
+    reach). The number of tile APIs it may call isn't the session's
+    record (the tile's grants are), so the chip doesn't count them.
