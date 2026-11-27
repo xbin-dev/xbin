@@ -10,6 +10,13 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-11-27
+
+- app tunnel: the iroh sidecar is built with `url` 2.5.9 (RUSTSEC-2026-0592:
+  `Url::origin()` on a deeply nested `blob:` URL overflowed the stack) and
+  `form_urlencoded` 1.2.3, which it needs. Nothing to do: the sidecar is
+  embedded in xbind.
+
 ## 2026-11-21
 
 - **Workspace agent: an approval of a long text, and a Try again of a
