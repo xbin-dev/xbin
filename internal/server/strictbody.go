@@ -60,11 +60,59 @@ func StrictDecode(raw []byte, v any) error {
 	if err := typed.Decode(v); err != nil {
 		var te *json.UnmarshalTypeError
 		if errors.As(err, &te) && te.Field != "" {
-			return fmt.Errorf("the member %q is %s, not %s", te.Field, article(te.Value), article(jsonKind(te.Type)))
+			return fmt.Errorf("the member %q is %s, not %s", memberPath(reflect.TypeOf(v), te.Field), article(te.Value), article(jsonKind(te.Type)))
 		}
 		return err
 	}
 	return nil
+}
+
+// memberPath is an UnmarshalTypeError's Field as the JSON members that lead
+// to it. encoding/json names an embedded struct's type on the way under
+// some Go versions ("agentCreateBody.prompt" with go1.26, "prompt" with
+// go1.27): a part that is no member of the struct at its depth, but the
+// type of one it embeds, is left out — a refusal names what was sent,
+// whatever built this xbind.
+func memberPath(t reflect.Type, field string) string {
+	var out []string
+	for _, part := range strings.Split(field, ".") {
+		for t != nil && (t.Kind() == reflect.Pointer || t.Kind() == reflect.Slice || t.Kind() == reflect.Array) {
+			t = t.Elem()
+		}
+		if t == nil || t.Kind() != reflect.Struct {
+			out, t = append(out, part), nil
+			continue
+		}
+		if ft, ok := jsonFields(t)[part]; ok {
+			out, t = append(out, part), ft
+			continue
+		}
+		if et, ok := embeddedStruct(t, part); ok {
+			t = et
+			continue
+		}
+		out, t = append(out, part), nil
+	}
+	return strings.Join(out, ".")
+}
+
+// embeddedStruct is the struct t embeds under the type name name, as
+// jsonFields promotes it.
+func embeddedStruct(t reflect.Type, name string) (reflect.Type, bool) {
+	for i := range t.NumField() {
+		f := t.Field(i)
+		if tag, _, _ := strings.Cut(f.Tag.Get("json"), ","); !f.Anonymous || tag != "" {
+			continue
+		}
+		et := f.Type
+		for et.Kind() == reflect.Pointer {
+			et = et.Elem()
+		}
+		if et.Kind() == reflect.Struct && f.Name == name {
+			return et, true
+		}
+	}
+	return nil, false
 }
 
 var rawMessageType = reflect.TypeOf(json.RawMessage(nil))

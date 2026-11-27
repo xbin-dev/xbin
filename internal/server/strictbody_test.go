@@ -17,6 +17,31 @@ import (
 	xbin "github.com/xbin-dev/xbin/sdk"
 )
 
+// A refusal names the member as it was sent, whichever Go built xbind:
+// encoding/json puts an embedded struct's type name on the path under some
+// versions (go1.26 said "agentCreateBody.prompt" where go1.27 says
+// "prompt" — CI's unit shard, 2026-11-27).
+func TestARefusalNamesTheMemberNotTheGoType(t *testing.T) {
+	typ := reflect.TypeOf(&delegatedStart{})
+	for field, want := range map[string]string{
+		"prompt":                        "prompt",
+		"agentCreateBody.prompt":        "prompt",
+		"agentCreateBody.options.model": "options.model",
+		"options.model":                 "options.model",
+		"continue":                      "continue",
+		"nosuch.agentCreateBody":        "nosuch.agentCreateBody",
+	} {
+		if got := memberPath(typ, field); got != want {
+			t.Errorf("memberPath(%q) = %q, want %q", field, got, want)
+		}
+	}
+	var b delegatedStart
+	err := StrictDecode([]byte(`{"cwd":"apps/x","kind":"agent","prompt":{"text":"x"}}`), &b)
+	if err == nil || err.Error() != `the member "prompt" is an object, not a string` {
+		t.Errorf("an object where the prompt goes: %v", err)
+	}
+}
+
 // Every member POST /term/sessions takes is one a delegate's start may
 // send: a field added to the create body is never refused for a person's
 // agent by the strict reading (they share agentCreateBody — this keeps it
